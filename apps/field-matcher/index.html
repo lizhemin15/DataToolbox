@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>字段匹配 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <h1>🔗 字段匹配</h1>
+        </header>
+        
+        <main class="content">
+            <div id="uploadSection" class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <h3>拖拽或点击上传 Excel 文件</h3>
+                    <p>支持 .xlsx, .xls, .csv 格式</p>
+                    <p class="upload-hint">文件应包含两列：第一列为目标名录，第二列为待匹配名录</p>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+                    <div class="upload-buttons">
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+                        <button class="sample-btn" onclick="downloadSample()">下载示例文件</button>
+                    </div>
+                </div>
+                
+                <div class="config-section" id="configSection" style="display: none;">
+                    <h3>配置匹配参数</h3>
+                    <div class="form-group">
+                        <label for="topN">匹配数量 (Top-N):</label>
+                        <input type="number" id="topN" min="1" max="10" value="3">
+                        <span class="hint">为每个待匹配项找出前 N 个最相似的目标</span>
+                    </div>
+                    <div class="file-info" id="fileInfo"></div>
+                    <button class="process-btn" id="processBtn" onclick="startMatching()">开始匹配</button>
+                </div>
+            </div>
+            
+            <div id="processingSection" class="processing-section" style="display: none;">
+                <div class="progress-container">
+                    <div class="progress-icon">⏳</div>
+                    <h3>正在处理中...</h3>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p id="progressText">0%</p>
+                </div>
+            </div>
+            
+            <div id="resultSection" class="result-section" style="display: none;">
+                <div class="result-header">
+                    <h3>✓ 匹配完成</h3>
+                    <button class="download-btn" onclick="downloadResult()">下载结果</button>
+                </div>
+                <div class="result-preview" id="resultPreview"></div>
+                <button class="reset-btn" onclick="reset()">重新匹配</button>
+            </div>
+        </main>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

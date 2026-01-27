@@ -1,0 +1,9 @@
+[
+    {
+        "id": "field-matcher",
+        "name": "字段匹配",
+        "icon": "🔗",
+        "description": "智能匹配和映射数据字段",
+        "keywords": ["字段", "匹配", "映射", "对应"]
+    }
+]

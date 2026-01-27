@@ -1,0 +1,67 @@
+// 应用数据
+let apps = [];
+
+// 初始化
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadApps();
+    renderApps(apps);
+    setupSearch();
+});
+
+// 加载应用列表
+async function loadApps() {
+    try {
+        const response = await fetch('apps/apps.json');
+        apps = await response.json();
+    } catch (error) {
+        console.error('加载应用列表失败:', error);
+        apps = [];
+    }
+}
+
+// 渲染应用卡片
+function renderApps(appsToRender) {
+    const appGrid = document.getElementById('appGrid');
+    
+    if (appsToRender.length === 0) {
+        appGrid.innerHTML = '<div class="no-results">未找到相关应用</div>';
+        return;
+    }
+    
+    appGrid.innerHTML = appsToRender.map(app => `
+        <div class="app-card" onclick="openApp('${app.id}')">
+            <div class="app-icon">${app.icon}</div>
+            <div class="app-name">${app.name}</div>
+            <div class="app-description">${app.description}</div>
+        </div>
+    `).join('');
+}
+
+// 搜索功能
+function setupSearch() {
+    const searchInput = document.getElementById('searchInput');
+    searchInput.addEventListener('input', (e) => {
+        const keyword = e.target.value.toLowerCase().trim();
+        
+        if (keyword === '') {
+            renderApps(apps);
+            return;
+        }
+        
+        const filteredApps = apps.filter(app => 
+            app.name.toLowerCase().includes(keyword) ||
+            app.description.toLowerCase().includes(keyword) ||
+            app.keywords.some(kw => kw.toLowerCase().includes(keyword))
+        );
+        
+        renderApps(filteredApps);
+    });
+}
+
+// 打开应用
+function openApp(appId) {
+    const app = apps.find(a => a.id === appId);
+    if (app) {
+        window.location.href = `apps/${app.id}/index.html`;
+    }
+}
