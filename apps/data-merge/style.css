@@ -110,13 +110,6 @@ body {
 .upload-area p {
     color: rgba(255, 255, 255, 0.8);
     font-size: 14px;
-    margin-bottom: 4px;
-}
-
-.upload-hint {
-    font-size: 13px !important;
-    color: rgba(255, 255, 255, 0.65) !important;
-    margin-top: 8px !important;
 }
 
 .upload-buttons {
@@ -142,20 +135,37 @@ body {
     border-color: rgba(255, 255, 255, 0.5);
 }
 
-.sample-btn {
-    padding: 12px 32px;
-    background: rgba(102, 126, 234, 0.3);
-    border: 1px solid rgba(102, 126, 234, 0.5);
-    border-radius: 8px;
-    color: white;
-    font-size: 15px;
-    cursor: pointer;
-    transition: all 0.3s ease;
+.files-list {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 24px;
 }
 
-.sample-btn:hover {
-    background: rgba(102, 126, 234, 0.5);
-    border-color: rgba(102, 126, 234, 0.7);
+.files-list h3 {
+    color: white;
+    font-size: 16px;
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.file-name {
+    color: white;
+    font-size: 14px;
+}
+
+.file-rows {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
 }
 
 .config-section {
@@ -164,74 +174,11 @@ body {
     padding: 24px;
 }
 
-.config-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
 .config-section h3 {
     color: white;
     font-size: 18px;
-    margin: 0;
+    margin-bottom: 20px;
     font-weight: 600;
-}
-
-.info-btn {
-    padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 6px;
-    color: white;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.info-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.5);
-}
-
-.algorithm-info {
-    background: rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    padding: 20px;
-    margin-bottom: 24px;
-}
-
-.algorithm-info h4 {
-    color: white;
-    font-size: 16px;
-    margin-bottom: 16px;
-    font-weight: 600;
-}
-
-.algo-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 12px;
-}
-
-.algo-item {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 12px 16px;
-}
-
-.algo-item strong {
-    display: block;
-    color: rgba(255, 255, 255, 0.95);
-    font-size: 14px;
-    margin-bottom: 4px;
-}
-
-.algo-item p {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
-    line-height: 1.5;
-    margin: 0;
 }
 
 .form-group {
@@ -246,33 +193,34 @@ body {
     font-weight: 500;
 }
 
-.form-group input {
-    width: 120px;
-    padding: 10px 16px;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 8px;
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     color: white;
-    font-size: 16px;
+    font-size: 14px;
+    cursor: pointer;
+    user-select: none;
 }
 
-.form-group input:focus {
-    outline: none;
-    border-color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.2);
-}
-
-.hint {
-    display: inline-block;
-    margin-left: 12px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 13px;
+.radio-label input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #667eea;
 }
 
 .checkbox-group {
     display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
+    flex-direction: column;
+    gap: 12px;
     margin-top: 8px;
 }
 
@@ -291,10 +239,6 @@ body {
     height: 18px;
     cursor: pointer;
     accent-color: #667eea;
-}
-
-.checkbox-label span {
-    color: rgba(255, 255, 255, 0.9);
 }
 
 .file-info {
@@ -335,8 +279,6 @@ body {
 
 .progress-container {
     text-align: center;
-    width: 100%;
-    max-width: 500px;
 }
 
 .progress-icon {
@@ -353,31 +295,7 @@ body {
 .progress-container h3 {
     color: white;
     font-size: 20px;
-    margin-bottom: 24px;
     font-weight: 600;
-}
-
-.progress-bar {
-    width: 100%;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 12px;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    border-radius: 4px;
-    transition: width 0.3s ease;
-    width: 0%;
-}
-
-#progressText {
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 16px;
-    font-weight: 500;
 }
 
 .result-section {
@@ -416,6 +334,31 @@ body {
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 
+.result-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.stat-item {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+}
+
+.stat-label {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.stat-value {
+    color: white;
+    font-size: 28px;
+    font-weight: 600;
+}
+
 .result-preview {
     background: rgba(255, 255, 255, 0.08);
     border-radius: 12px;
@@ -447,6 +390,30 @@ body {
 
 .preview-table tr:hover {
     background: rgba(255, 255, 255, 0.05);
+}
+
+.sheets-preview {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 12px;
+}
+
+.sheet-item {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sheet-name {
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.sheet-info {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
 }
 
 .reset-btn {

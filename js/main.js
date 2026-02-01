@@ -1,23 +1,11 @@
-// 应用数据
-let apps = [];
+// 应用数据（从 apps.js 加载）
+const apps = appsData || [];
 
 // 初始化
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadApps();
+document.addEventListener('DOMContentLoaded', () => {
     renderApps(apps);
     setupSearch();
 });
-
-// 加载应用列表
-async function loadApps() {
-    try {
-        const response = await fetch('apps/apps.json');
-        apps = await response.json();
-    } catch (error) {
-        console.error('加载应用列表失败:', error);
-        apps = [];
-    }
-}
 
 // 渲染应用卡片
 function renderApps(appsToRender) {

@@ -1,4 +1,5 @@
-[
+// 应用列表配置
+const appsData = [
     {
         "id": "field-matcher",
         "name": "字段匹配",
@@ -41,4 +42,4 @@
         "description": "使用AI将非结构化文本转换为JSON格式",
         "keywords": ["AI", "结构化", "JSON", "转换", "大模型"]
     }
-]
+];

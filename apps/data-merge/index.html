@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据合并 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div class="logo-title">
+                <span class="app-logo">📚</span>
+                <h1>数据合并</h1>
+            </div>
+        </header>
+        
+        <main class="content">
+            <div id="uploadSection" class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <h3>拖拽或点击上传多个 Excel 文件</h3>
+                    <p>支持 .xlsx, .xls, .csv 格式，可一次选择多个文件</p>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
+                    <div class="upload-buttons">
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+                    </div>
+                </div>
+                
+                <div class="files-list" id="filesList" style="display: none;">
+                    <h3>已上传文件</h3>
+                    <div id="filesListContent"></div>
+                </div>
+                
+                <div class="config-section" id="configSection" style="display: none;">
+                    <h3>配置合并参数</h3>
+                    
+                    <div class="form-group">
+                        <label>合并方式:</label>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="mergeMode" value="vertical" checked>
+                                <span>纵向合并（追加行）</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="mergeMode" value="sheets">
+                                <span>保留为多个Sheet</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>合并选项:</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="includeHeaders" checked>
+                                <span>第一个文件包含表头</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="skipEmptyRows" checked>
+                                <span>跳过空行</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="addSourceColumn">
+                                <span>添加来源文件列</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="file-info" id="fileInfo"></div>
+                    <button class="process-btn" onclick="startMerge()">开始合并</button>
+                </div>
+            </div>
+            
+            <div id="processingSection" class="processing-section" style="display: none;">
+                <div class="progress-container">
+                    <div class="progress-icon">⏳</div>
+                    <h3>正在处理中...</h3>
+                </div>
+            </div>
+            
+            <div id="resultSection" class="result-section" style="display: none;">
+                <div class="result-header">
+                    <h3>✓ 合并完成</h3>
+                    <button class="download-btn" onclick="downloadResult()">下载结果</button>
+                </div>
+                <div class="result-stats" id="resultStats"></div>
+                <div class="result-preview" id="resultPreview"></div>
+                <button class="reset-btn" onclick="reset()">重新处理</button>
+            </div>
+        </main>
+        
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>

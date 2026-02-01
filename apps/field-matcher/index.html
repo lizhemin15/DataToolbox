@@ -11,7 +11,10 @@
     <div class="container">
         <header class="header">
             <button class="back-btn" onclick="goBack()">← 返回</button>
-            <h1>🔗 字段匹配</h1>
+            <div class="logo-title">
+                <span class="app-logo">🔀</span>
+                <h1>字段匹配</h1>
+            </div>
         </header>
         
         <main class="content">
@@ -29,12 +32,105 @@
                 </div>
                 
                 <div class="config-section" id="configSection" style="display: none;">
-                    <h3>配置匹配参数</h3>
+                    <div class="config-header">
+                        <h3>配置匹配参数</h3>
+                        <button class="info-btn" onclick="toggleAlgorithmInfo()">📖 算法说明</button>
+                    </div>
+                    
+                    <div class="algorithm-info" id="algorithmInfo" style="display: none;">
+                        <h4>🔬 匹配算法介绍</h4>
+                        <div class="algo-grid">
+                            <div class="algo-item">
+                                <strong>Levenshtein 距离</strong>
+                                <p>计算两个字符串之间的编辑距离，适合拼写错误纠正</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>Jaro-Winkler</strong>
+                                <p>注重字符串前缀匹配，适合人名、地名匹配</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>N-gram</strong>
+                                <p>基于字符片段匹配，对字符顺序变化不敏感</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>Token 分词</strong>
+                                <p>基于词语级别匹配，适合多词组合的文本</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>余弦相似度</strong>
+                                <p>基于向量空间模型，适合长文本比较</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>LCS 最长公共子序列</strong>
+                                <p>找出最长公共部分，适合顺序相关的匹配</p>
+                            </div>
+                            <div class="algo-item">
+                                <strong>拼音匹配</strong>
+                                <p>基于中文拼音相似度，适合中文名称匹配</p>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="form-group">
                         <label for="topN">匹配数量 (Top-N):</label>
                         <input type="number" id="topN" min="1" max="10" value="3">
                         <span class="hint">为每个待匹配项找出前 N 个最相似的目标</span>
                     </div>
+                    
+                    <div class="form-group">
+                        <label for="threshold">相似度阈值:</label>
+                        <input type="number" id="threshold" min="0" max="100" value="0" step="1">
+                        <span class="hint">只显示相似度高于此阈值的结果 (0-100%)</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>算法选择:</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useLevenshtein" checked>
+                                <span>Levenshtein</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useJaroWinkler" checked>
+                                <span>Jaro-Winkler</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useNgram" checked>
+                                <span>N-gram</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useToken" checked>
+                                <span>Token分词</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useCosine" checked>
+                                <span>余弦相似度</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="useLCS" checked>
+                                <span>LCS</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="usePinyin" checked>
+                                <span>拼音匹配</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>匹配选项:</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="caseSensitive">
+                                <span>区分大小写</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="ignoreSpaces" checked>
+                                <span>忽略空格</span>
+                            </label>
+                        </div>
+                    </div>
+                    
                     <div class="file-info" id="fileInfo"></div>
                     <button class="process-btn" id="processBtn" onclick="startMatching()">开始匹配</button>
                 </div>
@@ -60,6 +156,10 @@
                 <button class="reset-btn" onclick="reset()">重新匹配</button>
             </div>
         </main>
+        
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
     </div>
     
     <script src="script.js"></script>

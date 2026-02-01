@@ -1,8 +1,21 @@
+/**
+ * 开发者：李哲民
+ */
+
 let uploadedData = null;
 let resultData = null;
 
 function goBack() {
     window.location.href = '../../index.html';
+}
+
+function toggleAlgorithmInfo() {
+    const info = document.getElementById('algorithmInfo');
+    if (info.style.display === 'none') {
+        info.style.display = 'block';
+    } else {
+        info.style.display = 'none';
+    }
 }
 
 function downloadSample() {
@@ -129,21 +142,43 @@ function showConfig() {
 
 function startMatching() {
     const topN = parseInt(document.getElementById('topN').value);
+    const threshold = parseInt(document.getElementById('threshold').value) / 100;
     
     if (topN < 1 || topN > 10) {
         alert('匹配数量应在 1-10 之间');
         return;
     }
     
+    const algorithms = {
+        levenshtein: document.getElementById('useLevenshtein').checked,
+        jaroWinkler: document.getElementById('useJaroWinkler').checked,
+        ngram: document.getElementById('useNgram').checked,
+        token: document.getElementById('useToken').checked,
+        cosine: document.getElementById('useCosine').checked,
+        lcs: document.getElementById('useLCS').checked,
+        pinyin: document.getElementById('usePinyin').checked
+    };
+    
+    const anySelected = Object.values(algorithms).some(v => v);
+    if (!anySelected) {
+        alert('请至少选择一种匹配算法');
+        return;
+    }
+    
+    const options = {
+        caseSensitive: document.getElementById('caseSensitive').checked,
+        ignoreSpaces: document.getElementById('ignoreSpaces').checked
+    };
+    
     document.getElementById('uploadSection').style.display = 'none';
     document.getElementById('processingSection').style.display = 'block';
     
     setTimeout(() => {
-        performMatching(topN);
+        performMatching(topN, threshold, algorithms, options);
     }, 100);
 }
 
-function performMatching(topN) {
+function performMatching(topN, threshold, algorithms, options) {
     const { targetList, matchList, rawData } = uploadedData;
     const results = [];
     const totalItems = matchList.length;
@@ -151,11 +186,15 @@ function performMatching(topN) {
     matchList.forEach((matchItem, index) => {
         const similarities = targetList.map(targetItem => ({
             value: targetItem,
-            score: calculateSimilarity(matchItem, targetItem)
+            score: calculateSimilarity(matchItem, targetItem, algorithms, options)
         }));
         
         similarities.sort((a, b) => b.score - a.score);
-        const topMatches = similarities.slice(0, topN);
+        let topMatches = similarities.slice(0, topN);
+        
+        if (threshold > 0) {
+            topMatches = topMatches.filter(m => m.score >= threshold);
+        }
         
         results.push({
             matchItem: matchItem,
@@ -168,6 +207,9 @@ function performMatching(topN) {
     
     resultData = {
         topN: topN,
+        threshold: threshold,
+        algorithms: algorithms,
+        options: options,
         results: results,
         targetList: targetList,
         matchList: matchList,
@@ -179,20 +221,65 @@ function performMatching(topN) {
     }, 500);
 }
 
-function calculateSimilarity(str1, str2) {
+function calculateSimilarity(str1, str2, algorithms, options) {
     if (!str1 || !str2) return 0;
     
-    str1 = String(str1).toLowerCase().trim();
-    str2 = String(str2).toLowerCase().trim();
+    str1 = String(str1).trim();
+    str2 = String(str2).trim();
+    
+    if (options.ignoreSpaces) {
+        str1 = str1.replace(/\s+/g, '');
+        str2 = str2.replace(/\s+/g, '');
+    }
+    
+    if (!options.caseSensitive) {
+        str1 = str1.toLowerCase();
+        str2 = str2.toLowerCase();
+    }
     
     if (str1 === str2) return 1.0;
     
-    const lev = levenshteinSimilarity(str1, str2);
-    const jaro = jaroWinklerSimilarity(str1, str2);
-    const ngram = ngramSimilarity(str1, str2, 2);
-    const token = tokenSimilarity(str1, str2);
+    const scores = [];
+    let totalWeight = 0;
     
-    return (lev * 0.25 + jaro * 0.25 + ngram * 0.25 + token * 0.25);
+    if (algorithms.levenshtein) {
+        scores.push(levenshteinSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.jaroWinkler) {
+        scores.push(jaroWinklerSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.ngram) {
+        scores.push(ngramSimilarity(str1, str2, 2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.token) {
+        scores.push(tokenSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.cosine) {
+        scores.push(cosineSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.lcs) {
+        scores.push(lcsSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (algorithms.pinyin) {
+        scores.push(pinyinSimilarity(str1, str2));
+        totalWeight += 1;
+    }
+    
+    if (totalWeight === 0) return 0;
+    
+    return scores.reduce((sum, score) => sum + score, 0) / totalWeight;
 }
 
 function levenshteinDistance(str1, str2) {
@@ -322,6 +409,117 @@ function tokenSimilarity(str1, str2) {
 
 function tokenize(str) {
     return str.split(/[\s\-_.,;:()（）、，。；：！？]+/).filter(t => t.length > 0);
+}
+
+function cosineSimilarity(str1, str2) {
+    const vec1 = getCharFrequency(str1);
+    const vec2 = getCharFrequency(str2);
+    
+    const allChars = new Set([...Object.keys(vec1), ...Object.keys(vec2)]);
+    
+    if (allChars.size === 0) return 1.0;
+    
+    let dotProduct = 0;
+    let mag1 = 0;
+    let mag2 = 0;
+    
+    for (const char of allChars) {
+        const v1 = vec1[char] || 0;
+        const v2 = vec2[char] || 0;
+        dotProduct += v1 * v2;
+        mag1 += v1 * v1;
+        mag2 += v2 * v2;
+    }
+    
+    if (mag1 === 0 || mag2 === 0) return 0.0;
+    
+    return dotProduct / (Math.sqrt(mag1) * Math.sqrt(mag2));
+}
+
+function getCharFrequency(str) {
+    const freq = {};
+    for (const char of str) {
+        freq[char] = (freq[char] || 0) + 1;
+    }
+    return freq;
+}
+
+function lcsSimilarity(str1, str2) {
+    const lcsLength = longestCommonSubsequence(str1, str2);
+    const maxLen = Math.max(str1.length, str2.length);
+    
+    if (maxLen === 0) return 1.0;
+    return lcsLength / maxLen;
+}
+
+function longestCommonSubsequence(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (str1[i - 1] === str2[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+    
+    return dp[m][n];
+}
+
+function pinyinSimilarity(str1, str2) {
+    const pinyin1 = chineseToPinyin(str1);
+    const pinyin2 = chineseToPinyin(str2);
+    
+    if (pinyin1 === pinyin2) return 1.0;
+    
+    const levSim = levenshteinSimilarity(pinyin1, pinyin2);
+    const ngramSim = ngramSimilarity(pinyin1, pinyin2, 2);
+    
+    return (levSim * 0.6 + ngramSim * 0.4);
+}
+
+function chineseToPinyin(str) {
+    const pinyinMap = {
+        '北': 'bei', '京': 'jing', '大': 'da', '学': 'xue',
+        '清': 'qing', '华': 'hua', '中': 'zhong', '国': 'guo',
+        '人': 'ren', '民': 'min', '复': 'fu', '旦': 'dan',
+        '上': 'shang', '海': 'hai', '交': 'jiao', '通': 'tong',
+        '浙': 'zhe', '江': 'jiang', '南': 'nan', '科': 'ke',
+        '技': 'ji', '术': 'shu', '武': 'wu', '汉': 'han',
+        '华': 'hua', '中': 'zhong', '西': 'xi', '安': 'an',
+        '同': 'tong', '济': 'ji', '哈': 'ha', '尔': 'er',
+        '滨': 'bin', '工': 'gong', '业': 'ye', '师': 'shi',
+        '范': 'fan', '东': 'dong', '山': 'shan', '天': 'tian',
+        '津': 'jin', '四': 'si', '川': 'chuan', '重': 'chong',
+        '庆': 'qing', '湖': 'hu', '广': 'guang', '州': 'zhou',
+        '深': 'shen', '圳': 'zhen', '杭': 'hang', '苏': 'su',
+        '宁': 'ning', '成': 'cheng', '都': 'du', '厦': 'xia',
+        '门': 'men', '福': 'fu', '建': 'jian', '理': 'li',
+        '工': 'gong', '农': 'nong', '医': 'yi', '药': 'yao',
+        '军': 'jun', '事': 'shi', '政': 'zheng', '法': 'fa',
+        '财': 'cai', '经': 'jing', '贸': 'mao', '易': 'yi',
+        '语': 'yu', '言': 'yan', '外': 'wai', '教': 'jiao',
+        '育': 'yu', '体': 'ti', '音': 'yin', '乐': 'yue',
+        '美': 'mei', '林': 'lin', '农': 'nong', '矿': 'kuang',
+        '石': 'shi', '油': 'you', '电': 'dian', '力': 'li',
+        '航': 'hang', '空': 'kong', '邮': 'you', '电': 'dian',
+        '铁': 'tie', '道': 'dao', '运': 'yun', '输': 'shu'
+    };
+    
+    let result = '';
+    for (const char of str) {
+        if (pinyinMap[char]) {
+            result += pinyinMap[char];
+        } else if (/[a-zA-Z0-9]/.test(char)) {
+            result += char.toLowerCase();
+        }
+    }
+    
+    return result || str.toLowerCase();
 }
 
 function updateProgress(percent) {
