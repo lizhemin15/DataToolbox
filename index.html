@@ -13,9 +13,19 @@
             <div class="search-box">
                 <input type="text" id="searchInput" placeholder="搜索应用...">
             </div>
+            <div class="filter-bar">
+                <div class="category-tabs" id="categoryTabs"></div>
+                <div class="sort-control">
+                    <select id="sortSelect">
+                        <option value="default">默认排序</option>
+                        <option value="name-asc">名称 A→Z</option>
+                        <option value="name-desc">名称 Z→A</option>
+                    </select>
+                </div>
+            </div>
         </header>
         
-        <main class="app-grid" id="appGrid">
+        <main id="appContainer">
             <!-- 动态加载app列表 -->
         </main>
         

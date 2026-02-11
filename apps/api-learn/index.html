@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>信息池接口编写教学 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div class="logo-title">
+                <span class="app-logo">🔌</span>
+                <h1>信息池接口编写教学</h1>
+            </div>
+        </header>
+
+        <!-- 应用说明区域 -->
+        <div id="appInfo" class="app-info">
+            <div class="info-card">
+                <div class="info-icon">📋</div>
+                <div class="info-content">
+                    <h3>关于本课程</h3>
+                    <p>本课程通过闯关式的方式，教你如何在信息池系统中编写 API 接口。信息池是一个 API 管理系统，通过 MyBatis 语法定义 SQL 查询，配合接口参数传参，在数据库中执行查询或其他操作后返回 JSON 结果。你将学会从最简单的查询接口到复杂的动态 SQL 接口的完整编写方法。</p>
+                </div>
+            </div>
+            <div class="info-card prerequisite">
+                <div class="info-icon">⚠️</div>
+                <div class="info-content">
+                    <h3>前置课程</h3>
+                    <p>请先完成以下课程：<a href="../sql-learn/index.html" class="link">SQL语法学习</a>、<a href="../mybatis-learn/index.html" class="link">MyBatis语法学习</a>、<a href="../http-learn/index.html" class="link">网络请求教学</a>，掌握 SQL 查询、MyBatis 参数映射和 HTTP 请求基础后再学习本课程，效果更佳。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关卡选择界面 -->
+        <div id="levelSelect" class="level-select">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="totalProgress"></div>
+            </div>
+            <p class="progress-text" id="progressText">已完成 0 / 0 关</p>
+            <div class="level-grid" id="levelGrid"></div>
+        </div>
+
+        <!-- 关卡详情界面 -->
+        <div id="levelDetail" class="level-detail" style="display:none;">
+            <div class="level-header">
+                <button class="nav-btn" id="btnPrevLevel">← 上一关</button>
+                <span class="level-title" id="levelTitle"></span>
+                <button class="nav-btn" id="btnNextLevel">下一关 →</button>
+            </div>
+
+            <div class="level-body">
+                <!-- 左侧：教程+任务+参考 -->
+                <div class="left-panel">
+                    <div class="tutorial-section">
+                        <h3>📖 教程</h3>
+                        <div id="tutorialContent" class="tutorial-content"></div>
+                    </div>
+                    <div class="task-section">
+                        <h3>🎯 任务</h3>
+                        <div id="taskContent" class="task-content"></div>
+                    </div>
+                    <div class="context-section">
+                        <h3>📋 参考信息</h3>
+                        <div id="contextContent" class="context-content"></div>
+                    </div>
+                </div>
+
+                <!-- 右侧：双编辑器+结果 -->
+                <div class="right-panel">
+                    <div class="editor-section">
+                        <div class="editor-toolbar">
+                            <h3>📡 接口配置（JSON）</h3>
+                            <div class="editor-actions">
+                                <button class="hint-btn" id="btnHint" title="提示">💡 提示</button>
+                                <button class="run-btn" id="btnRun">▶ 验证</button>
+                            </div>
+                        </div>
+                        <textarea id="configEditor" class="config-editor" placeholder='在此输入接口配置 JSON，例如：&#10;{&#10;    "path": "/api/users",&#10;    "method": "GET",&#10;    "name": "查询用户"&#10;}' spellcheck="false"></textarea>
+                        <div class="hint-box" id="hintBox" style="display:none;"></div>
+                    </div>
+                    <div class="editor-section">
+                        <div class="editor-toolbar">
+                            <h3>🗄️ MyBatis 动态SQL</h3>
+                        </div>
+                        <textarea id="sqlEditor" class="sql-editor" placeholder="在此输入 MyBatis 动态SQL...&#10;接口参数通过 #{参数名} 传入，动态生成最终 SQL" spellcheck="false"></textarea>
+                    </div>
+                    <div class="result-section">
+                        <h3>📊 验证结果</h3>
+                        <div id="resultArea" class="result-area">
+                            <p class="placeholder-text">填写接口配置和SQL后点击验证查看结果</p>
+                        </div>
+                    </div>
+                    <div class="expected-section" id="expectedSection" style="display:none;">
+                        <h3>✅ 参考答案</h3>
+                        <div id="expectedArea" class="expected-area"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通关弹窗 -->
+        <div class="modal-overlay" id="successModal" style="display:none;">
+            <div class="modal">
+                <div class="modal-icon">🎉</div>
+                <h2>恭喜通关！</h2>
+                <p id="successMsg"></p>
+                <div class="modal-actions">
+                    <button class="modal-btn secondary" id="btnBackToList">返回关卡列表</button>
+                    <button class="modal-btn primary" id="btnNextFromModal">下一关</button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

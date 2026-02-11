@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>低代码开发 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 欢迎页 -->
+    <div id="welcomeScreen" class="welcome-screen">
+        <div class="welcome-card">
+            <div class="welcome-icon">🧩</div>
+            <h1>低代码开发</h1>
+            <p class="welcome-desc">可视化拖拽构建数据处理应用</p>
+            <div class="welcome-actions">
+                <button class="welcome-btn primary" onclick="createNewProject()">
+                    <span class="btn-icon">✨</span> 新建项目
+                </button>
+                <button class="welcome-btn secondary" onclick="openExistingProject()">
+                    <span class="btn-icon">📂</span> 打开项目
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑器 -->
+    <div id="editorScreen" class="editor-screen" style="display:none">
+        <div class="editor-topbar">
+            <div class="topbar-left">
+                <button class="topbar-btn" onclick="backToWelcome()">← 返回</button>
+                <input class="project-name-input" id="projectNameInput" value="未命名项目" spellcheck="false">
+            </div>
+            <div class="topbar-right">
+                <button class="topbar-btn" onclick="saveProject()">💾 保存</button>
+                <button class="topbar-btn accent" onclick="compileProject()">🔨 编译</button>
+            </div>
+        </div>
+        <div class="editor-body">
+            <div class="palette" id="palette">
+                <div class="palette-search">
+                    <input type="text" id="paletteSearch" placeholder="搜索模块..." oninput="filterPalette()">
+                </div>
+                <div class="palette-tabs" id="paletteTabs"></div>
+                <div class="palette-modules" id="paletteModules"></div>
+            </div>
+            <div class="flow-panel" id="flowPanel">
+                <div class="flow-list" id="flowList"></div>
+                <div class="flow-drop" id="flowDrop">将左侧模块拖拽到此处添加</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑弹窗 -->
+    <div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
+        <div class="modal-content modal-edit">
+            <div class="modal-header"><h3 id="editModalTitle">编辑模块</h3><button class="modal-close" onclick="closeEditModal()">×</button></div>
+            <div class="modal-body" id="editModalBody"></div>
+            <div class="modal-footer"><button class="compile-btn primary" onclick="closeEditModal()">确定</button></div>
+        </div>
+    </div>
+
+    <!-- 模块编辑弹窗 -->
+    <div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
+        <div class="modal-content modal-edit">
+            <div class="modal-header"><h3 id="editModalTitle">编辑模块</h3><button class="modal-close" onclick="closeEditModal()">×</button></div>
+            <div class="modal-body" id="editModalBody"></div>
+            <div class="modal-footer"><button class="compile-btn primary" onclick="closeEditModal()">完成</button></div>
+        </div>
+    </div>
+
+    <!-- 编译弹窗 -->
+    <div class="modal-overlay" id="compileModal" style="display:none">
+        <div class="modal-content">
+            <div class="modal-header"><h3>编译结果</h3><button class="modal-close" onclick="closeCompileModal()">×</button></div>
+            <div class="modal-body" id="compileModalBody"></div>
+        </div>
+    </div>
+    <input type="file" id="jsonFileInput" accept=".json" style="display:none">
+    <script src="script.js"></script>
+</body>
+</html>

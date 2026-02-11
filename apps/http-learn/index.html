@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络请求教学 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div class="logo-title">
+                <span class="app-logo">🌐</span>
+                <h1>网络请求教学</h1>
+            </div>
+        </header>
+
+        <!-- 应用说明区域 -->
+        <div id="appInfo" class="app-info">
+            <div class="info-card">
+                <div class="info-icon">📋</div>
+                <div class="info-content">
+                    <h3>关于本课程</h3>
+                    <p>本课程通过闯关式的方式，带你从零开始学习 JSON 数据格式和网络请求（Fetch API）。你将学会解析JSON、发起各种HTTP请求、处理响应和错误等核心技能。</p>
+                </div>
+            </div>
+            <div class="info-card tip">
+                <div class="info-icon">💡</div>
+                <div class="info-content">
+                    <h3>学习提示</h3>
+                    <p>本课程使用模拟API，所有请求在本地执行，无需联网。代码关卡中请将结果赋值给 <code>result</code> 变量，系统会自动验证。支持 <code>Ctrl+Enter</code> 快捷验证。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关卡选择界面 -->
+        <div id="levelSelect" class="level-select">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="totalProgress"></div>
+            </div>
+            <p class="progress-text" id="progressText">已完成 0 / 0 关</p>
+            <div class="level-grid" id="levelGrid"></div>
+        </div>
+
+        <!-- 关卡详情界面 -->
+        <div id="levelDetail" class="level-detail" style="display:none;">
+            <div class="level-header">
+                <button class="nav-btn" id="btnPrevLevel">← 上一关</button>
+                <span class="level-title" id="levelTitle"></span>
+                <button class="nav-btn" id="btnNextLevel">下一关 →</button>
+            </div>
+
+            <div class="level-body">
+                <!-- 左侧：教程+任务+参考 -->
+                <div class="left-panel">
+                    <div class="tutorial-section">
+                        <h3>📖 教程</h3>
+                        <div id="tutorialContent" class="tutorial-content"></div>
+                    </div>
+                    <div class="task-section">
+                        <h3>🎯 任务</h3>
+                        <div id="taskContent" class="task-content"></div>
+                    </div>
+                    <div class="context-section">
+                        <h3 id="contextTitle">📋 参考信息</h3>
+                        <div id="contextContent" class="context-content"></div>
+                    </div>
+                </div>
+
+                <!-- 右侧：编辑器+结果 -->
+                <div class="right-panel">
+                    <div class="editor-section">
+                        <div class="editor-toolbar">
+                            <h3 id="editorTitle">✏️ 编辑器</h3>
+                            <div class="editor-actions">
+                                <button class="hint-btn" id="btnHint" title="提示">💡 提示</button>
+                                <button class="run-btn" id="btnRun">▶ 验证</button>
+                            </div>
+                        </div>
+                        <textarea id="codeEditor" class="code-editor" placeholder="在此输入代码..." spellcheck="false"></textarea>
+                        <div class="hint-box" id="hintBox" style="display:none;"></div>
+                    </div>
+                    <div class="result-section">
+                        <h3>📊 验证结果</h3>
+                        <div id="resultArea" class="result-area">
+                            <p class="placeholder-text">编写代码后点击验证查看结果</p>
+                        </div>
+                    </div>
+                    <div class="expected-section" id="expectedSection" style="display:none;">
+                        <h3>✅ 参考答案</h3>
+                        <div id="expectedArea" class="expected-area"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通关弹窗 -->
+        <div class="modal-overlay" id="successModal" style="display:none;">
+            <div class="modal">
+                <div class="modal-icon">🎉</div>
+                <h2>恭喜通关！</h2>
+                <p id="successMsg"></p>
+                <div class="modal-actions">
+                    <button class="modal-btn secondary" id="btnBackToList">返回关卡列表</button>
+                    <button class="modal-btn primary" id="btnNextFromModal">下一关</button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大模型使用教程 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div class="logo-title">
+                <span class="app-logo">🧠</span>
+                <h1>大模型使用教程</h1>
+            </div>
+            <button class="settings-btn" onclick="toggleSettings()">⚙️ API设置</button>
+        </header>
+
+        <!-- 设置弹窗 -->
+        <div class="settings-overlay" id="settingsModal" style="display:none;">
+            <div class="settings-panel">
+                <div class="settings-header">
+                    <h3>API 配置</h3>
+                    <button class="close-btn" onclick="toggleSettings()">✕</button>
+                </div>
+                <div class="settings-body">
+                    <div class="form-group">
+                        <label for="settingApiUrl">API URL</label>
+                        <input type="text" id="settingApiUrl" placeholder="https://api.openai.com/v1/chat/completions">
+                    </div>
+                    <div class="form-group">
+                        <label for="settingApiKey">API Key</label>
+                        <input type="password" id="settingApiKey" placeholder="sk-...">
+                    </div>
+                    <div class="form-group">
+                        <label for="settingModel">Model</label>
+                        <input type="text" id="settingModel" list="modelList" placeholder="选择或输入模型名称">
+                        <datalist id="modelList">
+                            <option value="gpt-4o-mini">
+                            <option value="gpt-4o">
+                            <option value="gpt-4-turbo">
+                            <option value="gpt-3.5-turbo">
+                            <option value="claude-3-5-sonnet-20241022">
+                            <option value="deepseek-chat">
+                            <option value="deepseek-reasoner">
+                            <option value="qwen-max">
+                            <option value="qwen-plus">
+                            <option value="qwen-turbo">
+                            <option value="glm-4-plus">
+                            <option value="glm-4-flash">
+                            <option value="ERNIE-4.0-8K">
+                            <option value="moonshot-v1-8k">
+                            <option value="doubao-pro-32k">
+                        </datalist>
+                    </div>
+                    <button class="save-btn" onclick="saveSettings()">保存设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 应用说明 -->
+        <div id="appInfo" class="app-info">
+            <div class="info-card">
+                <div class="info-icon">📋</div>
+                <div class="info-content">
+                    <h3>关于本课程</h3>
+                    <p>闯关式学习大语言模型（LLM）使用技巧。从基础API调用到提示词工程，再到"Prompt攻防"挑战赛——通过巧妙的提示词突破AI的防御指令！</p>
+                </div>
+            </div>
+            <div class="info-card prerequisite">
+                <div class="info-icon">⚠️</div>
+                <div class="info-content">
+                    <h3>开始前准备</h3>
+                    <p>请先点击右上角 <strong>⚙️ API设置</strong>，配置兼容 OpenAI 格式的 API 地址、密钥和模型名称。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 关卡选择 -->
+        <div id="levelSelect" class="level-select">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="totalProgress"></div>
+            </div>
+            <p class="progress-text" id="progressText">已完成 0 / 0 关</p>
+            <div id="levelGrid"></div>
+        </div>
+
+        <!-- 关卡详情 -->
+        <div id="levelDetail" class="level-detail" style="display:none;">
+            <div class="level-header">
+                <button class="nav-btn" id="btnPrevLevel">← 上一关</button>
+                <span class="level-title" id="levelTitle"></span>
+                <button class="nav-btn" id="btnNextLevel">下一关 →</button>
+            </div>
+
+            <div class="level-body">
+                <!-- 左侧 -->
+                <div class="left-panel">
+                    <div class="tutorial-section">
+                        <h3>📖 教程</h3>
+                        <div id="tutorialContent" class="tutorial-content"></div>
+                    </div>
+                    <div class="task-section">
+                        <h3>🎯 任务</h3>
+                        <div id="taskContent" class="task-content"></div>
+                    </div>
+                    <div class="challenge-section" id="challengeSection" style="display:none;">
+                        <div class="challenge-defense">
+                            <h3>🛡️ AI 防御指令（System Prompt）</h3>
+                            <div id="challengeSystem" class="challenge-system-box"></div>
+                        </div>
+                        <div class="challenge-goal">
+                            <h3>🎯 通关目标</h3>
+                            <div id="challengeTarget" class="challenge-target-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧 -->
+                <div class="right-panel">
+                    <div class="system-section" id="systemSection">
+                        <h3>🔧 System Prompt</h3>
+                        <textarea id="systemPromptInput" class="system-editor" placeholder="设定AI的角色和行为规则..." spellcheck="false"></textarea>
+                    </div>
+
+                    <div class="message-section">
+                        <div class="message-toolbar">
+                            <h3>💬 你的消息</h3>
+                            <div class="message-actions">
+                                <button class="hint-btn" id="btnHint">💡 提示</button>
+                                <button class="send-btn" id="btnSend">▶ 发送</button>
+                            </div>
+                        </div>
+                        <textarea id="userMessageInput" class="message-editor" placeholder="输入你要发送给大模型的消息...&#10;Ctrl+Enter 快捷发送" spellcheck="false"></textarea>
+                        <div class="hint-box" id="hintBox" style="display:none;"></div>
+                    </div>
+
+                    <div class="temp-section" id="tempSection" style="display:none;">
+                        <div class="temp-header">
+                            <h3>🌡️ Temperature</h3>
+                            <span class="temp-value" id="tempValue">0.7</span>
+                        </div>
+                        <input type="range" id="tempSlider" min="0" max="2" step="0.1" value="0.7">
+                        <div class="temp-labels"><span>0 确定性</span><span>1 平衡</span><span>2 创造性</span></div>
+                    </div>
+
+                    <div class="response-section">
+                        <h3>🤖 AI 回复</h3>
+                        <div id="responseArea" class="response-area">
+                            <p class="placeholder-text">发送消息后在此查看AI回复</p>
+                        </div>
+                    </div>
+
+                    <div class="validate-section" id="validateSection" style="display:none;">
+                        <h3>✅ 验证结果</h3>
+                        <div id="validateArea" class="validate-area"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通关弹窗 -->
+        <div class="modal-overlay" id="successModal" style="display:none;">
+            <div class="modal">
+                <div class="modal-icon">🎉</div>
+                <h2>恭喜通关！</h2>
+                <p id="successMsg"></p>
+                <div class="modal-actions">
+                    <button class="modal-btn secondary" id="btnBackToList">返回关卡列表</button>
+                    <button class="modal-btn primary" id="btnNextFromModal">下一关</button>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

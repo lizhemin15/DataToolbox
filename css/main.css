@@ -18,7 +18,7 @@ body {
 
 .header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 32px;
     color: white;
 }
 
@@ -31,7 +31,7 @@ body {
 
 .search-box {
     max-width: 500px;
-    margin: 0 auto;
+    margin: 0 auto 20px;
 }
 
 .search-box input {
@@ -56,11 +56,127 @@ body {
     border-color: rgba(255, 255, 255, 0.4);
 }
 
+/* 筛选栏 */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.category-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.category-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    backdrop-filter: blur(10px);
+}
+
+.category-tab:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.category-tab.active {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+    color: white;
+    font-weight: 600;
+}
+
+.tab-icon {
+    font-size: 15px;
+}
+
+.tab-count {
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 1px 7px;
+    border-radius: 10px;
+    min-width: 22px;
+    text-align: center;
+}
+
+.category-tab.active .tab-count {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* 排序控件 */
+.sort-control select {
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.25s ease;
+}
+
+.sort-control select:hover,
+.sort-control select:focus {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.sort-control select option {
+    background: #5a67d8;
+    color: white;
+}
+
+/* 分区标题 */
+.app-section {
+    margin-bottom: 32px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 0 4px;
+}
+
+.section-icon {
+    font-size: 24px;
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.12);
+}
+
+.section-count {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-left: 4px;
+}
+
+/* 应用网格 */
 .app-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 24px;
-    padding: 20px 0;
+    padding: 0 0 8px;
 }
 
 .app-card {
@@ -75,6 +191,7 @@ body {
     flex-direction: column;
     align-items: center;
     text-align: center;
+    position: relative;
 }
 
 .app-card:hover {
@@ -107,29 +224,23 @@ body {
     font-size: 13px;
     color: rgba(255, 255, 255, 0.85);
     line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.app-badge {
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.75);
+    margin-top: auto;
 }
 
 .no-results {
-    grid-column: 1 / -1;
     text-align: center;
     color: rgba(255, 255, 255, 0.9);
     font-size: 16px;
     padding: 60px 20px;
-}
-
-@media (max-width: 768px) {
-    .header h1 {
-        font-size: 32px;
-    }
-    
-    .app-grid {
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 16px;
-    }
-    
-    .app-card {
-        padding: 20px;
-    }
 }
 
 .footer {
@@ -142,4 +253,28 @@ body {
     color: rgba(255, 255, 255, 0.5);
     font-size: 13px;
     margin: 0;
+}
+
+@media (max-width: 768px) {
+    .header h1 {
+        font-size: 32px;
+    }
+
+    .app-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 16px;
+    }
+
+    .app-card {
+        padding: 20px;
+    }
+
+    .filter-bar {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .section-title {
+        font-size: 18px;
+    }
 }
