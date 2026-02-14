@@ -616,3 +616,248 @@ body {
 .message-group {
     animation: message-slide-in 0.3s ease-out;
 }
+
+/* 拖拽效果 */
+.message-container.drag-over {
+    background: linear-gradient(135deg, rgba(7, 193, 96, 0.1), rgba(7, 193, 96, 0.05));
+    border: 2px dashed #07c160;
+    position: relative;
+}
+
+.message-container.drag-over::before {
+    content: '松开鼠标发送文件';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20px;
+    color: #07c160;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* 文件预览模态框 */
+.file-preview-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    animation: fade-in 0.2s ease-out;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.preview-content {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+@keyframes slide-up {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.preview-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e7e7e7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.preview-header span {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+}
+
+.preview-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.preview-close:hover {
+    background: #f5f5f5;
+}
+
+.preview-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: 500px;
+}
+
+.preview-footer {
+    padding: 16px 20px;
+    border-top: 1px solid #e7e7e7;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.btn-cancel {
+    padding: 10px 24px;
+    background: #f5f5f5;
+    color: #333;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-cancel:hover {
+    background: #e7e7e7;
+}
+
+.btn-send {
+    padding: 10px 24px;
+    background: #07c160;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-send:hover {
+    background: #06ad56;
+}
+
+/* 多文件列表 */
+.multi-file-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.multi-file-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-bottom: 1px solid #f5f5f5;
+    transition: background 0.2s;
+}
+
+.multi-file-item:hover {
+    background: #f5f5f5;
+}
+
+.multi-file-item:last-child {
+    border-bottom: none;
+}
+
+.file-icon-small {
+    font-size: 24px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f5f5;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.file-info-small {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name-small {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 4px;
+}
+
+.file-size-small {
+    font-size: 12px;
+    color: #999;
+}
+
+/* Toast提示 */
+.toast {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 4000;
+    opacity: 0;
+    transition: all 0.3s ease-out;
+    pointer-events: none;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.toast-icon {
+    font-size: 18px;
+}
+
+.toast-message {
+    font-size: 14px;
+    color: #333;
+}
+
+.toast-info {
+    border-left: 3px solid #3b82f6;
+}
+
+.toast-success {
+    border-left: 3px solid #07c160;
+}
+
+.toast-warning {
+    border-left: 3px solid #f59e0b;
+}
+
+.toast-error {
+    border-left: 3px solid #ef4444;
+}

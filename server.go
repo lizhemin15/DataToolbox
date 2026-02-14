@@ -335,8 +335,11 @@ func (c *Client) readPump() {
 
 		case "update-name":
 			if msg.Name != "" {
+				oldName := c.Name
 				c.Name = msg.Name
-				hub.sendPeerList(c)
+				log.Printf("客户端 %s 更新昵称: %s -> %s", c.ID, oldName, c.Name)
+				// 给所有用户广播更新后的用户列表
+				hub.broadcastPeerListToAll()
 			}
 
 		case "message":

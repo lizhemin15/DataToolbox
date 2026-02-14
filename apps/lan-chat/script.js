@@ -112,7 +112,16 @@ function updatePeerList(peerList) {
             peers.set(peer.id, peer);
         }
     });
+    console.log('用户列表已更新，当前在线用户:', Array.from(peers.values()).map(p => p.name).join(', '));
+    
     renderChatList();
+    
+    // 如果当前正在聊天，更新聊天头部显示的名字
+    if (currentChatId && peers.has(currentChatId)) {
+        const peer = peers.get(currentChatId);
+        console.log('更新聊天头部，当前聊天对象:', peer.name);
+        updateChatHeader();
+    }
 }
 
 // 添加用户
@@ -185,12 +194,20 @@ function renderChatArea() {
     if (!peer) return;
     
     // 更新标题
-    document.getElementById('chatHeader').innerHTML = `
-        <div class="chat-title">${peer.name}</div>
-    `;
+    updateChatHeader();
     
     // 渲染消息
     renderMessages();
+}
+
+// 更新聊天头部（单独函数，用于昵称更新）
+function updateChatHeader() {
+    const peer = peers.get(currentChatId);
+    if (!peer) return;
+    
+    document.getElementById('chatHeader').innerHTML = `
+        <div class="chat-title">${peer.name}</div>
+    `;
 }
 
 // 渲染消息列表
@@ -337,7 +354,14 @@ function addSystemMessage(peerId, content) {
 function sendImage(file) {
     if (!currentChatId) return;
     
+    // 检查文件大小（建议不超过10MB）
+    if (file.size > 10 * 1024 * 1024) {
+        showToast('图片大小不能超过10MB', 'warning');
+        return;
+    }
+    
     const reader = new FileReader();
+    
     reader.onload = (e) => {
         const message = {
             type: 'message',
@@ -360,7 +384,13 @@ function sendImage(file) {
         
         renderMessages();
         renderChatList();
+        showToast('图片已发送', 'success');
     };
+    
+    reader.onerror = () => {
+        showToast('图片读取失败', 'error');
+    };
+    
     reader.readAsDataURL(file);
 }
 
@@ -368,7 +398,14 @@ function sendImage(file) {
 function sendFile(file) {
     if (!currentChatId) return;
     
+    // 检查文件大小（建议不超过50MB）
+    if (file.size > 50 * 1024 * 1024) {
+        showToast('文件大小不能超过50MB', 'warning');
+        return;
+    }
+    
     const reader = new FileReader();
+    
     reader.onload = (e) => {
         const fileData = {
             name: file.name,
@@ -398,22 +435,39 @@ function sendFile(file) {
         
         renderMessages();
         renderChatList();
+        showToast(`文件"${file.name}"已发送`, 'success');
     };
+    
+    reader.onerror = () => {
+        showToast('文件读取失败', 'error');
+    };
+    
     reader.readAsDataURL(file);
 }
 
 // 事件监听
 function setupEventListeners() {
+    const inputBox = document.getElementById('inputBox');
+    const messageContainer = document.getElementById('messageContainer');
+    
     // 发送按钮
     document.getElementById('sendBtn').addEventListener('click', sendMessage);
     
     // 回车发送
-    document.getElementById('inputBox').addEventListener('keydown', (e) => {
+    inputBox.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
     });
+    
+    // 粘贴事件 - 支持粘贴图片
+    inputBox.addEventListener('paste', handlePaste);
+    
+    // 拖拽事件 - 支持拖拽文件
+    messageContainer.addEventListener('dragover', handleDragOver);
+    messageContainer.addEventListener('drop', handleDrop);
+    messageContainer.addEventListener('dragleave', handleDragLeave);
     
     // 表情按钮
     document.getElementById('emojiBtn').addEventListener('click', toggleEmojiPicker);
@@ -591,10 +645,13 @@ function loadUserName() {
 document.getElementById('myName').addEventListener('click', () => {
     const newName = prompt('请输入新昵称', myName);
     if (newName && newName.trim()) {
+        const oldName = myName;
         myName = newName.trim();
         localStorage.setItem('lan-chat-username', myName);
         document.getElementById('myName').textContent = myName;
         document.getElementById('myAvatar').textContent = getAvatarText(myName);
+        
+        console.log('昵称已更新:', oldName, '->', myName);
         
         // 通知服务器更新昵称
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -602,6 +659,287 @@ document.getElementById('myName').addEventListener('click', () => {
                 type: 'update-name',
                 name: myName
             });
+            console.log('已通知服务器更新昵称');
         }
     }
 });
+
+// 处理粘贴事件
+function handlePaste(e) {
+    if (!currentChatId) return;
+    
+    const items = e.clipboardData.items;
+    
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        // 检测图片
+        if (item.type.indexOf('image') !== -1) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            
+            // 显示预览确认框
+            showImagePreview(file, (confirmed) => {
+                if (confirmed) {
+                    sendImage(file);
+                }
+            });
+            break;
+        }
+    }
+}
+
+// 处理拖拽悬停
+function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!currentChatId) return;
+    
+    // 添加拖拽样式
+    const container = document.getElementById('messageContainer');
+    container.classList.add('drag-over');
+    
+    e.dataTransfer.dropEffect = 'copy';
+}
+
+// 处理拖拽离开
+function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const container = document.getElementById('messageContainer');
+    
+    // 只有真正离开容器时才移除样式
+    if (e.target === container) {
+        container.classList.remove('drag-over');
+    }
+}
+
+// 处理文件拖放
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const container = document.getElementById('messageContainer');
+    container.classList.remove('drag-over');
+    
+    if (!currentChatId) {
+        showToast('请先选择一个联系人', 'warning');
+        return;
+    }
+    
+    const files = Array.from(e.dataTransfer.files);
+    
+    if (files.length === 0) return;
+    
+    // 处理多个文件
+    if (files.length > 1) {
+        showMultiFileConfirm(files, (confirmed, selectedFiles) => {
+            if (confirmed) {
+                selectedFiles.forEach((file, index) => {
+                    setTimeout(() => {
+                        if (file.type.startsWith('image/')) {
+                            sendImage(file);
+                        } else {
+                            sendFile(file);
+                        }
+                    }, index * 100); // 间隔100ms发送，避免阻塞
+                });
+            }
+        });
+    } else {
+        const file = files[0];
+        
+        // 判断是图片还是其他文件
+        if (file.type.startsWith('image/')) {
+            showImagePreview(file, (confirmed) => {
+                if (confirmed) {
+                    sendImage(file);
+                }
+            });
+        } else {
+            showFileConfirm(file, (confirmed) => {
+                if (confirmed) {
+                    sendFile(file);
+                }
+            });
+        }
+    }
+}
+
+// 显示图片预览
+function showImagePreview(file, callback) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const preview = document.createElement('div');
+        preview.className = 'file-preview-modal';
+        preview.innerHTML = `
+            <div class="preview-content">
+                <div class="preview-header">
+                    <span>发送图片</span>
+                    <button class="preview-close" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+                </div>
+                <div class="preview-body">
+                    <img src="${e.target.result}" style="max-width: 100%; max-height: 400px; border-radius: 8px;">
+                </div>
+                <div class="preview-footer">
+                    <button class="btn-cancel" onclick="this.parentElement.parentElement.parentElement.remove()">取消</button>
+                    <button class="btn-send">发送</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(preview);
+        
+        preview.querySelector('.btn-send').addEventListener('click', () => {
+            preview.remove();
+            callback(true);
+        });
+        
+        preview.querySelector('.btn-cancel').addEventListener('click', () => {
+            preview.remove();
+            callback(false);
+        });
+        
+        preview.addEventListener('click', (e) => {
+            if (e.target === preview) {
+                preview.remove();
+                callback(false);
+            }
+        });
+    };
+    reader.readAsDataURL(file);
+}
+
+// 显示文件确认
+function showFileConfirm(file, callback) {
+    const preview = document.createElement('div');
+    preview.className = 'file-preview-modal';
+    preview.innerHTML = `
+        <div class="preview-content">
+            <div class="preview-header">
+                <span>发送文件</span>
+                <button class="preview-close" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+            </div>
+            <div class="preview-body">
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📎</div>
+                    <div style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">${escapeHtml(file.name)}</div>
+                    <div style="font-size: 14px; color: #999;">${formatFileSize(file.size)}</div>
+                </div>
+            </div>
+            <div class="preview-footer">
+                <button class="btn-cancel" onclick="this.parentElement.parentElement.parentElement.remove()">取消</button>
+                <button class="btn-send">发送</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(preview);
+    
+    preview.querySelector('.btn-send').addEventListener('click', () => {
+        preview.remove();
+        callback(true);
+    });
+    
+    preview.querySelector('.btn-cancel').addEventListener('click', () => {
+        preview.remove();
+        callback(false);
+    });
+    
+    preview.addEventListener('click', (e) => {
+        if (e.target === preview) {
+            preview.remove();
+            callback(false);
+        }
+    });
+}
+
+// 显示多文件确认
+function showMultiFileConfirm(files, callback) {
+    const preview = document.createElement('div');
+    preview.className = 'file-preview-modal';
+    
+    const fileListHTML = files.map((file, index) => `
+        <div class="multi-file-item">
+            <div class="file-icon-small">${file.type.startsWith('image/') ? '🖼️' : '📎'}</div>
+            <div class="file-info-small">
+                <div class="file-name-small">${escapeHtml(file.name)}</div>
+                <div class="file-size-small">${formatFileSize(file.size)}</div>
+            </div>
+        </div>
+    `).join('');
+    
+    preview.innerHTML = `
+        <div class="preview-content">
+            <div class="preview-header">
+                <span>发送 ${files.length} 个文件</span>
+                <button class="preview-close" onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+            </div>
+            <div class="preview-body">
+                <div class="multi-file-list">
+                    ${fileListHTML}
+                </div>
+            </div>
+            <div class="preview-footer">
+                <button class="btn-cancel">取消</button>
+                <button class="btn-send">全部发送</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(preview);
+    
+    preview.querySelector('.btn-send').addEventListener('click', () => {
+        preview.remove();
+        callback(true, files);
+        showToast(`正在发送 ${files.length} 个文件...`, 'info');
+    });
+    
+    preview.querySelector('.btn-cancel').addEventListener('click', () => {
+        preview.remove();
+        callback(false, []);
+    });
+    
+    preview.querySelector('.preview-close').addEventListener('click', () => {
+        preview.remove();
+        callback(false, []);
+    });
+    
+    preview.addEventListener('click', (e) => {
+        if (e.target === preview) {
+            preview.remove();
+            callback(false, []);
+        }
+    });
+}
+
+// 显示提示信息
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    const icons = {
+        info: 'ℹ️',
+        success: '✅',
+        warning: '⚠️',
+        error: '❌'
+    };
+    
+    toast.innerHTML = `
+        <span class="toast-icon">${icons[type] || icons.info}</span>
+        <span class="toast-message">${message}</span>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // 动画显示
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // 3秒后自动关闭
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
