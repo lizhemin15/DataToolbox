@@ -1345,6 +1345,8 @@ function receiveGameReject(data) {
 
 // 开始游戏
 function startGame(gameType, opponentId, isHost) {
+    console.log('开始游戏:', gameType, 'opponentId:', opponentId, 'isHost:', isHost);
+    
     currentGame = {
         type: gameType,
         opponent: opponentId,
@@ -1353,33 +1355,48 @@ function startGame(gameType, opponentId, isHost) {
     
     switch (gameType) {
         case 'gomoku':
+            console.log('启动五子棋游戏');
             startGomoku(opponentId, isHost);
             break;
         case 'tictactoe':
+            console.log('启动井字棋游戏');
             startTicTacToe(opponentId, isHost);
             break;
         case 'weiqi':
+            console.log('启动围棋游戏');
             startWeiqi(opponentId, isHost);
             break;
         case 'xiangqi':
-            startXiangqi(opponentId, isHost);
+            console.log('启动象棋游戏');
+            if (typeof startXiangqi === 'function') {
+                startXiangqi(opponentId, isHost);
+            } else {
+                console.error('startXiangqi 函数未定义');
+                showToast('象棋游戏加载失败', 'error');
+            }
             break;
         case 'rps':
+            console.log('启动石头剪刀布游戏');
             startRockPaperScissors(opponentId);
             break;
         case 'numberbomb':
+            console.log('启动数字炸弹游戏');
             startNumberBomb(opponentId, isHost);
             break;
         case 'reaction':
+            console.log('启动反应力测试');
             startReaction(opponentId);
             break;
         case 'drawguess':
+            console.log('启动你画我猜游戏');
             startDrawGuess(opponentId, isHost);
             break;
         case 'memory':
+            console.log('启动记忆翻牌游戏');
             startMemory(opponentId);
             break;
         default:
+            console.error('未知游戏类型:', gameType);
             showToast('游戏开发中...', 'info');
     }
 }
