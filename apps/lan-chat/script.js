@@ -1,4 +1,4 @@
-// 全局状态
+﻿// 全局状态
 let ws = null;
 let isServerMode = false;
 let myId = null;
@@ -2070,5 +2070,3 @@ function startWeiqi(opponentId, isHost) {
     
     drawBoard();
 }
-/ /   X i a n g q i   g a m e   c o d e   w i l l   b e   a p p e n d e d  
- 
