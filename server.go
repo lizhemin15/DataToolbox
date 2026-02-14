@@ -148,8 +148,7 @@ func (h *Hub) run() {
 			// 发送当前在线用户列表
 			h.sendPeerList(client)
 
-			// 通知其他用户有新用户加入
-			h.broadcastPeerJoin(client)
+			// 不在这里广播peer-join，等客户端发送register消息设置昵称后再广播
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -196,6 +195,33 @@ func (h *Hub) sendPeerList(client *Client) {
 	}
 	data, _ := json.Marshal(msg)
 	client.Send <- data
+}
+
+// 向所有客户端广播用户列表
+func (h *Hub) broadcastPeerListToAll() {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	peers := []map[string]string{}
+	for _, c := range h.clients {
+		peers = append(peers, map[string]string{
+			"id":   c.ID,
+			"name": c.Name,
+		})
+	}
+
+	msg := Message{
+		Type:  "peer-list",
+		Peers: peers,
+	}
+	data, _ := json.Marshal(msg)
+
+	for _, c := range h.clients {
+		select {
+		case c.Send <- data:
+		default:
+		}
+	}
 }
 
 // 广播新用户加入
@@ -294,8 +320,12 @@ func (c *Client) readPump() {
 
 		switch msg.Type {
 		case "register":
-			if msg.Name != "" {
+			if msg.Name != "" && msg.Name != c.Name {
 				c.Name = msg.Name
+				// 第一次设置昵称，通知其他用户有新用户加入
+				hub.broadcastPeerJoin(c)
+				// 给所有用户发送更新后的用户列表
+				hub.broadcastPeerListToAll()
 			}
 
 		case "update-name":
