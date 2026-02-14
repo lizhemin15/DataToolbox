@@ -9,12 +9,61 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // Config 服务器配置
 type Config struct {
 	Port int    `json:"port"`
 	Host string `json:"host"`
+}
+
+// WebSocket升级器
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 允许所有来源
+	},
+}
+
+// Client 客户端连接
+type Client struct {
+	ID   string
+	Name string
+	Conn *websocket.Conn
+	Send chan []byte
+}
+
+// Hub 管理所有客户端连接
+type Hub struct {
+	clients    map[string]*Client
+	broadcast  chan []byte
+	register   chan *Client
+	unregister chan *Client
+	mu         sync.RWMutex
+}
+
+// Message WebSocket消息结构
+type Message struct {
+	Type        string      `json:"type"`
+	ID          string      `json:"id,omitempty"`
+	From        string      `json:"from,omitempty"`
+	To          string      `json:"to,omitempty"`
+	Name        string      `json:"name,omitempty"`
+	Content     string      `json:"content,omitempty"`
+	ContentType string      `json:"contentType,omitempty"`
+	Timestamp   int64       `json:"timestamp,omitempty"`
+	Peer        interface{} `json:"peer,omitempty"`
+	Peers       interface{} `json:"peers,omitempty"`
+}
+
+var hub = &Hub{
+	clients:    make(map[string]*Client),
+	broadcast:  make(chan []byte),
+	register:   make(chan *Client),
+	unregister: make(chan *Client),
 }
 
 // loadConfig 加载配置文件
@@ -79,6 +128,242 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Hub运行逻辑
+func (h *Hub) run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client.ID] = client
+			h.mu.Unlock()
+
+			// 发送注册成功消息
+			msg := Message{
+				Type: "registered",
+				ID:   client.ID,
+			}
+			data, _ := json.Marshal(msg)
+			client.Send <- data
+
+			// 发送当前在线用户列表
+			h.sendPeerList(client)
+
+			// 通知其他用户有新用户加入
+			h.broadcastPeerJoin(client)
+
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if _, ok := h.clients[client.ID]; ok {
+				delete(h.clients, client.ID)
+				close(client.Send)
+			}
+			h.mu.Unlock()
+
+			// 通知其他用户有用户离开
+			h.broadcastPeerLeave(client.ID)
+
+		case message := <-h.broadcast:
+			h.mu.RLock()
+			for _, client := range h.clients {
+				select {
+				case client.Send <- message:
+				default:
+					close(client.Send)
+					delete(h.clients, client.ID)
+				}
+			}
+			h.mu.RUnlock()
+		}
+	}
+}
+
+// 发送在线用户列表
+func (h *Hub) sendPeerList(client *Client) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	peers := []map[string]string{}
+	for _, c := range h.clients {
+		peers = append(peers, map[string]string{
+			"id":   c.ID,
+			"name": c.Name,
+		})
+	}
+
+	msg := Message{
+		Type:  "peer-list",
+		Peers: peers,
+	}
+	data, _ := json.Marshal(msg)
+	client.Send <- data
+}
+
+// 广播新用户加入
+func (h *Hub) broadcastPeerJoin(client *Client) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	msg := Message{
+		Type: "peer-join",
+		Peer: map[string]string{
+			"id":   client.ID,
+			"name": client.Name,
+		},
+	}
+	data, _ := json.Marshal(msg)
+
+	for _, c := range h.clients {
+		if c.ID != client.ID {
+			select {
+			case c.Send <- data:
+			default:
+			}
+		}
+	}
+}
+
+// 广播用户离开
+func (h *Hub) broadcastPeerLeave(clientID string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	msg := Message{
+		Type: "peer-leave",
+		ID:   clientID,
+	}
+	data, _ := json.Marshal(msg)
+
+	for _, c := range h.clients {
+		select {
+		case c.Send <- data:
+		default:
+		}
+	}
+}
+
+// WebSocket连接处理
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket升级失败: %v", err)
+		return
+	}
+
+	client := &Client{
+		ID:   generateClientID(),
+		Name: "用户" + time.Now().Format("150405"),
+		Conn: conn,
+		Send: make(chan []byte, 256),
+	}
+
+	hub.register <- client
+
+	// 启动发送和接收协程
+	go client.writePump()
+	go client.readPump()
+}
+
+// 生成客户端ID
+func generateClientID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// 读取客户端消息
+func (c *Client) readPump() {
+	defer func() {
+		hub.unregister <- c
+		c.Conn.Close()
+	}()
+
+	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	for {
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		var msg Message
+		if err := json.Unmarshal(message, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "register":
+			if msg.Name != "" {
+				c.Name = msg.Name
+			}
+
+		case "update-name":
+			if msg.Name != "" {
+				c.Name = msg.Name
+				hub.sendPeerList(c)
+			}
+
+		case "message":
+			// 转发消息到目标客户端
+			msg.From = c.ID
+			data, _ := json.Marshal(msg)
+
+			hub.mu.RLock()
+			if targetClient, ok := hub.clients[msg.To]; ok {
+				select {
+				case targetClient.Send <- data:
+				default:
+				}
+			}
+			hub.mu.RUnlock()
+		}
+	}
+}
+
+// 向客户端写入消息
+func (c *Client) writePump() {
+	ticker := time.NewTicker(54 * time.Second)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.Send:
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if !ok {
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			w, err := c.Conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+
+			// 批量发送队列中的消息
+			n := len(c.Send)
+			for i := 0; i < n; i++ {
+				w.Write([]byte{'\n'})
+				w.Write(<-c.Send)
+			}
+
+			if err := w.Close(); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func main() {
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
@@ -100,9 +385,20 @@ func main() {
 	}
 	rootDir := filepath.Dir(exePath)
 
-	// 创建文件服务器
+	// 启动Hub
+	go hub.run()
+
+	// 创建路由
+	mux := http.NewServeMux()
+	
+	// WebSocket路由
+	mux.HandleFunc("/ws/chat", handleWebSocket)
+	
+	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))
-	handler := loggingMiddleware(corsMiddleware(fs))
+	mux.Handle("/", fs)
+	
+	handler := loggingMiddleware(corsMiddleware(mux))
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)
@@ -116,6 +412,8 @@ func main() {
 	if config.Host == "0.0.0.0" {
 		fmt.Printf("外网访问: http://<your-public-ip>:%d\n", port)
 	}
+	fmt.Println("============================================================")
+	fmt.Println("功能: 文件服务器 + 局域网聊天")
 	fmt.Println("============================================================")
 	fmt.Println("按 Ctrl+C 停止服务器")
 	fmt.Println("============================================================")

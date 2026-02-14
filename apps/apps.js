@@ -2,6 +2,7 @@
 const appCategories = [
     { id: "all", name: "全部", icon: "📋" },
     { id: "tool", name: "效率工具", icon: "⚡" },
+    { id: "online", name: "联机", icon: "🌐" },
     { id: "learn", name: "教学", icon: "🎓" }
 ];
 
@@ -211,5 +212,14 @@ const appsData = [
         "keywords": ["文档", "编辑器", "Excel", "Word", "PPT", "思维导图", "Visio", "办公", "表格", "文字处理", "演示文稿", "图表"],
         "category": "tool",
         "tags": ["office", "file", "productivity"]
+    },
+    {
+        "id": "lan-chat",
+        "name": "局域网聊天",
+        "icon": "💬",
+        "description": "局域网即时通讯，支持设备发现、文字消息、图片、表情、文件传输，仿微信UI设计",
+        "keywords": ["聊天", "局域网", "即时通讯", "IM", "文件传输", "联机"],
+        "category": "online",
+        "tags": ["network"]
     }
 ];
