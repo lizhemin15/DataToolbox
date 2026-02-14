@@ -57,6 +57,9 @@ type Message struct {
 	Timestamp   int64       `json:"timestamp,omitempty"`
 	Peer        interface{} `json:"peer,omitempty"`
 	Peers       interface{} `json:"peers,omitempty"`
+	GameType    string      `json:"gameType,omitempty"`
+	Move        interface{} `json:"move,omitempty"`
+	Winner      string      `json:"winner,omitempty"`
 }
 
 var hub = &Hub{

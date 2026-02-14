@@ -1254,6 +1254,7 @@ function inviteGame(gameType) {
 
 // 接收游戏邀请
 function receiveGameInvite(data) {
+    console.log('收到游戏邀请:', data);
     const peer = peers.get(data.from);
     const peerName = peer ? peer.name : '对方';
     const gameName = gameNames[data.gameType] || '未知游戏';
@@ -1324,6 +1325,7 @@ function receiveGameInvite(data) {
 
 // 接收游戏接受
 function receiveGameAccept(data) {
+    console.log('收到游戏接受:', data);
     const peer = peers.get(data.from);
     const peerName = peer ? peer.name : '对方';
     const gameName = gameNames[data.gameType] || '未知游戏';
