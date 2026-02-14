@@ -404,19 +404,19 @@ func (c *Client) readPump() {
 					hub.documents[docId] = msg.Document
 					hub.docMu.Unlock()
 
-					// 广播给所有客户端
+					// 广播给所有客户端（包括创建者，用于确认）
 					data, _ := json.Marshal(msg)
 					hub.mu.RLock()
 					for _, client := range hub.clients {
-						if client.ID != c.ID {
-							select {
-							case client.Send <- data:
-							default:
-							}
+						select {
+						case client.Send <- data:
+							log.Printf("文档创建消息已发送给: %s", client.ID)
+						default:
+							log.Printf("文档创建消息发送失败: %s (通道已满)", client.ID)
 						}
 					}
 					hub.mu.RUnlock()
-					log.Printf("文档已创建: %s", docId)
+					log.Printf("文档已创建并存储: %s (总共%d个文档)", docId, len(hub.documents))
 				}
 			}
 
@@ -428,24 +428,33 @@ func (c *Client) readPump() {
 				delete(hub.docUsers, msg.DocId)
 				hub.docMu.Unlock()
 
-				// 广播给所有客户端
+				// 广播给所有客户端（包括删除者）
 				data, _ := json.Marshal(msg)
 				hub.mu.RLock()
 				for _, client := range hub.clients {
-					if client.ID != c.ID {
-						select {
-						case client.Send <- data:
-						default:
-						}
+					select {
+					case client.Send <- data:
+					default:
 					}
 				}
 				hub.mu.RUnlock()
-				log.Printf("文档已删除: %s", msg.DocId)
+				log.Printf("文档已删除: %s (剩余%d个文档)", msg.DocId, len(hub.documents))
 			}
 
 		case "doc-opened":
 			// 打开文档
 			if msg.DocId != "" {
+				// 从服务器获取文档内容
+				hub.docMu.RLock()
+				doc, exists := hub.documents[msg.DocId]
+				hub.docMu.RUnlock()
+
+				if !exists {
+					log.Printf("文档不存在: %s", msg.DocId)
+					break
+				}
+
+				// 记录用户打开文档
 				hub.docMu.Lock()
 				if hub.docUsers[msg.DocId] == nil {
 					hub.docUsers[msg.DocId] = make(map[string]bool)
@@ -457,40 +466,35 @@ func (c *Client) readPump() {
 				}
 				hub.docMu.Unlock()
 
-				// 通知文档内所有用户
+				// 返回文档内容给请求者
+				openResponse := Message{
+					Type:     "doc-opened",
+					DocId:    msg.DocId,
+					Document: doc,
+				}
+				responseData, _ := json.Marshal(openResponse)
+				c.Send <- responseData
+				log.Printf("用户 %s 打开文档: %s，已返回文档内容", c.ID, msg.DocId)
+
+				// 通知文档内所有用户更新在线列表
 				usersMsg := Message{
 					Type:  "doc-users",
 					DocId: msg.DocId,
 					Users: users,
 				}
-				data, _ := json.Marshal(usersMsg)
+				usersData, _ := json.Marshal(usersMsg)
 				hub.docMu.RLock()
 				for userId := range hub.docUsers[msg.DocId] {
 					hub.mu.RLock()
 					if client, ok := hub.clients[userId]; ok {
 						select {
-						case client.Send <- data:
+						case client.Send <- usersData:
 						default:
 						}
 					}
 					hub.mu.RUnlock()
 				}
 				hub.docMu.RUnlock()
-
-				// 广播给所有客户端（用于文档列表同步）
-				broadcastData, _ := json.Marshal(msg)
-				hub.mu.RLock()
-				for _, client := range hub.clients {
-					if client.ID != c.ID {
-						select {
-						case client.Send <- broadcastData:
-						default:
-						}
-					}
-				}
-				hub.mu.RUnlock()
-
-				log.Printf("用户 %s 打开文档: %s", c.ID, msg.DocId)
 			}
 
 		case "doc-leave":
@@ -504,8 +508,118 @@ func (c *Client) readPump() {
 				log.Printf("用户 %s 离开文档: %s", c.ID, msg.DocId)
 			}
 
-		case "doc-update", "doc-title-update", "doc-cursor":
-			// 转发文档更新、标题更新、光标位置到所有在线用户
+		case "doc-title-update":
+			// 更新文档标题
+			if msg.DocId != "" && msg.Title != "" {
+				hub.docMu.Lock()
+				if doc, ok := hub.documents[msg.DocId]; ok {
+					if docMap, ok := doc.(map[string]interface{}); ok {
+						docMap["title"] = msg.Title
+						hub.documents[msg.DocId] = docMap
+						log.Printf("文档标题已更新: %s -> %s", msg.DocId, msg.Title)
+					}
+				}
+				hub.docMu.Unlock()
+			}
+
+			// 转发给所有用户
+			msg.From = c.ID
+			data, _ := json.Marshal(msg)
+			hub.mu.RLock()
+			for _, client := range hub.clients {
+				if client.ID != c.ID {
+					select {
+					case client.Send <- data:
+					default:
+					}
+				}
+			}
+			hub.mu.RUnlock()
+
+		case "doc-update":
+			// 更新文档内容
+			if msg.DocId != "" && msg.Update != nil {
+				hub.docMu.Lock()
+				if doc, ok := hub.documents[msg.DocId]; ok {
+					if docMap, ok := doc.(map[string]interface{}); ok {
+						if updateMap, ok := msg.Update.(map[string]interface{}); ok {
+							updateType, _ := updateMap["type"].(string)
+							content, _ := docMap["content"].(map[string]interface{})
+							
+							switch updateType {
+							case "excel-cell":
+								// 更新Excel单元格
+								if data, ok := content["data"].([]interface{}); ok {
+									if row, ok := updateMap["row"].(float64); ok {
+										if col, ok := updateMap["col"].(float64); ok {
+											if value, ok := updateMap["value"].(string); ok {
+												rowInt := int(row)
+												colInt := int(col)
+												if rowInt < len(data) {
+													if rowData, ok := data[rowInt].([]interface{}); ok {
+														if colInt < len(rowData) {
+															rowData[colInt] = value
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							case "excel-add-row":
+								// 添加Excel行
+								if data, ok := content["data"].([]interface{}); ok {
+									cols := 0
+									if len(data) > 0 {
+										if firstRow, ok := data[0].([]interface{}); ok {
+											cols = len(firstRow)
+										}
+									}
+									newRow := make([]interface{}, cols)
+									for i := range newRow {
+										newRow[i] = ""
+									}
+									content["data"] = append(data, newRow)
+								}
+							case "excel-add-col":
+								// 添加Excel列
+								if data, ok := content["data"].([]interface{}); ok {
+									for i := range data {
+										if rowData, ok := data[i].([]interface{}); ok {
+											data[i] = append(rowData, "")
+										}
+									}
+								}
+							case "word-delta":
+								// Word更新使用Quill delta，这里简化处理
+								// 实际应该应用delta到ops数组
+								log.Printf("Word delta更新: %s", msg.DocId)
+							}
+							
+							docMap["content"] = content
+							hub.documents[msg.DocId] = docMap
+						}
+					}
+				}
+				hub.docMu.Unlock()
+			}
+
+			// 转发给所有用户
+			msg.From = c.ID
+			data, _ := json.Marshal(msg)
+			hub.mu.RLock()
+			for _, client := range hub.clients {
+				if client.ID != c.ID {
+					select {
+					case client.Send <- data:
+					default:
+					}
+				}
+			}
+			hub.mu.RUnlock()
+
+		case "doc-cursor":
+			// 转发光标位置到所有在线用户
 			msg.From = c.ID
 			data, _ := json.Marshal(msg)
 

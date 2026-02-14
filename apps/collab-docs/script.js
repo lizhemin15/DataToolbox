@@ -119,8 +119,18 @@ function handleMessage(msg) {
             break;
 
         case 'doc-created':
-            documents.push(msg.document);
-            renderDocumentList();
+            // 检查文档是否已存在（避免重复添加）
+            if (!documents.find(d => d.id === msg.document.id)) {
+                documents.push(msg.document);
+                renderDocumentList();
+                console.log('文档已添加:', msg.document.title);
+            }
+            
+            // 如果这是刚创建的文档，自动打开
+            if (window._pendingDocId === msg.document.id) {
+                delete window._pendingDocId;
+                openDocument(msg.document.id);
+            }
             break;
 
         case 'doc-deleted':
@@ -132,8 +142,12 @@ function handleMessage(msg) {
             break;
 
         case 'doc-opened':
-            currentDoc = msg.document;
-            showEditorPage();
+            // 服务器返回文档内容
+            if (msg.document) {
+                currentDoc = msg.document;
+                showEditorPage();
+                console.log('文档已打开:', currentDoc.title);
+            }
             break;
 
         case 'doc-update':
@@ -176,13 +190,10 @@ function sendMessage(msg) {
     }
 }
 
-// 广播消息到所有在线用户
+// 广播消息到所有在线用户（通过服务器）
 function broadcastMessage(msg) {
-    Object.keys(onlineUsers).forEach(userId => {
-        if (userId !== clientId) {
-            sendMessage({ ...msg, to: userId });
-        }
-    });
+    // 直接发送到服务器，由服务器广播给所有用户
+    sendMessage(msg);
 }
 
 // 更新在线用户
@@ -314,51 +325,45 @@ function createDocument() {
         content: type === 'excel' ? { data: [['']] } : { ops: [] }
     };
 
-    // 广播新文档
-    broadcastMessage({
+    // 发送到服务器，服务器会存储并广播给所有用户（包括自己）
+    sendMessage({
         type: 'doc-created',
         document: doc
     });
 
-    // 添加到本地列表
-    documents.push(doc);
-    renderDocumentList();
     hideNewDocDialog();
 
-    // 打开文档
-    openDocument(doc.id);
+    // 注意：不在这里添加到本地列表，等待服务器确认后通过handleMessage添加
+    // 临时保存文档ID，用于打开
+    window._pendingDocId = doc.id;
 }
 
 // 删除文档
 function deleteDocument(docId) {
-    broadcastMessage({
+    // 发送到服务器，服务器会存储并广播给所有用户
+    sendMessage({
         type: 'doc-deleted',
         docId: docId
     });
 
-    documents = documents.filter(d => d.id !== docId);
-    renderDocumentList();
-
-    if (currentDoc && currentDoc.id === docId) {
-        showListPage();
-    }
+    // 注意：不在这里删除，等待服务器确认后通过handleMessage删除
 }
 
 // 打开文档
 function openDocument(docId) {
     const doc = documents.find(d => d.id === docId);
-    if (!doc) return;
+    if (!doc) {
+        console.error('文档不存在:', docId);
+        return;
+    }
 
-    currentDoc = doc;
-
-    // 通知其他用户
-    broadcastMessage({
+    // 请求服务器打开文档（服务器会返回最新的文档内容）
+    sendMessage({
         type: 'doc-opened',
-        docId: docId,
-        document: doc
+        docId: docId
     });
 
-    showEditorPage();
+    // 注意：不在这里设置currentDoc和显示编辑器，等待服务器响应
 }
 
 // 离开文档
