@@ -22,6 +22,11 @@ jobs:
             output: datatoolbox-server.exe
             package: datatoolbox-windows-amd64.zip
           
+          - goos: windows
+            goarch: arm64
+            output: datatoolbox-server.exe
+            package: datatoolbox-windows-arm64.zip
+          
           # Linux
           - goos: linux
             goarch: amd64
@@ -153,7 +158,8 @@ jobs:
             
             根据你的系统选择对应的包：
             
-            - **Windows (64位)**: `datatoolbox-windows-amd64.zip`
+            - **Windows (64位 Intel/AMD)**: `datatoolbox-windows-amd64.zip`
+            - **Windows (ARM64)**: `datatoolbox-windows-arm64.zip`
             - **Linux (64位)**: `datatoolbox-linux-amd64.tar.gz`
             - **Linux (ARM64)**: `datatoolbox-linux-arm64.tar.gz`
             - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`

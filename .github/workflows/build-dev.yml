@@ -19,6 +19,8 @@ jobs:
         include:
           - goos: windows
             goarch: amd64
+          - goos: windows
+            goarch: arm64
           - goos: linux
             goarch: amd64
           - goos: darwin
