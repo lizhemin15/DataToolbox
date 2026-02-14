@@ -1,4 +1,4 @@
-﻿// 全局状态
+// 全局状态
 let ws = null;
 let isServerMode = false;
 let myId = null;
@@ -1382,27 +1382,6 @@ function startGame(gameType, opponentId, isHost) {
         default:
             showToast('游戏开发中...', 'info');
     }
-}
-
-// 接收游戏接受
-function receiveGameAccept(data) {
-    const peer = peers.get(data.from);
-    const peerName = peer ? peer.name : '对方';
-    const gameName = gameNames[data.gameType] || '未知游戏';
-    
-    showToast(`${peerName} 接受了${gameName}邀请`, 'success');
-    
-    // 开始游戏（邀请方）
-    startGame(data.gameType, data.from, true);
-}
-
-// 接收游戏拒绝
-function receiveGameReject(data) {
-    const peer = peers.get(data.from);
-    const peerName = peer ? peer.name : '对方';
-    const gameName = gameNames[data.gameType] || '未知游戏';
-    
-    showToast(`${peerName} 拒绝了${gameName}邀请`, 'warning');
 }
 
 // 接收游戏移动
