@@ -30,12 +30,7 @@ async function checkServerMode() {
             isServerMode = true;
             hideServerModal();
             updateStatus('online');
-            
-            // 发送注册消息
-            sendWsMessage({
-                type: 'register',
-                name: myName
-            });
+            console.log('WebSocket已连接');
         };
         
         ws.onmessage = handleWebSocketMessage;
@@ -63,13 +58,23 @@ function handleWebSocketMessage(event) {
         switch (data.type) {
             case 'registered':
                 myId = data.id;
+                console.log('已注册，我的ID:', myId);
+                
+                // 立即发送register消息设置昵称
+                sendWsMessage({
+                    type: 'register',
+                    name: myName
+                });
+                console.log('已发送昵称注册:', myName);
                 break;
                 
             case 'peer-list':
+                console.log('收到用户列表:', data.peers, '我的ID:', myId);
                 updatePeerList(data.peers);
                 break;
                 
             case 'peer-join':
+                console.log('新用户加入:', data.peer);
                 addPeer(data.peer);
                 addSystemMessage(data.peer.id, `${data.peer.name} 上线了`);
                 break;
@@ -289,6 +294,8 @@ function sendMessage() {
 
 // 接收消息
 function receiveMessage(data) {
+    console.log('收到消息:', data);
+    
     addMessage(data.from, {
         id: data.id || generateId(),
         from: data.from,

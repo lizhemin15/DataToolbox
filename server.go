@@ -238,11 +238,15 @@ func (h *Hub) broadcastPeerJoin(client *Client) {
 	}
 	data, _ := json.Marshal(msg)
 
+	log.Printf("广播用户加入: %s (%s) 给 %d 个其他用户", client.Name, client.ID, len(h.clients)-1)
+	
 	for _, c := range h.clients {
 		if c.ID != client.ID {
 			select {
 			case c.Send <- data:
+				log.Printf("  -> 发送给: %s", c.ID)
 			default:
+				log.Printf("  -> 发送失败: %s (通道已满)", c.ID)
 			}
 		}
 	}
@@ -320,9 +324,10 @@ func (c *Client) readPump() {
 
 		switch msg.Type {
 		case "register":
-			if msg.Name != "" && msg.Name != c.Name {
+			if msg.Name != "" {
 				c.Name = msg.Name
-				// 第一次设置昵称，通知其他用户有新用户加入
+				log.Printf("客户端 %s 注册昵称: %s", c.ID, c.Name)
+				// 通知其他用户有新用户加入
 				hub.broadcastPeerJoin(c)
 				// 给所有用户发送更新后的用户列表
 				hub.broadcastPeerListToAll()
@@ -343,8 +348,12 @@ func (c *Client) readPump() {
 			if targetClient, ok := hub.clients[msg.To]; ok {
 				select {
 				case targetClient.Send <- data:
+					log.Printf("消息已发送: %s -> %s", c.ID, msg.To)
 				default:
+					log.Printf("消息发送失败: %s -> %s (通道已满)", c.ID, msg.To)
 				}
+			} else {
+				log.Printf("目标客户端不存在: %s", msg.To)
 			}
 			hub.mu.RUnlock()
 		}
