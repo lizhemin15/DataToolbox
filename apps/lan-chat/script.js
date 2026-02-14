@@ -88,6 +88,30 @@ function handleWebSocketMessage(event) {
                 receiveMessage(data);
                 break;
                 
+            case 'shake':
+                receiveShake(data);
+                break;
+                
+            case 'game-invite':
+                receiveGameInvite(data);
+                break;
+                
+            case 'game-accept':
+                receiveGameAccept(data);
+                break;
+                
+            case 'game-reject':
+                receiveGameReject(data);
+                break;
+                
+            case 'game-move':
+                receiveGameMove(data);
+                break;
+                
+            case 'game-over':
+                receiveGameOver(data);
+                break;
+                
             case 'file-offer':
                 receiveFileOffer(data);
                 break;
@@ -498,6 +522,24 @@ function setupEventListeners() {
         }
     });
     
+    // 抖一抖按钮
+    document.getElementById('shakeBtn').addEventListener('click', () => {
+        if (!currentChatId) {
+            showToast('请先选择一个联系人', 'warning');
+            return;
+        }
+        sendShake();
+    });
+    
+    // 游戏按钮
+    document.getElementById('gameBtn').addEventListener('click', () => {
+        if (!currentChatId) {
+            showToast('请先选择一个联系人', 'warning');
+            return;
+        }
+        showGameMenu();
+    });
+    
     // 渲染表情选择器
     renderEmojiPicker();
     
@@ -542,7 +584,42 @@ function insertEmoji(emoji) {
 
 // 查看图片
 function viewImage(src) {
-    window.open(src, '_blank');
+    const viewer = document.createElement('div');
+    viewer.className = 'image-viewer';
+    viewer.innerHTML = `
+        <div class="image-viewer-overlay"></div>
+        <div class="image-viewer-content">
+            <button class="image-viewer-close">×</button>
+            <img src="${src}" alt="查看图片">
+        </div>
+    `;
+    
+    document.body.appendChild(viewer);
+    
+    // 动画显示
+    setTimeout(() => viewer.classList.add('show'), 10);
+    
+    // 点击关闭按钮
+    viewer.querySelector('.image-viewer-close').addEventListener('click', () => {
+        viewer.classList.remove('show');
+        setTimeout(() => viewer.remove(), 300);
+    });
+    
+    // 点击背景关闭
+    viewer.querySelector('.image-viewer-overlay').addEventListener('click', () => {
+        viewer.classList.remove('show');
+        setTimeout(() => viewer.remove(), 300);
+    });
+    
+    // ESC键关闭
+    const handleEsc = (e) => {
+        if (e.key === 'Escape') {
+            viewer.classList.remove('show');
+            setTimeout(() => viewer.remove(), 300);
+            document.removeEventListener('keydown', handleEsc);
+        }
+    };
+    document.addEventListener('keydown', handleEsc);
 }
 
 // 下载文件
@@ -943,3 +1020,1055 @@ function showToast(message, type = 'info') {
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
+
+// ========== 抖一抖功能 ==========
+
+// 发送抖一抖
+function sendShake() {
+    if (!currentChatId) return;
+    
+    const message = {
+        type: 'shake',
+        to: currentChatId,
+        timestamp: Date.now()
+    };
+    
+    sendWsMessage(message);
+    showToast('已发送抖一抖', 'success');
+    
+    // 添加系统消息
+    addMessage(currentChatId, {
+        type: 'system',
+        content: '你发送了一个抖动',
+        timestamp: Date.now()
+    });
+    renderMessages();
+}
+
+// 接收抖一抖
+function receiveShake(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    
+    // 窗口抖动效果
+    shakeWindow();
+    
+    // 播放提示音（可选）
+    playShakeSound();
+    
+    // 显示提示
+    showToast(`${peerName} 给你发送了抖动！`, 'warning');
+    
+    // 添加系统消息
+    addMessage(data.from, {
+        type: 'system',
+        content: `${peerName} 给你发送了一个抖动`,
+        timestamp: data.timestamp || Date.now()
+    });
+    
+    if (data.from === currentChatId) {
+        renderMessages();
+    }
+    renderChatList();
+}
+
+// 窗口抖动动画
+function shakeWindow() {
+    const container = document.querySelector('.app-container');
+    container.classList.add('shake-animation');
+    
+    setTimeout(() => {
+        container.classList.remove('shake-animation');
+    }, 500);
+}
+
+// 播放抖动音效
+function playShakeSound() {
+    // 使用Web Audio API生成简单的提示音
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+    } catch (e) {
+        console.log('无法播放音效:', e);
+    }
+}
+
+// ========== 游戏功能 ==========
+
+let currentGame = null;
+
+// 显示游戏菜单
+function showGameMenu() {
+    const menu = document.createElement('div');
+    menu.className = 'game-menu-modal';
+    menu.innerHTML = `
+        <div class="game-menu-content">
+            <div class="game-menu-header">
+                <span>选择游戏</span>
+                <button class="game-menu-close">×</button>
+            </div>
+            <div class="game-menu-body">
+                <div class="game-category">
+                    <div class="game-category-title">🎯 策略棋类</div>
+                    <div class="game-option" onclick="inviteGame('gomoku')">
+                        <div class="game-icon">⚫</div>
+                        <div class="game-info">
+                            <div class="game-name">五子棋</div>
+                            <div class="game-desc">连成五子获胜</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('tictactoe')">
+                        <div class="game-icon">⭕</div>
+                        <div class="game-info">
+                            <div class="game-name">井字棋</div>
+                            <div class="game-desc">经典三连棋</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('weiqi')">
+                        <div class="game-icon">⚪</div>
+                        <div class="game-info">
+                            <div class="game-name">围棋</div>
+                            <div class="game-desc">古老的策略游戏</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('xiangqi')">
+                        <div class="game-icon">♟️</div>
+                        <div class="game-info">
+                            <div class="game-name">象棋</div>
+                            <div class="game-desc">中国传统棋类</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="game-category">
+                    <div class="game-category-title">⚡ 快速对战</div>
+                    <div class="game-option" onclick="inviteGame('rps')">
+                        <div class="game-icon">✊</div>
+                        <div class="game-info">
+                            <div class="game-name">石头剪刀布</div>
+                            <div class="game-desc">经典猜拳游戏</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('numberbomb')">
+                        <div class="game-icon">💣</div>
+                        <div class="game-info">
+                            <div class="game-name">数字炸弹</div>
+                            <div class="game-desc">猜数字避开炸弹</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('reaction')">
+                        <div class="game-icon">⚡</div>
+                        <div class="game-info">
+                            <div class="game-name">反应力测试</div>
+                            <div class="game-desc">比拼反应速度</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="game-category">
+                    <div class="game-category-title">🎨 休闲益智</div>
+                    <div class="game-option" onclick="inviteGame('drawguess')">
+                        <div class="game-icon">🎨</div>
+                        <div class="game-info">
+                            <div class="game-name">你画我猜</div>
+                            <div class="game-desc">创意绘画猜词</div>
+                        </div>
+                    </div>
+                    <div class="game-option" onclick="inviteGame('memory')">
+                        <div class="game-icon">🧠</div>
+                        <div class="game-info">
+                            <div class="game-name">记忆翻牌</div>
+                            <div class="game-desc">考验记忆力</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(menu);
+    setTimeout(() => menu.classList.add('show'), 10);
+    
+    menu.querySelector('.game-menu-close').addEventListener('click', () => {
+        menu.classList.remove('show');
+        setTimeout(() => menu.remove(), 300);
+    });
+    
+    menu.addEventListener('click', (e) => {
+        if (e.target === menu) {
+            menu.classList.remove('show');
+            setTimeout(() => menu.remove(), 300);
+        }
+    });
+}
+
+// 游戏名称映射
+const gameNames = {
+    'gomoku': '五子棋',
+    'tictactoe': '井字棋',
+    'weiqi': '围棋',
+    'xiangqi': '象棋',
+    'rps': '石头剪刀布',
+    'numberbomb': '数字炸弹',
+    'reaction': '反应力测试',
+    'drawguess': '你画我猜',
+    'memory': '记忆翻牌'
+};
+
+// 邀请游戏
+function inviteGame(gameType) {
+    document.querySelector('.game-menu-modal').remove();
+    
+    const message = {
+        type: 'game-invite',
+        to: currentChatId,
+        gameType: gameType,
+        timestamp: Date.now()
+    };
+    
+    sendWsMessage(message);
+    
+    const gameName = gameNames[gameType] || '未知游戏';
+    showToast(`已发送${gameName}邀请`, 'info');
+    
+    addMessage(currentChatId, {
+        type: 'system',
+        content: `你邀请对方玩${gameName}`,
+        timestamp: Date.now()
+    });
+    renderMessages();
+}
+
+// 接收游戏邀请
+function receiveGameInvite(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    const gameName = gameNames[data.gameType] || '未知游戏';
+    
+    const invite = document.createElement('div');
+    invite.className = 'game-invite-modal';
+    invite.innerHTML = `
+        <div class="game-invite-content">
+            <div class="game-invite-icon">🎮</div>
+            <div class="game-invite-text">${peerName} 邀请你玩${gameName}</div>
+            <div class="game-invite-actions">
+                <button class="btn-cancel">拒绝</button>
+                <button class="btn-send">接受</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(invite);
+    setTimeout(() => invite.classList.add('show'), 10);
+    
+    invite.querySelector('.btn-send').addEventListener('click', () => {
+        invite.remove();
+        
+        // 发送接受消息
+        sendWsMessage({
+            type: 'game-accept',
+            to: data.from,
+            gameType: data.gameType,
+            timestamp: Date.now()
+        });
+        
+        // 开始游戏（被邀请方）
+        startGame(data.gameType, data.from, false);
+    });
+    
+    invite.querySelector('.btn-cancel').addEventListener('click', () => {
+        invite.remove();
+        showToast('已拒绝游戏邀请', 'info');
+        
+        // 发送拒绝消息
+        sendWsMessage({
+            type: 'game-reject',
+            to: data.from,
+            gameType: data.gameType,
+            timestamp: Date.now()
+        });
+    });
+    
+    // 10秒后自动关闭
+    setTimeout(() => {
+        if (document.body.contains(invite)) {
+            invite.remove();
+        }
+    }, 10000);
+    
+    // 添加系统消息
+    addMessage(data.from, {
+        type: 'system',
+        content: `${peerName} 邀请你玩${gameName}`,
+        timestamp: data.timestamp
+    });
+    
+    if (data.from === currentChatId) {
+        renderMessages();
+    }
+    renderChatList();
+}
+
+// 接收游戏接受
+function receiveGameAccept(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    const gameName = gameNames[data.gameType] || '未知游戏';
+    
+    showToast(`${peerName} 接受了${gameName}邀请`, 'success');
+    
+    // 开始游戏（邀请方）
+    startGame(data.gameType, data.from, true);
+}
+
+// 接收游戏拒绝
+function receiveGameReject(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    const gameName = gameNames[data.gameType] || '未知游戏';
+    
+    showToast(`${peerName} 拒绝了${gameName}邀请`, 'warning');
+}
+
+// 开始游戏
+function startGame(gameType, opponentId, isHost) {
+    currentGame = {
+        type: gameType,
+        opponent: opponentId,
+        isHost: isHost
+    };
+    
+    switch (gameType) {
+        case 'gomoku':
+            startGomoku(opponentId, isHost);
+            break;
+        case 'tictactoe':
+            startTicTacToe(opponentId, isHost);
+            break;
+        case 'weiqi':
+            startWeiqi(opponentId, isHost);
+            break;
+        case 'xiangqi':
+            startXiangqi(opponentId, isHost);
+            break;
+        case 'rps':
+            startRockPaperScissors(opponentId);
+            break;
+        case 'numberbomb':
+            startNumberBomb(opponentId, isHost);
+            break;
+        case 'reaction':
+            startReaction(opponentId);
+            break;
+        case 'drawguess':
+            startDrawGuess(opponentId, isHost);
+            break;
+        case 'memory':
+            startMemory(opponentId);
+            break;
+        default:
+            showToast('游戏开发中...', 'info');
+    }
+}
+
+// 接收游戏接受
+function receiveGameAccept(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    const gameName = gameNames[data.gameType] || '未知游戏';
+    
+    showToast(`${peerName} 接受了${gameName}邀请`, 'success');
+    
+    // 开始游戏（邀请方）
+    startGame(data.gameType, data.from, true);
+}
+
+// 接收游戏拒绝
+function receiveGameReject(data) {
+    const peer = peers.get(data.from);
+    const peerName = peer ? peer.name : '对方';
+    const gameName = gameNames[data.gameType] || '未知游戏';
+    
+    showToast(`${peerName} 拒绝了${gameName}邀请`, 'warning');
+}
+
+// 接收游戏移动
+function receiveGameMove(data) {
+    if (!currentGame || currentGame.opponent !== data.from) return;
+    
+    // 根据游戏类型处理移动
+    console.log('收到游戏移动:', data);
+    
+    // 根据不同游戏类型分发
+    switch (currentGame.type) {
+        case 'gomoku':
+        case 'tictactoe':
+        case 'weiqi':
+        case 'xiangqi':
+            handleBoardGameMove(data);
+            break;
+        case 'rps':
+            handleRPSMove(data);
+            break;
+        case 'numberbomb':
+            handleNumberBombMove(data);
+            break;
+    }
+}
+
+// 接收游戏结束
+function receiveGameOver(data) {
+    console.log('游戏结束:', data);
+    currentGame = null;
+}
+
+// ========== 五子棋游戏 ==========
+function startGomoku(opponentId, isHost) {
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    const myColor = isHost ? 'black' : 'white';
+    const opponentColor = isHost ? 'white' : 'black';
+    const myTurn = isHost;
+    
+    const board = Array(15).fill(null).map(() => Array(15).fill(null));
+    let currentTurn = myTurn;
+    
+    const game = document.createElement('div');
+    game.className = 'gomoku-game-modal';
+    game.innerHTML = `
+        <div class="gomoku-game-content">
+            <div class="gomoku-game-header">
+                <span>五子棋 - 对战 ${peerName}</span>
+                <button class="gomoku-game-close">×</button>
+            </div>
+            <div class="gomoku-game-body">
+                <div class="gomoku-info">
+                    <div class="gomoku-player">
+                        <span class="gomoku-dot" style="background: #000"></span>
+                        <span>${isHost ? myName : peerName}</span>
+                    </div>
+                    <div class="gomoku-status">${myTurn ? '你的回合' : '对方回合'}</div>
+                    <div class="gomoku-player">
+                        <span class="gomoku-dot" style="background: #fff; border: 1px solid #333"></span>
+                        <span>${isHost ? peerName : myName}</span>
+                    </div>
+                </div>
+                <canvas id="gomokuCanvas" width="600" height="600"></canvas>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+    
+    const canvas = game.querySelector('#gomokuCanvas');
+    const ctx = canvas.getContext('2d');
+    const cellSize = 40;
+    
+    // 绘制棋盘
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 背景
+        ctx.fillStyle = '#daa520';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 网格
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        
+        for (let i = 0; i < 15; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cellSize, cellSize * (i + 1));
+            ctx.lineTo(cellSize * 15, cellSize * (i + 1));
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(cellSize * (i + 1), cellSize);
+            ctx.lineTo(cellSize * (i + 1), cellSize * 15);
+            ctx.stroke();
+        }
+        
+        // 天元等标记点
+        const marks = [[3, 3], [3, 11], [7, 7], [11, 3], [11, 11]];
+        marks.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(cellSize * (x + 1), cellSize * (y + 1), 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+        });
+        
+        // 绘制棋子
+        for (let i = 0; i < 15; i++) {
+            for (let j = 0; j < 15; j++) {
+                if (board[i][j]) {
+                    const x = cellSize * (j + 1);
+                    const y = cellSize * (i + 1);
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, cellSize * 0.4, 0, Math.PI * 2);
+                    ctx.fillStyle = board[i][j] === 'black' ? '#000' : '#fff';
+                    ctx.fill();
+                    
+                    if (board[i][j] === 'white') {
+                        ctx.strokeStyle = '#333';
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+    }
+    
+    // 检查获胜
+    function checkWin(row, col, color) {
+        const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+        
+        for (const [dx, dy] of directions) {
+            let count = 1;
+            
+            // 正方向
+            for (let i = 1; i < 5; i++) {
+                const newRow = row + dx * i;
+                const newCol = col + dy * i;
+                if (newRow < 0 || newRow >= 15 || newCol < 0 || newCol >= 15) break;
+                if (board[newRow][newCol] === color) count++;
+                else break;
+            }
+            
+            // 反方向
+            for (let i = 1; i < 5; i++) {
+                const newRow = row - dx * i;
+                const newCol = col - dy * i;
+                if (newRow < 0 || newRow >= 15 || newCol < 0 || newCol >= 15) break;
+                if (board[newRow][newCol] === color) count++;
+                else break;
+            }
+            
+            if (count >= 5) return true;
+        }
+        
+        return false;
+    }
+    
+    // 点击下棋
+    canvas.addEventListener('click', (e) => {
+        if (!currentTurn) {
+            showToast('还没到你的回合', 'warning');
+            return;
+        }
+        
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const col = Math.round(x / cellSize) - 1;
+        const row = Math.round(y / cellSize) - 1;
+        
+        if (row < 0 || row >= 15 || col < 0 || col >= 15) return;
+        if (board[row][col]) {
+            showToast('这里已经有棋子了', 'warning');
+            return;
+        }
+        
+        // 落子
+        board[row][col] = myColor;
+        currentTurn = false;
+        game.querySelector('.gomoku-status').textContent = '对方回合';
+        drawBoard();
+        
+        // 检查胜利
+        if (checkWin(row, col, myColor)) {
+            setTimeout(() => {
+                showToast('你赢了！🎉', 'success');
+                game.querySelector('.gomoku-status').textContent = '你赢了！';
+                currentTurn = false;
+                
+                sendWsMessage({
+                    type: 'game-over',
+                    to: opponentId,
+                    gameType: 'gomoku',
+                    winner: myId,
+                    timestamp: Date.now()
+                });
+            }, 100);
+        } else {
+            // 发送移动
+            sendWsMessage({
+                type: 'game-move',
+                to: opponentId,
+                gameType: 'gomoku',
+                move: { row, col, color: myColor },
+                timestamp: Date.now()
+            });
+        }
+    });
+    
+    // 处理棋盘游戏移动
+    window.handleBoardGameMove = function(data) {
+        if (!data.move) return;
+        
+        const { row, col, color } = data.move;
+        board[row][col] = color;
+        currentTurn = true;
+        game.querySelector('.gomoku-status').textContent = '你的回合';
+        drawBoard();
+        
+        // 检查对方是否获胜
+        if (checkWin(row, col, color)) {
+            showToast('对方赢了', 'info');
+            game.querySelector('.gomoku-status').textContent = '对方赢了';
+            currentTurn = false;
+        }
+    };
+    
+    // 关闭游戏
+    game.querySelector('.gomoku-game-close').addEventListener('click', () => {
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
+    
+    drawBoard();
+}
+
+// ========== 井字棋游戏 ==========
+function startTicTacToe(opponentId, isHost) {
+    showToast('井字棋游戏即将推出！', 'info');
+    // TODO: 实现井字棋游戏界面
+}
+
+// ========== 石头剪刀布游戏 ==========
+function startRockPaperScissors(opponentId) {
+    const game = document.createElement('div');
+    game.className = 'rps-game-modal';
+    game.innerHTML = `
+        <div class="rps-game-content">
+            <div class="rps-game-header">
+                <span>石头剪刀布</span>
+                <button class="rps-game-close">×</button>
+            </div>
+            <div class="rps-game-body">
+                <div class="rps-choices">
+                    <button class="rps-choice" data-choice="rock">
+                        <span class="rps-icon">🪨</span>
+                        <span class="rps-name">石头</span>
+                    </button>
+                    <button class="rps-choice" data-choice="paper">
+                        <span class="rps-icon">📄</span>
+                        <span class="rps-name">布</span>
+                    </button>
+                    <button class="rps-choice" data-choice="scissors">
+                        <span class="rps-icon">✂️</span>
+                        <span class="rps-name">剪刀</span>
+                    </button>
+                </div>
+                <div class="rps-status">请选择你的出招</div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+    
+    const choices = game.querySelectorAll('.rps-choice');
+    choices.forEach(choice => {
+        choice.addEventListener('click', () => {
+            const selected = choice.dataset.choice;
+            game.querySelector('.rps-status').textContent = '等待对方出招...';
+            choices.forEach(c => c.disabled = true);
+            
+            // 发送选择
+            sendWsMessage({
+                type: 'game-move',
+                to: opponentId,
+                gameType: 'rps',
+                move: selected,
+                timestamp: Date.now()
+            });
+            
+            showToast('已出招，等待对方...', 'info');
+        });
+    });
+    
+    game.querySelector('.rps-game-close').addEventListener('click', () => {
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
+}
+
+// ========== 数字炸弹游戏 ==========
+function startNumberBomb(opponentId, isHost) {
+    showToast('数字炸弹游戏即将推出！', 'info');
+}
+
+// 处理数字炸弹移动
+function handleNumberBombMove(data) {
+    console.log('数字炸弹移动:', data);
+}
+
+// ========== 反应力测试游戏 ==========
+function startReaction(opponentId) {
+    showToast('反应力测试即将推出！', 'info');
+}
+
+// ========== 你画我猜游戏 ==========
+function startDrawGuess(opponentId, isHost) {
+    showToast('你画我猜游戏即将推出！', 'info');
+}
+
+// ========== 记忆翻牌游戏 ==========
+function startMemory(opponentId) {
+    showToast('记忆翻牌游戏即将推出！', 'info');
+}
+
+// ========== 围棋游戏 ==========
+function startWeiqi(opponentId, isHost) {
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    const myColor = isHost ? 'black' : 'white';
+    const myTurn = isHost;
+    
+    const boardSize = 19;
+    const board = Array(boardSize).fill(null).map(() => Array(boardSize).fill(null));
+    let currentTurn = myTurn;
+    let passCount = 0;
+    let capturedBlack = 0;  // 黑方提子数
+    let capturedWhite = 0;  // 白方提子数
+    
+    const game = document.createElement('div');
+    game.className = 'weiqi-game-modal';
+    game.innerHTML = `
+        <div class="weiqi-game-content">
+            <div class="weiqi-game-header">
+                <span>围棋 - 对战 ${peerName}</span>
+                <button class="weiqi-game-close">×</button>
+            </div>
+            <div class="weiqi-game-body">
+                <div class="weiqi-info">
+                    <div class="weiqi-player">
+                        <span class="weiqi-dot" style="background: #000"></span>
+                        <span>${isHost ? myName : peerName}</span>
+                        <span class="weiqi-captured">提子: ${capturedWhite}</span>
+                    </div>
+                    <div class="weiqi-controls">
+                        <div class="weiqi-status">${myTurn ? '你的回合' : '对方回合'}</div>
+                        <button class="weiqi-pass-btn" ${!myTurn ? 'disabled' : ''}>放弃</button>
+                    </div>
+                    <div class="weiqi-player">
+                        <span class="weiqi-dot" style="background: #fff; border: 1px solid #333"></span>
+                        <span>${isHost ? peerName : myName}</span>
+                        <span class="weiqi-captured">提子: ${capturedBlack}</span>
+                    </div>
+                </div>
+                <canvas id="weiqiCanvas" width="700" height="700"></canvas>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+    
+    const canvas = game.querySelector('#weiqiCanvas');
+    const ctx = canvas.getContext('2d');
+    const cellSize = 35;
+    const padding = 30;
+    
+    // 计算一组棋子的气
+    function countLiberties(row, col, color, visited = new Set()) {
+        const key = `${row},${col}`;
+        if (visited.has(key)) return 0;
+        if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return 0;
+        
+        if (board[row][col] === null) return 1;
+        if (board[row][col] !== color) return 0;
+        
+        visited.add(key);
+        
+        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        let liberties = 0;
+        
+        for (const [dx, dy] of directions) {
+            const newRow = row + dx;
+            const newCol = col + dy;
+            
+            if (newRow < 0 || newRow >= boardSize || newCol < 0 || newCol >= boardSize) continue;
+            
+            if (board[newRow][newCol] === null) {
+                const libKey = `${newRow},${newCol}`;
+                if (!visited.has(libKey)) {
+                    visited.add(libKey);
+                    liberties++;
+                }
+            } else if (board[newRow][newCol] === color && !visited.has(`${newRow},${newCol}`)) {
+                liberties += countLiberties(newRow, newCol, color, visited);
+            }
+        }
+        
+        return liberties;
+    }
+    
+    // 移除一组无气的棋子
+    function removeDeadStones(row, col, color) {
+        if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return 0;
+        if (board[row][col] !== color) return 0;
+        
+        board[row][col] = null;
+        let removed = 1;
+        
+        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        for (const [dx, dy] of directions) {
+            removed += removeDeadStones(row + dx, col + dy, color);
+        }
+        
+        return removed;
+    }
+    
+    // 检查并提子
+    function captureStones(row, col) {
+        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        const opponentColor = myColor === 'black' ? 'white' : 'black';
+        let captured = 0;
+        
+        for (const [dx, dy] of directions) {
+            const newRow = row + dx;
+            const newCol = col + dy;
+            
+            if (newRow < 0 || newRow >= boardSize || newCol < 0 || newCol >= boardSize) continue;
+            if (board[newRow][newCol] !== opponentColor) continue;
+            
+            if (countLiberties(newRow, newCol, opponentColor) === 0) {
+                captured += removeDeadStones(newRow, newCol, opponentColor);
+            }
+        }
+        
+        return captured;
+    }
+    
+    // 绘制棋盘
+    function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 背景
+        ctx.fillStyle = '#daa520';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 网格
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        
+        for (let i = 0; i < boardSize; i++) {
+            ctx.beginPath();
+            ctx.moveTo(padding, padding + cellSize * i);
+            ctx.lineTo(padding + cellSize * (boardSize - 1), padding + cellSize * i);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(padding + cellSize * i, padding);
+            ctx.lineTo(padding + cellSize * i, padding + cellSize * (boardSize - 1));
+            ctx.stroke();
+        }
+        
+        // 星位
+        const stars = [[3, 3], [3, 9], [3, 15], [9, 3], [9, 9], [9, 15], [15, 3], [15, 9], [15, 15]];
+        stars.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(padding + cellSize * x, padding + cellSize * y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#000';
+            ctx.fill();
+        });
+        
+        // 绘制棋子
+        for (let i = 0; i < boardSize; i++) {
+            for (let j = 0; j < boardSize; j++) {
+                if (board[i][j]) {
+                    const x = padding + cellSize * j;
+                    const y = padding + cellSize * i;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, cellSize * 0.45, 0, Math.PI * 2);
+                    ctx.fillStyle = board[i][j] === 'black' ? '#000' : '#fff';
+                    ctx.fill();
+                    
+                    if (board[i][j] === 'white') {
+                        ctx.strokeStyle = '#333';
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+    }
+    
+    // 点击下棋
+    canvas.addEventListener('click', (e) => {
+        if (!currentTurn) {
+            showToast('还没到你的回合', 'warning');
+            return;
+        }
+        
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left - padding;
+        const y = e.clientY - rect.top - padding;
+        
+        const col = Math.round(x / cellSize);
+        const row = Math.round(y / cellSize);
+        
+        if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return;
+        if (board[row][col]) {
+            showToast('这里已经有棋子了', 'warning');
+            return;
+        }
+        
+        // 落子
+        board[row][col] = myColor;
+        
+        // 检查提子
+        const captured = captureStones(row, col);
+        
+        // 检查自杀（落子后自己无气）
+        if (countLiberties(row, col, myColor) === 0 && captured === 0) {
+            board[row][col] = null;
+            showToast('不能下在此处（自杀）', 'warning');
+            return;
+        }
+        
+        // 更新提子数
+        if (myColor === 'black') {
+            capturedWhite += captured;
+        } else {
+            capturedBlack += captured;
+        }
+        
+        updateCapturedDisplay();
+        
+        currentTurn = false;
+        passCount = 0;
+        game.querySelector('.weiqi-status').textContent = '对方回合';
+        game.querySelector('.weiqi-pass-btn').disabled = true;
+        drawBoard();
+        
+        // 发送移动
+        sendWsMessage({
+            type: 'game-move',
+            to: opponentId,
+            gameType: 'weiqi',
+            move: { row, col, color: myColor, captured, capturedBlack, capturedWhite },
+            timestamp: Date.now()
+        });
+    });
+    
+    // 放弃按钮
+    game.querySelector('.weiqi-pass-btn').addEventListener('click', () => {
+        if (!currentTurn) return;
+        
+        passCount++;
+        currentTurn = false;
+        game.querySelector('.weiqi-status').textContent = '对方回合';
+        game.querySelector('.weiqi-pass-btn').disabled = true;
+        
+        if (passCount >= 2) {
+            showToast('双方放弃，游戏结束', 'info');
+            game.querySelector('.weiqi-status').textContent = '游戏结束';
+            return;
+        }
+        
+        sendWsMessage({
+            type: 'game-move',
+            to: opponentId,
+            gameType: 'weiqi',
+            move: { pass: true, passCount },
+            timestamp: Date.now()
+        });
+    });
+    
+    // 更新提子显示
+    function updateCapturedDisplay() {
+        const players = game.querySelectorAll('.weiqi-player');
+        if (isHost) {
+            players[0].querySelector('.weiqi-captured').textContent = `提子: ${capturedWhite}`;
+            players[1].querySelector('.weiqi-captured').textContent = `提子: ${capturedBlack}`;
+        } else {
+            players[0].querySelector('.weiqi-captured').textContent = `提子: ${capturedBlack}`;
+            players[1].querySelector('.weiqi-captured').textContent = `提子: ${capturedWhite}`;
+        }
+    }
+    
+    // 处理棋盘游戏移动（围棋特殊处理）
+    const originalHandler = window.handleBoardGameMove;
+    window.handleBoardGameMove = function(data) {
+        if (currentGame && currentGame.type === 'weiqi' && data.move) {
+            if (data.move.pass) {
+                passCount = data.move.passCount;
+                currentTurn = true;
+                game.querySelector('.weiqi-status').textContent = '你的回合';
+                game.querySelector('.weiqi-pass-btn').disabled = false;
+                
+                if (passCount >= 2) {
+                    showToast('双方放弃，游戏结束', 'info');
+                    game.querySelector('.weiqi-status').textContent = '游戏结束';
+                    currentTurn = false;
+                }
+                return;
+            }
+            
+            const { row, col, color, captured, capturedBlack: newCapturedBlack, capturedWhite: newCapturedWhite } = data.move;
+            board[row][col] = color;
+            capturedBlack = newCapturedBlack;
+            capturedWhite = newCapturedWhite;
+            
+            // 移除被提的子
+            if (captured > 0) {
+                const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                const myOpponentColor = color === 'black' ? 'white' : 'black';
+                
+                for (const [dx, dy] of directions) {
+                    const newRow = row + dx;
+                    const newCol = col + dy;
+                    
+                    if (newRow < 0 || newRow >= boardSize || newCol < 0 || newCol >= boardSize) continue;
+                    if (board[newRow][newCol] !== myOpponentColor) continue;
+                    
+                    if (countLiberties(newRow, newCol, myOpponentColor) === 0) {
+                        removeDeadStones(newRow, newCol, myOpponentColor);
+                    }
+                }
+            }
+            
+            updateCapturedDisplay();
+            currentTurn = true;
+            passCount = 0;
+            game.querySelector('.weiqi-status').textContent = '你的回合';
+            game.querySelector('.weiqi-pass-btn').disabled = false;
+            drawBoard();
+        } else if (originalHandler) {
+            originalHandler(data);
+        }
+    };
+    
+    // 关闭游戏
+    game.querySelector('.weiqi-game-close').addEventListener('click', () => {
+        window.handleBoardGameMove = originalHandler;
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
+    
+    drawBoard();
+}
+/ /   X i a n g q i   g a m e   c o d e   w i l l   b e   a p p e n d e d  
+ 

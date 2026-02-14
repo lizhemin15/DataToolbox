@@ -342,8 +342,8 @@ func (c *Client) readPump() {
 				hub.broadcastPeerListToAll()
 			}
 
-		case "message":
-			// 转发消息到目标客户端
+		case "message", "shake", "game-invite", "game-accept", "game-reject", "game-move", "game-over":
+			// 转发消息到目标客户端（包括普通消息、抖一抖、游戏相关）
 			msg.From = c.ID
 			data, _ := json.Marshal(msg)
 
@@ -351,9 +351,9 @@ func (c *Client) readPump() {
 			if targetClient, ok := hub.clients[msg.To]; ok {
 				select {
 				case targetClient.Send <- data:
-					log.Printf("消息已发送: %s -> %s", c.ID, msg.To)
+					log.Printf("%s已发送: %s -> %s", msg.Type, c.ID, msg.To)
 				default:
-					log.Printf("消息发送失败: %s -> %s (通道已满)", c.ID, msg.To)
+					log.Printf("%s发送失败: %s -> %s (通道已满)", msg.Type, c.ID, msg.To)
 				}
 			} else {
 				log.Printf("目标客户端不存在: %s", msg.To)

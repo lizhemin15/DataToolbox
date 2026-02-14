@@ -861,3 +861,637 @@ body {
 .toast-error {
     border-left: 3px solid #ef4444;
 }
+
+/* 图片查看器 */
+.image-viewer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.image-viewer.show {
+    opacity: 1;
+}
+
+.image-viewer-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    cursor: pointer;
+}
+
+.image-viewer-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 90vw;
+    max-height: 90vh;
+    z-index: 5001;
+}
+
+.image-viewer-content img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    animation: image-zoom-in 0.3s ease-out;
+}
+
+@keyframes image-zoom-in {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.image-viewer-close {
+    position: absolute;
+    top: -50px;
+    right: 0;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 32px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: background 0.2s;
+    z-index: 5002;
+}
+
+.image-viewer-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* 抖动动画 */
+.shake-animation {
+    animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+    20%, 40%, 60%, 80% { transform: translateX(10px); }
+}
+
+/* 游戏菜单 */
+.game-menu-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.game-menu-modal.show {
+    opacity: 1;
+}
+
+.game-menu-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 400px;
+    max-width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+.game-menu-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e7e7e7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.game-menu-header span {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+}
+
+.game-menu-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.game-menu-close:hover {
+    background: #f5f5f5;
+}
+
+.game-menu-body {
+    padding: 12px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.game-category {
+    margin-bottom: 20px;
+}
+
+.game-category:last-child {
+    margin-bottom: 0;
+}
+
+.game-category-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.game-option {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 8px;
+}
+
+.game-option:hover:not(.game-disabled) {
+    background: #f5f5f5;
+}
+
+.game-option:last-child {
+    margin-bottom: 0;
+}
+
+.game-option.game-disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.game-badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: #ff9800;
+    color: white;
+    border-radius: 4px;
+    margin-left: 6px;
+}
+
+.game-icon {
+    font-size: 36px;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f5f5;
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+
+.game-info {
+    flex: 1;
+}
+
+.game-name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.game-desc {
+    font-size: 13px;
+    color: #999;
+}
+
+/* 游戏邀请 */
+.game-invite-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.game-invite-modal.show {
+    opacity: 1;
+}
+
+.game-invite-content {
+    background: #fff;
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+.game-invite-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.game-invite-text {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 24px;
+}
+
+.game-invite-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+/* 石头剪刀布游戏 */
+.rps-game-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.rps-game-modal.show {
+    opacity: 1;
+}
+
+.rps-game-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 400px;
+    max-width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+.rps-game-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e7e7e7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.rps-game-header span {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+}
+
+.rps-game-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.rps-game-close:hover {
+    background: #f5f5f5;
+}
+
+.rps-game-body {
+    padding: 32px 20px;
+}
+
+.rps-choices {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.rps-choice {
+    width: 100px;
+    height: 100px;
+    border: 2px solid #e7e7e7;
+    background: white;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.rps-choice:hover:not(:disabled) {
+    border-color: #07c160;
+    background: #f0fdf4;
+    transform: scale(1.05);
+}
+
+.rps-choice:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.rps-icon {
+    font-size: 40px;
+    margin-bottom: 8px;
+}
+
+.rps-name {
+    font-size: 14px;
+    color: #666;
+}
+
+.rps-status {
+    text-align: center;
+    font-size: 16px;
+    color: #666;
+}
+
+/* 五子棋游戏 */
+.gomoku-game-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.gomoku-game-modal.show {
+    opacity: 1;
+}
+
+.gomoku-game-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 650px;
+    max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+.gomoku-game-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e7e7e7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.gomoku-game-header span {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+}
+
+.gomoku-game-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.gomoku-game-close:hover {
+    background: #f5f5f5;
+}
+
+.gomoku-game-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.gomoku-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 8px;
+}
+
+.gomoku-player {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #333;
+}
+
+.gomoku-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.gomoku-status {
+    font-size: 16px;
+    font-weight: 600;
+    color: #07c160;
+}
+
+#gomokuCanvas {
+    border: 2px solid #333;
+    border-radius: 8px;
+    cursor: crosshair;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 围棋游戏 */
+.weiqi-game-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.weiqi-game-modal.show {
+    opacity: 1;
+}
+
+.weiqi-game-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 750px;
+    max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+.weiqi-game-header,
+.xiangqi-game-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e7e7e7;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.weiqi-game-close,
+.xiangqi-game-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    color: #999;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.weiqi-game-close:hover,
+.xiangqi-game-close:hover {
+    background: #f5f5f5;
+}
+
+.weiqi-info,
+.xiangqi-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 8px;
+}
+
+.weiqi-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.weiqi-pass-btn {
+    padding: 8px 16px;
+    background: #f59e0b;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.weiqi-pass-btn:hover:not(:disabled) {
+    background: #d97706;
+}
+
+.weiqi-pass-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.weiqi-captured {
+    font-size: 12px;
+    color: #666;
+    margin-left: 8px;
+}
+
+#weiqiCanvas {
+    border: 2px solid #333;
+    border-radius: 8px;
+    cursor: crosshair;
+}
+
+/* 象棋游戏 */
+.xiangqi-game-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3000;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.xiangqi-game-modal.show {
+    opacity: 1;
+}
+
+.xiangqi-game-content {
+    background: #fff;
+    border-radius: 12px;
+    width: 520px;
+    max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slide-up 0.3s ease-out;
+}
+
+#xiangqiCanvas {
+    border: 2px solid #333;
+    border-radius: 8px;
+    cursor: pointer;
+}
