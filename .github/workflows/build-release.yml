@@ -1,0 +1,180 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 当推送v开头的tag时触发，如 v1.0.0
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    name: Build for ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - goos: windows
+            goarch: amd64
+            output: datatoolbox-server.exe
+            package: datatoolbox-windows-amd64.zip
+          
+          # Linux
+          - goos: linux
+            goarch: amd64
+            output: datatoolbox-server
+            package: datatoolbox-linux-amd64.tar.gz
+          
+          - goos: linux
+            goarch: arm64
+            output: datatoolbox-server
+            package: datatoolbox-linux-arm64.tar.gz
+          
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            output: datatoolbox-server
+            package: datatoolbox-macos-amd64.tar.gz
+          
+          - goos: darwin
+            goarch: arm64
+            output: datatoolbox-server
+            package: datatoolbox-macos-arm64.tar.gz
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -ldflags="-s -w" -o ${{ matrix.output }} server.go
+
+      - name: Prepare package files
+        run: |
+          mkdir -p package
+          cp ${{ matrix.output }} package/
+          cp server.config.json package/
+          cp -r apps package/
+          cp -r lib package/
+          cp -r css package/
+          cp -r js package/
+          cp index.html package/
+
+      - name: Create startup script for Windows
+        if: matrix.goos == 'windows'
+        run: |
+          cat > package/start.bat << 'EOF'
+          @echo off
+          chcp 65001 >nul
+          cd /d "%~dp0"
+          echo ====================================
+          echo DataToolbox 服务器
+          echo ====================================
+          echo.
+          if "%1"=="" (
+              datatoolbox-server.exe
+          ) else (
+              datatoolbox-server.exe -port %1
+          )
+          pause
+          EOF
+
+      - name: Create startup script for Unix
+        if: matrix.goos != 'windows'
+        run: |
+          cat > package/start.sh << 'EOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          echo "===================================="
+          echo "DataToolbox 服务器"
+          echo "===================================="
+          echo ""
+          if [ -z "$1" ]; then
+              ./datatoolbox-server
+          else
+              ./datatoolbox-server -port "$1"
+          fi
+          EOF
+          chmod +x package/start.sh
+          chmod +x package/datatoolbox-server
+
+      - name: Create ZIP package (Windows)
+        if: matrix.goos == 'windows'
+        run: |
+          cd package
+          zip -r ../${{ matrix.package }} .
+
+      - name: Create TAR.GZ package (Unix)
+        if: matrix.goos != 'windows'
+        run: |
+          cd package
+          tar -czf ../${{ matrix.package }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: ${{ matrix.package }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          body: |
+            ## DataToolbox Server Release
+            
+            ### 📦 下载说明
+            
+            根据你的系统选择对应的包：
+            
+            - **Windows (64位)**: `datatoolbox-windows-amd64.zip`
+            - **Linux (64位)**: `datatoolbox-linux-amd64.tar.gz`
+            - **Linux (ARM64)**: `datatoolbox-linux-arm64.tar.gz`
+            - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`
+            - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
+            
+            ### 🚀 使用方法
+            
+            **默认端口8080启动：**
+            - Windows: 双击运行 `start.bat`
+            - Linux/macOS: 运行 `./start.sh`
+            
+            **自定义端口启动：**
+            - Windows: `start.bat 3000` 或 `datatoolbox-server.exe -port 3000`
+            - Linux/macOS: `./start.sh 3000` 或 `./datatoolbox-server -port 3000`
+            
+            **修改默认端口：**
+            编辑 `server.config.json`
+            ```json
+            {
+              "port": 8080,
+              "host": "0.0.0.0"
+            }
+            ```
+            
+            启动后访问: http://localhost:端口号
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

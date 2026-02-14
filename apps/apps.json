@@ -1,38 +1,17 @@
 [
     {
+        "id": "ops-toolbox",
+        "name": "运维工具箱",
+        "icon": "🔧",
+        "description": "集成SSH终端、SFTP文件管理和网络诊断工具，支持Ping、DNS查询、HTTP测试、端口检测、IP查询等",
+        "keywords": ["运维", "SSH", "SFTP", "网络测试", "Ping", "DNS", "端口", "HTTP", "IP查询", "Whois", "SSL"]
+    },
+    {
         "id": "field-matcher",
         "name": "字段匹配",
         "icon": "🔀",
         "description": "智能匹配和映射数据字段",
         "keywords": ["字段", "匹配", "映射", "对应"]
-    },
-    {
-        "id": "data-dedup",
-        "name": "数据去重",
-        "icon": "🔍",
-        "description": "根据指定列删除重复数据",
-        "keywords": ["去重", "重复", "唯一", "清理"]
-    },
-    {
-        "id": "data-merge",
-        "name": "数据合并",
-        "icon": "📚",
-        "description": "合并多个Excel文件为一个",
-        "keywords": ["合并", "整合", "汇总", "联合"]
-    },
-    {
-        "id": "data-split",
-        "name": "数据拆分",
-        "icon": "✂️",
-        "description": "按列值拆分数据到多个Sheet",
-        "keywords": ["拆分", "分组", "分类", "划分"]
-    },
-    {
-        "id": "data-clean",
-        "name": "数据清洗",
-        "icon": "🧹",
-        "description": "清理空行空列和格式问题",
-        "keywords": ["清洗", "清理", "整理", "规范"]
     },
     {
         "id": "ai-structurer",
@@ -124,5 +103,33 @@
         "icon": "🧩",
         "description": "可视化拖拽构建数据处理应用，支持Excel/Word/数据操作模块，编译为独立HTML应用",
         "keywords": ["低代码", "可视化", "拖拽", "编辑器", "编译", "应用开发"]
+    },
+    {
+        "id": "todo-pomodoro",
+        "name": "待办清单+番茄钟",
+        "icon": "🍅",
+        "description": "美观的拖拽式待办清单与番茄钟，支持任务管理、优先级设置、专注计时和数据统计",
+        "keywords": ["待办", "任务", "番茄钟", "GTD", "时间管理", "专注", "清单"]
+    },
+    {
+        "id": "quiz-app",
+        "name": "刷题练习",
+        "icon": "📝",
+        "description": "支持多题型的刷题练习工具，可导入Excel题库进行随机或顺序刷题",
+        "keywords": ["刷题", "练习", "题库", "考试", "测验", "学习"]
+    },
+    {
+        "id": "format-converter",
+        "name": "格式万能转换",
+        "icon": "🔄",
+        "description": "完全离线的文件格式转换工具，支持图片格式转换、文档格式互转（Excel/CSV/JSON/TXT/PDF/Word）",
+        "keywords": ["格式转换", "图片", "文档", "Excel", "CSV", "JSON", "PNG", "JPG", "PDF", "Word", "离线"]
+    },
+    {
+        "id": "doc-editor",
+        "name": "文档编辑器",
+        "icon": "📄",
+        "description": "在线编辑各类办公文档，支持Excel、Word、PPT、思维导图（JSMind/KityMinder）和Visio图表",
+        "keywords": ["文档", "编辑器", "Excel", "Word", "PPT", "思维导图", "Visio", "办公", "表格", "文字处理", "演示文稿", "图表"]
     }
 ]

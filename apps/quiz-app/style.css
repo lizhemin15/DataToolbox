@@ -1,0 +1,635 @@
+/**
+ * 开发者：李哲民
+ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+.header {
+    background: white;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.logo-title {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex: 1;
+    justify-content: center;
+}
+
+.app-logo {
+    font-size: 36px;
+}
+
+h1 {
+    font-size: 28px;
+    color: #667eea;
+}
+
+.back-btn {
+    background: #f0f0f0;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.back-btn:hover {
+    background: #e0e0e0;
+}
+
+/* Content */
+.content {
+    background: white;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    margin-bottom: 20px;
+}
+
+/* Upload Section */
+.upload-section {
+    min-height: 400px;
+}
+
+.upload-area {
+    border: 2px dashed #667eea;
+    padding: 60px 40px;
+    text-align: center;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.upload-area:hover {
+    background: #f8f9ff;
+    border-color: #764ba2;
+}
+
+.upload-area.dragover {
+    background: #e8e9ff;
+    border-color: #667eea;
+    border-style: solid;
+}
+
+.upload-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.upload-area h3 {
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 20px;
+}
+
+.upload-area p {
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.upload-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.upload-btn, .sample-btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.upload-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.upload-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.sample-btn {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+}
+
+.sample-btn:hover {
+    background: #f8f9ff;
+}
+
+/* Config Section */
+.config-section {
+    margin-top: 30px;
+    padding: 30px;
+    background: #f8f9ff;
+    border-radius: 10px;
+}
+
+.config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.config-header h3 {
+    color: #333;
+    font-size: 20px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group select,
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.form-group select:focus,
+.form-group input[type="number"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.hint {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    color: #999;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.checkbox-label:hover {
+    background: #f8f9ff;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin-right: 10px;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
+.checkbox-label span {
+    font-size: 14px;
+    color: #333;
+}
+
+.file-info {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+    font-size: 14px;
+    color: #666;
+}
+
+.process-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    width: 100%;
+    transition: all 0.3s;
+}
+
+.process-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Quiz Container */
+.quiz-container {
+    min-height: 500px;
+}
+
+.progress-card {
+    background: #f8f9ff;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.progress-bar {
+    background: #e0e0e0;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.progress-fill {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    height: 100%;
+    transition: width 0.3s;
+}
+
+.progress-text {
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+}
+
+.question-card {
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    border: 2px solid #f0f0f0;
+}
+
+.question-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.question-number {
+    font-size: 18px;
+    font-weight: 600;
+    color: #667eea;
+}
+
+.question-type {
+    background: #667eea;
+    color: white;
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 14px;
+}
+
+.question-text {
+    font-size: 18px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+    color: #333;
+}
+
+/* Options */
+.options {
+    margin: 20px 0;
+}
+
+.option {
+    background: #f8f9ff;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+}
+
+.option:hover {
+    background: #e8e9ff;
+    border-color: #667eea;
+}
+
+.option.selected {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.option input[type="checkbox"],
+.option input[type="radio"] {
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+.option label {
+    cursor: pointer;
+    flex: 1;
+}
+
+.true-false-options {
+    display: flex;
+    gap: 15px;
+}
+
+.true-false-options .option {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+}
+
+/* Answer Input */
+.answer-input {
+    width: 100%;
+    padding: 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 16px;
+    resize: vertical;
+    min-height: 100px;
+    font-family: inherit;
+    transition: all 0.3s;
+}
+
+.answer-input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Button Group */
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.btn-prev, .btn-next, .btn-submit {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-prev {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.btn-prev:hover {
+    background: #d0d0d0;
+}
+
+.btn-next, .btn-submit {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-next:hover, .btn-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Result Container */
+.result-container {
+    min-height: 500px;
+}
+
+.result-header {
+    text-align: center;
+    padding: 40px;
+    background: #f8f9ff;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.result-icon {
+    font-size: 80px;
+    margin-bottom: 20px;
+}
+
+.result-score {
+    font-size: 48px;
+    font-weight: 700;
+    color: #667eea;
+    margin-bottom: 10px;
+}
+
+.result-text {
+    font-size: 20px;
+    color: #666;
+}
+
+.result-details {
+    background: #f8f9ff;
+    padding: 30px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.result-details h3 {
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.detail-item:last-child {
+    border-bottom: none;
+}
+
+.detail-label {
+    font-weight: 600;
+    color: #333;
+}
+
+.detail-value {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.detail-value.correct {
+    color: #28a745;
+}
+
+.detail-value.wrong {
+    color: #dc3545;
+}
+
+/* Answer Review */
+.answer-review {
+    background: #f8f9ff;
+    padding: 30px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+.answer-review h3 {
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.review-item {
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.review-item:last-child {
+    margin-bottom: 0;
+}
+
+.review-question {
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #333;
+    line-height: 1.6;
+}
+
+.review-answer {
+    margin: 5px 0;
+    color: #666;
+}
+
+.correct {
+    color: #28a745;
+    font-weight: 600;
+}
+
+.wrong {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+.partial {
+    color: #ff9800;
+    font-weight: 600;
+}
+
+/* Reset Button */
+.reset-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    width: 100%;
+    transition: all 0.3s;
+}
+
+.reset-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 20px;
+    color: white;
+    font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+
+    .header {
+        padding: 15px;
+    }
+
+    h1 {
+        font-size: 20px;
+    }
+
+    .app-logo {
+        font-size: 28px;
+    }
+
+    .content {
+        padding: 20px;
+    }
+
+    .upload-area {
+        padding: 40px 20px;
+    }
+
+    .upload-icon {
+        font-size: 48px;
+    }
+
+    .upload-buttons {
+        flex-direction: column;
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+
+    .result-icon {
+        font-size: 60px;
+    }
+
+    .result-score {
+        font-size: 36px;
+    }
+}

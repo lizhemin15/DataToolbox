@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>运维工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🔧 运维工具箱</h1>
+            <button class="back-btn" onclick="window.location.href='../../index.html'">返回首页</button>
+        </header>
+
+        <div class="tool-tabs">
+            <button class="tab-btn active" data-tab="ssh">SSH终端</button>
+            <button class="tab-btn" data-tab="sftp">SFTP文件</button>
+            <button class="tab-btn" data-tab="network">网络测试</button>
+            <button class="tab-btn" data-tab="utilities">实用工具</button>
+            <button class="tab-btn" data-tab="hosts">主机管理</button>
+        </div>
+
+        <div class="tool-content">
+            <!-- SSH终端 -->
+            <div class="tab-panel active" id="ssh-panel">
+                <div class="panel-header">
+                    <h2>SSH终端连接</h2>
+                </div>
+                
+                <div class="connection-form">
+                    <div class="form-group">
+                        <label>主机地址:</label>
+                        <input type="text" id="ssh-host" placeholder="192.168.1.100 或 example.com" value="localhost">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>端口:</label>
+                            <input type="number" id="ssh-port" placeholder="22" value="22">
+                        </div>
+                        <div class="form-group">
+                            <label>用户名:</label>
+                            <input type="text" id="ssh-user" placeholder="root">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>密码:</label>
+                        <input type="password" id="ssh-password" placeholder="输入密码">
+                    </div>
+                    <button class="btn btn-primary" id="ssh-connect">连接</button>
+                    <button class="btn btn-danger" id="ssh-disconnect" style="display:none;">断开连接</button>
+                </div>
+
+                <div class="terminal-container" id="terminal-container" style="display:none;">
+                    <div class="terminal-header">
+                        <span id="terminal-status">已连接</span>
+                        <button class="btn-small" id="clear-terminal">清空</button>
+                    </div>
+                    <div class="terminal" id="terminal-output"></div>
+                    <div class="terminal-input-container">
+                        <span class="terminal-prompt">$ </span>
+                        <input type="text" id="terminal-input" class="terminal-input" placeholder="输入命令...">
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    <strong>注意:</strong> SSH连接需要后端WebSocket代理支持。请确保配置了SSH代理服务器。
+                </div>
+            </div>
+
+            <!-- SFTP文件管理 -->
+            <div class="tab-panel" id="sftp-panel">
+                <div class="panel-header">
+                    <h2>SFTP文件管理</h2>
+                </div>
+
+                <div class="connection-form">
+                    <div class="form-group">
+                        <label>主机地址:</label>
+                        <input type="text" id="sftp-host" placeholder="192.168.1.100 或 example.com" value="localhost">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>端口:</label>
+                            <input type="number" id="sftp-port" placeholder="22" value="22">
+                        </div>
+                        <div class="form-group">
+                            <label>用户名:</label>
+                            <input type="text" id="sftp-user" placeholder="root">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>密码:</label>
+                        <input type="password" id="sftp-password" placeholder="输入密码">
+                    </div>
+                    <button class="btn btn-primary" id="sftp-connect">连接</button>
+                    <button class="btn btn-danger" id="sftp-disconnect" style="display:none;">断开连接</button>
+                </div>
+
+                <div class="sftp-container" id="sftp-container" style="display:none;">
+                    <div class="sftp-layout">
+                        <div class="sftp-panel-left">
+                            <div class="sftp-panel-header">
+                                <h3>本地文件</h3>
+                                <button class="btn-small" id="upload-file">上传文件</button>
+                            </div>
+                            <div class="file-browser" id="local-files">
+                                <input type="file" id="local-file-input" style="display:none;" multiple>
+                                <div class="file-list" id="local-file-list"></div>
+                            </div>
+                        </div>
+                        <div class="sftp-panel-right">
+                            <div class="sftp-panel-header">
+                                <h3>远程文件</h3>
+                                <div class="path-bar">
+                                    <input type="text" id="remote-path" value="/" readonly>
+                                    <button class="btn-small" id="refresh-remote">刷新</button>
+                                </div>
+                            </div>
+                            <div class="file-browser" id="remote-files">
+                                <div class="file-list" id="remote-file-list"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-box">
+                    <strong>注意:</strong> SFTP连接需要后端服务支持。请确保配置了SFTP代理服务器。
+                </div>
+            </div>
+
+            <!-- 网络测试工具 -->
+            <div class="tab-panel" id="network-panel">
+                <div class="panel-header">
+                    <h2>网络诊断工具</h2>
+                </div>
+
+                <div class="network-tools">
+                    <!-- Ping测试 -->
+                    <div class="tool-card">
+                        <h3>🏓 Ping测试</h3>
+                        <div class="form-group">
+                            <input type="text" id="ping-host" placeholder="输入域名或IP地址" value="www.baidu.com">
+                            <button class="btn btn-primary" id="ping-btn">Ping</button>
+                        </div>
+                        <div class="result-box" id="ping-result"></div>
+                    </div>
+
+                    <!-- DNS查询 -->
+                    <div class="tool-card">
+                        <h3>🌐 DNS查询</h3>
+                        <div class="form-group">
+                            <input type="text" id="dns-host" placeholder="输入域名" value="www.baidu.com">
+                            <button class="btn btn-primary" id="dns-btn">查询</button>
+                        </div>
+                        <div class="result-box" id="dns-result"></div>
+                    </div>
+
+                    <!-- HTTP测试 -->
+                    <div class="tool-card">
+                        <h3>🔗 HTTP请求测试</h3>
+                        <div class="form-group">
+                            <select id="http-method">
+                                <option>GET</option>
+                                <option>POST</option>
+                                <option>PUT</option>
+                                <option>DELETE</option>
+                            </select>
+                            <input type="text" id="http-url" placeholder="输入URL" value="https://api.github.com">
+                            <button class="btn btn-primary" id="http-btn">测试</button>
+                        </div>
+                        <div class="form-group">
+                            <textarea id="http-body" placeholder="请求体 (JSON)" rows="3"></textarea>
+                        </div>
+                        <div class="result-box" id="http-result"></div>
+                    </div>
+
+                    <!-- 端口检测 -->
+                    <div class="tool-card">
+                        <h3>🔌 端口检测</h3>
+                        <div class="form-group">
+                            <input type="text" id="port-host" placeholder="域名或IP" value="www.baidu.com">
+                            <input type="number" id="port-number" placeholder="端口" value="80">
+                            <button class="btn btn-primary" id="port-btn">检测</button>
+                        </div>
+                        <div class="result-box" id="port-result"></div>
+                    </div>
+
+                    <!-- IP信息查询 -->
+                    <div class="tool-card">
+                        <h3>📍 IP信息查询</h3>
+                        <div class="form-group">
+                            <input type="text" id="ip-address" placeholder="输入IP地址（留空查询本机）">
+                            <button class="btn btn-primary" id="ip-btn">查询</button>
+                        </div>
+                        <div class="result-box" id="ip-result"></div>
+                    </div>
+
+                    <!-- 域名Whois -->
+                    <div class="tool-card">
+                        <h3>📋 域名Whois</h3>
+                        <div class="form-group">
+                            <input type="text" id="whois-domain" placeholder="输入域名" value="baidu.com">
+                            <button class="btn btn-primary" id="whois-btn">查询</button>
+                        </div>
+                        <div class="result-box" id="whois-result"></div>
+                    </div>
+
+                    <!-- 网速测试 -->
+                    <div class="tool-card">
+                        <h3>⚡ 网速测试</h3>
+                        <div class="form-group">
+                            <button class="btn btn-primary" id="speed-btn">开始测试</button>
+                        </div>
+                        <div class="result-box" id="speed-result"></div>
+                    </div>
+
+                    <!-- SSL证书检查 -->
+                    <div class="tool-card">
+                        <h3>🔒 SSL证书检查</h3>
+                        <div class="form-group">
+                            <input type="text" id="ssl-host" placeholder="输入域名" value="www.baidu.com">
+                            <button class="btn btn-primary" id="ssl-btn">检查</button>
+                        </div>
+                        <div class="result-box" id="ssl-result"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 实用工具 -->
+            <div class="tab-panel" id="utilities-panel">
+                <div class="panel-header">
+                    <h2>运维实用工具</h2>
+                </div>
+
+                <div class="network-tools">
+                    <!-- Cron表达式生成器 -->
+                    <div class="tool-card">
+                        <h3>⏰ Cron表达式生成器</h3>
+                        <div class="form-group">
+                            <label>秒:</label>
+                            <input type="text" id="cron-second" placeholder="0-59 或 *" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label>分:</label>
+                            <input type="text" id="cron-minute" placeholder="0-59 或 *" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label>时:</label>
+                            <input type="text" id="cron-hour" placeholder="0-23 或 *" value="*">
+                        </div>
+                        <div class="form-group">
+                            <label>日:</label>
+                            <input type="text" id="cron-day" placeholder="1-31 或 *" value="*">
+                        </div>
+                        <div class="form-group">
+                            <label>月:</label>
+                            <input type="text" id="cron-month" placeholder="1-12 或 *" value="*">
+                        </div>
+                        <div class="form-group">
+                            <label>周:</label>
+                            <input type="text" id="cron-week" placeholder="0-7 或 *" value="?">
+                        </div>
+                        <button class="btn btn-primary" id="cron-generate">生成表达式</button>
+                        <div class="result-box" id="cron-result"></div>
+                    </div>
+
+                    <!-- 正则表达式测试 -->
+                    <div class="tool-card">
+                        <h3>🔍 正则表达式测试</h3>
+                        <div class="form-group">
+                            <label>正则表达式:</label>
+                            <input type="text" id="regex-pattern" placeholder="输入正则表达式" value="\d{3}-\d{4}-\d{4}">
+                        </div>
+                        <div class="form-group">
+                            <label>测试文本:</label>
+                            <textarea id="regex-text" rows="4" placeholder="输入要测试的文本">我的电话是123-4567-8901</textarea>
+                        </div>
+                        <div class="form-group" style="display: flex; gap: 10px; align-items: center;">
+                            <label style="margin: 0;">
+                                <input type="checkbox" id="regex-global"> 全局匹配(g)
+                            </label>
+                            <label style="margin: 0;">
+                                <input type="checkbox" id="regex-case"> 忽略大小写(i)
+                            </label>
+                            <label style="margin: 0;">
+                                <input type="checkbox" id="regex-multi"> 多行模式(m)
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" id="regex-test">测试</button>
+                        <div class="result-box" id="regex-result"></div>
+                    </div>
+
+                    <!-- JSON格式化 -->
+                    <div class="tool-card">
+                        <h3>📋 JSON格式化</h3>
+                        <div class="form-group">
+                            <textarea id="json-input" rows="6" placeholder='输入JSON字符串'>{"name":"张三","age":25,"city":"北京"}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" id="json-format">格式化</button>
+                            <button class="btn btn-primary" id="json-compress">压缩</button>
+                            <button class="btn btn-primary" id="json-validate">验证</button>
+                        </div>
+                        <div class="result-box" id="json-result"></div>
+                    </div>
+
+                    <!-- Base64编解码 -->
+                    <div class="tool-card">
+                        <h3>🔐 Base64编解码</h3>
+                        <div class="form-group">
+                            <textarea id="base64-input" rows="4" placeholder="输入文本或Base64">Hello World</textarea>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" id="base64-encode">编码</button>
+                            <button class="btn btn-primary" id="base64-decode">解码</button>
+                        </div>
+                        <div class="result-box" id="base64-result"></div>
+                    </div>
+
+                    <!-- 时间戳转换 -->
+                    <div class="tool-card">
+                        <h3>🕐 时间戳转换</h3>
+                        <div class="form-group">
+                            <label>时间戳 (秒/毫秒):</label>
+                            <input type="text" id="timestamp-input" placeholder="输入时间戳">
+                            <button class="btn btn-primary" id="timestamp-now">当前时间</button>
+                        </div>
+                        <button class="btn btn-primary" id="timestamp-convert">转换</button>
+                        <div class="result-box" id="timestamp-result"></div>
+                    </div>
+
+                    <!-- Hash计算 -->
+                    <div class="tool-card">
+                        <h3>🔒 Hash计算</h3>
+                        <div class="form-group">
+                            <textarea id="hash-input" rows="3" placeholder="输入要计算Hash的文本">Hello World</textarea>
+                        </div>
+                        <button class="btn btn-primary" id="hash-calculate">计算Hash</button>
+                        <div class="result-box" id="hash-result"></div>
+                    </div>
+
+                    <!-- 文本对比 -->
+                    <div class="tool-card" style="grid-column: 1 / -1;">
+                        <h3>📊 文本对比</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>文本1:</label>
+                                <textarea id="diff-text1" rows="8" placeholder="输入第一段文本"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>文本2:</label>
+                                <textarea id="diff-text2" rows="8" placeholder="输入第二段文本"></textarea>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" id="diff-compare">对比</button>
+                        <div class="result-box" id="diff-result"></div>
+                    </div>
+
+                    <!-- 密码生成器 -->
+                    <div class="tool-card">
+                        <h3>🔑 密码生成器</h3>
+                        <div class="form-group">
+                            <label>密码长度:</label>
+                            <input type="number" id="pwd-length" value="16" min="6" max="64">
+                        </div>
+                        <div class="form-group">
+                            <label><input type="checkbox" id="pwd-upper" checked> 大写字母</label>
+                            <label><input type="checkbox" id="pwd-lower" checked> 小写字母</label>
+                            <label><input type="checkbox" id="pwd-number" checked> 数字</label>
+                            <label><input type="checkbox" id="pwd-symbol" checked> 特殊符号</label>
+                        </div>
+                        <button class="btn btn-primary" id="pwd-generate">生成密码</button>
+                        <div class="result-box" id="pwd-result"></div>
+                    </div>
+
+                    <!-- CIDR计算器 -->
+                    <div class="tool-card">
+                        <h3>🌐 CIDR子网计算</h3>
+                        <div class="form-group">
+                            <input type="text" id="cidr-input" placeholder="输入CIDR (如: 192.168.1.0/24)" value="192.168.1.0/24">
+                        </div>
+                        <button class="btn btn-primary" id="cidr-calculate">计算</button>
+                        <div class="result-box" id="cidr-result"></div>
+                    </div>
+
+                    <!-- URL编解码 -->
+                    <div class="tool-card">
+                        <h3>🔗 URL编解码</h3>
+                        <div class="form-group">
+                            <textarea id="url-input" rows="3" placeholder="输入URL或编码文本">https://example.com/search?q=测试</textarea>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" id="url-encode">编码</button>
+                            <button class="btn btn-primary" id="url-decode">解码</button>
+                        </div>
+                        <div class="result-box" id="url-result"></div>
+                    </div>
+
+                    <!-- UUID生成器 -->
+                    <div class="tool-card">
+                        <h3>🆔 UUID生成器</h3>
+                        <div class="form-group">
+                            <label>生成数量:</label>
+                            <input type="number" id="uuid-count" value="5" min="1" max="100">
+                        </div>
+                        <button class="btn btn-primary" id="uuid-generate">生成UUID</button>
+                        <div class="result-box" id="uuid-result"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 主机管理 -->
+            <div class="tab-panel" id="hosts-panel">
+                <div class="panel-header">
+                    <h2>主机管理</h2>
+                    <button class="btn btn-primary" id="add-host">添加主机</button>
+                </div>
+
+                <div class="hosts-container">
+                    <div class="hosts-list" id="hosts-list"></div>
+                </div>
+
+                <!-- 添加主机弹窗 -->
+                <div class="modal" id="host-modal" style="display: none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>添加/编辑主机</h3>
+                            <button class="modal-close" id="close-modal">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label>主机名称:</label>
+                                <input type="text" id="host-name" placeholder="生产服务器">
+                            </div>
+                            <div class="form-group">
+                                <label>主机地址:</label>
+                                <input type="text" id="host-address" placeholder="192.168.1.100">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>SSH端口:</label>
+                                    <input type="number" id="host-port" value="22">
+                                </div>
+                                <div class="form-group">
+                                    <label>用户名:</label>
+                                    <input type="text" id="host-user" placeholder="root">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>密码 (可选):</label>
+                                <input type="password" id="host-password" placeholder="密码">
+                            </div>
+                            <div class="form-group">
+                                <label>标签:</label>
+                                <input type="text" id="host-tags" placeholder="生产,数据库,Linux">
+                            </div>
+                            <div class="form-group">
+                                <label>备注:</label>
+                                <textarea id="host-notes" rows="3" placeholder="备注信息"></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-primary" id="save-host">保存</button>
+                            <button class="btn" id="cancel-modal">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

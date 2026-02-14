@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>待办清单+番茄钟 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 左侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <button class="back-btn" onclick="goBack()">←</button>
+                <h2>📋 待办清单</h2>
+            </div>
+            
+            <div class="sidebar-lists">
+                <div class="list-item active" data-list="all">
+                    <span class="list-icon">📝</span>
+                    <span class="list-name">全部任务</span>
+                    <span class="task-count">0</span>
+                </div>
+                <div class="list-item" data-list="today">
+                    <span class="list-icon">📅</span>
+                    <span class="list-name">今天</span>
+                    <span class="task-count">0</span>
+                </div>
+                <div class="list-item" data-list="important">
+                    <span class="list-icon">⭐</span>
+                    <span class="list-name">重要</span>
+                    <span class="task-count">0</span>
+                </div>
+                <div class="list-item" data-list="completed">
+                    <span class="list-icon">✅</span>
+                    <span class="list-name">已完成</span>
+                    <span class="task-count">0</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="main-header">
+                <h1 id="currentListTitle">全部任务</h1>
+                <div class="header-actions">
+                    <button class="btn-sort" onclick="toggleSort()">
+                        <span class="icon">🔄</span>
+                        <span>排序</span>
+                    </button>
+                    <button class="btn-toggle-panel" onclick="toggleRightPanel()" title="切换番茄钟面板">
+                        <span id="togglePanelIcon">🍅</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 添加任务输入框 -->
+            <div class="add-task-container">
+                <input type="text" id="taskInput" class="task-input" placeholder="添加任务..." autocomplete="off">
+                <button class="btn-add-task" onclick="addTask()">
+                    <span class="icon">+</span>
+                </button>
+            </div>
+
+            <!-- 任务列表 -->
+            <div class="tasks-container" id="tasksContainer">
+                <!-- 任务将动态添加到这里 -->
+            </div>
+
+            <!-- 空状态 -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">📝</div>
+                <p class="empty-title">还没有任务，开始添加一个吧！</p>
+                <div class="quick-tips">
+                    <p class="tip-title">💡 快捷键提示</p>
+                    <div class="tip-item"><kbd>N</kbd> 快速添加任务</div>
+                    <div class="tip-item"><kbd>Space</kbd> 开始/暂停番茄钟</div>
+                    <div class="tip-item"><kbd>P</kbd> 切换番茄钟面板</div>
+                    <div class="tip-item"><kbd>1-4</kbd> 切换列表视图</div>
+                    <div class="tip-item"><kbd>ESC</kbd> 关闭详情面板</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 右侧面板（任务详情/番茄钟） -->
+        <aside class="right-panel" id="rightPanel">
+            <div class="panel-header">
+                <h3 id="panelTitle">番茄钟</h3>
+                <button class="btn-close-panel" onclick="closeRightPanel()">×</button>
+            </div>
+
+            <!-- 任务详情视图 -->
+            <div class="task-detail-view" id="taskDetailView" style="display: none;">
+                <div class="detail-section">
+                    <input type="text" class="detail-title" id="detailTitle" placeholder="任务标题">
+                </div>
+
+                <div class="detail-section">
+                    <label class="detail-label">
+                        <span class="label-icon">📅</span>
+                        <span>日期</span>
+                    </label>
+                    <input type="date" class="detail-input" id="detailDate">
+                </div>
+
+                <div class="detail-section">
+                    <label class="detail-label">
+                        <span class="label-icon">⭐</span>
+                        <span>重要程度</span>
+                    </label>
+                    <select class="detail-select" id="detailPriority">
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高</option>
+                    </select>
+                </div>
+
+                <div class="detail-section">
+                    <label class="detail-label">
+                        <span class="label-icon">📝</span>
+                        <span>备注</span>
+                    </label>
+                    <textarea class="detail-textarea" id="detailNote" placeholder="添加备注..."></textarea>
+                </div>
+
+                <div class="detail-actions">
+                    <button class="btn-focus" onclick="startFocusFromDetail()">
+                        <span class="icon">🍅</span>
+                        <span>开始专注</span>
+                    </button>
+                    <button class="btn-delete" onclick="deleteCurrentTask()">
+                        <span class="icon">🗑️</span>
+                        <span>删除任务</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 番茄钟视图 -->
+            <div class="pomodoro-view" id="pomodoroView">
+                <div class="pomodoro-timer">
+                    <svg class="timer-ring" viewBox="0 0 200 200">
+                        <circle class="timer-ring-bg" cx="100" cy="100" r="85"></circle>
+                        <circle class="timer-ring-progress" cx="100" cy="100" r="85" id="timerRingProgress"></circle>
+                    </svg>
+                    <div class="timer-content">
+                        <div class="timer-display" id="timerDisplay">25:00</div>
+                        <div class="timer-label" id="timerLabel">工作时间</div>
+                    </div>
+                </div>
+
+                <div class="pomodoro-task" id="pomodoroTask">
+                    <span class="task-icon">📌</span>
+                    <span id="pomodoroTaskName">点击任务开始专注</span>
+                </div>
+
+                <div class="pomodoro-controls">
+                    <button class="btn-timer" id="btnStartPause" onclick="toggleTimer()">
+                        <span class="icon">▶️</span>
+                        <span>开始</span>
+                    </button>
+                    <button class="btn-timer" onclick="resetTimer()">
+                        <span class="icon">⏹️</span>
+                        <span>重置</span>
+                    </button>
+                </div>
+
+                <div class="pomodoro-settings">
+                    <div class="setting-item">
+                        <label>工作时长 (分钟)</label>
+                        <input type="number" id="workDuration" value="25" min="1" max="60">
+                    </div>
+                    <div class="setting-item">
+                        <label>休息时长 (分钟)</label>
+                        <input type="number" id="breakDuration" value="5" min="1" max="30">
+                    </div>
+                </div>
+
+                <div class="pomodoro-stats">
+                    <div class="stat-item">
+                        <div class="stat-value" id="completedPomodoros">0</div>
+                        <div class="stat-label">今日完成</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalFocusTime">0h</div>
+                        <div class="stat-label">专注时长</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 通知提示 -->
+    <div class="toast" id="toast"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>

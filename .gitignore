@@ -1,0 +1,18 @@
+# 服务器可执行文件
+datatoolbox-server
+datatoolbox-server.exe
+
+# Go编译产物
+go.mod
+go.sum
+
+# 日志文件
+*.log
+
+# 打包文件
+*.zip
+*.tar.gz
+package/
+
+# GitHub Actions artifacts
+artifacts/

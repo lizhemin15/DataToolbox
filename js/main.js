@@ -1,15 +1,18 @@
 // 应用数据（从 apps.js 加载）
 const apps = appsData || [];
 const categories = appCategories || [];
+const tags = appTags || [];
 
 // 当前筛选状态
 let currentCategory = 'all';
 let currentSort = 'default';
 let currentKeyword = '';
+let selectedTags = new Set();
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     renderCategoryTabs();
+    renderTagFilter();
     renderApps();
     setupSearch();
     setupSort();
@@ -41,6 +44,65 @@ function switchCategory(categoryId) {
     renderApps();
 }
 
+// 渲染标签筛选器
+function renderTagFilter() {
+    const filterBar = document.querySelector('.filter-bar');
+    const tagFilterHTML = `
+        <div class="tag-filter">
+            <button class="tag-filter-toggle" onclick="toggleTagFilter()">
+                <span class="filter-icon">🏷️</span>
+                <span class="filter-text">标签筛选</span>
+                <span class="selected-count">${selectedTags.size > 0 ? `(${selectedTags.size})` : ''}</span>
+            </button>
+            <div class="tag-list" id="tagList" style="display: none;">
+                ${tags.map(tag => `
+                    <button class="tag-item${selectedTags.has(tag.id) ? ' active' : ''}" 
+                            data-tag="${tag.id}"
+                            onclick="toggleTag('${tag.id}')"
+                            style="border-color: ${tag.color}80; ${selectedTags.has(tag.id) ? `background: ${tag.color}40; border-color: ${tag.color};` : ''}">
+                        <span class="tag-dot" style="background: ${tag.color}; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px;"></span>
+                        <span class="tag-name">${tag.name}</span>
+                        <span class="tag-check">${selectedTags.has(tag.id) ? '✓' : ''}</span>
+                    </button>
+                `).join('')}
+                ${selectedTags.size > 0 ? '<button class="tag-clear" onclick="clearTags()">清除所有</button>' : ''}
+            </div>
+        </div>
+    `;
+    
+    // 插入到排序控件之前
+    const sortControl = filterBar.querySelector('.sort-control');
+    if (!document.querySelector('.tag-filter')) {
+        sortControl.insertAdjacentHTML('beforebegin', tagFilterHTML);
+    } else {
+        document.querySelector('.tag-filter').outerHTML = tagFilterHTML;
+    }
+}
+
+// 切换标签筛选器显示
+function toggleTagFilter() {
+    const tagList = document.getElementById('tagList');
+    tagList.style.display = tagList.style.display === 'none' ? 'flex' : 'none';
+}
+
+// 切换标签选择
+function toggleTag(tagId) {
+    if (selectedTags.has(tagId)) {
+        selectedTags.delete(tagId);
+    } else {
+        selectedTags.add(tagId);
+    }
+    renderTagFilter();
+    renderApps();
+}
+
+// 清除所有标签
+function clearTags() {
+    selectedTags.clear();
+    renderTagFilter();
+    renderApps();
+}
+
 // 获取筛选+排序后的应用列表
 function getFilteredApps() {
     let result = [...apps];
@@ -48,6 +110,14 @@ function getFilteredApps() {
     // 分区筛选
     if (currentCategory !== 'all') {
         result = result.filter(app => app.category === currentCategory);
+    }
+
+    // 标签筛选（多选AND逻辑：应用必须包含所有选中的标签）
+    if (selectedTags.size > 0) {
+        result = result.filter(app => {
+            if (!app.tags) return false;
+            return Array.from(selectedTags).every(tagId => app.tags.includes(tagId));
+        });
     }
 
     // 关键词筛选
@@ -111,14 +181,17 @@ function renderApps() {
 
 // 渲染单个卡片
 function renderCard(app) {
-    const cat = categories.find(c => c.id === app.category);
-    const catName = cat ? cat.name : '';
+    const appTagsHTML = app.tags ? app.tags.slice(0, 3).map(tagId => {
+        const tag = tags.find(t => t.id === tagId);
+        return tag ? `<span class="app-tag" style="background-color: ${tag.color};">${tag.name}</span>` : '';
+    }).join('') : '';
+    
     return `
         <div class="app-card" onclick="openApp('${app.id}')">
             <div class="app-icon">${app.icon}</div>
             <div class="app-name">${app.name}</div>
             <div class="app-description">${app.description}</div>
-            <div class="app-badge">${catName}</div>
+            ${appTagsHTML ? `<div class="app-tags">${appTagsHTML}</div>` : ''}
         </div>
     `;
 }

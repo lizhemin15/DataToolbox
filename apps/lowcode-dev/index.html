@@ -3,80 +3,260 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>低代码开发 - 数据工具箱</title>
+    <title>低代码可视化开发平台 - 数据工具箱</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
-    <!-- 欢迎页 -->
-    <div id="welcomeScreen" class="welcome-screen">
-        <div class="welcome-card">
-            <div class="welcome-icon">🧩</div>
-            <h1>低代码开发</h1>
-            <p class="welcome-desc">可视化拖拽构建数据处理应用</p>
-            <div class="welcome-actions">
-                <button class="welcome-btn primary" onclick="createNewProject()">
-                    <span class="btn-icon">✨</span> 新建项目
-                </button>
-                <button class="welcome-btn secondary" onclick="openExistingProject()">
-                    <span class="btn-icon">📂</span> 打开项目
-                </button>
-            </div>
+    <!-- 顶部工具栏 -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="topbar-btn icon-btn" onclick="goBack()" title="返回主页">
+                <span>←</span>
+            </button>
+            <input class="app-name-input" id="appNameInput" value="未命名应用" spellcheck="false">
+            <span class="app-status">未保存</span>
+        </div>
+        <div class="topbar-center">
+            <span class="app-title-display">🎨 可视化设计</span>
+        </div>
+        <div class="topbar-right">
+            <button class="topbar-btn" onclick="openTemplates()">📚 模板</button>
+            <button class="topbar-btn" onclick="openAISettings()">⚙️ AI设置</button>
+            <button class="topbar-btn" onclick="saveApp()">💾 保存</button>
+            <button class="topbar-btn" onclick="previewApp()">👁️ 预览</button>
+            <button class="topbar-btn primary" onclick="publishApp()">🚀 发布</button>
         </div>
     </div>
 
-    <!-- 编辑器 -->
-    <div id="editorScreen" class="editor-screen" style="display:none">
-        <div class="editor-topbar">
-            <div class="topbar-left">
-                <button class="topbar-btn" onclick="backToWelcome()">← 返回</button>
-                <input class="project-name-input" id="projectNameInput" value="未命名项目" spellcheck="false">
+    <!-- 主工作区 -->
+    <div class="workspace">
+        <!-- 左侧组件面板 -->
+        <div class="left-panel" id="leftPanel">
+            <div class="panel-header">
+                <h3>组件库</h3>
+                <input type="text" class="component-search" placeholder="搜索组件..." id="componentSearch">
             </div>
-            <div class="topbar-right">
-                <button class="topbar-btn" onclick="saveProject()">💾 保存</button>
-                <button class="topbar-btn accent" onclick="compileProject()">🔨 编译</button>
+            <div class="component-list" id="componentList">
+                <!-- 组件将动态插入 -->
             </div>
         </div>
-        <div class="editor-body">
-            <div class="palette" id="palette">
-                <div class="palette-search">
-                    <input type="text" id="paletteSearch" placeholder="搜索模块..." oninput="filterPalette()">
+
+        <!-- 中间画布区域 -->
+        <div class="canvas-area">
+            <div class="canvas-toolbar">
+                <span class="toolbar-label">组件间距:</span>
+                <button class="canvas-btn" onclick="adjustGap(-2)">−</button>
+                <span class="zoom-level" id="gapLevel">12px</span>
+                <button class="canvas-btn" onclick="adjustGap(2)">+</button>
+                <div class="canvas-toolbar-divider"></div>
+                <button class="canvas-btn" onclick="zoomOut()">缩小</button>
+                <span class="zoom-level" id="zoomLevel">100%</span>
+                <button class="canvas-btn" onclick="zoomIn()">放大</button>
+            </div>
+            <div class="canvas-wrapper" id="canvasWrapper">
+                <div class="canvas" id="canvas" ondrop="onCanvasDrop(event)" ondragover="allowDrop(event)">
+                    <div class="canvas-placeholder">
+                        <div class="placeholder-icon">🎨</div>
+                        <h3>开始设计你的应用</h3>
+                        <p>从左侧拖拽组件到此处开始构建界面</p>
+                    </div>
                 </div>
-                <div class="palette-tabs" id="paletteTabs"></div>
-                <div class="palette-modules" id="paletteModules"></div>
-            </div>
-            <div class="flow-panel" id="flowPanel">
-                <div class="flow-list" id="flowList"></div>
-                <div class="flow-drop" id="flowDrop">将左侧模块拖拽到此处添加</div>
             </div>
         </div>
-    </div>
 
-    <!-- 编辑弹窗 -->
-    <div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
-        <div class="modal-content modal-edit">
-            <div class="modal-header"><h3 id="editModalTitle">编辑模块</h3><button class="modal-close" onclick="closeEditModal()">×</button></div>
-            <div class="modal-body" id="editModalBody"></div>
-            <div class="modal-footer"><button class="compile-btn primary" onclick="closeEditModal()">确定</button></div>
+        <!-- 右侧属性面板 -->
+        <div class="right-panel" id="rightPanel">
+            <div class="panel-header">
+                <h3 id="propertyPanelTitle">属性</h3>
+                <button class="panel-close" onclick="closePropertyPanel()">×</button>
+            </div>
+            <div class="property-tabs">
+                <button class="property-tab active" data-tab="props">属性</button>
+                <button class="property-tab" data-tab="style">布局</button>
+                <button class="property-tab" data-tab="events">事件</button>
+                <button class="property-tab" data-tab="variables">变量</button>
+            </div>
+            <div class="property-content" id="propertyContent">
+                <div class="property-empty">
+                    <div class="empty-icon">👆</div>
+                    <p>选择一个组件查看属性</p>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- 模块编辑弹窗 -->
-    <div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
-        <div class="modal-content modal-edit">
-            <div class="modal-header"><h3 id="editModalTitle">编辑模块</h3><button class="modal-close" onclick="closeEditModal()">×</button></div>
-            <div class="modal-body" id="editModalBody"></div>
-            <div class="modal-footer"><button class="compile-btn primary" onclick="closeEditModal()">完成</button></div>
+
+    <!-- 按钮事件编辑器模态框 -->
+    <div class="modal-overlay" id="eventModal" style="display:none" onclick="if(event.target===this)closeEventModal()">
+        <div class="modal-content modal-event">
+            <div class="modal-header">
+                <h3>按钮点击事件</h3>
+                <button class="modal-close" onclick="closeEventModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="event-hint-box">
+                    <div class="hint-title">💡 可用的变量</div>
+                    <div id="availableVars" class="available-vars"></div>
+                </div>
+                
+                <div class="ai-assist-section">
+                    <label>AI 辅助生成代码</label>
+                    <div class="ai-input-group">
+                        <textarea id="aiPrompt" placeholder="描述你想要的功能，例如：&#10;- 验证 userName 不为空，然后弹出欢迎消息&#10;- 计算 number1 和 number2 的和并显示&#10;- 检查 email 格式是否正确" rows="3"></textarea>
+                        <button class="btn-ai" onclick="generateCodeWithAI()">✨ AI 生成代码</button>
+                    </div>
+                </div>
+                
+                <div class="event-code">
+                    <label>JavaScript 代码（点击按钮后执行）</label>
+                    <textarea id="eventCode" placeholder="// 编写或使用AI生成代码&#10;console.log('按钮被点击');" spellcheck="false"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeEventModal()">取消</button>
+                <button class="btn-primary" onclick="saveEvent()">保存</button>
+            </div>
         </div>
     </div>
 
-    <!-- 编译弹窗 -->
-    <div class="modal-overlay" id="compileModal" style="display:none">
-        <div class="modal-content">
-            <div class="modal-header"><h3>编译结果</h3><button class="modal-close" onclick="closeCompileModal()">×</button></div>
-            <div class="modal-body" id="compileModalBody"></div>
+    <!-- 预览模态框 -->
+    <div class="modal-overlay" id="previewModal" style="display:none">
+        <div class="modal-content modal-preview">
+            <div class="modal-header">
+                <h3>应用预览</h3>
+                <button class="modal-close" onclick="closePreview()">×</button>
+            </div>
+            <div class="preview-body" id="previewBody">
+                <!-- 预览内容 -->
+            </div>
         </div>
     </div>
-    <input type="file" id="jsonFileInput" accept=".json" style="display:none">
+
+    <!-- 模板选择模态框 -->
+    <div class="modal-overlay" id="templatesModal" style="display:none" onclick="if(event.target===this)closeTemplates()">
+        <div class="modal-content modal-templates">
+            <div class="modal-header">
+                <h3>📚 选择模板</h3>
+                <button class="modal-close" onclick="closeTemplates()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="templates-grid">
+                    <div class="template-card" onclick="loadTemplate('excel-to-word')">
+                        <div class="template-icon">📄</div>
+                        <h4>Excel转Word文档</h4>
+                        <p>将Excel表格数据转换为Word文档，支持多种布局方式</p>
+                        <div class="template-tags">
+                            <span class="tag">Excel</span>
+                            <span class="tag">Word</span>
+                            <span class="tag">转换</span>
+                        </div>
+                    </div>
+                    
+                    <div class="template-card" onclick="loadTemplate('excel-filter')">
+                        <div class="template-icon">🔍</div>
+                        <h4>Excel数据筛选器</h4>
+                        <p>根据指定列和条件筛选Excel数据，导出筛选结果</p>
+                        <div class="template-tags">
+                            <span class="tag">Excel</span>
+                            <span class="tag">筛选</span>
+                            <span class="tag">过滤</span>
+                        </div>
+                    </div>
+                    
+                    <div class="template-card" onclick="loadTemplate('batch-rename')">
+                        <div class="template-icon">📝</div>
+                        <h4>批量文件重命名</h4>
+                        <p>根据Excel名单生成批量重命名脚本</p>
+                        <div class="template-tags">
+                            <span class="tag">批量</span>
+                            <span class="tag">重命名</span>
+                            <span class="tag">脚本</span>
+                        </div>
+                    </div>
+                    
+                    <div class="template-card" onclick="loadTemplate('data-validator')">
+                        <div class="template-icon">✅</div>
+                        <h4>数据验证工具</h4>
+                        <p>验证Excel数据的完整性和格式正确性</p>
+                        <div class="template-tags">
+                            <span class="tag">验证</span>
+                            <span class="tag">质量检查</span>
+                            <span class="tag">报告</span>
+                        </div>
+                    </div>
+                    
+                    <div class="template-card" onclick="loadTemplate('ai-chat-assistant')">
+                        <div class="template-icon">🤖</div>
+                        <h4>AI聊天助手</h4>
+                        <p>可配置API的智能聊天助手，支持流式输出</p>
+                        <div class="template-tags">
+                            <span class="tag">AI</span>
+                            <span class="tag">聊天</span>
+                            <span class="tag">流式输出</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="template-hint">
+                    💡 提示：选择模板后将覆盖当前项目，请先保存当前工作
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI设置模态框 -->
+    <div class="modal-overlay" id="aiSettingsModal" style="display:none" onclick="if(event.target===this)closeAISettings()">
+        <div class="modal-content modal-settings">
+            <div class="modal-header">
+                <h3>⚙️ AI 辅助设置</h3>
+                <button class="modal-close" onclick="closeAISettings()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <div class="settings-hint">
+                        💡 配置 AI API 以启用代码生成功能。如果不配置，AI功能将不可用。
+                    </div>
+                    
+                    <div class="setting-field">
+                        <label>API 地址</label>
+                        <input type="text" id="aiApiUrl" placeholder="https://api.deepseek.com/v1/chat/completions">
+                        <div class="field-hint">兼容 OpenAI 格式的 API 地址</div>
+                    </div>
+                    
+                    <div class="setting-field">
+                        <label>API 密钥</label>
+                        <input type="password" id="aiApiKey" placeholder="sk-...">
+                        <div class="field-hint">你的 API Key，仅保存在本地浏览器中</div>
+                    </div>
+                    
+                    <div class="setting-field">
+                        <label>模型名称</label>
+                        <input type="text" id="aiModel" placeholder="deepseek-chat">
+                        <div class="field-hint">使用的模型名称，如 deepseek-chat, gpt-3.5-turbo 等</div>
+                    </div>
+                    
+                    <div class="setting-field">
+                        <label>Temperature (0-2)</label>
+                        <input type="number" id="aiTemperature" min="0" max="2" step="0.1" placeholder="0.7">
+                        <div class="field-hint">控制生成的随机性，值越低越确定，默认 0.7</div>
+                    </div>
+                    
+                    <div class="setting-field">
+                        <button class="btn-test" onclick="testAIConnection()">🧪 测试连接</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeAISettings()">取消</button>
+                <button class="btn-primary" onclick="saveAISettings()">保存设置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 消息提示容器 -->
+    <div class="toast-container" id="toastContainer"></div>
+
     <script src="script.js"></script>
 </body>
 </html>
