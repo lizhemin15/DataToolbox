@@ -2,10 +2,6 @@
 datatoolbox-server
 datatoolbox-server.exe
 
-# Go编译产物
-go.mod
-go.sum
-
 # 日志文件
 *.log
 
