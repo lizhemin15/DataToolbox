@@ -43,6 +43,10 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
+	// 协作文档数据
+	documents    map[string]interface{}
+	docUsers     map[string]map[string]bool // docId -> userId -> bool
+	docMu        sync.RWMutex
 }
 
 // Message WebSocket消息结构
@@ -60,6 +64,14 @@ type Message struct {
 	GameType    string      `json:"gameType,omitempty"`
 	Move        interface{} `json:"move,omitempty"`
 	Winner      string      `json:"winner,omitempty"`
+	// 协作文档相关字段
+	DocId     string      `json:"docId,omitempty"`
+	Document  interface{} `json:"document,omitempty"`
+	Documents interface{} `json:"documents,omitempty"`
+	Update    interface{} `json:"update,omitempty"`
+	Cursor    interface{} `json:"cursor,omitempty"`
+	Users     interface{} `json:"users,omitempty"`
+	Title     string      `json:"title,omitempty"`
 }
 
 var hub = &Hub{
@@ -67,6 +79,8 @@ var hub = &Hub{
 	broadcast:  make(chan []byte),
 	register:   make(chan *Client),
 	unregister: make(chan *Client),
+	documents:  make(map[string]interface{}),
+	docUsers:   make(map[string]map[string]bool),
 }
 
 // loadConfig 加载配置文件
@@ -360,6 +374,149 @@ func (c *Client) readPump() {
 				}
 			} else {
 				log.Printf("目标客户端不存在: %s", msg.To)
+			}
+			hub.mu.RUnlock()
+
+		case "doc-list-request":
+			// 请求文档列表
+			hub.docMu.RLock()
+			docs := make([]interface{}, 0)
+			for _, doc := range hub.documents {
+				docs = append(docs, doc)
+			}
+			hub.docMu.RUnlock()
+
+			response := Message{
+				Type:      "doc-list",
+				Documents: docs,
+			}
+			data, _ := json.Marshal(response)
+			c.Send <- data
+			log.Printf("发送文档列表给客户端 %s", c.ID)
+
+		case "doc-created":
+			// 创建文档
+			if msg.Document != nil {
+				docMap, ok := msg.Document.(map[string]interface{})
+				if ok {
+					docId := docMap["id"].(string)
+					hub.docMu.Lock()
+					hub.documents[docId] = msg.Document
+					hub.docMu.Unlock()
+
+					// 广播给所有客户端
+					data, _ := json.Marshal(msg)
+					hub.mu.RLock()
+					for _, client := range hub.clients {
+						if client.ID != c.ID {
+							select {
+							case client.Send <- data:
+							default:
+							}
+						}
+					}
+					hub.mu.RUnlock()
+					log.Printf("文档已创建: %s", docId)
+				}
+			}
+
+		case "doc-deleted":
+			// 删除文档
+			if msg.DocId != "" {
+				hub.docMu.Lock()
+				delete(hub.documents, msg.DocId)
+				delete(hub.docUsers, msg.DocId)
+				hub.docMu.Unlock()
+
+				// 广播给所有客户端
+				data, _ := json.Marshal(msg)
+				hub.mu.RLock()
+				for _, client := range hub.clients {
+					if client.ID != c.ID {
+						select {
+						case client.Send <- data:
+						default:
+						}
+					}
+				}
+				hub.mu.RUnlock()
+				log.Printf("文档已删除: %s", msg.DocId)
+			}
+
+		case "doc-opened":
+			// 打开文档
+			if msg.DocId != "" {
+				hub.docMu.Lock()
+				if hub.docUsers[msg.DocId] == nil {
+					hub.docUsers[msg.DocId] = make(map[string]bool)
+				}
+				hub.docUsers[msg.DocId][c.ID] = true
+				users := make([]string, 0)
+				for userId := range hub.docUsers[msg.DocId] {
+					users = append(users, userId)
+				}
+				hub.docMu.Unlock()
+
+				// 通知文档内所有用户
+				usersMsg := Message{
+					Type:  "doc-users",
+					DocId: msg.DocId,
+					Users: users,
+				}
+				data, _ := json.Marshal(usersMsg)
+				hub.docMu.RLock()
+				for userId := range hub.docUsers[msg.DocId] {
+					hub.mu.RLock()
+					if client, ok := hub.clients[userId]; ok {
+						select {
+						case client.Send <- data:
+						default:
+						}
+					}
+					hub.mu.RUnlock()
+				}
+				hub.docMu.RUnlock()
+
+				// 广播给所有客户端（用于文档列表同步）
+				broadcastData, _ := json.Marshal(msg)
+				hub.mu.RLock()
+				for _, client := range hub.clients {
+					if client.ID != c.ID {
+						select {
+						case client.Send <- broadcastData:
+						default:
+						}
+					}
+				}
+				hub.mu.RUnlock()
+
+				log.Printf("用户 %s 打开文档: %s", c.ID, msg.DocId)
+			}
+
+		case "doc-leave":
+			// 离开文档
+			if msg.DocId != "" {
+				hub.docMu.Lock()
+				if hub.docUsers[msg.DocId] != nil {
+					delete(hub.docUsers[msg.DocId], c.ID)
+				}
+				hub.docMu.Unlock()
+				log.Printf("用户 %s 离开文档: %s", c.ID, msg.DocId)
+			}
+
+		case "doc-update", "doc-title-update", "doc-cursor":
+			// 转发文档更新、标题更新、光标位置到所有在线用户
+			msg.From = c.ID
+			data, _ := json.Marshal(msg)
+
+			hub.mu.RLock()
+			for _, client := range hub.clients {
+				if client.ID != c.ID {
+					select {
+					case client.Send <- data:
+					default:
+					}
+				}
 			}
 			hub.mu.RUnlock()
 		}

@@ -221,5 +221,14 @@ const appsData = [
         "keywords": ["聊天", "局域网", "即时通讯", "IM", "文件传输", "联机"],
         "category": "online",
         "tags": ["network"]
+    },
+    {
+        "id": "collab-docs",
+        "name": "在线协作文档",
+        "icon": "📄",
+        "description": "多人实时协作编辑Excel和Word文档，支持文档管理、实时同步、光标位置显示",
+        "keywords": ["协作", "文档", "Excel", "Word", "实时编辑", "联机", "多人", "在线编辑"],
+        "category": "online",
+        "tags": ["office", "network"]
     }
 ];

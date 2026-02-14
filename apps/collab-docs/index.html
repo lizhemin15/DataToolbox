@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线协作文档</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- SheetJS库用于Excel处理 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Quill富文本编辑器用于Word -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+</head>
+<body>
+    <!-- 文档列表页面 -->
+    <div id="listPage" class="page active">
+        <div class="header">
+            <h1>📄 在线协作文档</h1>
+            <div class="user-info">
+                <span id="userName" class="user-name">用户</span>
+                <span class="online-count">在线: <span id="onlineCount">0</span></span>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <button id="newDocBtn" class="btn btn-primary">
+                <span>➕ 新建文档</span>
+            </button>
+            <div class="filter-tabs">
+                <button class="filter-tab active" data-type="all">全部</button>
+                <button class="filter-tab" data-type="excel">📊 Excel</button>
+                <button class="filter-tab" data-type="word">📝 Word</button>
+            </div>
+        </div>
+
+        <div class="doc-list" id="docList">
+            <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <p>暂无文档</p>
+                <p class="empty-hint">点击"新建文档"创建第一个协作文档</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑器页面 -->
+    <div id="editorPage" class="page">
+        <div class="editor-header">
+            <button id="backBtn" class="btn btn-back">← 返回</button>
+            <div class="doc-title-wrapper">
+                <input type="text" id="docTitle" class="doc-title-input" placeholder="未命名文档">
+            </div>
+            <div class="editor-info">
+                <span class="editor-users" id="editorUsers"></span>
+                <button id="deleteDocBtn" class="btn btn-danger-small">🗑️ 删除</button>
+            </div>
+        </div>
+
+        <!-- Excel编辑器 -->
+        <div id="excelEditor" class="editor-container" style="display:none;">
+            <div class="excel-toolbar">
+                <button id="addRowBtn" class="btn btn-small">➕ 添加行</button>
+                <button id="addColBtn" class="btn btn-small">➕ 添加列</button>
+                <button id="exportExcelBtn" class="btn btn-small">💾 导出Excel</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="excelTable" class="excel-table"></table>
+            </div>
+        </div>
+
+        <!-- Word编辑器 -->
+        <div id="wordEditor" class="editor-container" style="display:none;">
+            <div id="quillEditor"></div>
+            <div class="word-toolbar">
+                <button id="exportWordBtn" class="btn btn-small">💾 导出Word</button>
+            </div>
+        </div>
+
+        <!-- 在线用户光标 -->
+        <div id="cursorsContainer"></div>
+    </div>
+
+    <!-- 新建文档对话框 -->
+    <div id="newDocDialog" class="dialog-overlay">
+        <div class="dialog">
+            <h2>新建文档</h2>
+            <div class="form-group">
+                <label>文档名称</label>
+                <input type="text" id="newDocName" class="form-input" placeholder="输入文档名称">
+            </div>
+            <div class="form-group">
+                <label>文档类型</label>
+                <div class="doc-type-selector">
+                    <button class="doc-type-btn active" data-type="excel">
+                        <span class="icon">📊</span>
+                        <span>Excel表格</span>
+                    </button>
+                    <button class="doc-type-btn" data-type="word">
+                        <span class="icon">📝</span>
+                        <span>Word文档</span>
+                    </button>
+                </div>
+            </div>
+            <div class="dialog-actions">
+                <button id="cancelNewDoc" class="btn btn-secondary">取消</button>
+                <button id="confirmNewDoc" class="btn btn-primary">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 服务器检测提示 -->
+    <div class="server-modal" id="serverModal">
+        <div class="modal-content">
+            <div class="modal-icon">⚠️</div>
+            <h3>需要服务器版本</h3>
+            <p>在线协作文档功能需要通过服务器版本运行</p>
+            <p>请下载并启动 DataToolbox 服务器版本</p>
+            <div class="modal-actions">
+                <button class="btn-primary-modal" onclick="window.location.href='../../index.html'">返回首页</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
