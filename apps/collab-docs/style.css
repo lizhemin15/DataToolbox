@@ -24,38 +24,139 @@ body {
 .header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 2rem;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
 }
 
-.header h1 {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-}
-
-.user-info {
+.header-content {
     display: flex;
-    gap: 1rem;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2rem;
+}
+
+.header-left h1 {
+    font-size: 2rem;
+    margin-bottom: 0.3rem;
+    font-weight: 600;
+}
+
+.header-subtitle {
     font-size: 0.9rem;
-    opacity: 0.95;
+    opacity: 0.9;
+    font-weight: 300;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+/* 用户资料 */
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 50px;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+}
+
+.user-profile:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd89b 0%, #19547b 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
 }
 
 .user-name {
     cursor: pointer;
-    padding: 0.3rem 0.8rem;
-    background: rgba(255,255,255,0.2);
-    border-radius: 20px;
-    transition: all 0.3s;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    position: relative;
 }
 
 .user-name:hover {
-    background: rgba(255,255,255,0.3);
+    transform: translateX(2px);
 }
 
-.online-count {
-    padding: 0.3rem 0.8rem;
-    background: rgba(255,255,255,0.15);
-    border-radius: 20px;
+.user-name:hover::after {
+    content: '✏️';
+    position: absolute;
+    right: -20px;
+    font-size: 0.8rem;
+}
+
+.user-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    opacity: 0.9;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+.status-dot.online {
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.status-dot.offline {
+    background: #ef4444;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 在线用户徽章 */
+.online-users-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 25px;
+    font-size: 0.9rem;
+    backdrop-filter: blur(10px);
+}
+
+.badge-icon {
+    font-size: 1.2rem;
+}
+
+.badge-text {
+    font-size: 0.85rem;
+    opacity: 0.9;
 }
 
 /* 工具栏 */
@@ -105,14 +206,30 @@ body {
 }
 
 .btn-primary {
-    background: #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-primary::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.5s;
+}
+
+.btn-primary:hover::before {
+    left: 100%;
 }
 
 .btn-primary:hover {
-    background: #5568d3;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
 }
 
 .btn-secondary {
@@ -160,33 +277,93 @@ body {
 .empty-state {
     grid-column: 1 / -1;
     text-align: center;
-    padding: 4rem 2rem;
+    padding: 5rem 2rem;
     color: #6c757d;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .empty-icon {
-    font-size: 4rem;
-    margin-bottom: 1rem;
+    font-size: 5rem;
+    margin-bottom: 1.5rem;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.empty-state p {
+    font-size: 1.1rem;
+    color: #333;
+    margin-bottom: 0.5rem;
 }
 
 .empty-hint {
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     margin-top: 0.5rem;
+    color: #999;
 }
 
 .doc-card {
     background: white;
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 1.5rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    transition: all 0.3s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
     position: relative;
+    border: 2px solid transparent;
+    overflow: hidden;
+    animation: cardSlideIn 0.5s ease-out backwards;
+}
+
+@keyframes cardSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.doc-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    transform: scaleX(0);
+    transition: transform 0.3s;
 }
 
 .doc-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-6px);
+    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.2);
+    border-color: #667eea;
+}
+
+.doc-card:hover::before {
+    transform: scaleX(1);
 }
 
 .doc-card-header {
@@ -224,8 +401,37 @@ body {
     gap: 0.5rem;
 }
 
+.doc-creator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.6rem;
+    background: #f8f9fa;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    transition: all 0.3s;
+}
+
+.doc-card:hover .doc-creator {
+    background: #e9ecef;
+}
+
+.creator-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
 .doc-time {
     font-size: 0.8rem;
+    color: #999;
 }
 
 .doc-type-badge {
@@ -252,10 +458,21 @@ body {
 .editor-header {
     background: white;
     padding: 1rem 2rem;
-    border-bottom: 1px solid #e1e4e8;
+    border-bottom: 2px solid #f0f0f0;
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.btn-back {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-back .btn-icon {
+    font-size: 1.2rem;
 }
 
 .doc-title-wrapper {
@@ -265,27 +482,107 @@ body {
 
 .doc-title-input {
     width: 100%;
-    padding: 0.5rem 0.8rem;
-    border: 1px solid #e1e4e8;
-    border-radius: 6px;
-    font-size: 1.1rem;
+    padding: 0.6rem 1rem;
+    border: 2px solid #e1e4e8;
+    border-radius: 8px;
+    font-size: 1.2rem;
     font-weight: 600;
+    transition: all 0.3s;
 }
 
 .doc-title-input:focus {
     outline: none;
     border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .editor-info {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 1.5rem;
+    margin-left: auto;
 }
 
-.editor-users {
-    font-size: 0.9rem;
+/* 编辑器用户列表 */
+.editor-users-container {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.editor-users-label {
+    font-size: 0.85rem;
     color: #6c757d;
+    font-weight: 500;
+}
+
+.editor-users-list {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.editor-user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+}
+
+.editor-user-avatar:hover {
+    transform: translateY(-2px) scale(1.1);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.editor-user-avatar:not(:first-child) {
+    margin-left: -10px;
+}
+
+.editor-user-avatar::after {
+    content: attr(data-name);
+    position: absolute;
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 10;
+}
+
+.editor-user-avatar:hover::after {
+    opacity: 1;
+}
+
+.editor-user-count {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    color: #666;
+    font-weight: 600;
+    margin-left: -10px;
 }
 
 /* Excel编辑器 */
@@ -346,10 +643,65 @@ body {
 
 .excel-table td.editing {
     background: #f0f4ff;
+    box-shadow: inset 0 0 0 2px #667eea;
 }
 
 .excel-table td.has-cursor {
-    outline: 2px solid #ffc107;
+    position: relative;
+    background: rgba(255, 193, 7, 0.1);
+    box-shadow: inset 0 0 0 2px var(--cursor-color, #ffc107);
+    animation: cursorPulse 2s infinite;
+}
+
+@keyframes cursorPulse {
+    0%, 100% { 
+        box-shadow: inset 0 0 0 2px var(--cursor-color, #ffc107);
+    }
+    50% { 
+        box-shadow: inset 0 0 0 3px var(--cursor-color, #ffc107),
+                    0 0 8px var(--cursor-color, #ffc107);
+    }
+}
+
+.excel-table td.has-cursor::before {
+    content: attr(data-user-name);
+    position: absolute;
+    top: -28px;
+    left: 0;
+    background: var(--cursor-color, #ffc107);
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    animation: userLabelSlideIn 0.3s ease-out;
+}
+
+@keyframes userLabelSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.excel-table td.has-cursor::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 10px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--cursor-color, #ffc107);
+    z-index: 99;
 }
 
 /* Word编辑器 */
@@ -554,6 +906,34 @@ body {
 
 /* 响应式 */
 @media (max-width: 768px) {
+    .header {
+        padding: 1rem 1.5rem;
+    }
+
+    .header-content {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .header-left h1 {
+        font-size: 1.5rem;
+    }
+
+    .header-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .user-profile {
+        padding: 0.4rem 0.8rem;
+    }
+
+    .user-avatar {
+        width: 35px;
+        height: 35px;
+        font-size: 1rem;
+    }
+
     .doc-list {
         grid-template-columns: 1fr;
         padding: 1rem;
@@ -563,6 +943,7 @@ body {
         flex-direction: column;
         gap: 1rem;
         align-items: stretch;
+        padding: 1rem 1.5rem;
     }
 
     .filter-tabs {
@@ -571,11 +952,37 @@ body {
 
     .editor-header {
         flex-wrap: wrap;
+        padding: 0.8rem 1rem;
+        gap: 0.8rem;
     }
 
     .doc-title-wrapper {
         order: 2;
         width: 100%;
         max-width: none;
+    }
+
+    .editor-info {
+        order: 3;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .editor-users-container {
+        flex: 1;
+    }
+
+    .btn-back span:not(.btn-icon) {
+        display: none;
+    }
+
+    .editor-users-label {
+        font-size: 0.8rem;
+    }
+
+    .editor-user-avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
     }
 }

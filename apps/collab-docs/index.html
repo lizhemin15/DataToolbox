@@ -15,10 +15,28 @@
     <!-- 文档列表页面 -->
     <div id="listPage" class="page active">
         <div class="header">
-            <h1>📄 在线协作文档</h1>
-            <div class="user-info">
-                <span id="userName" class="user-name">用户</span>
-                <span class="online-count">在线: <span id="onlineCount">0</span></span>
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>📄 在线协作文档</h1>
+                    <p class="header-subtitle">多人实时协作，让创作更高效</p>
+                </div>
+                <div class="header-right">
+                    <div class="user-profile">
+                        <div class="user-avatar" id="userAvatar">用</div>
+                        <div class="user-details">
+                            <div id="userName" class="user-name" title="点击修改昵称">用户</div>
+                            <div class="user-status">
+                                <span class="status-dot online"></span>
+                                <span class="status-text">在线</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="online-users-badge">
+                        <span class="badge-icon">👥</span>
+                        <span id="onlineCount">0</span>
+                        <span class="badge-text">人在线</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -45,13 +63,22 @@
     <!-- 编辑器页面 -->
     <div id="editorPage" class="page">
         <div class="editor-header">
-            <button id="backBtn" class="btn btn-back">← 返回</button>
+            <button id="backBtn" class="btn btn-back">
+                <span class="btn-icon">←</span>
+                <span>返回</span>
+            </button>
             <div class="doc-title-wrapper">
                 <input type="text" id="docTitle" class="doc-title-input" placeholder="未命名文档">
             </div>
             <div class="editor-info">
-                <span class="editor-users" id="editorUsers"></span>
-                <button id="deleteDocBtn" class="btn btn-danger-small">🗑️ 删除</button>
+                <div class="editor-users-container">
+                    <div class="editor-users-label">正在协作：</div>
+                    <div class="editor-users-list" id="editorUsersList"></div>
+                </div>
+                <button id="deleteDocBtn" class="btn btn-danger-small">
+                    <span>🗑️</span>
+                    <span>删除</span>
+                </button>
             </div>
         </div>
 

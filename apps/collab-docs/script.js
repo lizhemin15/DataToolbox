@@ -23,7 +23,7 @@ function init() {
     if (savedName) {
         userName = savedName;
     }
-    document.getElementById('userName').textContent = userName;
+    updateUserDisplay();
 
     // 连接WebSocket
     connectWebSocket();
@@ -33,6 +33,23 @@ function init() {
 
     // 初始化Quill编辑器
     initQuillEditor();
+}
+
+// 更新用户显示
+function updateUserDisplay() {
+    document.getElementById('userName').textContent = userName;
+    document.getElementById('userAvatar').textContent = getAvatarText(userName);
+}
+
+// 生成头像文字
+function getAvatarText(name) {
+    if (!name) return '?';
+    // 如果是中文，取第一个字
+    if (/[\u4e00-\u9fa5]/.test(name)) {
+        return name.charAt(0);
+    }
+    // 如果是英文，取前两个字母
+    return name.substring(0, 2).toUpperCase();
 }
 
 // 连接WebSocket
@@ -214,12 +231,19 @@ function updateOnlineCount() {
 function bindEvents() {
     // 用户名点击
     document.getElementById('userName').onclick = () => {
-        const newName = prompt('修改用户名:', userName);
+        const newName = prompt('请输入新昵称:', userName);
         if (newName && newName.trim()) {
+            const oldName = userName;
             userName = newName.trim();
             localStorage.setItem('collab-docs-username', userName);
-            document.getElementById('userName').textContent = userName;
-            sendMessage({ type: 'update-name', name: userName });
+            updateUserDisplay();
+            console.log('昵称已更新:', oldName, '->', userName);
+            
+            // 通知服务器更新昵称
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                sendMessage({ type: 'update-name', name: userName });
+                console.log('已通知服务器更新昵称');
+            }
         }
     };
 
@@ -393,19 +417,23 @@ function renderDocumentList() {
         return;
     }
 
-    listEl.innerHTML = documents.map(doc => {
+    listEl.innerHTML = documents.map((doc, index) => {
         const icon = doc.type === 'excel' ? '📊' : '📝';
         const time = formatTime(doc.createdAt);
+        const creatorAvatar = getAvatarText(doc.creator);
         return `
-            <div class="doc-card" data-id="${doc.id}">
+            <div class="doc-card" data-id="${doc.id}" style="animation-delay: ${index * 0.05}s">
                 <span class="doc-type-badge ${doc.type}">${doc.type === 'excel' ? 'Excel' : 'Word'}</span>
                 <div class="doc-card-header">
                     <span class="doc-icon">${icon}</span>
-                    <span class="doc-name">${doc.title}</span>
+                    <span class="doc-name">${escapeHtml(doc.title)}</span>
                 </div>
                 <div class="doc-meta">
                     <div class="doc-users">
-                        <span>👤 ${doc.creator}</span>
+                        <span class="doc-creator">
+                            <span class="creator-avatar">${creatorAvatar}</span>
+                            <span>${escapeHtml(doc.creator)}</span>
+                        </span>
                     </div>
                     <span class="doc-time">${time}</span>
                 </div>
@@ -681,27 +709,45 @@ function broadcastCursor(cursor) {
 
 // 更新光标
 function updateCursor(userId, cursor) {
-    const userName = onlineUsers[userId] || '未知用户';
+    const name = onlineUsers[userId] || '未知用户';
 
     if (cursor.type === 'excel') {
         // Excel光标
         const td = document.querySelector(`td[data-row="${cursor.row}"][data-col="${cursor.col}"]`);
         if (td) {
-            // 移除之前的光标
-            document.querySelectorAll('.has-cursor').forEach(el => {
-                if (el.dataset.userId === userId) {
-                    el.classList.remove('has-cursor');
-                    delete el.dataset.userId;
-                }
+            // 移除该用户之前的光标
+            document.querySelectorAll(`.has-cursor[data-user-id="${userId}"]`).forEach(el => {
+                el.classList.remove('has-cursor');
+                delete el.dataset.userId;
+                delete el.dataset.userName;
             });
 
             td.classList.add('has-cursor');
             td.dataset.userId = userId;
+            td.dataset.userName = name;
+            
+            // 设置光标颜色（使用用户专属颜色）
+            const color = getUserColorHex(userId);
+            td.style.setProperty('--cursor-color', color);
         }
     } else if (cursor.type === 'word' && quill) {
         // Word光标 - 可以使用Quill的光标API
         // 这里简化处理
     }
+}
+
+// 获取用户颜色（十六进制）
+function getUserColorHex(userId) {
+    const colors = [
+        '#667eea', '#f5576c', '#00f2fe', '#38f9d7',
+        '#fee140', '#330867', '#fed6e3', '#fecfef'
+    ];
+    
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+        hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
 }
 
 // 移除光标
@@ -713,14 +759,66 @@ function removeCursor(userId) {
 }
 
 // 更新编辑器用户列表
-function updateEditorUsers(users) {
-    const usersEl = document.getElementById('editorUsers');
-    usersEl.textContent = `👥 ${users.length} 人在线`;
+function updateEditorUsers(userIds) {
+    const listEl = document.getElementById('editorUsersList');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    
+    // 限制显示最多5个用户头像
+    const maxShow = 5;
+    const showCount = Math.min(userIds.length, maxShow);
+    
+    for (let i = 0; i < showCount; i++) {
+        const userId = userIds[i];
+        const name = onlineUsers[userId] || '未知用户';
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'editor-user-avatar';
+        avatarEl.textContent = getAvatarText(name);
+        avatarEl.setAttribute('data-name', name);
+        avatarEl.style.background = getUserColor(userId);
+        listEl.appendChild(avatarEl);
+    }
+    
+    // 如果超过5个，显示+N
+    if (userIds.length > maxShow) {
+        const countEl = document.createElement('div');
+        countEl.className = 'editor-user-count';
+        countEl.textContent = `+${userIds.length - maxShow}`;
+        listEl.appendChild(countEl);
+    }
+}
+
+// 根据用户ID生成颜色
+function getUserColor(userId) {
+    const colors = [
+        'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+        'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+        'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+        'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+        'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+        'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+        'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+    ];
+    
+    // 根据userId计算颜色索引
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+        hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
 }
 
 // 工具函数
 function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function getColumnLabel(index) {
