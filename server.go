@@ -72,6 +72,7 @@ type Message struct {
 	Cursor    interface{} `json:"cursor,omitempty"`
 	Users     interface{} `json:"users,omitempty"`
 	Title     string      `json:"title,omitempty"`
+	Content   interface{} `json:"content,omitempty"`
 }
 
 var hub = &Hub{
@@ -633,6 +634,21 @@ func (c *Client) readPump() {
 				}
 			}
 			hub.mu.RUnlock()
+
+		case "doc-content-save":
+			// 保存文档完整内容（用于Word）
+			if msg.DocId != "" && msg.Content != nil {
+				hub.docMu.Lock()
+				if doc, ok := hub.documents[msg.DocId]; ok {
+					if docMap, ok := doc.(map[string]interface{}); ok {
+						// 更新文档内容
+						docMap["content"] = msg.Content
+						hub.documents[msg.DocId] = docMap
+						log.Printf("文档内容已保存: %s", msg.DocId)
+					}
+				}
+				hub.docMu.Unlock()
+			}
 		}
 	}
 }

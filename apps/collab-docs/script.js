@@ -394,7 +394,14 @@ function openDocument(docId) {
 function leaveDocument() {
     if (!currentDoc) return;
 
-    broadcastMessage({
+    // 离开前保存一次完整内容
+    if (currentDoc.type === 'excel' && excelData.length > 0) {
+        saveExcelContent();
+    } else if (currentDoc.type === 'word' && quill) {
+        saveWordContent();
+    }
+
+    sendMessage({
         type: 'doc-leave',
         docId: currentDoc.id
     });
@@ -550,7 +557,7 @@ function renderExcelTable() {
             excelData[row][col] = value;
 
             // 广播更新
-            broadcastMessage({
+            sendMessage({
                 type: 'doc-update',
                 docId: currentDoc.id,
                 update: {
@@ -560,7 +567,25 @@ function renderExcelTable() {
                     value: value
                 }
             });
+            
+            // 延迟保存完整内容到服务器（防抖，1秒后）
+            clearTimeout(window._excelSaveTimeout);
+            window._excelSaveTimeout = setTimeout(() => {
+                saveExcelContent();
+            }, 1000);
         };
+    });
+}
+
+// 保存Excel完整内容到服务器
+function saveExcelContent() {
+    if (!currentDoc) return;
+    
+    console.log('保存Excel完整内容到服务器');
+    sendMessage({
+        type: 'doc-content-save',
+        docId: currentDoc.id,
+        content: { data: excelData }
     });
 }
 
@@ -570,11 +595,14 @@ function addExcelRow() {
     excelData.push(new Array(cols).fill(''));
     renderExcelTable();
 
-    broadcastMessage({
+    sendMessage({
         type: 'doc-update',
         docId: currentDoc.id,
         update: { type: 'excel-add-row' }
     });
+    
+    // 保存完整内容
+    saveExcelContent();
 }
 
 // 添加Excel列
@@ -582,11 +610,14 @@ function addExcelCol() {
     excelData.forEach(row => row.push(''));
     renderExcelTable();
 
-    broadcastMessage({
+    sendMessage({
         type: 'doc-update',
         docId: currentDoc.id,
         update: { type: 'excel-add-col' }
     });
+    
+    // 保存完整内容
+    saveExcelContent();
 }
 
 // 导出Excel
@@ -601,20 +632,43 @@ function exportExcel() {
 
 // 初始化Quill编辑器
 function initQuillEditor() {
-    quill = new Quill('#quillEditor', {
-        theme: 'snow',
-        modules: {
-            toolbar: [
-                [{ 'header': [1, 2, 3, false] }],
-                ['bold', 'italic', 'underline', 'strike'],
-                [{ 'color': [] }, { 'background': [] }],
-                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                [{ 'align': [] }],
-                ['link', 'image'],
-                ['clean']
-            ]
-        }
-    });
+    if (!document.querySelector('#quillEditor')) {
+        console.log('Quill容器未找到，跳过初始化');
+        return;
+    }
+
+    try {
+        quill = new Quill('#quillEditor', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
+                    ['clean']
+                ]
+            }
+        });
+
+        console.log('Quill编辑器已创建');
+
+        // 延迟绑定事件监听器，确保Quill完全初始化
+        setTimeout(() => {
+            bindQuillEvents();
+            console.log('Quill事件监听器已绑定');
+        }, 100);
+
+    } catch (e) {
+        console.error('Quill编辑器初始化失败:', e);
+    }
+}
+
+// 绑定Quill事件监听器
+function bindQuillEvents() {
+    if (!quill) return;
 
     // 监听内容变化
     quill.on('text-change', (delta, oldDelta, source) => {
@@ -630,6 +684,12 @@ function initQuillEditor() {
                         delta: delta
                     }
                 });
+                
+                // 延迟保存完整内容到服务器（防抖，1秒后）
+                clearTimeout(window._wordSaveTimeout);
+                window._wordSaveTimeout = setTimeout(() => {
+                    saveWordContent();
+                }, 1000);
             }
         } catch (e) {
             console.error('处理Word内容变化时出错:', e);
@@ -661,7 +721,13 @@ function initWordEditor() {
     }
 
     console.log('初始化Word编辑器，加载内容');
+    
     isLocalChange = true;
+    
+    // 暂时禁用编辑器
+    const wasEnabled = quill.isEnabled();
+    quill.disable();
+    
     try {
         const content = currentDoc.content.ops || [];
         // 使用'silent'源避免触发不必要的事件
@@ -670,7 +736,32 @@ function initWordEditor() {
     } catch (e) {
         console.error('Word内容加载失败:', e);
     } finally {
+        // 恢复编辑器状态
+        if (wasEnabled) {
+            quill.enable();
+        } else {
+            // 默认启用编辑器
+            quill.enable();
+        }
         isLocalChange = false;
+    }
+}
+
+// 保存Word完整内容到服务器
+function saveWordContent() {
+    if (!currentDoc || !quill) return;
+    
+    try {
+        const contents = quill.getContents();
+        console.log('保存Word完整内容到服务器');
+        
+        sendMessage({
+            type: 'doc-content-save',
+            docId: currentDoc.id,
+            content: contents
+        });
+    } catch (e) {
+        console.error('保存Word内容失败:', e);
     }
 }
 
@@ -730,16 +821,36 @@ function applyRemoteUpdate(msg) {
             return;
         }
         
-        isLocalChange = true;
-        try {
-            // 使用'silent'源避免触发事件循环
-            quill.updateContents(update.delta, 'silent');
-            console.log('Word更新成功');
-        } catch (e) {
-            console.error('Word更新失败:', e);
-        } finally {
-            isLocalChange = false;
+        // 应用远程更新的安全方法
+        applyWordRemoteUpdate(update.delta);
+    }
+}
+
+// 安全地应用Word远程更新
+function applyWordRemoteUpdate(delta) {
+    if (!quill || !delta) return;
+    
+    isLocalChange = true;
+    
+    // 暂时禁用编辑器，避免触发事件
+    const wasEnabled = quill.isEnabled();
+    
+    try {
+        // 禁用编辑器（这会阻止事件触发）
+        quill.disable();
+        
+        // 应用更新
+        quill.updateContents(delta, 'silent');
+        
+        console.log('Word更新成功');
+    } catch (e) {
+        console.error('Word更新失败:', e);
+    } finally {
+        // 恢复编辑器状态
+        if (wasEnabled) {
+            quill.enable();
         }
+        isLocalChange = false;
     }
 }
 
@@ -847,10 +958,32 @@ function updateWordCursor(userId, index, length, name) {
             
             cursorEl.appendChild(label);
             
-            // 添加到编辑器
-            const editorEl = document.querySelector('#quillEditor .ql-editor');
-            if (editorEl) {
-                editorEl.appendChild(cursorEl);
+            // 获取或创建光标容器（关键：在编辑器外部！）
+            let cursorContainer = document.getElementById('word-cursors-container');
+            if (!cursorContainer) {
+                cursorContainer = document.createElement('div');
+                cursorContainer.id = 'word-cursors-container';
+                const editorWrapper = document.getElementById('quillEditor');
+                if (editorWrapper) {
+                    editorWrapper.appendChild(cursorContainer);
+                    console.log('Word光标容器已创建');
+                }
+            }
+            
+            if (cursorContainer) {
+                const editorEl = document.querySelector('#quillEditor .ql-editor');
+                
+                // 计算偏移（考虑工具栏和边距）
+                const offsetLeft = 12;  // 左边距
+                const offsetTop = 42;   // 工具栏高度
+                const scrollTop = editorEl ? editorEl.scrollTop : 0;
+                const scrollLeft = editorEl ? editorEl.scrollLeft : 0;
+                
+                cursorEl.style.left = (bounds.left - scrollLeft + offsetLeft) + 'px';
+                cursorEl.style.top = (bounds.top - scrollTop + offsetTop) + 'px';
+                
+                // 添加到容器（不触发Quill的DOM监控）
+                cursorContainer.appendChild(cursorEl);
                 
                 // 保存引用
                 wordCursors[userId] = {
@@ -862,7 +995,7 @@ function updateWordCursor(userId, index, length, name) {
                     }
                 };
                 
-                // 5秒后自动移除（如果没有新的更新）
+                // 5秒后自动移除
                 setTimeout(() => {
                     if (wordCursors[userId] && wordCursors[userId].element === cursorEl) {
                         wordCursors[userId].clear();
