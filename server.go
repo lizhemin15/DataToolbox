@@ -745,13 +745,124 @@ var (
 	dataOntologyMu        sync.RWMutex
 )
 
+// DataOntologyStore 持久化存储结构
+type DataOntologyStore struct {
+	Users     map[string]*User             `json:"users"`
+	Databases map[string]*DatabaseConfig   `json:"databases"`
+}
+
+// 获取持久化文件路径
+func getDataOntologyStorePath() string {
+	// 获取可执行文件所在目录
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("获取可执行文件路径失败: %v", err)
+		return "apps/data-ontology/data-store.json"
+	}
+	rootDir := filepath.Dir(exePath)
+	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
+}
+
+// 加载持久化数据
+func loadDataOntologyStore() error {
+	storePath := getDataOntologyStorePath()
+	
+	// 检查文件是否存在
+	if _, err := os.Stat(storePath); os.IsNotExist(err) {
+		log.Printf("持久化文件不存在，将创建新文件: %s", storePath)
+		return nil
+	}
+	
+	// 读取文件
+	data, err := os.ReadFile(storePath)
+	if err != nil {
+		return fmt.Errorf("读取持久化文件失败: %v", err)
+	}
+	
+	// 解析JSON
+	var store DataOntologyStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return fmt.Errorf("解析持久化数据失败: %v", err)
+	}
+	
+	// 加载数据到内存
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+	
+	if store.Users != nil {
+		dataOntologyUsers = store.Users
+		log.Printf("已加载 %d 个用户", len(dataOntologyUsers))
+	}
+	
+	if store.Databases != nil {
+		dataOntologyDatabases = store.Databases
+		log.Printf("已加载 %d 个数据库配置", len(dataOntologyDatabases))
+	}
+	
+	return nil
+}
+
+// 保存持久化数据
+func saveDataOntologyStore() error {
+	storePath := getDataOntologyStorePath()
+	
+	// 确保目录存在
+	storeDir := filepath.Dir(storePath)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+	
+	// 构建存储结构
+	dataOntologyMu.RLock()
+	store := DataOntologyStore{
+		Users:     dataOntologyUsers,
+		Databases: dataOntologyDatabases,
+	}
+	dataOntologyMu.RUnlock()
+	
+	// 序列化为JSON
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化数据失败: %v", err)
+	}
+	
+	// 写入文件
+	if err := os.WriteFile(storePath, data, 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+	
+	log.Printf("数据已保存到: %s", storePath)
+	return nil
+}
+
 // 初始化默认管理员账号
 func initDataOntology() {
-	hashedPassword := hashPassword("admin1234")
-	dataOntologyUsers["admin"] = &User{
-		Username: "admin",
-		Password: hashedPassword,
+	// 先尝试加载持久化数据
+	if err := loadDataOntologyStore(); err != nil {
+		log.Printf("加载持久化数据失败: %v", err)
 	}
+	
+	// 如果没有用户，创建默认管理员账号
+	dataOntologyMu.Lock()
+	if len(dataOntologyUsers) == 0 {
+		hashedPassword := hashPassword("admin1234")
+		dataOntologyUsers["admin"] = &User{
+			Username: "admin",
+			Password: hashedPassword,
+		}
+		log.Println("已创建默认管理员账号: admin/admin1234")
+		
+		// 保存初始数据
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存初始数据失败: %v", err)
+		}
+		dataOntologyMu.Lock()
+	}
+	dataOntologyMu.Unlock()
+	
+	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d", 
+		len(dataOntologyUsers), len(dataOntologyDatabases))
 }
 
 // 密码哈希
@@ -1192,6 +1303,11 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 		dataOntologyDatabases[config.ID] = &config
 		dataOntologyMu.Unlock()
 
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存数据库配置失败: %v", err)
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"id":      config.ID,
@@ -1347,6 +1463,11 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		dataOntologyDatabases[dbID] = &updateConfig
 		dataOntologyMu.Unlock()
 
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存数据库配置更新失败: %v", err)
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"message": "更新成功",
@@ -1357,6 +1478,11 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		dataOntologyMu.Lock()
 		delete(dataOntologyDatabases, dbID)
 		dataOntologyMu.Unlock()
+
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存数据库配置删除失败: %v", err)
+		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,

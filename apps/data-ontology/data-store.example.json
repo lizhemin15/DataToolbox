@@ -1,0 +1,31 @@
+{
+  "users": {
+    "admin": {
+      "username": "admin",
+      "password": "0192023a7bbd73250516f069df18b500",
+      "token": ""
+    }
+  },
+  "databases": {
+    "example-mysql-id": {
+      "id": "example-mysql-id",
+      "type": "mysql",
+      "name": "我的MySQL数据库",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "your-password",
+      "database": "mydb"
+    },
+    "example-mongodb-id": {
+      "id": "example-mongodb-id",
+      "type": "mongodb",
+      "name": "我的MongoDB数据库",
+      "host": "localhost",
+      "port": 27017,
+      "user": "admin",
+      "password": "your-password",
+      "database": "mydb"
+    }
+  }
+}
