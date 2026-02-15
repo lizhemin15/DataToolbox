@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/md5"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -8,10 +12,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -684,6 +692,576 @@ func (c *Client) writePump() {
 	}
 }
 
+// 数据本体池相关结构
+
+// User 用户
+type User struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+// DatabaseConfig 数据库配置
+type DatabaseConfig struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Database string `json:"database"`
+}
+
+// DatabaseInfo 数据库信息（不包含敏感信息）
+type DatabaseInfo struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Host      string   `json:"host"`
+	Port      int      `json:"port"`
+	Connected bool     `json:"connected"`
+	Tables    []string `json:"tables,omitempty"`
+}
+
+// 数据本体池存储
+var (
+	dataOntologyUsers     = make(map[string]*User)
+	dataOntologyDatabases = make(map[string]*DatabaseConfig)
+	dataOntologyMu        sync.RWMutex
+)
+
+// 初始化默认管理员账号
+func initDataOntology() {
+	hashedPassword := hashPassword("admin1234")
+	dataOntologyUsers["admin"] = &User{
+		Username: "admin",
+		Password: hashedPassword,
+	}
+}
+
+// 密码哈希
+func hashPassword(password string) string {
+	hash := md5.Sum([]byte(password))
+	return hex.EncodeToString(hash[:])
+}
+
+// 生成Token
+func generateToken() string {
+	return uuid.New().String()
+}
+
+// 验证Token
+func verifyToken(r *http.Request) bool {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return false
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	dataOntologyMu.RLock()
+	defer dataOntologyMu.RUnlock()
+
+	for _, user := range dataOntologyUsers {
+		if user.Token == token {
+			return true
+		}
+	}
+	return false
+}
+
+// 登录处理
+func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	var loginReq struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	user, exists := dataOntologyUsers[loginReq.Username]
+	if !exists || user.Password != hashPassword(loginReq.Password) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "用户名或密码错误",
+		})
+		return
+	}
+
+	// 生成新Token
+	token := generateToken()
+	user.Token = token
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"token":   token,
+	})
+}
+
+// 测试数据库连接
+func handleTestConnection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	var config DatabaseConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		config.User, config.Password, config.Host, config.Port, config.Database)
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "连接成功",
+	})
+}
+
+// 数据库管理
+func handleDatabases(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取数据库列表
+		dataOntologyMu.RLock()
+		defer dataOntologyMu.RUnlock()
+
+		databases := make([]DatabaseInfo, 0)
+		for _, config := range dataOntologyDatabases {
+			databases = append(databases, DatabaseInfo{
+				ID:   config.ID,
+				Name: config.Name,
+				Host: config.Host,
+				Port: config.Port,
+			})
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"databases": databases,
+		})
+
+	case http.MethodPost:
+		// 添加数据库
+		var config DatabaseConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		// 测试连接
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer db.Close()
+
+		if err := db.Ping(); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 保存配置
+		config.ID = uuid.New().String()
+		dataOntologyMu.Lock()
+		dataOntologyDatabases[config.ID] = &config
+		dataOntologyMu.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"id":      config.ID,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
+// 获取数据库详情
+func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	// 从URL中提取数据库ID
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 5 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := parts[4]
+
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 连接数据库获取表列表
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer db.Close()
+
+		if err := db.Ping(); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 获取表列表
+		rows, err := db.Query("SHOW TABLES")
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取表列表失败: " + err.Error(),
+			})
+			return
+		}
+		defer rows.Close()
+
+		tables := make([]string, 0)
+		for rows.Next() {
+			var tableName string
+			if err := rows.Scan(&tableName); err == nil {
+				tables = append(tables, tableName)
+			}
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"database": DatabaseInfo{
+				ID:        config.ID,
+				Name:      config.Name,
+				Host:      config.Host,
+				Port:      config.Port,
+				Connected: true,
+				Tables:    tables,
+			},
+		})
+
+	case http.MethodDelete:
+		// 删除数据库配置
+		dataOntologyMu.Lock()
+		delete(dataOntologyDatabases, dbID)
+		dataOntologyMu.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
+// 获取表数据
+func handleTableData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	// 从URL中提取数据库ID和表名
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 7 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := parts[4]
+	tableName := parts[6]
+
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 连接数据库
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		config.User, config.Password, config.Host, config.Port, config.Database)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 查询数据（限制100条）
+	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询失败: " + err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	// 获取列名
+	columns, err := rows.Columns()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取列名失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 读取数据
+	data := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		data = append(data, row)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    data,
+	})
+}
+
+// RunGoRequest 运行Go代码的请求
+type RunGoRequest struct {
+	Code string `json:"code"`
+}
+
+// RunGoResponse 运行Go代码的响应
+type RunGoResponse struct {
+	Success bool   `json:"success"`
+	Output  string `json:"output"`
+	Error   string `json:"error"`
+}
+
+// handleRunGo 处理运行Go代码的请求
+func handleRunGo(w http.ResponseWriter, r *http.Request) {
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/json")
+
+	// 只接受POST请求
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(RunGoResponse{
+			Success: false,
+			Error:   "只支持POST请求",
+		})
+		return
+	}
+
+	// 解析请求
+	var req RunGoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(RunGoResponse{
+			Success: false,
+			Error:   "请求格式错误",
+		})
+		return
+	}
+
+	// 创建临时文件
+	tmpFile, err := os.CreateTemp("", "go-learn-*.go")
+	if err != nil {
+		json.NewEncoder(w).Encode(RunGoResponse{
+			Success: false,
+			Error:   "创建临时文件失败: " + err.Error(),
+		})
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// 写入代码
+	if _, err := tmpFile.WriteString(req.Code); err != nil {
+		json.NewEncoder(w).Encode(RunGoResponse{
+			Success: false,
+			Error:   "写入代码失败: " + err.Error(),
+		})
+		return
+	}
+	tmpFile.Close()
+
+	// 执行代码
+	cmd := exec.Command("go", "run", tmpFile.Name())
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// 设置超时
+	timer := time.AfterFunc(10*time.Second, func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	})
+	defer timer.Stop()
+
+	err = cmd.Run()
+
+	// 检查是否有错误
+	if err != nil {
+		errorMsg := stderr.String()
+		if errorMsg == "" {
+			errorMsg = err.Error()
+		}
+		json.NewEncoder(w).Encode(RunGoResponse{
+			Success: false,
+			Error:   errorMsg,
+		})
+		return
+	}
+
+	// 返回成功结果
+	json.NewEncoder(w).Encode(RunGoResponse{
+		Success: true,
+		Output:  stdout.String(),
+	})
+}
+
 func main() {
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
@@ -705,6 +1283,9 @@ func main() {
 	}
 	rootDir := filepath.Dir(exePath)
 
+	// 初始化数据本体池
+	initDataOntology()
+
 	// 启动Hub
 	go hub.run()
 
@@ -713,6 +1294,22 @@ func main() {
 	
 	// WebSocket路由
 	mux.HandleFunc("/ws/chat", handleWebSocket)
+	
+	// API路由
+	mux.HandleFunc("/api/run-go", handleRunGo)
+	
+	// 数据本体池API路由
+	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
+	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
+	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
+	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.Contains(path, "/tables/") {
+			handleTableData(w, r)
+		} else {
+			handleDatabaseDetail(w, r)
+		}
+	})
 	
 	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))

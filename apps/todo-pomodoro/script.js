@@ -41,6 +41,8 @@ function loadData() {
     
     if (savedTasks) {
         tasks = JSON.parse(savedTasks);
+        // 数据迁移：将旧的 subtasks 数组转换为新的层级结构
+        migrateTaskData();
     }
     
     if (savedStats) {
@@ -55,6 +57,48 @@ function loadData() {
         stats.totalFocusTime = 0;
         localStorage.setItem('lastStatsDate', today);
         saveStats();
+    }
+}
+
+// 数据迁移：将旧的 subtasks 数组转换为新的层级结构
+function migrateTaskData() {
+    let needsSave = false;
+    
+    tasks.forEach(task => {
+        // 确保每个任务都有 parentId 和 expanded 字段
+        if (task.parentId === undefined) {
+            task.parentId = null;
+            needsSave = true;
+        }
+        if (task.expanded === undefined) {
+            task.expanded = true;
+            needsSave = true;
+        }
+        
+        // 如果有旧的 subtasks 数组，转换为新的层级结构
+        if (task.subtasks && Array.isArray(task.subtasks) && task.subtasks.length > 0) {
+            task.subtasks.forEach(subtask => {
+                const newTask = {
+                    id: subtask.id || Date.now().toString() + Math.random(),
+                    title: subtask.title,
+                    completed: subtask.completed || false,
+                    priority: 'medium',
+                    date: null,
+                    note: '',
+                    parentId: task.id,
+                    expanded: true,
+                    createdAt: new Date().toISOString(),
+                    order: tasks.length
+                };
+                tasks.push(newTask);
+            });
+            delete task.subtasks;
+            needsSave = true;
+        }
+    });
+    
+    if (needsSave) {
+        saveData();
     }
 }
 
@@ -108,6 +152,11 @@ function handleKeyboardShortcuts(e) {
         return;
     }
     
+    // 如果正在编辑任务标题，不触发其他快捷键
+    if (e.target.contentEditable === 'true') {
+        return;
+    }
+    
     // 空格键：开始/暂停番茄钟
     if (e.code === 'Space') {
         e.preventDefault();
@@ -143,6 +192,18 @@ function handleKeyboardShortcuts(e) {
         const index = parseInt(e.key) - 1;
         switchList(listViews[index]);
     }
+    
+    // Tab/Shift+Tab：增加/减少任务缩进（需要有选中的任务）
+    if (e.key === 'Tab' && currentTaskId) {
+        e.preventDefault();
+        if (e.shiftKey) {
+            // Shift+Tab：减少缩进（提升层级）
+            decreaseTaskIndent(currentTaskId);
+        } else {
+            // Tab：增加缩进（降低层级，成为上一个任务的子任务）
+            increaseTaskIndent(currentTaskId);
+        }
+    }
 }
 
 // 添加任务
@@ -159,6 +220,8 @@ function addTask() {
         priority: 'medium',
         date: null,
         note: '',
+        parentId: null,
+        expanded: true,
         createdAt: new Date().toISOString(),
         order: tasks.length
     };
@@ -204,7 +267,10 @@ function renderTasks() {
     
     let filteredTasks = filterTasks();
     
-    if (filteredTasks.length === 0) {
+    // 只显示顶级任务（没有父任务的）
+    const topLevelTasks = filteredTasks.filter(t => !t.parentId);
+    
+    if (topLevelTasks.length === 0) {
         container.style.display = 'none';
         emptyState.style.display = 'block';
         return;
@@ -213,21 +279,44 @@ function renderTasks() {
     container.style.display = 'block';
     emptyState.style.display = 'none';
     
-    container.innerHTML = filteredTasks.map(task => `
+    container.innerHTML = topLevelTasks.map(task => renderTaskTree(task, 0, filteredTasks)).join('');
+    
+    // 重新初始化拖拽
+    initDragAndDrop();
+}
+
+// 递归渲染任务树
+function renderTaskTree(task, level, allTasks = null) {
+    // 如果没有传入 allTasks，使用全局 tasks
+    const taskList = allTasks || tasks;
+    
+    const children = taskList.filter(t => t.parentId === task.id);
+    const hasChildren = children.length > 0;
+    const expanded = task.expanded !== false;
+    
+    let html = `
         <div class="task-item ${task.completed ? 'completed' : ''}" 
              data-id="${task.id}"
+             data-level="${level}"
              data-priority="${task.priority}"
              draggable="true"
+             style="padding-left: ${20 + level * 32}px"
              onclick="showTaskDetail('${task.id}')">
+            ${hasChildren ? `
+                <button class="task-expand-btn" onclick="event.stopPropagation(); toggleTaskExpand('${task.id}')">
+                    <span class="expand-icon">${expanded ? '▼' : '▶'}</span>
+                </button>
+            ` : '<div class="task-expand-placeholder"></div>'}
             <div class="task-checkbox ${task.completed ? 'checked' : ''}" 
                  onclick="event.stopPropagation(); toggleTaskComplete('${task.id}')">
             </div>
             <div class="task-content">
-                <div class="task-title">${escapeHtml(task.title)}</div>
+                <div class="task-title" ondblclick="event.stopPropagation(); editTaskTitle('${task.id}')">${escapeHtml(task.title)}</div>
                 <div class="task-meta">
                     ${task.date ? `<div class="task-meta-item">📅 ${formatDate(task.date)}</div>` : ''}
                     ${task.priority !== 'medium' ? `<div class="priority-badge priority-${task.priority}">${getPriorityText(task.priority)}</div>` : ''}
                     ${task.note ? '<div class="task-meta-item">📝 有备注</div>' : ''}
+                    ${hasChildren ? `<div class="task-meta-item">📋 ${children.length}项</div>` : ''}
                 </div>
             </div>
             <div class="task-actions">
@@ -239,10 +328,14 @@ function renderTasks() {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
     
-    // 重新初始化拖拽
-    initDragAndDrop();
+    // 如果展开且有子任务，递归渲染子任务
+    if (expanded && hasChildren) {
+        html += children.map(child => renderTaskTree(child, level + 1, taskList)).join('');
+    }
+    
+    return html;
 }
 
 // 过滤任务
@@ -282,15 +375,30 @@ function filterTasks() {
     return filtered;
 }
 
-// 更新任务计数
+// 更新任务计数（只计算顶级任务及其所有后代）
 function updateTaskCounts() {
     const today = new Date().toDateString();
     
+    // 获取所有顶级任务（包括后代）的完成状态
+    function getAllTasksIncludingChildren(parentId = null) {
+        const directTasks = tasks.filter(t => t.parentId === parentId);
+        let allTasks = [...directTasks];
+        
+        directTasks.forEach(task => {
+            const children = getAllTasksIncludingChildren(task.id);
+            allTasks = allTasks.concat(children);
+        });
+        
+        return allTasks;
+    }
+    
+    const allTasksFlat = getAllTasksIncludingChildren(null);
+    
     const counts = {
-        all: tasks.filter(t => !t.completed).length,
-        today: tasks.filter(t => t.date && new Date(t.date).toDateString() === today && !t.completed).length,
-        important: tasks.filter(t => t.priority === 'high' && !t.completed).length,
-        completed: tasks.filter(t => t.completed).length
+        all: allTasksFlat.filter(t => !t.completed).length,
+        today: allTasksFlat.filter(t => t.date && new Date(t.date).toDateString() === today && !t.completed).length,
+        important: allTasksFlat.filter(t => t.priority === 'high' && !t.completed).length,
+        completed: allTasksFlat.filter(t => t.completed).length
     };
     
     document.querySelectorAll('.list-item').forEach(item => {
@@ -305,15 +413,27 @@ function updateTaskCounts() {
 // 切换任务完成状态
 function toggleTaskComplete(taskId) {
     const task = tasks.find(t => t.id === taskId);
-    if (task) {
-        task.completed = !task.completed;
-        saveData();
-        updateTaskCounts();
-        renderTasks();
-        
-        if (task.completed) {
-            showToast('任务已完成 ✓');
-        }
+    if (!task) return;
+    
+    task.completed = !task.completed;
+    
+    // 递归更新所有子任务的完成状态
+    function updateChildrenStatus(parentId, completed) {
+        const children = tasks.filter(t => t.parentId === parentId);
+        children.forEach(child => {
+            child.completed = completed;
+            updateChildrenStatus(child.id, completed);
+        });
+    }
+    
+    updateChildrenStatus(taskId, task.completed);
+    
+    saveData();
+    updateTaskCounts();
+    renderTasks();
+    
+    if (task.completed) {
+        showToast('任务已完成 ✓');
     }
 }
 
@@ -368,9 +488,16 @@ function deleteCurrentTask() {
     }
 }
 
-// 删除任务
+// 删除任务（同时删除其所有子任务）
 function deleteTask(taskId) {
-    tasks = tasks.filter(t => t.id !== taskId);
+    // 递归删除所有子任务
+    function deleteTaskAndChildren(id) {
+        const children = tasks.filter(t => t.parentId === id);
+        children.forEach(child => deleteTaskAndChildren(child.id));
+        tasks = tasks.filter(t => t.id !== id);
+    }
+    
+    deleteTaskAndChildren(taskId);
     saveData();
     updateTaskCounts();
     renderTasks();
@@ -588,7 +715,7 @@ function updateStats() {
     }
 }
 
-// 拖拽排序
+// 拖拽排序和层级调整
 function initDragAndDrop() {
     const taskItems = document.querySelectorAll('.task-item');
     
@@ -600,15 +727,24 @@ function initDragAndDrop() {
         item.addEventListener('dragenter', handleDragEnter);
         item.addEventListener('dragleave', handleDragLeave);
     });
+    
+    // 为任务容器添加拖拽监听（允许拖到空白区域）
+    const container = document.getElementById('tasksContainer');
+    if (container) {
+        container.addEventListener('dragover', handleContainerDragOver);
+        container.addEventListener('drop', handleContainerDrop);
+        container.addEventListener('dragleave', handleContainerDragLeave);
+    }
 }
 
 let draggedElement = null;
+let dropIndicatorTimeout = null;
 
 function handleDragStart(e) {
     draggedElement = this;
     this.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', this.innerHTML);
+    e.dataTransfer.setData('text/plain', this.dataset.id);
 }
 
 function handleDragEnd(e) {
@@ -616,51 +752,231 @@ function handleDragEnd(e) {
     
     // 移除所有拖拽样式
     document.querySelectorAll('.task-item').forEach(item => {
-        item.classList.remove('drag-over');
+        item.classList.remove('drag-over-before', 'drag-over-child', 'drag-over-after');
     });
+    
+    // 移除容器拖拽样式
+    const container = document.getElementById('tasksContainer');
+    if (container) {
+        container.classList.remove('drag-over-empty');
+    }
+    
+    if (dropIndicatorTimeout) {
+        clearTimeout(dropIndicatorTimeout);
+    }
 }
 
 function handleDragOver(e) {
     if (e.preventDefault) {
         e.preventDefault();
     }
+    
+    if (this === draggedElement) {
+        e.dataTransfer.dropEffect = 'none';
+        return false;
+    }
+    
     e.dataTransfer.dropEffect = 'move';
+    
+    // 根据鼠标位置决定是作为子任务还是插入前后（扩大上下区域）
+    const rect = this.getBoundingClientRect();
+    const mouseY = e.clientY - rect.top;
+    const height = rect.height;
+    
+    // 移除所有样式
+    this.classList.remove('drag-over-before', 'drag-over-child', 'drag-over-after');
+    
+    if (mouseY < height * 0.35) {
+        // 插入到前面（同级）
+        this.classList.add('drag-over-before');
+    } else if (mouseY > height * 0.65) {
+        // 插入到后面（同级）
+        this.classList.add('drag-over-after');
+    } else {
+        // 作为子任务
+        this.classList.add('drag-over-child');
+    }
+    
     return false;
 }
 
 function handleDragEnter(e) {
     if (this !== draggedElement) {
-        this.classList.add('drag-over');
+        // 样式已在 dragover 中处理
     }
 }
 
 function handleDragLeave(e) {
-    this.classList.remove('drag-over');
+    // 检查是否真的离开了元素
+    if (!this.contains(e.relatedTarget)) {
+        this.classList.remove('drag-over-before', 'drag-over-child', 'drag-over-after');
+    }
 }
 
 function handleDrop(e) {
     if (e.stopPropagation) {
         e.stopPropagation();
     }
-    
-    if (draggedElement !== this) {
-        const draggedId = draggedElement.dataset.id;
-        const targetId = this.dataset.id;
-        
-        const draggedIndex = tasks.findIndex(t => t.id === draggedId);
-        const targetIndex = tasks.findIndex(t => t.id === targetId);
-        
-        // 交换位置
-        const [draggedTask] = tasks.splice(draggedIndex, 1);
-        tasks.splice(targetIndex, 0, draggedTask);
-        
-        saveData();
-        renderTasks();
-        
-        showToast('已调整顺序');
+    if (e.preventDefault) {
+        e.preventDefault();
     }
     
+    if (draggedElement === this) {
+        return false;
+    }
+    
+    const draggedId = draggedElement.dataset.id;
+    const targetId = this.dataset.id;
+    
+    const draggedTask = tasks.find(t => t.id === draggedId);
+    const targetTask = tasks.find(t => t.id === targetId);
+    
+    if (!draggedTask || !targetTask) {
+        return false;
+    }
+    
+    // 检查是否会造成循环引用
+    if (isDescendant(targetId, draggedId)) {
+        showToast('不能将任务移动到其子任务下');
+        return false;
+    }
+    
+    // 根据拖拽位置决定操作（扩大上下区域到 35%，中间只有 30%）
+    const rect = this.getBoundingClientRect();
+    const mouseY = e.clientY - rect.top;
+    const height = rect.height;
+    
+    if (mouseY < height * 0.35) {
+        // 插入到目标前面（同级）
+        draggedTask.parentId = targetTask.parentId;
+        reorderTaskBefore(draggedId, targetId);
+        const levelMsg = targetTask.parentId ? '已调整为同级' : '已调整为顶级任务';
+        showToast(levelMsg);
+    } else if (mouseY > height * 0.65) {
+        // 插入到目标后面（同级）
+        draggedTask.parentId = targetTask.parentId;
+        reorderTaskAfter(draggedId, targetId);
+        const levelMsg = targetTask.parentId ? '已调整为同级' : '已调整为顶级任务';
+        showToast(levelMsg);
+    } else {
+        // 作为目标的子任务
+        draggedTask.parentId = targetId;
+        targetTask.expanded = true;
+        showToast('已设置为子任务');
+    }
+    
+    saveData();
+    renderTasks();
+    
     return false;
+}
+
+// 检查 targetId 是否是 taskId 的后代
+function isDescendant(targetId, taskId) {
+    let current = tasks.find(t => t.id === targetId);
+    while (current) {
+        if (current.id === taskId) {
+            return true;
+        }
+        if (!current.parentId) {
+            break;
+        }
+        current = tasks.find(t => t.id === current.parentId);
+    }
+    return false;
+}
+
+// 将任务移动到目标任务之前
+function reorderTaskBefore(taskId, targetId) {
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    const targetIndex = tasks.findIndex(t => t.id === targetId);
+    
+    if (taskIndex === -1 || targetIndex === -1) return;
+    
+    const [task] = tasks.splice(taskIndex, 1);
+    const newTargetIndex = tasks.findIndex(t => t.id === targetId);
+    tasks.splice(newTargetIndex, 0, task);
+}
+
+// 将任务移动到目标任务之后
+function reorderTaskAfter(taskId, targetId) {
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    const targetIndex = tasks.findIndex(t => t.id === targetId);
+    
+    if (taskIndex === -1 || targetIndex === -1) return;
+    
+    const [task] = tasks.splice(taskIndex, 1);
+    const newTargetIndex = tasks.findIndex(t => t.id === targetId);
+    tasks.splice(newTargetIndex + 1, 0, task);
+}
+
+// 容器拖拽处理（空白区域）
+function handleContainerDragOver(e) {
+    // 检查是否拖拽到空白区域（不是任务项上）
+    if (e.target.classList.contains('tasks-container') || e.target.id === 'tasksContainer') {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        // 添加视觉提示
+        const container = document.getElementById('tasksContainer');
+        if (container && !container.classList.contains('drag-over-empty')) {
+            container.classList.add('drag-over-empty');
+        }
+    }
+}
+
+function handleContainerDragLeave(e) {
+    // 检查是否真的离开了容器
+    const container = document.getElementById('tasksContainer');
+    if (!container) return;
+    
+    // 如果离开的目标不在容器内，移除样式
+    if (!container.contains(e.relatedTarget)) {
+        container.classList.remove('drag-over-empty');
+    }
+}
+
+function handleContainerDrop(e) {
+    // 移除视觉提示
+    const container = document.getElementById('tasksContainer');
+    if (container) {
+        container.classList.remove('drag-over-empty');
+    }
+    
+    // 只处理拖拽到空白区域的情况
+    if (!e.target.classList.contains('tasks-container') && e.target.id !== 'tasksContainer') {
+        return;
+    }
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!draggedElement) return;
+    
+    const draggedId = draggedElement.dataset.id;
+    const draggedTask = tasks.find(t => t.id === draggedId);
+    
+    if (!draggedTask) return;
+    
+    // 拖到空白区域，变成顶级任务并放到最后
+    const wasChild = draggedTask.parentId !== null;
+    draggedTask.parentId = null;
+    
+    // 移到数组末尾
+    const taskIndex = tasks.findIndex(t => t.id === draggedId);
+    if (taskIndex !== -1) {
+        const [task] = tasks.splice(taskIndex, 1);
+        tasks.push(task);
+    }
+    
+    saveData();
+    renderTasks();
+    
+    if (wasChild) {
+        showToast('已移至顶级任务');
+    } else {
+        showToast('已移至底部');
+    }
 }
 
 // 排序功能
@@ -782,6 +1098,144 @@ function showNotification(title, body) {
 
 function goBack() {
     window.history.back();
+}
+
+// 展开/折叠任务
+function toggleTaskExpand(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    task.expanded = !task.expanded;
+    saveData();
+    renderTasks();
+}
+
+// 增加任务缩进（降低层级，成为上一个任务的子任务）
+function increaseTaskIndent(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    if (taskIndex <= 0) {
+        showToast('无法缩进：前面没有任务');
+        return;
+    }
+    
+    // 找到前一个同级或更高级的任务
+    let prevTask = null;
+    for (let i = taskIndex - 1; i >= 0; i--) {
+        const candidate = tasks[i];
+        // 找到同级任务
+        if (candidate.parentId === task.parentId) {
+            prevTask = candidate;
+            break;
+        }
+    }
+    
+    if (!prevTask) {
+        showToast('无法缩进：前面没有同级任务');
+        return;
+    }
+    
+    // 检查是否会造成循环引用
+    if (isDescendant(prevTask.id, taskId)) {
+        showToast('无法缩进：会造成循环引用');
+        return;
+    }
+    
+    task.parentId = prevTask.id;
+    prevTask.expanded = true;
+    
+    saveData();
+    renderTasks();
+    showToast('已增加缩进');
+}
+
+// 减少任务缩进（提升层级）
+function decreaseTaskIndent(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    if (!task.parentId) {
+        showToast('已经是顶级任务');
+        return;
+    }
+    
+    const parentTask = tasks.find(t => t.id === task.parentId);
+    if (!parentTask) {
+        task.parentId = null;
+        saveData();
+        renderTasks();
+        showToast('已减少缩进');
+        return;
+    }
+    
+    // 提升到父任务的同级
+    task.parentId = parentTask.parentId;
+    
+    // 将任务移动到父任务后面
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    const parentIndex = tasks.findIndex(t => t.id === parentTask.id);
+    
+    if (taskIndex !== -1 && parentIndex !== -1) {
+        const [movedTask] = tasks.splice(taskIndex, 1);
+        const newParentIndex = tasks.findIndex(t => t.id === parentTask.id);
+        tasks.splice(newParentIndex + 1, 0, movedTask);
+    }
+    
+    saveData();
+    renderTasks();
+    showToast('已减少缩进');
+}
+
+// 编辑任务标题
+function editTaskTitle(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const taskItem = document.querySelector(`.task-item[data-id="${taskId}"]`);
+    const titleElement = taskItem.querySelector('.task-title');
+    
+    const currentTitle = task.title;
+    titleElement.contentEditable = true;
+    titleElement.focus();
+    
+    // 选中所有文本
+    const range = document.createRange();
+    range.selectNodeContents(titleElement);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    // 保存编辑
+    const saveEdit = () => {
+        titleElement.contentEditable = false;
+        const newTitle = titleElement.textContent.trim();
+        
+        if (newTitle && newTitle !== currentTitle) {
+            task.title = newTitle;
+            saveData();
+            showToast('标题已更新');
+        } else {
+            titleElement.textContent = currentTitle;
+        }
+        
+        titleElement.removeEventListener('blur', saveEdit);
+        titleElement.removeEventListener('keydown', handleEditKeydown);
+    };
+    
+    const handleEditKeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            titleElement.blur();
+        } else if (e.key === 'Escape') {
+            titleElement.textContent = currentTitle;
+            titleElement.blur();
+        }
+    };
+    
+    titleElement.addEventListener('blur', saveEdit);
+    titleElement.addEventListener('keydown', handleEditKeydown);
 }
 
 // 响应式处理

@@ -52,6 +52,15 @@ const appsData = [
         "tags": ["ai", "data", "automation"]
     },
     {
+        "id": "go-learn",
+        "name": "Go语言学习",
+        "icon": "🚀",
+        "description": "闯关式学习Go语言编程，从Hello World到并发编程，循序渐进掌握Go核心特性（需服务端支持）",
+        "keywords": ["Go", "Golang", "学习", "教程", "编程", "闯关", "并发", "goroutine"],
+        "category": "learn",
+        "tags": ["learn", "game"]
+    },
+    {
         "id": "sql-learn",
         "name": "SQL语法学习",
         "icon": "🎓",
@@ -230,5 +239,14 @@ const appsData = [
         "keywords": ["协作", "文档", "Excel", "Word", "实时编辑", "联机", "多人", "在线编辑"],
         "category": "online",
         "tags": ["office", "network"]
+    },
+    {
+        "id": "data-ontology",
+        "name": "数据本体池",
+        "icon": "🗄️",
+        "description": "数据库管理、数据治理、本体论抽象、接口分发、AI助手的一体化数据平台，支持MySQL数据库接入与数据预览",
+        "keywords": ["数据库", "MySQL", "数据治理", "本体论", "接口", "AI", "数据管理", "联机"],
+        "category": "online",
+        "tags": ["database", "data", "ai"]
     }
 ];

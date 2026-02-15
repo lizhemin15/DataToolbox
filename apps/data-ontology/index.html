@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据本体池</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div id="loginPage" class="page active">
+        <div class="login-container">
+            <div class="login-box">
+                <div class="login-header">
+                    <div class="login-icon">🗄️</div>
+                    <h1>数据本体池</h1>
+                    <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象</p>
+                </div>
+                <form id="loginForm" class="login-form">
+                    <div class="form-group">
+                        <label for="username">用户名</label>
+                        <input type="text" id="username" name="username" placeholder="请输入用户名" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">密码</label>
+                        <input type="password" id="password" name="password" placeholder="请输入密码" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">登录</button>
+                    <div id="loginError" class="error-message"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主应用页面 -->
+    <div id="mainPage" class="page">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>🗄️ 数据本体池</h1>
+                    <div class="nav-tabs">
+                        <button class="nav-tab active" data-tab="database">数据库管理</button>
+                        <button class="nav-tab" data-tab="governance" disabled>数据治理</button>
+                        <button class="nav-tab" data-tab="ontology" disabled>本体论抽象</button>
+                        <button class="nav-tab" data-tab="api" disabled>接口分发</button>
+                        <button class="nav-tab" data-tab="ai" disabled>AI助手</button>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <span id="currentUser">admin</span>
+                        <button id="logoutBtn" class="btn btn-sm">退出</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据库管理标签页 -->
+        <div id="databaseTab" class="tab-content active">
+            <div class="container">
+                <div class="sidebar">
+                    <div class="sidebar-header">
+                        <h3>数据库列表</h3>
+                        <button id="addDbBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                    </div>
+                    <div id="dbList" class="db-list">
+                        <!-- 数据库列表将动态生成 -->
+                    </div>
+                </div>
+
+                <div class="main-content">
+                    <div id="welcomeView" class="welcome-view">
+                        <div class="welcome-icon">🗄️</div>
+                        <h2>欢迎使用数据库管理</h2>
+                        <p>请在左侧添加或选择一个数据库开始使用</p>
+                    </div>
+
+                    <div id="dbDetailView" class="db-detail-view" style="display:none;">
+                        <div class="detail-header">
+                            <h2 id="dbName">数据库名称</h2>
+                            <div class="detail-actions">
+                                <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
+                                <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
+                            </div>
+                        </div>
+
+                        <div class="db-info">
+                            <div class="info-item">
+                                <span class="info-label">主机:</span>
+                                <span id="dbHost" class="info-value"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">端口:</span>
+                                <span id="dbPort" class="info-value"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">状态:</span>
+                                <span id="dbStatus" class="info-value status"></span>
+                            </div>
+                        </div>
+
+                        <div class="tables-section">
+                            <h3>数据表列表</h3>
+                            <div id="tablesList" class="tables-list">
+                                <!-- 表列表将动态生成 -->
+                            </div>
+                        </div>
+
+                        <div id="tablePreview" class="table-preview" style="display:none;">
+                            <div class="preview-header">
+                                <h3 id="previewTableName">表名</h3>
+                                <button id="closePreviewBtn" class="btn btn-sm">关闭</button>
+                            </div>
+                            <div id="previewContent" class="preview-content">
+                                <!-- 表数据将动态生成 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 其他标签页（暂未实现） -->
+        <div id="governanceTab" class="tab-content">
+            <div class="coming-soon">
+                <div class="coming-soon-icon">🚧</div>
+                <h2>数据治理</h2>
+                <p>功能开发中...</p>
+            </div>
+        </div>
+
+        <div id="ontologyTab" class="tab-content">
+            <div class="coming-soon">
+                <div class="coming-soon-icon">🚧</div>
+                <h2>本体论抽象</h2>
+                <p>功能开发中...</p>
+            </div>
+        </div>
+
+        <div id="apiTab" class="tab-content">
+            <div class="coming-soon">
+                <div class="coming-soon-icon">🚧</div>
+                <h2>接口分发</h2>
+                <p>功能开发中...</p>
+            </div>
+        </div>
+
+        <div id="aiTab" class="tab-content">
+            <div class="coming-soon">
+                <div class="coming-soon-icon">🚧</div>
+                <h2>AI助手</h2>
+                <p>功能开发中...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加数据库弹窗 -->
+    <div id="addDbModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>添加MySQL数据库</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form id="addDbForm" class="modal-body">
+                <div class="form-group">
+                    <label for="dbNameInput">数据库名称</label>
+                    <input type="text" id="dbNameInput" placeholder="例如: my_database" required>
+                </div>
+                <div class="form-group">
+                    <label for="dbHostInput">主机地址</label>
+                    <input type="text" id="dbHostInput" placeholder="例如: localhost" required>
+                </div>
+                <div class="form-group">
+                    <label for="dbPortInput">端口</label>
+                    <input type="number" id="dbPortInput" value="3306" required>
+                </div>
+                <div class="form-group">
+                    <label for="dbUserInput">用户名</label>
+                    <input type="text" id="dbUserInput" placeholder="数据库用户名" required>
+                </div>
+                <div class="form-group">
+                    <label for="dbPasswordInput">密码</label>
+                    <input type="password" id="dbPasswordInput" placeholder="数据库密码" required>
+                </div>
+                <div class="form-group">
+                    <label for="dbDatabaseInput">数据库名</label>
+                    <input type="text" id="dbDatabaseInput" placeholder="要连接的数据库" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="testConnectionBtn" class="btn btn-secondary">测试连接</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+                <div id="dbFormError" class="error-message"></div>
+                <div id="dbFormSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
