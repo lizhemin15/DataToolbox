@@ -41,6 +41,9 @@ function initEventListeners() {
     // 添加数据库
     document.getElementById('addDbBtn').addEventListener('click', showAddDbModal);
 
+    // 数据库类型切换
+    document.getElementById('dbTypeInput').addEventListener('change', handleDbTypeChange);
+
     // 弹窗关闭
     document.querySelector('.modal-close').addEventListener('click', hideAddDbModal);
     document.getElementById('addDbModal').addEventListener('click', function(e) {
@@ -146,11 +149,126 @@ function switchTab(tabName) {
     document.getElementById(`${tabName}Tab`).classList.add('active');
 }
 
+// 数据库类型默认端口配置
+const dbTypeDefaults = {
+    // 关系型数据库
+    mysql: { port: 3306, requiresDb: true },
+    mariadb: { port: 3306, requiresDb: true },
+    postgresql: { port: 5432, requiresDb: true },
+    sqlserver: { port: 1433, requiresDb: true },
+    oracle: { port: 1521, requiresDb: false },
+    dm: { port: 5236, requiresDb: true },
+    sqlite: { port: 0, requiresDb: false, isFile: true },
+    duckdb: { port: 0, requiresDb: false, isFile: true },
+    
+    // 分布式数据库
+    tidb: { port: 4000, requiresDb: true },
+    cockroachdb: { port: 26257, requiresDb: true },
+    
+    // 文档型数据库
+    mongodb: { port: 27017, requiresDb: true },
+    
+    // KV存储/缓存
+    redis: { port: 6379, requiresDb: false },
+    memcached: { port: 11211, requiresDb: false },
+    
+    // 列式数据库
+    clickhouse: { port: 9000, requiresDb: true },
+    cassandra: { port: 9042, requiresDb: true },
+    hbase: { port: 9090, requiresDb: false },
+    
+    // 时序数据库
+    influxdb: { port: 8086, requiresDb: true },
+    timescaledb: { port: 5432, requiresDb: true },
+    
+    // 搜索引擎
+    elasticsearch: { port: 9200, requiresDb: false },
+    
+    // 图数据库
+    neo4j: { port: 7687, requiresDb: false }
+};
+
+// 数据库类型图标映射
+const dbTypeIcons = {
+    mysql: '🐬',
+    mariadb: '🦭',
+    postgresql: '🐘',
+    sqlserver: '🪟',
+    oracle: '🔶',
+    dm: '📊',
+    sqlite: '📁',
+    duckdb: '🦆',
+    tidb: '🐯',
+    cockroachdb: '🪳',
+    mongodb: '🍃',
+    redis: '🔴',
+    memcached: '💾',
+    clickhouse: '⚡',
+    cassandra: '💍',
+    hbase: '🏔️',
+    influxdb: '⏱️',
+    timescaledb: '⏰',
+    elasticsearch: '🔍',
+    neo4j: '🕸️'
+};
+
+// 处理数据库类型切换
+function handleDbTypeChange() {
+    const dbType = document.getElementById('dbTypeInput').value;
+    const config = dbTypeDefaults[dbType];
+    
+    const sqlFields = document.getElementById('sqlFields');
+    const sqliteFields = document.getElementById('sqliteFields');
+    const dbDatabaseGroup = document.getElementById('dbDatabaseGroup');
+    
+    if (config.isFile) {
+        // 文件数据库 (SQLite, DuckDB)
+        sqlFields.style.display = 'none';
+        sqliteFields.style.display = 'block';
+        document.getElementById('dbPathInput').placeholder = 
+            dbType === 'duckdb' ? '例如: /path/to/database.duckdb' : '例如: /path/to/database.db';
+    } else {
+        // 网络数据库
+        sqlFields.style.display = 'block';
+        sqliteFields.style.display = 'none';
+        
+        // 设置默认端口
+        document.getElementById('dbPortInput').value = config.port;
+        
+        // 根据数据库类型显示/隐藏数据库名字段
+        if (config.requiresDb) {
+            dbDatabaseGroup.style.display = 'block';
+            document.getElementById('dbDatabaseInput').required = true;
+            
+            // 更新标签和占位符
+            const label = document.querySelector('#dbDatabaseGroup label');
+            const input = document.getElementById('dbDatabaseInput');
+            if (dbType === 'redis') {
+                label.textContent = '数据库索引';
+                input.placeholder = '例如: 0 (默认)';
+            } else if (dbType === 'cassandra') {
+                label.textContent = 'Keyspace';
+                input.placeholder = '例如: my_keyspace';
+            } else if (dbType === 'neo4j') {
+                label.textContent = '数据库名称';
+                input.placeholder = '例如: neo4j';
+            } else {
+                label.textContent = '数据库名';
+                input.placeholder = '要连接的数据库';
+            }
+        } else {
+            dbDatabaseGroup.style.display = 'none';
+            document.getElementById('dbDatabaseInput').required = false;
+        }
+    }
+}
+
 // 显示添加数据库弹窗
 function showAddDbModal() {
     document.getElementById('addDbModal').classList.add('show');
     document.getElementById('addDbForm').reset();
-    document.getElementById('dbPortInput').value = '3306';
+    document.getElementById('dbTypeInput').value = 'mysql';
+    handleDbTypeChange();
     document.getElementById('dbFormError').classList.remove('show');
     document.getElementById('dbFormSuccess').classList.remove('show');
 }
@@ -162,13 +280,22 @@ function hideAddDbModal() {
 
 // 测试数据库连接
 async function testConnection() {
+    const dbType = document.getElementById('dbTypeInput').value;
     const config = {
-        host: document.getElementById('dbHostInput').value,
-        port: parseInt(document.getElementById('dbPortInput').value),
-        user: document.getElementById('dbUserInput').value,
-        password: document.getElementById('dbPasswordInput').value,
-        database: document.getElementById('dbDatabaseInput').value
+        type: dbType
     };
+
+    if (dbTypeDefaults[dbType].isFile) {
+        config.path = document.getElementById('dbPathInput').value;
+    } else {
+        config.host = document.getElementById('dbHostInput').value;
+        config.port = parseInt(document.getElementById('dbPortInput').value);
+        config.user = document.getElementById('dbUserInput').value;
+        config.password = document.getElementById('dbPasswordInput').value;
+        if (dbTypeDefaults[dbType].requiresDb) {
+            config.database = document.getElementById('dbDatabaseInput').value;
+        }
+    }
 
     const errorEl = document.getElementById('dbFormError');
     const successEl = document.getElementById('dbFormSuccess');
@@ -204,14 +331,23 @@ async function testConnection() {
 async function handleAddDatabase(e) {
     e.preventDefault();
 
+    const dbType = document.getElementById('dbTypeInput').value;
     const config = {
-        name: document.getElementById('dbNameInput').value,
-        host: document.getElementById('dbHostInput').value,
-        port: parseInt(document.getElementById('dbPortInput').value),
-        user: document.getElementById('dbUserInput').value,
-        password: document.getElementById('dbPasswordInput').value,
-        database: document.getElementById('dbDatabaseInput').value
+        type: dbType,
+        name: document.getElementById('dbNameInput').value
     };
+
+    if (dbTypeDefaults[dbType].isFile) {
+        config.path = document.getElementById('dbPathInput').value;
+    } else {
+        config.host = document.getElementById('dbHostInput').value;
+        config.port = parseInt(document.getElementById('dbPortInput').value);
+        config.user = document.getElementById('dbUserInput').value;
+        config.password = document.getElementById('dbPasswordInput').value;
+        if (dbTypeDefaults[dbType].requiresDb) {
+            config.database = document.getElementById('dbDatabaseInput').value;
+        }
+    }
 
     const errorEl = document.getElementById('dbFormError');
     const successEl = document.getElementById('dbFormSuccess');
@@ -276,12 +412,18 @@ function renderDatabaseList() {
         return;
     }
 
-    listEl.innerHTML = databases.map(db => `
-        <div class="db-item ${currentDb && currentDb.id === db.id ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
-            <div class="db-item-name">${db.name}</div>
-            <div class="db-item-info">${db.host}:${db.port}</div>
-        </div>
-    `).join('');
+    listEl.innerHTML = databases.map(db => {
+        const typeIcon = dbTypeIcons[db.type] || '🗄️';
+        const isFileDb = dbTypeDefaults[db.type]?.isFile;
+        const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+        
+        return `
+            <div class="db-item ${currentDb && currentDb.id === db.id ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
+                <div class="db-item-name">${typeIcon} ${db.name}</div>
+                <div class="db-item-info">${info}</div>
+            </div>
+        `;
+    }).join('');
 }
 
 // 选择数据库
@@ -308,9 +450,33 @@ async function loadDatabaseDetail(dbId) {
             document.getElementById('welcomeView').style.display = 'none';
             document.getElementById('dbDetailView').style.display = 'block';
             
-            document.getElementById('dbName').textContent = data.database.name;
-            document.getElementById('dbHost').textContent = data.database.host;
-            document.getElementById('dbPort').textContent = data.database.port;
+            const typeNames = {
+                mysql: 'MySQL',
+                mariadb: 'MariaDB',
+                postgresql: 'PostgreSQL',
+                sqlserver: 'SQL Server',
+                oracle: 'Oracle',
+                dm: '达梦',
+                sqlite: 'SQLite',
+                duckdb: 'DuckDB',
+                tidb: 'TiDB',
+                cockroachdb: 'CockroachDB',
+                mongodb: 'MongoDB',
+                redis: 'Redis',
+                memcached: 'Memcached',
+                clickhouse: 'ClickHouse',
+                cassandra: 'Cassandra',
+                hbase: 'HBase',
+                influxdb: 'InfluxDB',
+                timescaledb: 'TimescaleDB',
+                elasticsearch: 'Elasticsearch',
+                neo4j: 'Neo4j'
+            };
+            
+            const isFileDb = dbTypeDefaults[data.database.type]?.isFile;
+            document.getElementById('dbName').textContent = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
+            document.getElementById('dbHost').textContent = isFileDb ? data.database.path : data.database.host;
+            document.getElementById('dbPort').textContent = isFileDb ? '-' : data.database.port;
             
             const statusEl = document.getElementById('dbStatus');
             if (data.database.connected) {

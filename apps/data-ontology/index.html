@@ -158,33 +158,86 @@
     <div id="addDbModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>添加MySQL数据库</h2>
+                <h2>添加数据库</h2>
                 <button class="modal-close">&times;</button>
             </div>
             <form id="addDbForm" class="modal-body">
                 <div class="form-group">
-                    <label for="dbNameInput">数据库名称</label>
-                    <input type="text" id="dbNameInput" placeholder="例如: my_database" required>
+                    <label for="dbTypeInput">数据库类型</label>
+                    <select id="dbTypeInput" required>
+                        <optgroup label="关系型数据库(SQL)">
+                            <option value="mysql">MySQL</option>
+                            <option value="mariadb">MariaDB</option>
+                            <option value="postgresql">PostgreSQL</option>
+                            <option value="sqlserver">SQL Server</option>
+                            <option value="oracle">Oracle</option>
+                            <option value="dm">达梦(DM)</option>
+                            <option value="sqlite">SQLite</option>
+                            <option value="duckdb">DuckDB</option>
+                        </optgroup>
+                        <optgroup label="分布式数据库">
+                            <option value="tidb">TiDB</option>
+                            <option value="cockroachdb">CockroachDB</option>
+                        </optgroup>
+                        <optgroup label="文档型数据库">
+                            <option value="mongodb">MongoDB</option>
+                        </optgroup>
+                        <optgroup label="KV存储/缓存">
+                            <option value="redis">Redis</option>
+                            <option value="memcached">Memcached</option>
+                        </optgroup>
+                        <optgroup label="列式数据库">
+                            <option value="clickhouse">ClickHouse</option>
+                            <option value="cassandra">Cassandra</option>
+                            <option value="hbase">HBase</option>
+                        </optgroup>
+                        <optgroup label="时序数据库">
+                            <option value="influxdb">InfluxDB</option>
+                            <option value="timescaledb">TimescaleDB</option>
+                        </optgroup>
+                        <optgroup label="搜索引擎">
+                            <option value="elasticsearch">Elasticsearch</option>
+                        </optgroup>
+                        <optgroup label="图数据库">
+                            <option value="neo4j">Neo4j</option>
+                        </optgroup>
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label for="dbHostInput">主机地址</label>
-                    <input type="text" id="dbHostInput" placeholder="例如: localhost" required>
+                    <label for="dbNameInput">连接名称</label>
+                    <input type="text" id="dbNameInput" placeholder="自定义连接名称" required>
                 </div>
-                <div class="form-group">
-                    <label for="dbPortInput">端口</label>
-                    <input type="number" id="dbPortInput" value="3306" required>
+                <div id="sqlFields">
+                    <div class="form-group">
+                        <label for="dbHostInput">主机地址</label>
+                        <input type="text" id="dbHostInput" placeholder="例如: localhost" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dbPortInput">端口</label>
+                        <input type="number" id="dbPortInput" value="3306" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dbUserInput">用户名</label>
+                        <input type="text" id="dbUserInput" placeholder="数据库用户名" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dbPasswordInput">密码</label>
+                        <input type="password" id="dbPasswordInput" placeholder="数据库密码">
+                    </div>
+                    <div class="form-group" id="dbDatabaseGroup">
+                        <label for="dbDatabaseInput">数据库名</label>
+                        <input type="text" id="dbDatabaseInput" placeholder="要连接的数据库">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="dbUserInput">用户名</label>
-                    <input type="text" id="dbUserInput" placeholder="数据库用户名" required>
+                <div id="sqliteFields" style="display:none;">
+                    <div class="form-group">
+                        <label for="dbPathInput">数据库文件路径</label>
+                        <input type="text" id="dbPathInput" placeholder="例如: /path/to/database.db">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="dbPasswordInput">密码</label>
-                    <input type="password" id="dbPasswordInput" placeholder="数据库密码" required>
-                </div>
-                <div class="form-group">
-                    <label for="dbDatabaseInput">数据库名</label>
-                    <input type="text" id="dbDatabaseInput" placeholder="要连接的数据库" required>
+                <div id="connectionStringGroup" class="form-group" style="display:none;">
+                    <label for="dbConnectionString">连接字符串</label>
+                    <textarea id="dbConnectionString" placeholder="自定义连接字符串" rows="3"></textarea>
                 </div>
                 <div class="modal-footer">
                     <button type="button" id="testConnectionBtn" class="btn btn-secondary">测试连接</button>

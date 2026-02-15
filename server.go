@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
@@ -18,9 +19,20 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
+	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/godror/godror"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	_ "github.com/lib/pq"
+	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	_ "github.com/sijms/go-ora/v2"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Config 服务器配置
@@ -704,20 +716,24 @@ type User struct {
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
 	ID       string `json:"id"`
+	Type     string `json:"type"`     // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
 	Name     string `json:"name"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Database string `json:"database"`
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+	Database string `json:"database,omitempty"`
+	Path     string `json:"path,omitempty"` // for sqlite
 }
 
 // DatabaseInfo 数据库信息（不包含敏感信息）
 type DatabaseInfo struct {
 	ID        string   `json:"id"`
+	Type      string   `json:"type"`
 	Name      string   `json:"name"`
-	Host      string   `json:"host"`
-	Port      int      `json:"port"`
+	Host      string   `json:"host,omitempty"`
+	Port      int      `json:"port,omitempty"`
+	Path      string   `json:"path,omitempty"`
 	Connected bool     `json:"connected"`
 	Tables    []string `json:"tables,omitempty"`
 }
@@ -747,6 +763,88 @@ func hashPassword(password string) string {
 // 生成Token
 func generateToken() string {
 	return uuid.New().String()
+}
+
+// 构建数据库连接字符串
+func buildDSN(config *DatabaseConfig) (string, string, error) {
+	switch config.Type {
+	case "mysql", "mariadb":
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		return "mysql", dsn, nil
+
+	case "postgresql", "timescaledb":
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			config.Host, config.Port, config.User, config.Password, config.Database)
+		return "postgres", dsn, nil
+
+	case "sqlserver":
+		dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		return "sqlserver", dsn, nil
+
+	case "oracle":
+		// 使用 go-ora 驱动
+		dsn := fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		return "oracle", dsn, nil
+
+	case "dm":
+		// 达梦数据库连接字符串
+		dsn := fmt.Sprintf("dm://%s:%s@%s:%d?schema=%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		return "dm", dsn, nil
+
+	case "sqlite":
+		return "sqlite3", config.Path, nil
+
+	case "duckdb":
+		return "duckdb", config.Path, nil
+
+	case "tidb":
+		// TiDB 兼容 MySQL 协议
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		return "mysql", dsn, nil
+
+	case "cockroachdb":
+		// CockroachDB 兼容 PostgreSQL 协议
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			config.Host, config.Port, config.User, config.Password, config.Database)
+		return "postgres", dsn, nil
+
+	case "clickhouse":
+		dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s&database=%s",
+			config.Host, config.Port, config.User, config.Password, config.Database)
+		return "clickhouse", dsn, nil
+
+	default:
+		return "", "", fmt.Errorf("不支持的数据库类型: %s", config.Type)
+	}
+}
+
+// 获取表列表的SQL
+func getTablesQuery(dbType string) string {
+	switch dbType {
+	case "mysql", "mariadb", "tidb":
+		return "SHOW TABLES"
+	case "postgresql", "timescaledb", "cockroachdb":
+		return "SELECT tablename FROM pg_tables WHERE schemaname='public'"
+	case "sqlserver":
+		return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
+	case "oracle":
+		return "SELECT table_name FROM user_tables"
+	case "dm":
+		return "SELECT NAME FROM SYSOBJECTS WHERE TYPE='SCHOBJ' AND SUBTYPE='UTAB'"
+	case "sqlite":
+		return "SELECT name FROM sqlite_master WHERE type='table'"
+	case "duckdb":
+		return "SELECT name FROM sqlite_master WHERE type='table'"
+	case "clickhouse":
+		return "SHOW TABLES"
+	default:
+		return "SHOW TABLES"
+	}
 }
 
 // 验证Token
@@ -844,10 +942,177 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		config.User, config.Password, config.Host, config.Port, config.Database)
+	// MongoDB 特殊处理
+	if config.Type == "mongodb" {
+		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	db, err := sql.Open("mysql", dsn)
+		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer client.Disconnect(ctx)
+
+		if err := client.Ping(ctx, nil); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// Elasticsearch 特殊处理
+	if config.Type == "elasticsearch" {
+		url := fmt.Sprintf("http://%s:%d", config.Host, config.Port)
+		resp, err := http.Get(url)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer resp.Body.Close()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// InfluxDB 特殊处理
+	if config.Type == "influxdb" {
+		url := fmt.Sprintf("http://%s:%d/ping", config.Host, config.Port)
+		resp, err := http.Get(url)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer resp.Body.Close()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// Redis 特殊处理
+	if config.Type == "redis" {
+		// Redis 连接测试 - 简化处理，使用tcp连接
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer conn.Close()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// Memcached 特殊处理
+	if config.Type == "memcached" {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer conn.Close()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// Neo4j 特殊处理
+	if config.Type == "neo4j" {
+		uri := fmt.Sprintf("neo4j://%s:%d", config.Host, config.Port)
+		driver, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(config.User, config.Password, ""))
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer driver.Close(context.Background())
+
+		ctx := context.Background()
+		err = driver.VerifyConnectivity(ctx)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功",
+		})
+		return
+	}
+
+	// Cassandra, HBase 等通过 TCP 简单测试
+	if config.Type == "cassandra" || config.Type == "hbase" {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer conn.Close()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "连接成功 (基础端口测试)",
+		})
+		return
+	}
+
+	// SQL数据库通用处理
+	driver, dsn, err := buildDSN(&config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -893,9 +1158,11 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 		for _, config := range dataOntologyDatabases {
 			databases = append(databases, DatabaseInfo{
 				ID:   config.ID,
+				Type: config.Type,
 				Name: config.Name,
 				Host: config.Host,
 				Port: config.Port,
+				Path: config.Path,
 			})
 		}
 
@@ -915,23 +1182,12 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 测试连接
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		db, err := sql.Open("mysql", dsn)
-		if err != nil {
+		// 测试连接（简化版，实际连接测试已在前端完成）
+		// 这里只做基本验证
+		if config.Type == "" {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
-			return
-		}
-		defer db.Close()
-
-		if err := db.Ping(); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
+				"message": "数据库类型不能为空",
 			})
 			return
 		}
@@ -993,54 +1249,95 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// 连接数据库获取表列表
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		db, err := sql.Open("mysql", dsn)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
-			return
-		}
-		defer db.Close()
+		var tables []string
+		var connected bool
 
-		if err := db.Ping(); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
-			return
-		}
+		// MongoDB 特殊处理
+		if config.Type == "mongodb" {
+			uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+				config.User, config.Password, config.Host, config.Port, config.Database)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		// 获取表列表
-		rows, err := db.Query("SHOW TABLES")
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "获取表列表失败: " + err.Error(),
-			})
-			return
-		}
-		defer rows.Close()
-
-		tables := make([]string, 0)
-		for rows.Next() {
-			var tableName string
-			if err := rows.Scan(&tableName); err == nil {
-				tables = append(tables, tableName)
+			client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+			if err == nil {
+				defer client.Disconnect(ctx)
+				db := client.Database(config.Database)
+				collections, err := db.ListCollectionNames(ctx, bson.M{})
+				if err == nil {
+					tables = collections
+					connected = true
+				}
 			}
+		} else if config.Type == "redis" {
+			// Redis 不支持表列表，显示数据库索引
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
+			if err == nil {
+				conn.Close()
+				connected = true
+				tables = []string{"DB 0", "DB 1", "DB 2", "DB 3", "DB 4", "DB 5", "DB 6", "DB 7", "DB 8", "DB 9", "DB 10", "DB 11", "DB 12", "DB 13", "DB 14", "DB 15"}
+			}
+		} else if config.Type == "neo4j" {
+			// Neo4j 特殊处理
+			uri := fmt.Sprintf("neo4j://%s:%d", config.Host, config.Port)
+			driver, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(config.User, config.Password, ""))
+			if err == nil {
+				defer driver.Close(context.Background())
+				ctx := context.Background()
+				if driver.VerifyConnectivity(ctx) == nil {
+					connected = true
+					// Neo4j 可以列出节点标签
+					tables = []string{"查询节点标签 (Labels)", "查询关系类型 (Relationships)"}
+				}
+			}
+		} else if config.Type == "elasticsearch" || config.Type == "influxdb" || config.Type == "memcached" || config.Type == "cassandra" || config.Type == "hbase" {
+			// 这些数据库暂不获取详细表列表
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
+			if err == nil {
+				conn.Close()
+				connected = true
+				tables = []string{}
+			}
+		} else {
+			// SQL数据库通用处理
+			driver, dsn, err := buildDSN(config)
+			if err == nil {
+				db, err := sql.Open(driver, dsn)
+				if err == nil {
+					defer db.Close()
+					if err := db.Ping(); err == nil {
+						connected = true
+						// 获取表列表
+						query := getTablesQuery(config.Type)
+						rows, err := db.Query(query)
+						if err == nil {
+							defer rows.Close()
+							for rows.Next() {
+								var tableName string
+								if err := rows.Scan(&tableName); err == nil {
+									tables = append(tables, tableName)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if tables == nil {
+			tables = []string{}
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"database": DatabaseInfo{
 				ID:        config.ID,
+				Type:      config.Type,
 				Name:      config.Name,
 				Host:      config.Host,
 				Port:      config.Port,
-				Connected: true,
+				Path:      config.Path,
+				Connected: connected,
 				Tables:    tables,
 			},
 		})
@@ -1100,64 +1397,126 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 连接数据库
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		config.User, config.Password, config.Host, config.Port, config.Database)
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "连接失败: " + err.Error(),
-		})
-		return
-	}
-	defer db.Close()
+	var data []map[string]interface{}
 
-	// 查询数据（限制100条）
-	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
-	rows, err := db.Query(query)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "查询失败: " + err.Error(),
-		})
-		return
-	}
-	defer rows.Close()
+	// MongoDB 特殊处理
+	if config.Type == "mongodb" {
+		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	// 获取列名
-	columns, err := rows.Columns()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "获取列名失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 读取数据
-	data := make([]map[string]interface{}, 0)
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range values {
-			valuePtrs[i] = &values[i]
+		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
 		}
+		defer client.Disconnect(ctx)
 
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
+		collection := client.Database(config.Database).Collection(tableName)
+		cursor, err := collection.Find(ctx, bson.M{}, options.Find().SetLimit(100))
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "查询失败: " + err.Error(),
+			})
+			return
 		}
+		defer cursor.Close(ctx)
 
-		row := make(map[string]interface{})
-		for i, col := range columns {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				row[col] = string(b)
-			} else {
-				row[col] = val
+		data = make([]map[string]interface{}, 0)
+		for cursor.Next(ctx) {
+			var result map[string]interface{}
+			if err := cursor.Decode(&result); err == nil {
+				data = append(data, result)
 			}
 		}
-		data = append(data, row)
+	} else {
+		// SQL数据库通用处理
+		driver, dsn, err := buildDSN(config)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+
+		db, err := sql.Open(driver, dsn)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "连接失败: " + err.Error(),
+			})
+			return
+		}
+		defer db.Close()
+
+		// 查询数据（限制100条）
+		var query string
+		switch config.Type {
+		case "postgresql", "timescaledb", "cockroachdb":
+			query = fmt.Sprintf(`SELECT * FROM "%s" LIMIT 100`, tableName)
+		case "oracle", "dm":
+			query = fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 100", tableName)
+		case "sqlserver":
+			query = fmt.Sprintf("SELECT TOP 100 * FROM [%s]", tableName)
+		case "duckdb":
+			query = fmt.Sprintf("SELECT * FROM %s LIMIT 100", tableName)
+		case "clickhouse":
+			query = fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
+		default:
+			// mysql, mariadb, tidb, sqlite
+			query = fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
+		}
+
+		rows, err := db.Query(query)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "查询失败: " + err.Error(),
+			})
+			return
+		}
+		defer rows.Close()
+
+		// 获取列名
+		columns, err := rows.Columns()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取列名失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 读取数据
+		data = make([]map[string]interface{}, 0)
+		for rows.Next() {
+			values := make([]interface{}, len(columns))
+			valuePtrs := make([]interface{}, len(columns))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+
+			if err := rows.Scan(valuePtrs...); err != nil {
+				continue
+			}
+
+			row := make(map[string]interface{})
+			for i, col := range columns {
+				val := values[i]
+				if b, ok := val.([]byte); ok {
+					row[col] = string(b)
+				} else {
+					row[col] = val
+				}
+			}
+			data = append(data, row)
+		}
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{

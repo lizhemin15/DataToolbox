@@ -244,8 +244,8 @@ const appsData = [
         "id": "data-ontology",
         "name": "数据本体池",
         "icon": "🗄️",
-        "description": "数据库管理、数据治理、本体论抽象、接口分发、AI助手的一体化数据平台，支持MySQL数据库接入与数据预览",
-        "keywords": ["数据库", "MySQL", "数据治理", "本体论", "接口", "AI", "数据管理", "联机"],
+        "description": "一体化数据平台，支持20+种数据库：MySQL、PostgreSQL、Oracle、达梦、SQL Server、SQLite、DuckDB、TiDB、CockroachDB、MongoDB、Redis、ClickHouse、Cassandra、InfluxDB、TimescaleDB、Elasticsearch、Neo4j等",
+        "keywords": ["数据库", "MySQL", "PostgreSQL", "Oracle", "达梦", "MongoDB", "Redis", "ClickHouse", "TiDB", "Neo4j", "数据治理", "本体论", "接口", "AI", "数据管理", "联机"],
         "category": "online",
         "tags": ["database", "data", "ai"]
     }
