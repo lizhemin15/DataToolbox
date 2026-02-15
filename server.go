@@ -731,6 +731,8 @@ type DatabaseInfo struct {
 	Name      string   `json:"name"`
 	Host      string   `json:"host,omitempty"`
 	Port      int      `json:"port,omitempty"`
+	User      string   `json:"user,omitempty"`
+	Database  string   `json:"database,omitempty"`
 	Path      string   `json:"path,omitempty"`
 	Connected bool     `json:"connected"`
 	Tables    []string `json:"tables,omitempty"`
@@ -1146,12 +1148,15 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 		databases := make([]DatabaseInfo, 0)
 		for _, config := range dataOntologyDatabases {
 			databases = append(databases, DatabaseInfo{
-				ID:   config.ID,
-				Type: config.Type,
-				Name: config.Name,
-				Host: config.Host,
-				Port: config.Port,
-				Path: config.Path,
+				ID:       config.ID,
+				Type:     config.Type,
+				Name:     config.Name,
+				Host:     config.Host,
+				Port:     config.Port,
+				Path:     config.Path,
+				User:     config.User,
+				Database: config.Database,
+				// 不返回密码
 			})
 		}
 
@@ -1316,6 +1321,35 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				Connected: connected,
 				Tables:    tables,
 			},
+		})
+
+	case http.MethodPUT:
+		// 更新数据库配置
+		var updateConfig DatabaseConfig
+		if err := json.NewDecoder(r.Body).Decode(&updateConfig); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		dataOntologyMu.Lock()
+		// 保留原ID和类型
+		updateConfig.ID = config.ID
+		updateConfig.Type = config.Type
+		
+		// 如果密码为空，保留原密码
+		if updateConfig.Password == "" {
+			updateConfig.Password = config.Password
+		}
+		
+		dataOntologyDatabases[dbID] = &updateConfig
+		dataOntologyMu.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "更新成功",
 		})
 
 	case http.MethodDelete:

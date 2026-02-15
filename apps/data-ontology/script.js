@@ -2,6 +2,8 @@
 let currentUser = null;
 let databases = [];
 let currentDb = null;
+let isEditMode = false;
+let editingDbId = null;
 
 // API基础URL
 const API_BASE = window.location.origin;
@@ -57,6 +59,9 @@ function initEventListeners() {
 
     // 添加数据库表单
     document.getElementById('addDbForm').addEventListener('submit', handleAddDatabase);
+
+    // 编辑数据库
+    document.getElementById('editDbBtn').addEventListener('click', handleEditDatabase);
 
     // 刷新数据库
     document.getElementById('refreshDbBtn').addEventListener('click', function() {
@@ -265,9 +270,45 @@ function handleDbTypeChange() {
 
 // 显示添加数据库弹窗
 function showAddDbModal() {
+    isEditMode = false;
+    editingDbId = null;
+    document.getElementById('modalTitle').textContent = '添加数据库';
     document.getElementById('addDbModal').classList.add('show');
     document.getElementById('addDbForm').reset();
     document.getElementById('dbTypeInput').value = 'mysql';
+    document.getElementById('dbTypeInput').disabled = false;
+    handleDbTypeChange();
+    document.getElementById('dbFormError').classList.remove('show');
+    document.getElementById('dbFormSuccess').classList.remove('show');
+}
+
+// 显示编辑数据库弹窗
+function handleEditDatabase() {
+    if (!currentDb) return;
+    
+    isEditMode = true;
+    editingDbId = currentDb.id;
+    document.getElementById('modalTitle').textContent = '编辑数据库';
+    document.getElementById('addDbModal').classList.add('show');
+    
+    // 预填充配置
+    document.getElementById('dbTypeInput').value = currentDb.type;
+    document.getElementById('dbTypeInput').disabled = true; // 不允许修改类型
+    document.getElementById('dbNameInput').value = currentDb.name;
+    
+    if (dbTypeDefaults[currentDb.type].isFile) {
+        document.getElementById('dbPathInput').value = currentDb.path || '';
+    } else {
+        document.getElementById('dbHostInput').value = currentDb.host || '';
+        document.getElementById('dbPortInput').value = currentDb.port || '';
+        document.getElementById('dbUserInput').value = currentDb.user || '';
+        document.getElementById('dbPasswordInput').value = ''; // 不显示密码
+        document.getElementById('dbPasswordInput').placeholder = '如不修改密码请留空';
+        if (dbTypeDefaults[currentDb.type].requiresDb) {
+            document.getElementById('dbDatabaseInput').value = currentDb.database || '';
+        }
+    }
+    
     handleDbTypeChange();
     document.getElementById('dbFormError').classList.remove('show');
     document.getElementById('dbFormSuccess').classList.remove('show');
@@ -276,6 +317,9 @@ function showAddDbModal() {
 // 隐藏添加数据库弹窗
 function hideAddDbModal() {
     document.getElementById('addDbModal').classList.remove('show');
+    document.getElementById('dbPasswordInput').placeholder = '数据库密码';
+    isEditMode = false;
+    editingDbId = null;
 }
 
 // 测试数据库连接
@@ -291,7 +335,18 @@ async function testConnection() {
         config.host = document.getElementById('dbHostInput').value;
         config.port = parseInt(document.getElementById('dbPortInput').value);
         config.user = document.getElementById('dbUserInput').value;
-        config.password = document.getElementById('dbPasswordInput').value;
+        
+        // 编辑模式下，如果密码为空，使用原密码进行测试
+        const password = document.getElementById('dbPasswordInput').value;
+        if (isEditMode && password === '' && currentDb) {
+            // 提示用户密码未修改
+            const errorEl = document.getElementById('dbFormError');
+            errorEl.textContent = '编辑模式下，如不修改密码请留空，将使用原密码。要测试连接请输入密码。';
+            errorEl.classList.add('show');
+            return;
+        }
+        config.password = password;
+        
         if (dbTypeDefaults[dbType].requiresDb) {
             config.database = document.getElementById('dbDatabaseInput').value;
         }
@@ -327,7 +382,7 @@ async function testConnection() {
     }
 }
 
-// 添加数据库
+// 添加/编辑数据库
 async function handleAddDatabase(e) {
     e.preventDefault();
 
@@ -343,7 +398,15 @@ async function handleAddDatabase(e) {
         config.host = document.getElementById('dbHostInput').value;
         config.port = parseInt(document.getElementById('dbPortInput').value);
         config.user = document.getElementById('dbUserInput').value;
-        config.password = document.getElementById('dbPasswordInput').value;
+        const password = document.getElementById('dbPasswordInput').value;
+        
+        // 编辑模式下，如果密码为空则不更新密码
+        if (isEditMode && password === '') {
+            // 不包含password字段，后端会保留原密码
+        } else {
+            config.password = password;
+        }
+        
         if (dbTypeDefaults[dbType].requiresDb) {
             config.database = document.getElementById('dbDatabaseInput').value;
         }
@@ -355,8 +418,14 @@ async function handleAddDatabase(e) {
     successEl.classList.remove('show');
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
-            method: 'POST',
+        const url = isEditMode 
+            ? `${API_BASE}/api/data-ontology/databases/${editingDbId}`
+            : `${API_BASE}/api/data-ontology/databases`;
+        
+        const method = isEditMode ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
@@ -367,18 +436,24 @@ async function handleAddDatabase(e) {
         const data = await response.json();
 
         if (data.success) {
-            successEl.textContent = '数据库添加成功！';
+            successEl.textContent = isEditMode ? '数据库更新成功！' : '数据库添加成功！';
             successEl.classList.add('show');
             setTimeout(() => {
                 hideAddDbModal();
                 loadDatabases();
+                if (isEditMode && currentDb && currentDb.id === editingDbId) {
+                    // 刷新当前显示的数据库详情
+                    setTimeout(() => {
+                        loadDatabaseDetail(editingDbId);
+                    }, 300);
+                }
             }, 1000);
         } else {
-            errorEl.textContent = data.message || '添加失败';
+            errorEl.textContent = data.message || (isEditMode ? '更新失败' : '添加失败');
             errorEl.classList.add('show');
         }
     } catch (error) {
-        errorEl.textContent = '添加失败：' + error.message;
+        errorEl.textContent = (isEditMode ? '更新失败：' : '添加失败：') + error.message;
         errorEl.classList.add('show');
     }
 }
@@ -397,6 +472,14 @@ async function loadDatabases() {
         if (data.success) {
             databases = data.databases || [];
             renderDatabaseList();
+            
+            // 如果当前选中的数据库被更新，同步更新currentDb
+            if (currentDb) {
+                const updatedDb = databases.find(db => db.id === currentDb.id);
+                if (updatedDb) {
+                    currentDb = updatedDb;
+                }
+            }
         }
     } catch (error) {
         console.error('加载数据库列表失败：', error);

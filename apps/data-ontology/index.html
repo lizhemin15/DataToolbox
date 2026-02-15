@@ -79,6 +79,7 @@
                         <div class="detail-header">
                             <h2 id="dbName">数据库名称</h2>
                             <div class="detail-actions">
+                                <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
                                 <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
                             </div>
@@ -154,11 +155,11 @@
         </div>
     </div>
 
-    <!-- 添加数据库弹窗 -->
+    <!-- 添加/编辑数据库弹窗 -->
     <div id="addDbModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>添加数据库</h2>
+                <h2 id="modalTitle">添加数据库</h2>
                 <button class="modal-close">&times;</button>
             </div>
             <form id="addDbForm" class="modal-body">
