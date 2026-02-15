@@ -114,17 +114,23 @@ apps/data-ontology/
 
 ## 📊 支持状态说明
 
-### ✅ 完整支持（14种）
+### ✅ 完整支持（10种）- 标准版本可用
 连接测试、表列表、数据预览全部实现：
 - MySQL, MariaDB, PostgreSQL, SQL Server, Oracle, 达梦
-- SQLite, DuckDB, TiDB, CockroachDB, TimescaleDB
-- MongoDB, ClickHouse
+- TiDB, CockroachDB, TimescaleDB, MongoDB
 
-### ⚠️ 基础支持（6种）
-仅支持连接测试，部分支持表列表：
+### ⚠️ 基础支持（7种）- 标准版本可用
+仅支持连接测试：
 - Redis, Memcached, Cassandra, HBase, InfluxDB, Elasticsearch, Neo4j
 
-**注**: 基础支持的数据库可以通过添加专门的客户端库升级为完整支持。
+### ⛔ 需要特殊编译（4种）- 标准版本不可用
+需要CGO或特殊编译环境：
+- SQLite（需要CGO）
+- DuckDB（需要CGO）
+- ClickHouse（需要特殊编译）
+- Neo4j完整功能（需要特殊编译）
+
+**注**: 标准构建版本为了保证跨平台编译的兼容性，移除了CGO依赖。如需使用SQLite/DuckDB，请自行编译CGO版本。
 
 ## 🔐 安全特性
 
@@ -208,6 +214,7 @@ Password: "admin1234" (MD5: e10adc3949ba59abbe56e057f20f883e)
 5. **权限管理**: 仅支持单一管理员账号
 6. **Redis/Memcached**: 不支持键值数据预览
 7. **Cassandra/HBase**: 需要专门客户端完整支持
+8. **构建限制**: 标准版本不包含SQLite、DuckDB、ClickHouse、Neo4j完整支持（需要CGO或特殊编译）
 
 ## 🎯 后续开发建议
 

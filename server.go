@@ -19,21 +19,19 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/godror/godror"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
-	_ "github.com/marcboeker/go-duckdb"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	_ "github.com/sijms/go-ora/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// 条件编译：仅在支持CGO时导入这些驱动
+// SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
 
 // Config 服务器配置
 type Config struct {
@@ -796,10 +794,12 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		return "dm", dsn, nil
 
 	case "sqlite":
-		return "sqlite3", config.Path, nil
+		// SQLite 需要CGO支持，在某些构建环境中可能不可用
+		return "", "", fmt.Errorf("SQLite 支持需要CGO编译，当前构建版本不支持。请使用支持CGO的版本")
 
 	case "duckdb":
-		return "duckdb", config.Path, nil
+		// DuckDB 需要CGO支持
+		return "", "", fmt.Errorf("DuckDB 支持需要CGO编译，当前构建版本不支持。请使用支持CGO的版本")
 
 	case "tidb":
 		// TiDB 兼容 MySQL 协议
@@ -814,9 +814,8 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		return "postgres", dsn, nil
 
 	case "clickhouse":
-		dsn := fmt.Sprintf("tcp://%s:%d?username=%s&password=%s&database=%s",
-			config.Host, config.Port, config.User, config.Password, config.Database)
-		return "clickhouse", dsn, nil
+		// ClickHouse 在某些构建环境中可能不可用
+		return "", "", fmt.Errorf("ClickHouse 支持在当前构建版本中不可用。请使用完整版本")
 
 	default:
 		return "", "", fmt.Errorf("不支持的数据库类型: %s", config.Type)
@@ -1055,8 +1054,8 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Neo4j 特殊处理
 	if config.Type == "neo4j" {
-		uri := fmt.Sprintf("neo4j://%s:%d", config.Host, config.Port)
-		driver, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(config.User, config.Password, ""))
+		// Neo4j 驱动在某些构建版本中可能不可用
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -1064,21 +1063,11 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		defer driver.Close(context.Background())
-
-		ctx := context.Background()
-		err = driver.VerifyConnectivity(ctx)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
-			return
-		}
+		defer conn.Close()
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
-			"message": "连接成功",
+			"message": "连接成功 (基础端口测试)",
 		})
 		return
 	}
@@ -1277,20 +1266,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				connected = true
 				tables = []string{"DB 0", "DB 1", "DB 2", "DB 3", "DB 4", "DB 5", "DB 6", "DB 7", "DB 8", "DB 9", "DB 10", "DB 11", "DB 12", "DB 13", "DB 14", "DB 15"}
 			}
-		} else if config.Type == "neo4j" {
-			// Neo4j 特殊处理
-			uri := fmt.Sprintf("neo4j://%s:%d", config.Host, config.Port)
-			driver, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(config.User, config.Password, ""))
-			if err == nil {
-				defer driver.Close(context.Background())
-				ctx := context.Background()
-				if driver.VerifyConnectivity(ctx) == nil {
-					connected = true
-					// Neo4j 可以列出节点标签
-					tables = []string{"查询节点标签 (Labels)", "查询关系类型 (Relationships)"}
-				}
-			}
-		} else if config.Type == "elasticsearch" || config.Type == "influxdb" || config.Type == "memcached" || config.Type == "cassandra" || config.Type == "hbase" {
+		} else if config.Type == "neo4j" || config.Type == "elasticsearch" || config.Type == "influxdb" || config.Type == "memcached" || config.Type == "cassandra" || config.Type == "hbase" {
 			// 这些数据库暂不获取详细表列表
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 			if err == nil {

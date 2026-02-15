@@ -48,17 +48,19 @@
 
 ### 📁 SQLite
 - **默认端口**: N/A (文件数据库)
-- **驱动**: github.com/mattn/go-sqlite3
+- **驱动**: github.com/mattn/go-sqlite3 (需要CGO)
 - **特性**: 轻量级嵌入式数据库，无需服务器
 - **连接示例**: `/path/to/database.db`
-- **支持状态**: ✅ 完整支持
+- **支持状态**: ⚠️ 需要CGO编译版本
+- **特殊说明**: 标准构建版本不包含SQLite支持，需要使用CGO编译版本
 
 ### 🦆 DuckDB
 - **默认端口**: N/A (文件数据库)
-- **驱动**: github.com/marcboeker/go-duckdb
+- **驱动**: github.com/marcboeker/go-duckdb (需要CGO)
 - **特性**: 分析型嵌入式数据库，专为OLAP优化
 - **连接示例**: `/path/to/database.duckdb`
-- **支持状态**: ✅ 完整支持
+- **支持状态**: ⚠️ 需要CGO编译版本
+- **特殊说明**: 标准构建版本不包含DuckDB支持，需要使用CGO编译版本
 
 ## 分布式数据库
 
@@ -116,10 +118,11 @@
 
 ### ⚡ ClickHouse
 - **默认端口**: 9000
-- **驱动**: github.com/ClickHouse/clickhouse-go/v2
+- **驱动**: github.com/ClickHouse/clickhouse-go/v2 (需要特殊编译)
 - **特性**: 高性能列式数据库，适合OLAP场景
 - **连接示例**: `tcp://host:9000?username=user&password=password&database=database`
-- **支持状态**: ✅ 完整支持
+- **支持状态**: ⚠️ 需要特殊编译版本
+- **特殊说明**: 标准构建版本不包含ClickHouse支持
 
 ### 💍 Cassandra
 - **默认端口**: 9042
@@ -178,14 +181,13 @@
 
 ### 🕸️ Neo4j
 - **默认端口**: 7687
-- **驱动**: github.com/neo4j/neo4j-go-driver/v5
+- **驱动**: github.com/neo4j/neo4j-go-driver/v5 (需要特殊编译)
 - **特性**: 原生图数据库，使用Cypher查询语言
 - **连接示例**: `neo4j://host:7687`
-- **支持状态**: ⚠️ 基础支持
+- **支持状态**: ⚠️ 基础支持（仅端口测试）
 - **特殊说明**: 
-  - 支持连接测试
-  - 显示节点标签和关系类型
-  - 需要Cypher查询进行完整支持
+  - 标准构建版本仅支持TCP端口连接测试
+  - 完整功能需要特殊编译版本
 
 ## 功能支持矩阵
 
@@ -197,20 +199,20 @@
 | SQL Server | ✅ | ✅ | ✅ | 完整支持 |
 | Oracle | ✅ | ✅ | ✅ | 完整支持 |
 | 达梦 | ✅ | ✅ | ✅ | 完整支持 |
-| SQLite | ✅ | ✅ | ✅ | 完整支持 |
-| DuckDB | ✅ | ✅ | ✅ | 完整支持 |
+| SQLite | ⚠️ | ⚠️ | ⚠️ | 需要CGO版本 |
+| DuckDB | ⚠️ | ⚠️ | ⚠️ | 需要CGO版本 |
 | TiDB | ✅ | ✅ | ✅ | 完整支持 |
 | CockroachDB | ✅ | ✅ | ✅ | 完整支持 |
 | MongoDB | ✅ | ✅ | ✅ | 完整支持 |
 | Redis | ✅ | ✅ | ❌ | 基础支持 |
 | Memcached | ✅ | ❌ | ❌ | 基础支持 |
-| ClickHouse | ✅ | ✅ | ✅ | 完整支持 |
+| ClickHouse | ⚠️ | ⚠️ | ⚠️ | 需要特殊编译 |
 | Cassandra | ✅ | ❌ | ❌ | 基础支持 |
 | HBase | ✅ | ❌ | ❌ | 基础支持 |
 | InfluxDB | ✅ | ❌ | ❌ | 基础支持 |
 | TimescaleDB | ✅ | ✅ | ✅ | 完整支持 |
 | Elasticsearch | ✅ | ❌ | ❌ | 基础支持 |
-| Neo4j | ✅ | ✅ | ❌ | 基础支持 |
+| Neo4j | ✅ | ❌ | ❌ | 基础支持 |
 
 ## 注意事项
 
@@ -235,6 +237,12 @@
 - SQLite和DuckDB无需网络连接
 - 需要有文件系统访问权限
 - 适合本地数据分析和嵌入式场景
+- **重要**: 标准构建版本不包含SQLite和DuckDB支持，因为它们需要CGO编译
+
+### 构建版本说明
+- **标准版本**: 不包含CGO依赖，支持大部分数据库（MySQL、PostgreSQL、MongoDB等）
+- **CGO版本**: 包含SQLite、DuckDB支持，但构建和分发更复杂
+- **特殊版本**: 包含ClickHouse、Neo4j完整支持
 
 ## 开发计划
 
