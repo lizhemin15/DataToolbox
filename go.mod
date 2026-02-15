@@ -10,6 +10,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/sijms/go-ora/v2 v2.8.0
 	go.mongodb.org/mongo-driver v1.13.1
+	modernc.org/sqlite v1.28.0
 )
 
 require (

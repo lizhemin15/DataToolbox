@@ -12,16 +12,18 @@
 - ✅ 默认管理员账号（admin / admin1234）
 - ✅ 密码MD5加密存储
 - ✅ 会话持久化
+- ✅ **SQLite持久化存储**
 
 ### 2. 数据库管理核心功能
 - ✅ 添加数据库配置
+- ✅ 编辑数据库配置
+- ✅ 删除数据库配置
 - ✅ 测试数据库连接
-- ✅ 保存数据库配置
 - ✅ 查看数据库列表
 - ✅ 查看表/集合列表
 - ✅ 预览表数据（限制100条）
-- ✅ 删除数据库配置
 - ✅ 刷新数据库信息
+- ✅ **SQLite持久化存储**
 
 ### 3. 支持的数据库类型（20+种）
 
@@ -78,9 +80,11 @@ apps/data-ontology/
 ├── index.html              # 主页面（255行）
 ├── style.css               # 样式文件
 ├── script.js               # 前端逻辑
-├── README.md              # 使用说明（152行）
-├── DATABASE_SUPPORT.md    # 数据库支持详情（253行）
-└── IMPLEMENTATION.md      # 本文件
+├── data-ontology.db        # SQLite数据库（运行时生成）
+├── README.md              # 使用说明
+├── DATABASE_SUPPORT.md    # 数据库支持详情
+├── IMPLEMENTATION.md      # 本文件
+└── QUICK_START.md         # 快速入门
 ```
 
 ## 🔧 技术栈
@@ -93,6 +97,10 @@ apps/data-ontology/
 
 ### 后端
 - **Go 1.21** - 高性能并发处理
+- **持久化存储**:
+  ```
+  modernc.org/sqlite                      # 纯Go SQLite实现（配置存储）
+  ```
 - **数据库驱动包**:
   ```
   github.com/go-sql-driver/mysql          # MySQL/MariaDB/TiDB
@@ -100,7 +108,7 @@ apps/data-ontology/
   github.com/denisenkom/go-mssqldb        # SQL Server
   github.com/sijms/go-ora/v2              # Oracle
   github.com/godror/godror                # Oracle (备选)
-  github.com/mattn/go-sqlite3             # SQLite
+  github.com/mattn/go-sqlite3             # SQLite (用户数据库连接)
   github.com/marcboeker/go-duckdb         # DuckDB
   github.com/ClickHouse/clickhouse-go/v2  # ClickHouse
   go.mongodb.org/mongo-driver             # MongoDB
@@ -111,6 +119,47 @@ apps/data-ontology/
   github.com/google/uuid                   # UUID生成
   github.com/gorilla/websocket            # WebSocket支持
   ```
+
+## 💾 数据持久化
+
+### SQLite存储方案
+
+**文件位置**: `apps/data-ontology/data-ontology.db`
+
+**数据表结构**:
+
+1. **users** - 用户表
+   ```sql
+   CREATE TABLE users (
+       username TEXT PRIMARY KEY,
+       password TEXT NOT NULL,
+       token TEXT,
+       created_at TEXT NOT NULL
+   );
+   ```
+
+2. **database_configs** - 数据库配置表
+   ```sql
+   CREATE TABLE database_configs (
+       id TEXT PRIMARY KEY,
+       type TEXT NOT NULL,
+       host TEXT,
+       port INTEGER,
+       user TEXT,
+       password TEXT,
+       database_name TEXT,
+       path TEXT,
+       connection_string TEXT,
+       created_at TEXT NOT NULL,
+       updated_at TEXT NOT NULL
+   );
+   ```
+
+**优势**:
+- ✅ 自动初始化：首次启动自动创建数据库和默认用户
+- ✅ 实时保存：所有配置修改立即持久化
+- ✅ 跨平台：纯Go实现，无CGO依赖
+- ✅ 一键迁移：单文件包含所有配置
 
 ## 📊 支持状态说明
 
