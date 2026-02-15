@@ -618,8 +618,10 @@ function initQuillEditor() {
 
     // 监听内容变化
     quill.on('text-change', (delta, oldDelta, source) => {
-        if (source === 'user' && currentDoc) {
-            broadcastMessage({
+        // 只有用户操作且不是本地应用远程更新时才广播
+        if (source === 'user' && currentDoc && !isLocalChange) {
+            console.log('Word内容变化，广播更新:', delta);
+            sendMessage({
                 type: 'doc-update',
                 docId: currentDoc.id,
                 update: {
@@ -632,8 +634,13 @@ function initQuillEditor() {
 
     // 监听光标位置
     quill.on('selection-change', (range, oldRange, source) => {
-        if (range && currentDoc) {
-            broadcastCursor({ type: 'word', index: range.index });
+        if (range && currentDoc && source === 'user') {
+            console.log('Word光标变化:', range);
+            sendMessage({
+                type: 'doc-cursor',
+                docId: currentDoc.id,
+                cursor: { type: 'word', index: range.index, length: range.length }
+            });
         }
     });
 }
@@ -690,8 +697,14 @@ function applyRemoteUpdate(msg) {
         excelData.forEach(row => row.push(''));
         renderExcelTable();
     } else if (update.type === 'word-delta' && quill) {
+        console.log('应用Word远程更新:', update.delta);
         isLocalChange = true;
-        quill.updateContents(update.delta);
+        try {
+            quill.updateContents(update.delta, 'api');
+            console.log('Word更新成功');
+        } catch (e) {
+            console.error('Word更新失败:', e);
+        }
         isLocalChange = false;
     }
 }
@@ -706,6 +719,9 @@ function broadcastCursor(cursor) {
         cursor: cursor
     });
 }
+
+// 存储Word光标
+const wordCursors = {};
 
 // 更新光标
 function updateCursor(userId, cursor) {
@@ -731,8 +747,98 @@ function updateCursor(userId, cursor) {
             td.style.setProperty('--cursor-color', color);
         }
     } else if (cursor.type === 'word' && quill) {
-        // Word光标 - 可以使用Quill的光标API
-        // 这里简化处理
+        // Word光标 - 显示其他用户的光标
+        updateWordCursor(userId, cursor.index, cursor.length || 0, name);
+    }
+}
+
+// 更新Word光标
+function updateWordCursor(userId, index, length, name) {
+    if (!quill) return;
+    
+    const color = getUserColorHex(userId);
+    
+    // 移除旧光标
+    if (wordCursors[userId]) {
+        wordCursors[userId].clear();
+    }
+    
+    // 创建新光标
+    try {
+        // 创建光标元素
+        const cursorId = `cursor-${userId}`;
+        
+        // 移除旧的光标元素
+        const oldCursor = document.getElementById(cursorId);
+        if (oldCursor) {
+            oldCursor.remove();
+        }
+        
+        // 获取光标位置
+        const bounds = quill.getBounds(index, length);
+        
+        if (bounds) {
+            // 创建光标元素
+            const cursorEl = document.createElement('div');
+            cursorEl.id = cursorId;
+            cursorEl.className = 'word-cursor';
+            cursorEl.style.cssText = `
+                position: absolute;
+                left: ${bounds.left}px;
+                top: ${bounds.top}px;
+                height: ${bounds.height}px;
+                width: 2px;
+                background: ${color};
+                pointer-events: none;
+                z-index: 1000;
+                animation: cursorBlink 1s infinite;
+            `;
+            
+            // 创建用户名标签
+            const label = document.createElement('div');
+            label.className = 'word-cursor-label';
+            label.textContent = name;
+            label.style.cssText = `
+                position: absolute;
+                left: 0;
+                top: -22px;
+                background: ${color};
+                color: white;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 11px;
+                white-space: nowrap;
+                font-weight: 600;
+            `;
+            
+            cursorEl.appendChild(label);
+            
+            // 添加到编辑器
+            const editorEl = document.querySelector('#quillEditor .ql-editor');
+            if (editorEl) {
+                editorEl.appendChild(cursorEl);
+                
+                // 保存引用
+                wordCursors[userId] = {
+                    element: cursorEl,
+                    clear: () => {
+                        if (cursorEl.parentNode) {
+                            cursorEl.parentNode.removeChild(cursorEl);
+                        }
+                    }
+                };
+                
+                // 5秒后自动移除（如果没有新的更新）
+                setTimeout(() => {
+                    if (wordCursors[userId] && wordCursors[userId].element === cursorEl) {
+                        wordCursors[userId].clear();
+                        delete wordCursors[userId];
+                    }
+                }, 5000);
+            }
+        }
+    } catch (e) {
+        console.error('更新Word光标失败:', e);
     }
 }
 
@@ -752,10 +858,17 @@ function getUserColorHex(userId) {
 
 // 移除光标
 function removeCursor(userId) {
+    // 移除Excel光标
     document.querySelectorAll(`[data-user-id="${userId}"]`).forEach(el => {
         el.classList.remove('has-cursor');
         delete el.dataset.userId;
     });
+    
+    // 移除Word光标
+    if (wordCursors[userId]) {
+        wordCursors[userId].clear();
+        delete wordCursors[userId];
+    }
 }
 
 // 更新编辑器用户列表
