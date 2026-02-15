@@ -73,14 +73,14 @@ type Message struct {
 	Move        interface{} `json:"move,omitempty"`
 	Winner      string      `json:"winner,omitempty"`
 	// 协作文档相关字段
-	DocId     string      `json:"docId,omitempty"`
-	Document  interface{} `json:"document,omitempty"`
-	Documents interface{} `json:"documents,omitempty"`
-	Update    interface{} `json:"update,omitempty"`
-	Cursor    interface{} `json:"cursor,omitempty"`
-	Users     interface{} `json:"users,omitempty"`
-	Title     string      `json:"title,omitempty"`
-	Content   interface{} `json:"content,omitempty"`
+	DocId      string      `json:"docId,omitempty"`
+	Document   interface{} `json:"document,omitempty"`
+	Documents  interface{} `json:"documents,omitempty"`
+	Update     interface{} `json:"update,omitempty"`
+	Cursor     interface{} `json:"cursor,omitempty"`
+	Users      interface{} `json:"users,omitempty"`
+	Title      string      `json:"title,omitempty"`
+	DocContent interface{} `json:"content,omitempty"`
 }
 
 var hub = &Hub{
@@ -645,12 +645,12 @@ func (c *Client) readPump() {
 
 		case "doc-content-save":
 			// 保存文档完整内容（用于Word）
-			if msg.DocId != "" && msg.Content != nil {
+			if msg.DocId != "" && msg.DocContent != nil {
 				hub.docMu.Lock()
 				if doc, ok := hub.documents[msg.DocId]; ok {
 					if docMap, ok := doc.(map[string]interface{}); ok {
 						// 更新文档内容
-						docMap["content"] = msg.Content
+						docMap["content"] = msg.DocContent
 						hub.documents[msg.DocId] = docMap
 						log.Printf("文档内容已保存: %s", msg.DocId)
 					}
