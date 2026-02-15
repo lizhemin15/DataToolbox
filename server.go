@@ -1323,7 +1323,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 
-	case http.MethodPUT:
+	case "PUT":
 		// 更新数据库配置
 		var updateConfig DatabaseConfig
 		if err := json.NewDecoder(r.Body).Decode(&updateConfig); err != nil {
