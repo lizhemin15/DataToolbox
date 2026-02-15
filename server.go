@@ -28,7 +28,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	_ "modernc.org/sqlite"
 )
 
 // 条件编译：仅在支持CGO时导入这些驱动
@@ -739,92 +738,20 @@ type DatabaseInfo struct {
 	Tables    []string `json:"tables,omitempty"`
 }
 
-// 数据本体池SQLite数据库
+// 数据本体池存储
 var (
-	dataOntologyDB   *sql.DB
-	dataOntologyMu   sync.RWMutex
-	dataOntologyPath = "apps/data-ontology/data-ontology.db"
+	dataOntologyUsers     = make(map[string]*User)
+	dataOntologyDatabases = make(map[string]*DatabaseConfig)
+	dataOntologyMu        sync.RWMutex
 )
 
-// 初始化数据本体池SQLite数据库
+// 初始化默认管理员账号
 func initDataOntology() {
-	// 确保目录存在
-	dir := filepath.Dir(dataOntologyPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Fatalf("创建数据本体池目录失败: %v", err)
+	hashedPassword := hashPassword("admin1234")
+	dataOntologyUsers["admin"] = &User{
+		Username: "admin",
+		Password: hashedPassword,
 	}
-
-	// 检查数据库文件是否存在
-	_, err := os.Stat(dataOntologyPath)
-	dbExists := !os.IsNotExist(err)
-
-	// 打开或创建SQLite数据库
-	db, err := sql.Open("sqlite", dataOntologyPath)
-	if err != nil {
-		log.Fatalf("打开数据本体池数据库失败: %v", err)
-	}
-
-	dataOntologyDB = db
-
-	// 如果是新数据库，创建表结构
-	if !dbExists {
-		log.Println("初始化数据本体池数据库...")
-		if err := createDataOntologyTables(); err != nil {
-			log.Fatalf("创建数据表失败: %v", err)
-		}
-
-		// 创建默认管理员账号
-		hashedPassword := hashPassword("admin1234")
-		_, err := dataOntologyDB.Exec(`
-			INSERT INTO users (username, password, created_at)
-			VALUES (?, ?, ?)
-		`, "admin", hashedPassword, time.Now().Format(time.RFC3339))
-		if err != nil {
-			log.Fatalf("创建默认管理员失败: %v", err)
-		}
-
-		log.Println("数据本体池数据库初始化完成，已创建默认管理员账号: admin / admin1234")
-	} else {
-		log.Println("数据本体池数据库加载成功")
-	}
-}
-
-// 创建数据本体池数据表
-func createDataOntologyTables() error {
-	// 用户表
-	_, err := dataOntologyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			username TEXT PRIMARY KEY,
-			password TEXT NOT NULL,
-			token TEXT,
-			created_at TEXT NOT NULL
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("创建用户表失败: %v", err)
-	}
-
-	// 数据库配置表
-	_, err = dataOntologyDB.Exec(`
-		CREATE TABLE IF NOT EXISTS database_configs (
-			id TEXT PRIMARY KEY,
-			type TEXT NOT NULL,
-			host TEXT,
-			port INTEGER,
-			user TEXT,
-			password TEXT,
-			database_name TEXT,
-			path TEXT,
-			connection_string TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)
-	`)
-	if err != nil {
-		return fmt.Errorf("创建数据库配置表失败: %v", err)
-	}
-
-	return nil
 }
 
 // 密码哈希
@@ -929,13 +856,15 @@ func verifyToken(r *http.Request) bool {
 	}
 
 	token := strings.TrimPrefix(authHeader, "Bearer ")
-	
-	var count int
-	err := dataOntologyDB.QueryRow("SELECT COUNT(*) FROM users WHERE token = ?", token).Scan(&count)
-	if err != nil || count == 0 {
-		return false
+	dataOntologyMu.RLock()
+	defer dataOntologyMu.RUnlock()
+
+	for _, user := range dataOntologyUsers {
+		if user.Token == token {
+			return true
+		}
 	}
-	return true
+	return false
 }
 
 // 登录处理
@@ -966,34 +895,18 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
 
-	// 查询用户
-	var storedPassword string
-	err := dataOntologyDB.QueryRow("SELECT password FROM users WHERE username = ?", loginReq.Username).Scan(&storedPassword)
-	if err == sql.ErrNoRows || storedPassword != hashPassword(loginReq.Password) {
+	user, exists := dataOntologyUsers[loginReq.Username]
+	if !exists || user.Password != hashPassword(loginReq.Password) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "用户名或密码错误",
 		})
 		return
 	}
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "数据库查询失败",
-		})
-		return
-	}
 
-	// 生成新Token并更新到数据库
+	// 生成新Token
 	token := generateToken()
-	_, err = dataOntologyDB.Exec("UPDATE users SET token = ? WHERE username = ?", token, loginReq.Username)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "更新Token失败",
-		})
-		return
-	}
+	user.Token = token
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -1229,48 +1142,22 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// 获取数据库列表
-		rows, err := dataOntologyDB.Query(`
-			SELECT id, type, host, port, user, database_name, path
-			FROM database_configs
-			ORDER BY created_at DESC
-		`)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "查询失败",
-			})
-			return
-		}
-		defer rows.Close()
+		dataOntologyMu.RLock()
+		defer dataOntologyMu.RUnlock()
 
 		databases := make([]DatabaseInfo, 0)
-		for rows.Next() {
-			var info DatabaseInfo
-			var host, user, database, path sql.NullString
-			var port sql.NullInt64
-			
-			err := rows.Scan(&info.ID, &info.Type, &host, &port, &user, &database, &path)
-			if err != nil {
-				continue
-			}
-			
-			if host.Valid {
-				info.Host = host.String
-			}
-			if port.Valid {
-				info.Port = int(port.Int64)
-			}
-			if user.Valid {
-				info.User = user.String
-			}
-			if database.Valid {
-				info.Database = database.String
-			}
-			if path.Valid {
-				info.Path = path.String
-			}
-			
-			databases = append(databases, info)
+		for _, config := range dataOntologyDatabases {
+			databases = append(databases, DatabaseInfo{
+				ID:       config.ID,
+				Type:     config.Type,
+				Name:     config.Name,
+				Host:     config.Host,
+				Port:     config.Port,
+				Path:     config.Path,
+				User:     config.User,
+				Database: config.Database,
+				// 不返回密码
+			})
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1299,24 +1186,11 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 保存配置到数据库
+		// 保存配置
 		config.ID = uuid.New().String()
-		now := time.Now().Format(time.RFC3339)
-		
-		_, err := dataOntologyDB.Exec(`
-			INSERT INTO database_configs 
-			(id, type, host, port, user, password, database_name, path, connection_string, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, config.ID, config.Type, config.Host, config.Port, config.User, config.Password, 
-		   config.Database, config.Path, config.ConnectionString, now, now)
-		
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "保存失败: " + err.Error(),
-			})
-			return
-		}
+		dataOntologyMu.Lock()
+		dataOntologyDatabases[config.ID] = &config
+		dataOntologyMu.Unlock()
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -1355,26 +1229,14 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	dbID := parts[4]
 
-	// 从SQLite查询数据库配置
-	var config DatabaseConfig
-	err := dataOntologyDB.QueryRow(`
-		SELECT id, type, host, port, user, password, database_name, path, connection_string
-		FROM database_configs
-		WHERE id = ?
-	`, dbID).Scan(&config.ID, &config.Type, &config.Host, &config.Port, 
-		&config.User, &config.Password, &config.Database, &config.Path, &config.ConnectionString)
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
 
-	if err == sql.ErrNoRows {
+	if !exists {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
-		})
-		return
-	}
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "查询失败: " + err.Error(),
 		})
 		return
 	}
@@ -1419,7 +1281,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// SQL数据库通用处理
-			driver, dsn, err := buildDSN(&config)
+			driver, dsn, err := buildDSN(config)
 			if err == nil {
 				db, err := sql.Open(driver, dsn)
 				if err == nil {
@@ -1472,29 +1334,18 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		dataOntologyMu.Lock()
+		// 保留原ID和类型
+		updateConfig.ID = config.ID
+		updateConfig.Type = config.Type
+		
 		// 如果密码为空，保留原密码
-		password := updateConfig.Password
-		if password == "" {
-			password = config.Password
+		if updateConfig.Password == "" {
+			updateConfig.Password = config.Password
 		}
 		
-		// 更新到数据库
-		now := time.Now().Format(time.RFC3339)
-		_, err := dataOntologyDB.Exec(`
-			UPDATE database_configs 
-			SET host = ?, port = ?, user = ?, password = ?, database_name = ?, 
-			    path = ?, connection_string = ?, updated_at = ?
-			WHERE id = ?
-		`, updateConfig.Host, updateConfig.Port, updateConfig.User, password, 
-		   updateConfig.Database, updateConfig.Path, updateConfig.ConnectionString, now, dbID)
-		
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "更新失败: " + err.Error(),
-			})
-			return
-		}
+		dataOntologyDatabases[dbID] = &updateConfig
+		dataOntologyMu.Unlock()
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -1503,14 +1354,9 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		// 删除数据库配置
-		_, err := dataOntologyDB.Exec("DELETE FROM database_configs WHERE id = ?", dbID)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "删除失败: " + err.Error(),
-			})
-			return
-		}
+		dataOntologyMu.Lock()
+		delete(dataOntologyDatabases, dbID)
+		dataOntologyMu.Unlock()
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
@@ -1549,26 +1395,14 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	dbID := parts[4]
 	tableName := parts[6]
 
-	// 从SQLite查询数据库配置
-	var config DatabaseConfig
-	err := dataOntologyDB.QueryRow(`
-		SELECT id, type, host, port, user, password, database_name, path, connection_string
-		FROM database_configs
-		WHERE id = ?
-	`, dbID).Scan(&config.ID, &config.Type, &config.Host, &config.Port, 
-		&config.User, &config.Password, &config.Database, &config.Path, &config.ConnectionString)
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
 
-	if err == sql.ErrNoRows {
+	if !exists {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
-		})
-		return
-	}
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "查询失败: " + err.Error(),
 		})
 		return
 	}
@@ -1612,7 +1446,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// SQL数据库通用处理
-		driver, dsn, err := buildDSN(&config)
+		driver, dsn, err := buildDSN(config)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
