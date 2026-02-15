@@ -618,41 +618,60 @@ function initQuillEditor() {
 
     // 监听内容变化
     quill.on('text-change', (delta, oldDelta, source) => {
-        // 只有用户操作且不是本地应用远程更新时才广播
-        if (source === 'user' && currentDoc && !isLocalChange) {
-            console.log('Word内容变化，广播更新:', delta);
-            sendMessage({
-                type: 'doc-update',
-                docId: currentDoc.id,
-                update: {
-                    type: 'word-delta',
-                    delta: delta
-                }
-            });
+        try {
+            // 只有用户操作且不是本地应用远程更新时才广播
+            if (source === 'user' && currentDoc && !isLocalChange) {
+                console.log('Word内容变化，广播更新:', delta);
+                sendMessage({
+                    type: 'doc-update',
+                    docId: currentDoc.id,
+                    update: {
+                        type: 'word-delta',
+                        delta: delta
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('处理Word内容变化时出错:', e);
         }
     });
 
     // 监听光标位置
     quill.on('selection-change', (range, oldRange, source) => {
-        if (range && currentDoc && source === 'user') {
-            console.log('Word光标变化:', range);
-            sendMessage({
-                type: 'doc-cursor',
-                docId: currentDoc.id,
-                cursor: { type: 'word', index: range.index, length: range.length }
-            });
+        try {
+            if (range && currentDoc && source === 'user') {
+                console.log('Word光标变化:', range);
+                sendMessage({
+                    type: 'doc-cursor',
+                    docId: currentDoc.id,
+                    cursor: { type: 'word', index: range.index, length: range.length }
+                });
+            }
+        } catch (e) {
+            console.error('处理Word光标变化时出错:', e);
         }
     });
 }
 
 // 初始化Word编辑器
 function initWordEditor() {
-    if (!currentDoc || !quill) return;
+    if (!currentDoc || !quill) {
+        console.log('Word编辑器初始化跳过：文档或编辑器未就绪');
+        return;
+    }
 
+    console.log('初始化Word编辑器，加载内容');
     isLocalChange = true;
-    const content = currentDoc.content.ops || [];
-    quill.setContents(content);
-    isLocalChange = false;
+    try {
+        const content = currentDoc.content.ops || [];
+        // 使用'silent'源避免触发不必要的事件
+        quill.setContents(content, 'silent');
+        console.log('Word内容加载成功');
+    } catch (e) {
+        console.error('Word内容加载失败:', e);
+    } finally {
+        isLocalChange = false;
+    }
 }
 
 // 导出Word
@@ -698,14 +717,29 @@ function applyRemoteUpdate(msg) {
         renderExcelTable();
     } else if (update.type === 'word-delta' && quill) {
         console.log('应用Word远程更新:', update.delta);
+        
+        // 检查delta是否有效
+        if (!update.delta || !update.delta.ops) {
+            console.error('无效的delta:', update.delta);
+            return;
+        }
+        
+        // 检查quill是否可用
+        if (!quill || typeof quill.updateContents !== 'function') {
+            console.error('Quill编辑器未就绪');
+            return;
+        }
+        
         isLocalChange = true;
         try {
-            quill.updateContents(update.delta, 'api');
+            // 使用'silent'源避免触发事件循环
+            quill.updateContents(update.delta, 'silent');
             console.log('Word更新成功');
         } catch (e) {
             console.error('Word更新失败:', e);
+        } finally {
+            isLocalChange = false;
         }
-        isLocalChange = false;
     }
 }
 
