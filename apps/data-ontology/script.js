@@ -2292,6 +2292,11 @@ async function confirmCreateApiFromAI(config, messageId) {
         description: config.description || ''
     };
     
+    // 包含默认参数
+    if (config.default_params) {
+        apiData.default_params = config.default_params;
+    }
+    
     if (!apiData.database_id) {
         if (contentEl) {
             contentEl.innerHTML = '<div class="ai-error">无法确定数据库，请重新操作</div>';
