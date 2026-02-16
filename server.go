@@ -1093,6 +1093,165 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	return tables, nil
 }
 
+// getTableColumns 获取表的字段信息
+func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]interface{}, error) {
+	var columns []map[string]interface{}
+
+	// MongoDB 特殊处理 - 通过采样文档推断字段
+	if config.Type == "mongodb" {
+		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+		if err != nil {
+			return nil, err
+		}
+		defer client.Disconnect(ctx)
+
+		collection := client.Database(config.Database).Collection(tableName)
+		
+		// 采样一个文档来推断字段
+		var sample bson.M
+		err = collection.FindOne(ctx, bson.M{}).Decode(&sample)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				return []map[string]interface{}{}, nil
+			}
+			return nil, err
+		}
+
+		for key, value := range sample {
+			columns = append(columns, map[string]interface{}{
+				"name": key,
+				"type": fmt.Sprintf("%T", value),
+			})
+		}
+		return columns, nil
+	}
+
+	// Redis、Neo4j等NoSQL不支持
+	if config.Type == "redis" || config.Type == "neo4j" || config.Type == "elasticsearch" ||
+		config.Type == "influxdb" || config.Type == "memcached" ||
+		config.Type == "cassandra" || config.Type == "hbase" {
+		return []map[string]interface{}{}, nil
+	}
+
+	// SQL数据库通用处理
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var query string
+	switch config.Type {
+	case "mysql", "mariadb", "tidb":
+		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`", tableName)
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+	case "sqlserver":
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' ORDER BY ORDINAL_POSITION", tableName)
+	case "sqlite", "duckdb":
+		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+	case "oracle":
+		query = fmt.Sprintf("SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '%s' ORDER BY column_id", tableName)
+	case "dm":
+		query = fmt.Sprintf("SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '%s' ORDER BY column_id", tableName)
+	case "clickhouse":
+		query = fmt.Sprintf("DESCRIBE TABLE %s", tableName)
+	default:
+		return nil, fmt.Errorf("不支持的数据库类型: %s", config.Type)
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// 获取列信息
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+
+		var colName, colType string
+		
+		// 根据不同数据库类型解析列信息
+		switch config.Type {
+		case "mysql", "mariadb", "tidb":
+			// SHOW COLUMNS: Field, Type, Null, Key, Default, Extra
+			if len(values) >= 2 {
+				if v, ok := values[0].([]byte); ok {
+					colName = string(v)
+				}
+				if v, ok := values[1].([]byte); ok {
+					colType = string(v)
+				}
+			}
+		case "sqlite", "duckdb":
+			// PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+			if len(values) >= 3 {
+				if v, ok := values[1].(string); ok {
+					colName = v
+				} else if v, ok := values[1].([]byte); ok {
+					colName = string(v)
+				}
+				if v, ok := values[2].(string); ok {
+					colType = v
+				} else if v, ok := values[2].([]byte); ok {
+					colType = string(v)
+				}
+			}
+		default:
+			// information_schema.columns: column_name, data_type
+			if len(values) >= 2 {
+				if v, ok := values[0].(string); ok {
+					colName = v
+				} else if v, ok := values[0].([]byte); ok {
+					colName = string(v)
+				}
+				if v, ok := values[1].(string); ok {
+					colType = v
+				} else if v, ok := values[1].([]byte); ok {
+					colType = string(v)
+				}
+			}
+		}
+
+		if colName != "" {
+			columns = append(columns, map[string]interface{}{
+				"name": colName,
+				"type": colType,
+			})
+		}
+	}
+
+	if columns == nil {
+		columns = []map[string]interface{}{}
+	}
+
+	return columns, nil
+}
+
 // 验证Token
 func verifyToken(r *http.Request) bool {
 	authHeader := r.Header.Get("Authorization")
@@ -2953,6 +3112,51 @@ func isCreateApiRequest(message string) bool {
 func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
 	
 	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在读取数据库表结构信息...",
+	})
+	flusher.Flush()
+	
+	// 增强 dbSchemas - 为每个表获取详细的字段信息
+	dataOntologyMu.RLock()
+	for i, schema := range dbSchemas {
+		dbID, _ := schema["id"].(string)
+		dbConfig, exists := dataOntologyDatabases[dbID]
+		if !exists {
+			continue
+		}
+		
+		tables, _ := schema["tables"].([]string)
+		var tablesWithColumns []map[string]interface{}
+		
+		// 限制表数量，避免请求过大（最多读取前10个表）
+		maxTables := 10
+		if len(tables) > maxTables {
+			tables = tables[:maxTables]
+		}
+		
+		for _, tableName := range tables {
+			columns, err := getTableColumns(dbConfig, tableName)
+			if err != nil {
+				log.Printf("获取表 %s 字段失败: %v", tableName, err)
+				// 即使失败也添加表信息，只是没有字段
+				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+					"name":    tableName,
+					"columns": []map[string]interface{}{},
+				})
+				continue
+			}
+			
+			tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+				"name":    tableName,
+				"columns": columns,
+			})
+		}
+		
+		dbSchemas[i]["tables"] = tablesWithColumns
+	}
+	dataOntologyMu.RUnlock()
+	
+	sendSSE(w, "thinking", map[string]interface{}{
 		"message": "正在分析您的需求并生成接口配置...",
 	})
 	flusher.Flush()
@@ -2994,14 +3198,33 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 
 // buildCreateApiPrompt 构建创建接口的提示词
 func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
-	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求生成接口配置。\n\n"
-	prompt += "数据库结构：\n"
+	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求和以下真实数据库结构生成接口配置。\n\n"
+	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL：\n\n"
 	
 	for _, schema := range dbSchemas {
-		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
-		prompt += "表列表: "
-		if tables, ok := schema["tables"].([]string); ok {
-			prompt += strings.Join(tables, ", ")
+		prompt += fmt.Sprintf("数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		prompt += "=" + strings.Repeat("=", 60) + "\n"
+		
+		// 处理新格式（包含字段信息）
+		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, table := range tables {
+				tableName := table["name"].(string)
+				prompt += fmt.Sprintf("\n表名: %s\n", tableName)
+				
+				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
+					prompt += "字段列表:\n"
+					for _, col := range columns {
+						colName := col["name"]
+						colType := col["type"]
+						prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+					}
+				} else {
+					prompt += "  （无法获取字段信息）\n"
+				}
+			}
+		} else if tables, ok := schema["tables"].([]string); ok {
+			// 兼容旧格式（只有表名）
+			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
 		}
 		prompt += "\n"
 	}
@@ -3028,13 +3251,18 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "  }\n"
 	prompt += "}\n"
 	prompt += "```\n\n"
-	prompt += "注意：\n"
-	prompt += "- SQL只能有一条语句\n"
-	prompt += "- 使用#{参数名}表示预编译参数\n"
-	prompt += "- 接口路径要符合RESTful规范\n"
-	prompt += "- 根据操作类型选择正确的HTTP方法\n"
-	prompt += "- 必须为SQL中的每个参数提供合理的默认值\n"
-	prompt += "- 默认值要符合实际使用场景（如limit一般为10-100，id一般为1等）"
+	prompt += "【重要规则】：\n"
+	prompt += "1. SQL只能有一条语句\n"
+	prompt += "2. 使用#{参数名}表示预编译参数（推荐），使用${参数名}表示直接替换\n"
+	prompt += "3. 接口路径要符合RESTful规范（如 /api/users, /api/products/list）\n"
+	prompt += "4. 根据操作类型选择正确的HTTP方法（查询用GET，创建用POST，更新用PUT，删除用DELETE）\n"
+	prompt += "5. **必须使用上面列出的真实表名和字段名**，不要使用不存在的表或字段\n"
+	prompt += "6. 必须为SQL中的每个参数提供合理的默认值用于测试\n"
+	prompt += "7. 默认值要符合字段类型和实际使用场景：\n"
+	prompt += "   - 数字类型(int/bigint)：id一般为1，limit一般为10，page一般为1\n"
+	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
+	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
+	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询"
 	
 	return prompt
 }
