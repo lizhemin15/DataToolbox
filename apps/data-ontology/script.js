@@ -136,9 +136,16 @@ function initEventListeners() {
     // 删除数据库
     document.getElementById('deleteDbBtn').addEventListener('click', handleDeleteDatabase);
 
-    // 关闭预览
-    document.getElementById('closePreviewBtn').addEventListener('click', function() {
-        document.getElementById('tablePreview').style.display = 'none';
+    // 关闭预览（已在closePreview函数中处理）
+    
+    // 创建表事件
+    document.getElementById('createTableForm').addEventListener('submit', handleCreateTable);
+    document.getElementById('addColumnBtn').addEventListener('click', addTableColumn);
+    document.getElementById('closeCreateTableModal').addEventListener('click', hideCreateTableModal);
+    document.getElementById('createTableModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideCreateTableModal();
+        }
     });
 
     // 接口管理事件
@@ -689,67 +696,342 @@ async function loadDatabaseDetail(dbId) {
 // 渲染表列表
 function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
+    const headerHtml = `
+        <div class="tables-list-header">
+            <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">+ 创建表</button>
+        </div>
+    `;
     
     if (tables.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无数据表</div>';
+        listEl.innerHTML = headerHtml + '<div style="text-align:center;color:#718096;padding:20px;">暂无数据表</div>';
         return;
     }
 
-    listEl.innerHTML = tables.map(table => `
+    const tablesHtml = tables.map(table => `
         <div class="table-item" onclick="previewTable('${table}')">
             ${table}
         </div>
     `).join('');
+    
+    listEl.innerHTML = headerHtml + '<div class="tables-grid">' + tablesHtml + '</div>';
 }
+
+// 当前预览的表名
+let currentPreviewTable = null;
+let isTableEditMode = false;
 
 // 预览表数据
 async function previewTable(tableName) {
     if (!currentDb) return;
 
+    currentPreviewTable = tableName;
+    isTableEditMode = false;
+
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`, {
+        // 首先获取表结构
+        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
             }
         });
-
-        const data = await response.json();
+        const structureData = await structureResponse.json();
+        
+        // 然后获取表数据
+        const dataResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+        const data = await dataResponse.json();
 
         if (data.success) {
             document.getElementById('tablePreview').style.display = 'block';
             document.getElementById('previewTableName').textContent = tableName;
             
+            // 更新预览头部按钮
+            updatePreviewHeader();
+            
             const previewContent = document.getElementById('previewContent');
             
-            if (!data.data || data.data.length === 0) {
-                previewContent.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">表中暂无数据</div>';
+            // 获取列信息（优先使用结构信息，否则从数据推断）
+            let columns = [];
+            if (structureData.success && structureData.columns) {
+                columns = structureData.columns.map(col => col.name);
+            } else if (data.data && data.data.length > 0) {
+                columns = Object.keys(data.data[0]);
+            } else {
+                // 如果既没有结构信息又没有数据，显示提示
+                previewContent.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">无法获取表结构</div>';
                 return;
             }
-
-            const columns = Object.keys(data.data[0]);
+            
+            // 即使数据为空也显示表头
+            const hasData = data.data && data.data.length > 0;
             const tableHtml = `
-                <table class="preview-table">
+                <table class="preview-table" id="dataTable">
                     <thead>
                         <tr>
                             ${columns.map(col => `<th>${col}</th>`).join('')}
+                            <th class="action-column">操作</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${data.data.map(row => `
-                            <tr>
-                                ${columns.map(col => `<td>${row[col] !== null ? row[col] : '<i>NULL</i>'}</td>`).join('')}
+                        ${hasData ? data.data.map((row, rowIndex) => `
+                            <tr data-row-index="${rowIndex}">
+                                ${columns.map(col => `<td data-column="${col}" class="editable-cell">${row[col] !== null ? escapeHtml(String(row[col])) : '<i class="null-value">NULL</i>'}</td>`).join('')}
+                                <td class="action-column">
+                                    <button class="btn-icon" onclick="deleteTableRow(${rowIndex})" title="删除行">🗑️</button>
+                                </td>
                             </tr>
-                        `).join('')}
+                        `).join('') : `
+                            <tr class="empty-row">
+                                <td colspan="${columns.length + 1}" style="text-align:center;color:#718096;padding:20px;">
+                                    表中暂无数据，点击上方"添加行"按钮添加数据
+                                </td>
+                            </tr>
+                        `}
                     </tbody>
                 </table>
             `;
             
             previewContent.innerHTML = tableHtml;
             previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            
+            // 如果在编辑模式，添加编辑功能
+            if (isTableEditMode) {
+                enableTableEditing();
+            }
         }
     } catch (error) {
         console.error('预览表数据失败：', error);
+        const previewContent = document.getElementById('previewContent');
+        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + error.message + '</div>';
     }
+}
+
+// 更新预览头部按钮
+function updatePreviewHeader() {
+    const header = document.querySelector('#tablePreview .preview-header');
+    if (!header) return;
+    
+    const actionsHtml = isTableEditMode ? `
+        <div class="preview-actions">
+            <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ 添加行</button>
+            <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">💾 保存</button>
+            <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
+        </div>
+    ` : `
+        <div class="preview-actions">
+            <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+            <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
+            <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
+        </div>
+    `;
+    
+    header.innerHTML = `
+        <h3 id="previewTableName">${currentPreviewTable}</h3>
+        ${actionsHtml}
+    `;
+}
+
+// 启用表格编辑模式
+function enableTableEditMode() {
+    isTableEditMode = true;
+    updatePreviewHeader();
+    enableTableEditing();
+}
+
+// 启用表格编辑功能
+function enableTableEditing() {
+    const cells = document.querySelectorAll('.editable-cell');
+    cells.forEach(cell => {
+        cell.contentEditable = 'true';
+        cell.classList.add('editing');
+        
+        // 处理NULL值的编辑
+        cell.addEventListener('focus', function() {
+            const nullEl = this.querySelector('.null-value');
+            if (nullEl) {
+                this.textContent = '';
+            }
+        });
+        
+        cell.addEventListener('blur', function() {
+            if (this.textContent.trim() === '') {
+                this.innerHTML = '<i class="null-value">NULL</i>';
+            }
+        });
+    });
+}
+
+// 禁用表格编辑功能
+function disableTableEditing() {
+    const cells = document.querySelectorAll('.editable-cell');
+    cells.forEach(cell => {
+        cell.contentEditable = 'false';
+        cell.classList.remove('editing');
+    });
+}
+
+// 取消编辑
+function cancelTableEdit() {
+    isTableEditMode = false;
+    disableTableEditing();
+    previewTable(currentPreviewTable);
+}
+
+// 添加表格行
+function addTableRow() {
+    const table = document.getElementById('dataTable');
+    const tbody = table.querySelector('tbody');
+    const headers = Array.from(table.querySelectorAll('thead th'))
+        .slice(0, -1) // 排除操作列
+        .map(th => th.textContent);
+    
+    // 移除空行提示
+    const emptyRow = tbody.querySelector('.empty-row');
+    if (emptyRow) {
+        emptyRow.remove();
+    }
+    
+    const rowIndex = tbody.children.length;
+    const newRow = document.createElement('tr');
+    newRow.dataset.rowIndex = rowIndex;
+    newRow.dataset.isNew = 'true';
+    newRow.innerHTML = headers.map(col => 
+        `<td data-column="${col}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
+    ).join('') + `
+        <td class="action-column">
+            <button class="btn-icon" onclick="deleteTableRow(${rowIndex})" title="删除行">🗑️</button>
+        </td>
+    `;
+    
+    tbody.appendChild(newRow);
+    
+    // 聚焦到第一个单元格
+    const firstCell = newRow.querySelector('.editable-cell');
+    if (firstCell) {
+        firstCell.focus();
+    }
+}
+
+// 删除表格行
+function deleteTableRow(rowIndex) {
+    if (!confirm('确定要删除这一行吗？')) {
+        return;
+    }
+    
+    const row = document.querySelector(`tr[data-row-index="${rowIndex}"]`);
+    if (row) {
+        row.dataset.deleted = 'true';
+        row.style.opacity = '0.5';
+        row.style.textDecoration = 'line-through';
+    }
+}
+
+// 保存表格数据
+async function saveTableData() {
+    if (!currentDb || !currentPreviewTable) return;
+    
+    const table = document.getElementById('dataTable');
+    const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
+    
+    const updates = [];
+    const inserts = [];
+    const deletes = [];
+    
+    rows.forEach(row => {
+        const rowIndex = row.dataset.rowIndex;
+        const isNew = row.dataset.isNew === 'true';
+        const isDeleted = row.dataset.deleted === 'true';
+        
+        if (isDeleted) {
+            // 只有非新增的行才需要删除
+            if (!isNew) {
+                deletes.push(rowIndex);
+            }
+        } else {
+            const rowData = {};
+            const cells = row.querySelectorAll('.editable-cell');
+            cells.forEach(cell => {
+                const column = cell.dataset.column;
+                const nullEl = cell.querySelector('.null-value');
+                const value = nullEl ? null : cell.textContent.trim();
+                rowData[column] = value;
+            });
+            
+            if (isNew) {
+                inserts.push(rowData);
+            } else {
+                updates.push({ index: rowIndex, data: rowData });
+            }
+        }
+    });
+    
+    // 发送保存请求
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({
+                updates,
+                inserts,
+                deletes
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('保存成功！');
+            isTableEditMode = false;
+            previewTable(currentPreviewTable);
+        } else {
+            alert('保存失败：' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('保存失败：' + error.message);
+    }
+}
+
+// 删除表
+async function dropTable() {
+    if (!currentDb || !currentPreviewTable) return;
+    
+    if (!confirm(`确定要删除表 "${currentPreviewTable}" 吗？此操作不可恢复！`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('表删除成功！');
+            closePreview();
+            loadDatabaseDetail(currentDb.id);
+        } else {
+            alert('删除失败：' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('删除失败：' + error.message);
+    }
+}
+
+// 关闭预览
+function closePreview() {
+    document.getElementById('tablePreview').style.display = 'none';
+    currentPreviewTable = null;
+    isTableEditMode = false;
 }
 
 // 删除数据库
@@ -772,8 +1054,10 @@ async function handleDeleteDatabase() {
 
         if (data.success) {
             currentDb = null;
+            currentPreviewTable = null;
             document.getElementById('welcomeView').style.display = 'flex';
             document.getElementById('dbDetailView').style.display = 'none';
+            document.getElementById('tablePreview').style.display = 'none';
             loadDatabases();
         } else {
             alert(data.message || '删除失败');
@@ -2378,4 +2662,154 @@ function cancelCreateApiFromAI(messageId) {
             </div>
         `;
     }
+}
+
+// ==================== 表格管理功能 ====================
+
+// 显示创建表弹窗
+function showCreateTableModal() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+    
+    document.getElementById('createTableModal').classList.add('show');
+    document.getElementById('createTableForm').reset();
+    document.getElementById('createTableError').classList.remove('show');
+    document.getElementById('createTableSuccess').classList.remove('show');
+    
+    // 初始化默认列
+    const columnsContainer = document.getElementById('tableColumnsContainer');
+    columnsContainer.innerHTML = `
+        <div class="table-column-item">
+            <input type="text" class="column-name-input" placeholder="列名" value="id" required>
+            <select class="column-type-select" required>
+                <option value="INT">INT</option>
+                <option value="VARCHAR">VARCHAR</option>
+                <option value="TEXT">TEXT</option>
+                <option value="DATETIME">DATETIME</option>
+                <option value="DECIMAL">DECIMAL</option>
+                <option value="BOOLEAN">BOOLEAN</option>
+            </select>
+            <input type="text" class="column-size-input" placeholder="长度" value="">
+            <label><input type="checkbox" class="column-notnull" checked> NOT NULL</label>
+            <label><input type="checkbox" class="column-primary" checked> 主键</label>
+            <label><input type="checkbox" class="column-autoincrement" checked> 自增</label>
+            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+        </div>
+    `;
+}
+
+// 隐藏创建表弹窗
+function hideCreateTableModal() {
+    document.getElementById('createTableModal').classList.remove('show');
+}
+
+// 添加表列
+function addTableColumn() {
+    const columnsContainer = document.getElementById('tableColumnsContainer');
+    const newColumn = document.createElement('div');
+    newColumn.className = 'table-column-item';
+    newColumn.innerHTML = `
+        <input type="text" class="column-name-input" placeholder="列名" required>
+        <select class="column-type-select" required>
+            <option value="INT">INT</option>
+            <option value="VARCHAR" selected>VARCHAR</option>
+            <option value="TEXT">TEXT</option>
+            <option value="DATETIME">DATETIME</option>
+            <option value="DECIMAL">DECIMAL</option>
+            <option value="BOOLEAN">BOOLEAN</option>
+        </select>
+        <input type="text" class="column-size-input" placeholder="长度" value="255">
+        <label><input type="checkbox" class="column-notnull"> NOT NULL</label>
+        <label><input type="checkbox" class="column-primary"> 主键</label>
+        <label><input type="checkbox" class="column-autoincrement"> 自增</label>
+        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+    `;
+    columnsContainer.appendChild(newColumn);
+}
+
+// 删除表列
+function removeTableColumn(btn) {
+    const columnsContainer = document.getElementById('tableColumnsContainer');
+    if (columnsContainer.children.length <= 1) {
+        alert('至少需要保留一列');
+        return;
+    }
+    btn.parentElement.remove();
+}
+
+// 创建表
+async function handleCreateTable(e) {
+    e.preventDefault();
+    
+    if (!currentDb) return;
+    
+    const tableName = document.getElementById('tableNameInput').value.trim();
+    const columnItems = document.querySelectorAll('.table-column-item');
+    
+    const columns = [];
+    for (const item of columnItems) {
+        const name = item.querySelector('.column-name-input').value.trim();
+        const type = item.querySelector('.column-type-select').value;
+        const size = item.querySelector('.column-size-input').value.trim();
+        const notNull = item.querySelector('.column-notnull').checked;
+        const primary = item.querySelector('.column-primary').checked;
+        const autoIncrement = item.querySelector('.column-autoincrement').checked;
+        
+        if (!name) {
+            showCreateTableError('请填写所有列名');
+            return;
+        }
+        
+        columns.push({
+            name,
+            type,
+            size: size || null,
+            not_null: notNull,
+            primary_key: primary,
+            auto_increment: autoIncrement
+        });
+    }
+    
+    const errorEl = document.getElementById('createTableError');
+    const successEl = document.getElementById('createTableSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({
+                name: tableName,
+                columns
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            successEl.textContent = '表创建成功！';
+            successEl.classList.add('show');
+            setTimeout(() => {
+                hideCreateTableModal();
+                loadDatabaseDetail(currentDb.id);
+            }, 1000);
+        } else {
+            showCreateTableError(data.message || '创建失败');
+        }
+    } catch (error) {
+        showCreateTableError('创建失败：' + error.message);
+    }
+}
+
+// 显示创建表错误
+function showCreateTableError(message) {
+    const errorEl = document.getElementById('createTableError');
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
 }
