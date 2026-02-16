@@ -854,6 +854,9 @@ async function loadApiDetail(apiId) {
         const data = await response.json();
 
         if (data.success) {
+            // 更新currentApi为完整的接口详情
+            currentApi = data.api;
+            
             document.getElementById('apiWelcomeView').style.display = 'none';
             document.getElementById('apiDetailView').style.display = 'block';
             
@@ -875,27 +878,29 @@ async function loadApiDetail(apiId) {
 
 // 解析MyBatis参数
 function parseMyBatisParams(sql) {
-    const params = new Set();
+    const paramsMap = new Map();
     
     // 匹配 #{paramName} 格式
     const hashPattern = /#\{([^}]+)\}/g;
     let match;
     while ((match = hashPattern.exec(sql)) !== null) {
-        params.add({
-            name: match[1].trim(),
-            type: 'prepared',
-            required: true
-        });
+        const paramName = match[1].trim();
+        if (!paramsMap.has(paramName)) {
+            paramsMap.set(paramName, {
+                name: paramName,
+                type: 'prepared',
+                required: true
+            });
+        }
     }
     
     // 匹配 ${paramName} 格式
     const dollarPattern = /\$\{([^}]+)\}/g;
     while ((match = dollarPattern.exec(sql)) !== null) {
         const paramName = match[1].trim();
-        // 检查是否已经作为 prepared 参数存在
-        const existing = Array.from(params).find(p => p.name === paramName);
-        if (!existing) {
-            params.add({
+        // 如果参数不存在，添加为 direct 类型
+        if (!paramsMap.has(paramName)) {
+            paramsMap.set(paramName, {
                 name: paramName,
                 type: 'direct',
                 required: true
@@ -903,7 +908,7 @@ function parseMyBatisParams(sql) {
         }
     }
     
-    return Array.from(params);
+    return Array.from(paramsMap.values());
 }
 
 // 渲染接口参数

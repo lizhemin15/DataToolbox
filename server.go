@@ -2249,6 +2249,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string, []interface{}, error) {
 	var args []interface{}
 	finalSQL := sqlTemplate
+	var missingParams []string
 
 	// 首先处理 ${param} - 直接替换
 	dollarPattern := `\$\{([^}]+)\}`
@@ -2257,6 +2258,7 @@ func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string,
 		if val, exists := params[paramName]; exists {
 			return fmt.Sprintf("%v", val)
 		}
+		missingParams = append(missingParams, paramName)
 		return match
 	})
 
@@ -2268,8 +2270,14 @@ func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string,
 			args = append(args, val)
 			return "?"
 		}
+		missingParams = append(missingParams, paramName)
 		return match
 	})
+
+	// 检查是否有缺失的参数
+	if len(missingParams) > 0 {
+		return "", nil, fmt.Errorf("缺少必需的参数: %s", strings.Join(missingParams, ", "))
+	}
 
 	return finalSQL, args, nil
 }
