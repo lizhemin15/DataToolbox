@@ -1458,9 +1458,19 @@ async function handleSendAiMessage() {
         removeAiMessage(loadingId);
 
         if (data.success) {
-            addAiAssistantMessage(data.response, data.sql, data.results);
+            // 如果有重试记录，显示带重试过程的消息
+            if (data.attempts && data.attempts.length > 0) {
+                addAiAssistantMessageWithRetries(data.response, data.sql, data.results, data.attempts, data.retries);
+            } else {
+                addAiAssistantMessage(data.response, data.sql, data.results);
+            }
         } else {
-            showAiError(data.message || '查询失败');
+            // 显示失败信息和所有尝试
+            if (data.attempts && data.attempts.length > 0) {
+                showAiErrorWithAttempts(data.message || '查询失败', data.attempts);
+            } else {
+                showAiError(data.message || '查询失败');
+            }
         }
     } catch (error) {
         removeAiMessage(loadingId);
@@ -1585,6 +1595,148 @@ function addAiAssistantMessage(content, sql, results) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
     
     return messageId;
+}
+
+// 添加AI助手消息（带重试过程）
+function addAiAssistantMessageWithRetries(content, sql, results, attempts, retries) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-' + Date.now();
+    
+    const avatar = '🤖';
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    let resultHtml = '';
+    
+    // 显示重试信息
+    if (retries > 0) {
+        const retryId = 'retry-' + messageId;
+        resultHtml += `
+            <div style="margin-top: 12px;">
+                <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 13px; color: #856404;">
+                        🔄 经过 ${retries} 次重试后成功
+                    </span>
+                    <span id="${retryId}-icon" style="font-size: 12px; color: #856404;">▼</span>
+                </div>
+                <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e2e8f0;">
+                    ${attempts.map((attempt, index) => `
+                        <div style="margin-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
+                            <div style="font-size: 12px; font-weight: 600; color: #e53e3e; margin-bottom: 4px;">
+                                ❌ 尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}
+                            </div>
+                            ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">${escapeHtml(attempt.sql)}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // 如果有SQL，显示SQL标题和代码块
+    if (sql) {
+        resultHtml += `
+            <div style="margin-top: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">✅ 最终成功的SQL查询：</div>
+                <div class="ai-sql-block">${escapeHtml(sql)}</div>
+            </div>
+        `;
+    }
+    
+    // 如果有结果，显示结果标题和表格
+    if (results && results.length > 0) {
+        resultHtml += `
+            <div style="margin-top: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                <div class="ai-result-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                ${Object.keys(results[0]).map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${results.slice(0, 10).map(row => `
+                                <tr>
+                                    ${Object.keys(results[0]).map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i style="color: #a0aec0;">NULL</i>'}</td>`).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                    ✓ 共查询到 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，显示前10条' : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">${avatar}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">
+                    <div style="line-height: 1.6;">${escapeHtml(content)}</div>
+                    ${resultHtml}
+                </div>
+                <div class="ai-message-meta">${time}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 显示AI错误（带尝试记录）
+function showAiErrorWithAttempts(message, attempts) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-error-' + Date.now();
+    const retryId = 'retry-' + messageId;
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">⚠️</div>
+            <div class="ai-message-content">
+                <div class="ai-error">
+                    <div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(message)}</div>
+                    <div style="font-size: 12px; margin-bottom: 12px;">已尝试 ${attempts.length} 次，均未成功</div>
+                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">查看所有尝试</span>
+                        <span id="${retryId}-icon" style="font-size: 12px;">▼</span>
+                    </div>
+                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                        ${attempts.map((attempt, index) => `
+                            <div style="margin-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
+                                <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px;">
+                                    尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}
+                                </div>
+                                ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">${escapeHtml(attempt.sql)}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// 切换重试详情显示
+function toggleRetryDetails(retryId) {
+    const details = document.getElementById(retryId);
+    const icon = document.getElementById(retryId + '-icon');
+    
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        icon.textContent = '▲';
+    } else {
+        details.style.display = 'none';
+        icon.textContent = '▼';
+    }
 }
 
 // 添加加载消息

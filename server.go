@@ -2534,63 +2534,99 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 构建AI提示词
-	prompt := buildAIPrompt(queryReq.Message, dbSchemas)
+	// 最多重试3次
+	maxRetries := 3
+	var lastError string
+	var attempts []map[string]interface{}
 
-	// 调用AI服务生成SQL
-	aiResponse, err := callAIService(aiConfig, prompt)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "AI服务调用失败: " + err.Error(),
-		})
-		return
+	for retry := 0; retry < maxRetries; retry++ {
+		// 构建AI提示词（如果是重试，添加错误信息）
+		var prompt string
+		if retry == 0 {
+			prompt = buildAIPrompt(queryReq.Message, dbSchemas)
+		} else {
+			prompt = buildRetryPrompt(queryReq.Message, dbSchemas, lastError, attempts)
+		}
+
+		// 调用AI服务生成SQL
+		aiResponse, err := callAIService(aiConfig, prompt)
+		if err != nil {
+			lastError = "AI服务调用失败: " + err.Error()
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": "",
+				"sql":      "",
+			})
+			continue
+		}
+
+		// 解析AI返回的SQL和回复文本
+		sqlQuery, targetDBID, responseText := parseAIResponse(aiResponse, dbSchemas)
+		if sqlQuery == "" {
+			lastError = "AI未能生成有效的SQL查询"
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": aiResponse,
+				"sql":      "",
+			})
+			continue
+		}
+
+		// 如果没有提取到回复文本，使用默认文本
+		if responseText == "" {
+			responseText = "已为您执行查询"
+		}
+
+		// 执行SQL查询
+		dataOntologyMu.RLock()
+		dbConfig, exists := dataOntologyDatabases[targetDBID]
+		dataOntologyMu.RUnlock()
+
+		if !exists {
+			lastError = "数据库不存在"
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": responseText,
+				"sql":      sqlQuery,
+			})
+			continue
+		}
+
+		results, err := executeSQLQuery(dbConfig, sqlQuery, []interface{}{})
+		if err != nil {
+			lastError = "SQL执行失败: " + err.Error()
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": responseText,
+				"sql":      sqlQuery,
+			})
+			// 如果不是最后一次重试，继续
+			if retry < maxRetries-1 {
+				continue
+			}
+		} else {
+			// 成功了，返回结果
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":  true,
+				"response": responseText,
+				"sql":      sqlQuery,
+				"results":  results,
+				"attempts": attempts,
+				"retries":  retry,
+			})
+			return
+		}
 	}
 
-	// 解析AI返回的SQL和回复文本
-	sqlQuery, targetDBID, responseText := parseAIResponse(aiResponse, dbSchemas)
-	if sqlQuery == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "AI未能生成有效的SQL查询",
-		})
-		return
-	}
-	
-	// 如果没有提取到回复文本，使用默认文本
-	if responseText == "" {
-		responseText = "已为您执行查询"
-	}
-
-	// 执行SQL查询
-	dataOntologyMu.RLock()
-	dbConfig, exists := dataOntologyDatabases[targetDBID]
-	dataOntologyMu.RUnlock()
-
-	if !exists {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "数据库不存在",
-		})
-		return
-	}
-
-	results, err := executeSQLQuery(dbConfig, sqlQuery, []interface{}{})
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  false,
-			"message":  "SQL执行失败: " + err.Error(),
-			"sql":      sqlQuery,
-			"response": responseText,
-		})
-		return
-	}
-
+	// 所有重试都失败了
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"response": responseText,
-		"sql":      sqlQuery,
-		"results":  results,
+		"success":  false,
+		"message":  lastError,
+		"attempts": attempts,
 	})
 }
 
@@ -2620,6 +2656,44 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "- SQL要准确可执行\n"
 	prompt += "- 如果需要查询多个表，请使用第一个数据库\n"
 	prompt += "- 不要包含过多的技术解释"
+
+	return prompt
+}
+
+// buildRetryPrompt 构建重试提示词
+func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}) string {
+	prompt := "你是一个专业的数据库助手。之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
+	prompt += "数据库结构：\n"
+
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		prompt += "表列表: "
+		if tables, ok := schema["tables"].([]string); ok {
+			prompt += strings.Join(tables, ", ")
+		}
+		prompt += "\n"
+	}
+
+	prompt += "\n用户问题：" + userMessage + "\n\n"
+	prompt += "之前的尝试：\n"
+	for _, attempt := range attempts {
+		if sql, ok := attempt["sql"].(string); ok && sql != "" {
+			prompt += fmt.Sprintf("尝试 %d - SQL: %s\n", attempt["attempt"], sql)
+			prompt += fmt.Sprintf("错误: %s\n\n", attempt["error"])
+		}
+	}
+
+	prompt += "请仔细分析错误原因，生成正确的SQL。\n"
+	prompt += "常见错误：\n"
+	prompt += "- 表名不存在：请使用正确的表名\n"
+	prompt += "- 字段不存在：请检查字段名是否正确\n"
+	prompt += "- 语法错误：请检查SQL语法\n\n"
+	prompt += "请按以下格式回复：\n"
+	prompt += "1. 简单说明你的修正方案\n"
+	prompt += "2. 提供修正后的SQL：\n"
+	prompt += "```sql\n"
+	prompt += "SELECT * FROM table_name;\n"
+	prompt += "```"
 
 	return prompt
 }

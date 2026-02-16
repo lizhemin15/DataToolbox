@@ -1228,3 +1228,27 @@ textarea#testApiParams {
     margin: 8px 0;
     border: 1px solid #fc8181;
 }
+
+.ai-retry-header {
+    transition: background 0.2s ease;
+}
+
+.ai-retry-header:hover {
+    opacity: 0.9;
+}
+
+.ai-retry-details {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden;
+    }
+    to {
+        opacity: 1;
+        max-height: 500px;
+    }
+}
