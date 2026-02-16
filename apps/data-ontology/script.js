@@ -2026,7 +2026,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                         </div>
                     </div>
                     <div class="ai-api-config-actions">
-                        <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))})">✓ 确认创建</button>
+                        <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))}, '${messageId}')">✓ 确认创建</button>
                         <button class="btn" onclick="cancelCreateApiFromAI('${messageId}')">✕ 取消</button>
                     </div>
                 </div>
@@ -2214,7 +2214,13 @@ function editApiConfigFromAI(messageId, config) {
 }
 
 // 确认创建AI生成的接口
-async function confirmCreateApiFromAI(config) {
+async function confirmCreateApiFromAI(config, messageId) {
+    // 先隐藏配置预览
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 正在创建接口...</div>';
+    }
+    
     // 添加数据库列表
     await loadDatabasesForSelect();
     
@@ -2228,7 +2234,9 @@ async function confirmCreateApiFromAI(config) {
     };
     
     if (!apiData.database_id) {
-        showAiError('无法确定数据库，请重新操作');
+        if (contentEl) {
+            contentEl.innerHTML = '<div class="ai-error">无法确定数据库，请重新操作</div>';
+        }
         return;
     }
     
@@ -2245,53 +2253,44 @@ async function confirmCreateApiFromAI(config) {
         const data = await response.json();
 
         if (data.success) {
-            // 显示成功消息
-            const messagesEl = document.getElementById('aiChatMessages');
-            const messageId = 'msg-success-' + Date.now();
-            const messageHtml = `
-                <div class="ai-message assistant" id="${messageId}">
-                    <div class="ai-message-avatar">✅</div>
-                    <div class="ai-message-content">
-                        <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
-                            <strong>接口创建成功！</strong><br>
-                            <span style="font-size: 13px; margin-top: 4px; display: block;">
-                                接口名称: ${escapeHtml(apiData.name)}<br>
-                                接口路径: ${escapeHtml(apiData.path)}<br>
-                                请前往"接口分发"标签页查看和测试
-                            </span>
-                        </div>
+            // 更新为成功消息
+            if (contentEl) {
+                contentEl.innerHTML = `
+                    <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
+                        <strong>✅ 接口创建成功！</strong><br>
+                        <span style="font-size: 13px; margin-top: 4px; display: block;">
+                            接口名称: ${escapeHtml(apiData.name)}<br>
+                            接口路径: ${escapeHtml(apiData.path)}<br>
+                            请前往"接口分发"标签页查看和测试
+                        </span>
                     </div>
-                </div>
-            `;
-            messagesEl.insertAdjacentHTML('beforeend', messageHtml);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
+                `;
+            }
             
             // 刷新接口列表（如果在接口标签页）
             if (document.querySelector('[data-tab="api"]').classList.contains('active')) {
                 loadApis();
             }
         } else {
-            showAiError('接口创建失败: ' + (data.message || '未知错误'));
+            if (contentEl) {
+                contentEl.innerHTML = `<div class="ai-error">接口创建失败: ${escapeHtml(data.message || '未知错误')}</div>`;
+            }
         }
     } catch (error) {
-        showAiError('接口创建失败: ' + error.message);
+        if (contentEl) {
+            contentEl.innerHTML = `<div class="ai-error">接口创建失败: ${escapeHtml(error.message)}</div>`;
+        }
     }
 }
 
 // 取消创建接口
 function cancelCreateApiFromAI(messageId) {
-    const messagesEl = document.getElementById('aiChatMessages');
-    const cancelMessageId = 'msg-cancel-' + Date.now();
-    const messageHtml = `
-        <div class="ai-message assistant" id="${cancelMessageId}" style="opacity: 0.7;">
-            <div class="ai-message-avatar">ℹ️</div>
-            <div class="ai-message-content">
-                <div style="padding: 8px 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
-                    已取消创建接口
-                </div>
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `
+            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
+                ℹ️ 已取消创建接口
             </div>
-        </div>
-    `;
-    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+        `;
+    }
 }
