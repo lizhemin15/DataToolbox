@@ -925,6 +925,28 @@ function enableTableEditing() {
     updateEditStats();
 }
 
+// 显示保存成功提示
+function showSaveSuccess(message) {
+    // 创建提示元素
+    const toast = document.createElement('div');
+    toast.className = 'save-success-toast';
+    toast.innerHTML = `
+        <div class="toast-icon">✅</div>
+        <div class="toast-message">${message.replace(/\n/g, '<br>')}</div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // 显示动画
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // 自动隐藏
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 1200);
+}
+
 // 更新编辑统计
 function updateEditStats() {
     const table = document.getElementById('dataTable');
@@ -1169,6 +1191,13 @@ async function saveTableData() {
     
     // 发送保存请求
     try {
+        console.log('发送保存请求到后端：', {
+            url: `${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`,
+            updates,
+            inserts,
+            deletes
+        });
+        
         const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
             headers: {
@@ -1183,15 +1212,41 @@ async function saveTableData() {
         });
         
         const data = await response.json();
+        console.log('后端响应:', data);
         
         if (data.success) {
-            alert('保存成功！');
-            // 保持编辑模式，重新加载数据
-            previewTable(currentPreviewTable, true);
+            console.log('✅ 后端返回成功');
+            console.log('📊 后端处理结果:', {
+                affected: data.affected || 'N/A',
+                updated: data.updated || 'N/A',
+                inserted: data.inserted || 'N/A',
+                deleted: data.deleted || 'N/A'
+            });
+            
+            // 检查后端是否真正处理了删除
+            if (deletes.length > 0) {
+                if (data.deleted !== undefined && data.deleted !== deletes.length) {
+                    console.warn('⚠️ 警告：请求删除 ' + deletes.length + ' 条，但后端只删除了 ' + data.deleted + ' 条');
+                }
+            }
+            
+            // 显示成功提示
+            const successMsg = `保存成功！\n✓ 更新: ${updates.length} 条\n✓ 插入: ${inserts.length} 条\n✓ 删除: ${deletes.length} 条`;
+            
+            // 使用自定义提示替代 alert
+            showSaveSuccess(successMsg);
+            
+            // 延迟重新加载，确保提示显示
+            setTimeout(() => {
+                console.log('🔄 开始重新加载表格，isTableEditMode:', isTableEditMode);
+                previewTable(currentPreviewTable, true);
+            }, 1500);
         } else {
+            console.error('❌ 保存失败:', data.message);
             alert('保存失败：' + (data.message || '未知错误'));
         }
     } catch (error) {
+        console.error('保存异常:', error);
         alert('保存失败：' + error.message);
     }
 }
