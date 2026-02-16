@@ -976,9 +976,14 @@ async function loadDatabasesForSelect() {
 
 // 隐藏添加接口弹窗
 function hideAddApiModal() {
+    const form = document.getElementById('addApiForm');
     document.getElementById('addApiModal').classList.remove('show');
     isEditApiMode = false;
     editingApiId = null;
+    
+    // 清理AI标记
+    delete form.dataset.fromAi;
+    delete form.dataset.aiMessageId;
 }
 
 // 添加/编辑接口
@@ -1024,11 +1029,42 @@ async function handleAddApi(e) {
         const data = await response.json();
 
         if (data.success) {
+            const isFromAi = e.target.dataset.fromAi === 'true';
+            
             successEl.textContent = isEditApiMode ? '接口更新成功！' : '接口添加成功！';
             successEl.classList.add('show');
+            
             setTimeout(() => {
                 hideAddApiModal();
                 loadApis();
+                
+                // 如果是从AI编辑后创建的，在AI聊天中显示成功消息
+                if (isFromAi) {
+                    const messagesEl = document.getElementById('aiChatMessages');
+                    const messageId = 'msg-success-' + Date.now();
+                    const messageHtml = `
+                        <div class="ai-message assistant" id="${messageId}">
+                            <div class="ai-message-avatar">✅</div>
+                            <div class="ai-message-content">
+                                <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
+                                    <strong>接口创建成功！</strong><br>
+                                    <span style="font-size: 13px; margin-top: 4px; display: block;">
+                                        接口名称: ${escapeHtml(apiData.name)}<br>
+                                        接口路径: ${escapeHtml(apiData.path)}<br>
+                                        请前往"接口分发"标签页查看和测试
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    
+                    // 清理标记
+                    delete e.target.dataset.fromAi;
+                    delete e.target.dataset.aiMessageId;
+                }
+                
                 if (isEditApiMode && currentApi && currentApi.id === editingApiId) {
                     setTimeout(() => {
                         loadApiDetail(editingApiId);
@@ -1451,7 +1487,7 @@ async function handleSendAiMessage() {
     let displayMessage = message;
     if (dbMatches.length === 0 && aiSessionContext.databases.length > 0) {
         const contextDbs = aiSessionContext.databases.map(db => `@${db.name}`).join(' ');
-        displayMessage = message + `\n<div style="font-size: 11px; color: #718096; margin-top: 4px; font-style: italic;">💡 使用上下文数据库: ${contextDbs}</div>`;
+        displayMessage = message + `\n<div class="ai-context-hint">💡 使用上下文: ${contextDbs}</div>`;
     }
     addAiMessage('user', displayMessage);
     
@@ -1475,7 +1511,8 @@ async function handleSendAiMessage() {
             },
             body: JSON.stringify({
                 message: message,
-                databases: dbReferences.map(db => db.id)
+                databases: dbReferences.map(db => db.id),
+                history: aiSessionContext.history.slice(-5) // 只发送最近5条历史
             })
         });
 
@@ -1498,7 +1535,7 @@ async function handleSendAiMessage() {
                 if (eventMatch) {
                     const eventType = eventMatch[1];
                     const data = JSON.parse(eventMatch[2]);
-                    handleStreamEvent(streamMessageId, eventType, data);
+                    handleStreamEvent(streamMessageId, eventType, data, message);
                 }
             }
         }
@@ -1828,7 +1865,7 @@ function addAiStreamMessage() {
 }
 
 // 处理流式事件
-function handleStreamEvent(messageId, eventType, data) {
+function handleStreamEvent(messageId, eventType, data, userMessage) {
     const statusEl = document.getElementById(`${messageId}-status`);
     const contentEl = document.getElementById(`${messageId}-content`);
     const attemptsEl = document.getElementById(`${messageId}-attempts`);
@@ -1963,6 +2000,39 @@ function handleStreamEvent(messageId, eventType, data) {
             
             errorHtml += '</div>';
             contentEl.innerHTML = errorHtml;
+            attemptsEl.style.display = 'none';
+            break;
+            
+        case 'api_config_generated':
+            statusEl.innerHTML = '';
+            
+            // 显示接口配置预览
+            const config = data.config;
+            const configHtml = `
+                <div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.message)}</div>
+                <div class="ai-api-config-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">接口配置预览</span>
+                        <button class="btn btn-sm" onclick="editApiConfigFromAI('${messageId}', ${escapeHtml(JSON.stringify(config))})">✏️ 编辑</button>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">接口名称:</span> <span class="config-value">${escapeHtml(config.name)}</span></div>
+                        <div class="config-item"><span class="config-label">接口路径:</span> <span class="config-value">${escapeHtml(config.path)}</span></div>
+                        <div class="config-item"><span class="config-label">请求方法:</span> <span class="config-value">${escapeHtml(config.method)}</span></div>
+                        <div class="config-item"><span class="config-label">接口描述:</span> <span class="config-value">${escapeHtml(config.description || '')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">SQL语句:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))})">✓ 确认创建</button>
+                        <button class="btn" onclick="cancelCreateApiFromAI('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            
+            contentEl.innerHTML = configHtml;
             attemptsEl.style.display = 'none';
             break;
             
@@ -2109,4 +2179,119 @@ function clearAiContext() {
         messagesEl.insertAdjacentHTML('beforeend', messageHtml);
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+}
+
+// ==================== AI创建接口功能 ====================
+
+// 编辑AI生成的接口配置
+function editApiConfigFromAI(messageId, config) {
+    // 显示编辑表单
+    isEditApiMode = false;
+    editingApiId = null;
+    document.getElementById('apiModalTitle').textContent = '编辑接口配置';
+    document.getElementById('addApiModal').classList.add('show');
+    
+    // 预填充配置
+    document.getElementById('apiNameInput').value = config.name || '';
+    document.getElementById('apiPathInput').value = config.path || '';
+    document.getElementById('apiMethodInput').value = config.method || 'GET';
+    document.getElementById('apiSqlInput').value = config.sql || '';
+    document.getElementById('apiDescInput').value = config.description || '';
+    
+    // 加载数据库列表并选择
+    loadDatabasesForSelect().then(() => {
+        if (config.database_id) {
+            document.getElementById('apiDbSelect').value = config.database_id;
+        }
+    });
+    
+    // 标记这是从AI生成的，保存时直接创建
+    document.getElementById('addApiForm').dataset.fromAi = 'true';
+    document.getElementById('addApiForm').dataset.aiMessageId = messageId;
+    
+    document.getElementById('apiFormError').classList.remove('show');
+    document.getElementById('apiFormSuccess').classList.remove('show');
+}
+
+// 确认创建AI生成的接口
+async function confirmCreateApiFromAI(config) {
+    // 添加数据库列表
+    await loadDatabasesForSelect();
+    
+    const apiData = {
+        name: config.name,
+        path: config.path,
+        method: config.method,
+        database_id: config.database_id || aiSessionContext.databases[0]?.id,
+        sql: config.sql,
+        description: config.description || ''
+    };
+    
+    if (!apiData.database_id) {
+        showAiError('无法确定数据库，请重新操作');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify(apiData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 显示成功消息
+            const messagesEl = document.getElementById('aiChatMessages');
+            const messageId = 'msg-success-' + Date.now();
+            const messageHtml = `
+                <div class="ai-message assistant" id="${messageId}">
+                    <div class="ai-message-avatar">✅</div>
+                    <div class="ai-message-content">
+                        <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
+                            <strong>接口创建成功！</strong><br>
+                            <span style="font-size: 13px; margin-top: 4px; display: block;">
+                                接口名称: ${escapeHtml(apiData.name)}<br>
+                                接口路径: ${escapeHtml(apiData.path)}<br>
+                                请前往"接口分发"标签页查看和测试
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            
+            // 刷新接口列表（如果在接口标签页）
+            if (document.querySelector('[data-tab="api"]').classList.contains('active')) {
+                loadApis();
+            }
+        } else {
+            showAiError('接口创建失败: ' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        showAiError('接口创建失败: ' + error.message);
+    }
+}
+
+// 取消创建接口
+function cancelCreateApiFromAI(messageId) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const cancelMessageId = 'msg-cancel-' + Date.now();
+    const messageHtml = `
+        <div class="ai-message assistant" id="${cancelMessageId}" style="opacity: 0.7;">
+            <div class="ai-message-avatar">ℹ️</div>
+            <div class="ai-message-content">
+                <div style="padding: 8px 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
+                    已取消创建接口
+                </div>
+            </div>
+        </div>
+    `;
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 }

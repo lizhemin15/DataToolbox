@@ -2499,6 +2499,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var queryReq struct {
 		Message   string   `json:"message"`
 		Databases []string `json:"databases"`
+		History   []map[string]interface{} `json:"history,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
 		sendSSE(w, "error", map[string]interface{}{
@@ -2512,6 +2513,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		"message": "开始处理您的问题...",
 	})
 	flusher.Flush()
+	
+	// 检测是否是创建接口的请求
+	if isCreateApiRequest(queryReq.Message) {
+		handleAICreateApi(w, flusher, queryReq, dbSchemas, aiConfig)
+		return
+	}
 
 	// 检查AI配置
 	dataOntologyMu.RLock()
@@ -2913,6 +2920,137 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	}
 
 	return "", fmt.Errorf("无法解析AI响应")
+}
+
+// isCreateApiRequest 检测是否是创建接口的请求
+func isCreateApiRequest(message string) bool {
+	keywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "帮我创建", "生成API", "创建API"}
+	lowerMessage := strings.ToLower(message)
+	for _, keyword := range keywords {
+		if strings.Contains(lowerMessage, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleAICreateApi 处理AI创建接口请求
+func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq struct {
+	Message   string                   `json:"message"`
+	Databases []string                 `json:"databases"`
+	History   []map[string]interface{} `json:"history,omitempty"`
+}, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在分析您的需求并生成接口配置...",
+	})
+	flusher.Flush()
+	
+	// 构建创建接口的提示词
+	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas)
+	
+	// 调用AI服务
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "AI服务调用失败: " + err.Error(),
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+	
+	// 解析AI返回的接口配置
+	apiConfig := parseApiConfigFromAI(aiResponse, dbSchemas)
+	if apiConfig == nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "AI未能生成有效的接口配置",
+			"response": aiResponse,
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+	
+	// 返回接口配置供用户确认
+	sendSSE(w, "api_config_generated", map[string]interface{}{
+		"message": "已生成接口配置，请确认后创建",
+		"config":  apiConfig,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
+// buildCreateApiPrompt 构建创建接口的提示词
+func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
+	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求生成接口配置。\n\n"
+	prompt += "数据库结构：\n"
+	
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		prompt += "表列表: "
+		if tables, ok := schema["tables"].([]string); ok {
+			prompt += strings.Join(tables, ", ")
+		}
+		prompt += "\n"
+	}
+	
+	prompt += "\n用户需求：" + userMessage + "\n\n"
+	prompt += "请生成接口配置，必须包含以下信息：\n"
+	prompt += "1. name: 接口名称（中文，简洁明了）\n"
+	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格）\n"
+	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE）\n"
+	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
+	prompt += "5. description: 接口描述\n\n"
+	prompt += "请按以下JSON格式返回：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"name\": \"获取用户列表\",\n"
+	prompt += "  \"path\": \"/api/users\",\n"
+	prompt += "  \"method\": \"GET\",\n"
+	prompt += "  \"sql\": \"SELECT * FROM users WHERE status = #{status} LIMIT #{limit}\",\n"
+	prompt += "  \"description\": \"查询指定状态的用户列表\"\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "注意：\n"
+	prompt += "- SQL只能有一条语句\n"
+	prompt += "- 使用#{参数名}表示预编译参数\n"
+	prompt += "- 接口路径要符合RESTful规范\n"
+	prompt += "- 根据操作类型选择正确的HTTP方法"
+	
+	return prompt
+}
+
+// parseApiConfigFromAI 从AI响应中解析接口配置
+func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) map[string]interface{} {
+	// 提取JSON代码块
+	jsonStart := strings.Index(response, "```json")
+	if jsonStart == -1 {
+		jsonStart = strings.Index(response, "```")
+	}
+	
+	if jsonStart != -1 {
+		jsonStart = strings.Index(response[jsonStart:], "\n")
+		if jsonStart != -1 {
+			jsonEnd := strings.Index(response[jsonStart+1:], "```")
+			if jsonEnd != -1 {
+				jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
+				
+				var config map[string]interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
+					// 添加数据库ID
+					if len(dbSchemas) > 0 {
+						if id, ok := dbSchemas[0]["id"].(string); ok {
+							config["database_id"] = id
+						}
+					}
+					return config
+				}
+			}
+		}
+	}
+	
+	return nil
 }
 
 // parseAIResponse 解析AI响应提取SQL和回复文本

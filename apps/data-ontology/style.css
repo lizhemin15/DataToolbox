@@ -1367,3 +1367,90 @@ textarea#testApiParams {
 .ai-stream-content {
     line-height: 1.6;
 }
+
+.ai-context-hint {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.9);
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    font-style: italic;
+    display: inline-block;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* AI创建接口样式 */
+.ai-api-config-preview {
+    margin-top: 12px;
+    border: 2px solid #667eea;
+    border-radius: 12px;
+    overflow: hidden;
+    background: white;
+}
+
+.ai-api-config-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ai-api-config-header .btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 4px 12px;
+    font-size: 13px;
+}
+
+.ai-api-config-header .btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.ai-api-config-body {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    background: #f8f9fa;
+}
+
+.config-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.config-label {
+    font-size: 12px;
+    color: #718096;
+    font-weight: 600;
+}
+
+.config-value {
+    font-size: 14px;
+    color: #2d3748;
+    font-weight: 500;
+}
+
+.ai-api-config-actions {
+    padding: 12px 16px;
+    background: white;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    border-top: 1px solid #e2e8f0;
+}
+
+.ai-api-config-actions .btn {
+    padding: 8px 20px;
+}
+
+.ai-api-config-actions .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    color: white;
+}
