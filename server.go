@@ -3176,10 +3176,14 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 	}
 	
 	// 解析AI返回的接口配置
-	apiConfig := parseApiConfigFromAI(aiResponse, dbSchemas)
+	apiConfig, parseError := parseApiConfigFromAI(aiResponse, dbSchemas)
 	if apiConfig == nil {
+		log.Printf("解析接口配置失败，AI响应: %s", aiResponse)
+		if parseError != "" {
+			log.Printf("解析错误: %s", parseError)
+		}
 		sendSSE(w, "error", map[string]interface{}{
-			"message": "AI未能生成有效的接口配置",
+			"message": "AI未能生成有效的接口配置。" + parseError,
 			"response": aiResponse,
 		})
 		sendSSE(w, "done", map[string]interface{}{})
@@ -3268,35 +3272,61 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 }
 
 // parseApiConfigFromAI 从AI响应中解析接口配置
-func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) map[string]interface{} {
+func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (map[string]interface{}, string) {
 	// 提取JSON代码块
 	jsonStart := strings.Index(response, "```json")
 	if jsonStart == -1 {
 		jsonStart = strings.Index(response, "```")
 	}
 	
-	if jsonStart != -1 {
-		jsonStart = strings.Index(response[jsonStart:], "\n")
-		if jsonStart != -1 {
-			jsonEnd := strings.Index(response[jsonStart+1:], "```")
-			if jsonEnd != -1 {
-				jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
-				
-				var config map[string]interface{}
-				if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
-					// 添加数据库ID
-					if len(dbSchemas) > 0 {
-						if id, ok := dbSchemas[0]["id"].(string); ok {
-							config["database_id"] = id
-						}
-					}
-					return config
+	if jsonStart == -1 {
+		// 尝试直接解析整个响应作为JSON
+		var config map[string]interface{}
+		if err := json.Unmarshal([]byte(response), &config); err == nil {
+			// 添加数据库ID
+			if len(dbSchemas) > 0 {
+				if id, ok := dbSchemas[0]["id"].(string); ok {
+					config["database_id"] = id
 				}
 			}
+			return config, ""
+		}
+		return nil, "未找到JSON代码块，且响应内容无法直接解析为JSON"
+	}
+	
+	jsonStart = strings.Index(response[jsonStart:], "\n")
+	if jsonStart == -1 {
+		return nil, "找到代码块标记但格式不正确"
+	}
+	
+	jsonEnd := strings.Index(response[jsonStart+1:], "```")
+	if jsonEnd == -1 {
+		return nil, "找到代码块开始标记但未找到结束标记"
+	}
+	
+	jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
+	
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
+		return nil, fmt.Sprintf("JSON解析失败: %v，JSON内容: %s", err, jsonStr)
+	}
+	
+	// 验证必需字段
+	requiredFields := []string{"name", "path", "method", "sql"}
+	for _, field := range requiredFields {
+		if _, exists := config[field]; !exists {
+			return nil, fmt.Sprintf("缺少必需字段: %s", field)
 		}
 	}
 	
-	return nil
+	// 添加数据库ID
+	if len(dbSchemas) > 0 {
+		if id, ok := dbSchemas[0]["id"].(string); ok {
+			config["database_id"] = id
+		}
+	}
+	
+	return config, ""
 }
 
 // parseAIResponse 解析AI响应提取SQL和回复文本

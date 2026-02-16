@@ -2018,10 +2018,26 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             statusEl.innerHTML = '';
             let errorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(data.message)}</div>`;
             
+            // 显示AI原始响应（用于调试）
+            if (data.response) {
+                const debugId = 'debug-' + messageId;
+                errorHtml += `
+                    <div style="margin-top: 12px;">
+                        <div class="ai-retry-header" onclick="toggleRetryDetails('${debugId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 13px;">查看AI原始响应（调试）</span>
+                            <span id="${debugId}-icon" style="font-size: 12px;">▼</span>
+                        </div>
+                        <div id="${debugId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                            <pre style="white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 0;">${escapeHtml(data.response)}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+            
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 errorHtml += `
-                    <div style="font-size: 12px; margin-bottom: 12px;">已尝试 ${data.attempts.length} 次，均未成功</div>
+                    <div style="font-size: 12px; margin-top: 12px; margin-bottom: 12px;">已尝试 ${data.attempts.length} 次，均未成功</div>
                     <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 13px;">查看所有尝试</span>
                         <span id="${retryId}-icon" style="font-size: 12px;">▼</span>
