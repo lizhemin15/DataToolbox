@@ -740,25 +740,27 @@ type DatabaseInfo struct {
 
 // ApiConfig 接口配置
 type ApiConfig struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Method      string `json:"method"`      // GET, POST, PUT, DELETE
-	DatabaseID  string `json:"database_id"` // 关联的数据库ID
-	SQL         string `json:"sql"`         // MyBatis风格的SQL语句
-	Description string `json:"description,omitempty"`
+	ID            string                 `json:"id"`
+	Name          string                 `json:"name"`
+	Path          string                 `json:"path"`
+	Method        string                 `json:"method"`        // GET, POST, PUT, DELETE
+	DatabaseID    string                 `json:"database_id"`   // 关联的数据库ID
+	SQL           string                 `json:"sql"`           // MyBatis风格的SQL语句
+	Description   string                 `json:"description,omitempty"`
+	DefaultParams map[string]interface{} `json:"default_params,omitempty"` // 默认参数值
 }
 
 // ApiInfo 接口信息（包含数据库名称）
 type ApiInfo struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Path         string `json:"path"`
-	Method       string `json:"method"`
-	DatabaseID   string `json:"database_id"`
-	DatabaseName string `json:"database_name,omitempty"`
-	SQL          string `json:"sql"`
-	Description  string `json:"description,omitempty"`
+	ID            string                 `json:"id"`
+	Name          string                 `json:"name"`
+	Path          string                 `json:"path"`
+	Method        string                 `json:"method"`
+	DatabaseID    string                 `json:"database_id"`
+	DatabaseName  string                 `json:"database_name,omitempty"`
+	SQL           string                 `json:"sql"`
+	Description   string                 `json:"description,omitempty"`
+	DefaultParams map[string]interface{} `json:"default_params,omitempty"`
 }
 
 // AIConfig AI配置
@@ -2030,13 +2032,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		apiInfo := &ApiInfo{
-			ID:          api.ID,
-			Name:        api.Name,
-			Path:        api.Path,
-			Method:      api.Method,
-			DatabaseID:  api.DatabaseID,
-			SQL:         api.SQL,
-			Description: api.Description,
+			ID:           api.ID,
+			Name:         api.Name,
+			Path:         api.Path,
+			Method:       api.Method,
+			DatabaseID:   api.DatabaseID,
+			SQL:          api.SQL,
+			Description:  api.Description,
+			DefaultParams: api.DefaultParams,
 		}
 
 		// 获取数据库名称
@@ -2102,6 +2105,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 			api.SQL = apiUpdate.SQL
 		}
 		api.Description = apiUpdate.Description
+		api.DefaultParams = apiUpdate.DefaultParams
 
 		dataOntologyMu.Unlock()
 
@@ -3000,7 +3004,8 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格）\n"
 	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE）\n"
 	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
-	prompt += "5. description: 接口描述\n\n"
+	prompt += "5. description: 接口描述\n"
+	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
 	prompt += "请按以下JSON格式返回：\n"
 	prompt += "```json\n"
 	prompt += "{\n"
@@ -3008,14 +3013,20 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "  \"path\": \"/api/users\",\n"
 	prompt += "  \"method\": \"GET\",\n"
 	prompt += "  \"sql\": \"SELECT * FROM users WHERE status = #{status} LIMIT #{limit}\",\n"
-	prompt += "  \"description\": \"查询指定状态的用户列表\"\n"
+	prompt += "  \"description\": \"查询指定状态的用户列表\",\n"
+	prompt += "  \"default_params\": {\n"
+	prompt += "    \"status\": \"active\",\n"
+	prompt += "    \"limit\": 10\n"
+	prompt += "  }\n"
 	prompt += "}\n"
 	prompt += "```\n\n"
 	prompt += "注意：\n"
 	prompt += "- SQL只能有一条语句\n"
 	prompt += "- 使用#{参数名}表示预编译参数\n"
 	prompt += "- 接口路径要符合RESTful规范\n"
-	prompt += "- 根据操作类型选择正确的HTTP方法"
+	prompt += "- 根据操作类型选择正确的HTTP方法\n"
+	prompt += "- 必须为SQL中的每个参数提供合理的默认值\n"
+	prompt += "- 默认值要符合实际使用场景（如limit一般为10-100，id一般为1等）"
 	
 	return prompt
 }

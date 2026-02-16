@@ -920,11 +920,19 @@ function renderApiParams(params) {
         const typeClass = param.required ? 'required' : 'optional';
         const requiredLabel = param.required ? '必填' : '可选';
         
+        // 获取默认值
+        let defaultValue = '';
+        if (currentApi && currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
+            const val = currentApi.default_params[param.name];
+            defaultValue = `<span style="color:#48bb78;margin-left:8px;font-size:12px;">默认: ${typeof val === 'string' ? '"' + val + '"' : val}</span>`;
+        }
+        
         return `
             <div class="param-item">
                 <span class="param-name">${param.name}</span>
                 <span class="param-type ${typeClass}">${requiredLabel}</span>
                 <span style="color:#718096;margin-left:8px;font-size:13px;">(${typeLabel})</span>
+                ${defaultValue}
             </div>
         `;
     }).join('');
@@ -984,6 +992,9 @@ function hideAddApiModal() {
     // 清理AI标记
     delete form.dataset.fromAi;
     delete form.dataset.aiMessageId;
+    
+    // 清空表单
+    form.reset();
 }
 
 // 添加/编辑接口
@@ -998,6 +1009,17 @@ async function handleAddApi(e) {
         sql: document.getElementById('apiSqlInput').value,
         description: document.getElementById('apiDescInput').value
     };
+
+    // 处理默认参数
+    const defaultParamsText = document.getElementById('apiDefaultParamsInput').value.trim();
+    if (defaultParamsText) {
+        try {
+            apiData.default_params = JSON.parse(defaultParamsText);
+        } catch (error) {
+            showApiFormError('默认参数格式错误，请输入有效的JSON格式');
+            return;
+        }
+    }
 
     // 验证路径格式
     if (!apiData.path.startsWith('/')) {
@@ -1102,6 +1124,13 @@ async function handleEditApi() {
     document.getElementById('apiSqlInput').value = currentApi.sql;
     document.getElementById('apiDescInput').value = currentApi.description || '';
     
+    // 预填充默认参数
+    if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(currentApi.default_params, null, 2);
+    } else {
+        document.getElementById('apiDefaultParamsInput').value = '';
+    }
+    
     // 加载数据库列表并选择当前数据库
     await loadDatabasesForSelect();
     document.getElementById('apiDbSelect').value = currentApi.database_id;
@@ -1152,12 +1181,17 @@ function showTestApiModal() {
     document.getElementById('testApiError').classList.remove('show');
     document.getElementById('testApiResultGroup').style.display = 'none';
     
-    // 预填充参数示例
+    // 预填充参数（优先使用默认参数）
     const params = parseMyBatisParams(currentApi.sql);
     if (params.length > 0) {
         const exampleParams = {};
         params.forEach(param => {
-            exampleParams[param.name] = '';
+            // 如果有默认参数，使用默认值；否则使用空字符串
+            if (currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
+                exampleParams[param.name] = currentApi.default_params[param.name];
+            } else {
+                exampleParams[param.name] = '';
+            }
         });
         document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
     }
@@ -2008,6 +2042,23 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             
             // 显示接口配置预览
             const config = data.config;
+            
+            // 构建默认参数显示
+            let defaultParamsHtml = '';
+            if (config.default_params && Object.keys(config.default_params).length > 0) {
+                const paramsEntries = Object.entries(config.default_params).map(([key, value]) => {
+                    return `<div style="margin: 4px 0;"><span style="color: #805ad5; font-weight: 500;">${escapeHtml(key)}</span>: <span style="color: #48bb78;">${typeof value === 'string' ? '"' + escapeHtml(value) + '"' : escapeHtml(String(value))}</span></div>`;
+                }).join('');
+                defaultParamsHtml = `
+                    <div class="config-item" style="grid-column: 1 / -1;">
+                        <span class="config-label">默认参数:</span>
+                        <div style="margin-top: 6px; padding: 8px; background: rgba(72, 187, 120, 0.05); border-left: 3px solid #48bb78; border-radius: 4px;">
+                            ${paramsEntries}
+                        </div>
+                    </div>
+                `;
+            }
+            
             const configHtml = `
                 <div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.message)}</div>
                 <div class="ai-api-config-preview">
@@ -2024,6 +2075,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                             <span class="config-label">SQL语句:</span>
                             <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div>
                         </div>
+                        ${defaultParamsHtml}
                     </div>
                     <div class="ai-api-config-actions">
                         <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))}, '${messageId}')">✓ 确认创建</button>
@@ -2197,6 +2249,13 @@ function editApiConfigFromAI(messageId, config) {
     document.getElementById('apiMethodInput').value = config.method || 'GET';
     document.getElementById('apiSqlInput').value = config.sql || '';
     document.getElementById('apiDescInput').value = config.description || '';
+    
+    // 预填充默认参数
+    if (config.default_params && Object.keys(config.default_params).length > 0) {
+        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(config.default_params, null, 2);
+    } else {
+        document.getElementById('apiDefaultParamsInput').value = '';
+    }
     
     // 加载数据库列表并选择
     loadDatabasesForSelect().then(() => {
