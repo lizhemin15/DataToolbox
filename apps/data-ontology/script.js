@@ -16,6 +16,10 @@ let aiConfig = null;
 let aiMessages = [];
 let currentDbReference = null;
 let dbSuggestionIndex = -1;
+let aiSessionContext = {
+    databases: [], // 当前会话使用的数据库
+    history: []    // 对话历史
+};
 
 // API基础URL
 const API_BASE = window.location.origin;
@@ -171,6 +175,8 @@ function initEventListeners() {
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
+    
+    // 清除AI上下文按钮（稍后会动态添加）
 }
 
 // 登录处理
@@ -252,6 +258,7 @@ function switchTab(tabName) {
         loadApis();
     } else if (tabName === 'ai') {
         loadAiConfig();
+        updateAiContextDisplay();
     }
 }
 
@@ -1420,13 +1427,33 @@ async function handleSendAiMessage() {
         }
     }
     
-    if (dbReferences.length === 0) {
-        showAiError('请使用 @数据库名 来引用数据库');
+    // 如果消息中有@引用，更新会话上下文
+    if (dbReferences.length > 0) {
+        aiSessionContext.databases = dbReferences;
+        updateAiContextDisplay();
+    } else if (aiSessionContext.databases.length > 0) {
+        // 如果没有新的@引用，但有历史数据库，继续使用
+        dbReferences.push(...aiSessionContext.databases);
+    } else {
+        // 既没有@引用，也没有历史数据库
+        showAiError('请使用 @数据库名 来引用数据库，或在之前的对话中已经引用过数据库');
         return;
     }
     
-    // 添加用户消息
-    addAiMessage('user', message);
+    // 添加到历史记录
+    aiSessionContext.history.push({
+        role: 'user',
+        content: message,
+        databases: dbReferences.map(db => db.id)
+    });
+    
+    // 添加用户消息（如果没有@但使用了上下文，显示提示）
+    let displayMessage = message;
+    if (dbMatches.length === 0 && aiSessionContext.databases.length > 0) {
+        const contextDbs = aiSessionContext.databases.map(db => `@${db.name}`).join(' ');
+        displayMessage = message + `\n<div style="font-size: 11px; color: #718096; margin-top: 4px; font-style: italic;">💡 使用上下文数据库: ${contextDbs}</div>`;
+    }
+    addAiMessage('user', displayMessage);
     
     // 清空输入框
     input.value = '';
@@ -1496,15 +1523,40 @@ function addAiMessage(role, content) {
     const avatar = role === 'user' ? '👤' : '🤖';
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
-    // 处理数据库引用高亮
+    // 处理数据库引用高亮（只对不包含HTML的内容进行转义和高亮）
     let displayContent = content;
-    const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
-    for (const match of dbMatches) {
-        const dbName = match[1];
-        displayContent = displayContent.replace(
-            new RegExp(`@${dbName}`, 'g'),
-            `<span class="ai-db-reference">@${dbName}</span>`
-        );
+    
+    // 如果内容包含HTML标签（如上下文提示），直接使用
+    if (content.includes('<div')) {
+        // 先提取HTML部分
+        const parts = content.split('<div');
+        displayContent = escapeHtml(parts[0]);
+        
+        // 处理@引用高亮
+        const dbMatches = [...parts[0].matchAll(/@([^\s]+)/g)];
+        for (const match of dbMatches) {
+            const dbName = match[1];
+            displayContent = displayContent.replace(
+                new RegExp(escapeHtml(`@${dbName}`), 'g'),
+                `<span class="ai-db-reference">@${dbName}</span>`
+            );
+        }
+        
+        // 添加HTML部分（不转义）
+        if (parts.length > 1) {
+            displayContent += '<div' + parts.slice(1).join('<div');
+        }
+    } else {
+        // 普通内容，先转义再高亮
+        displayContent = escapeHtml(content);
+        const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
+        for (const match of dbMatches) {
+            const dbName = match[1];
+            displayContent = displayContent.replace(
+                new RegExp(escapeHtml(`@${dbName}`), 'g'),
+                `<span class="ai-db-reference">@${dbName}</span>`
+            );
+        }
     }
     
     const messageHtml = `
@@ -1984,4 +2036,77 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// 更新AI上下文显示
+function updateAiContextDisplay() {
+    const header = document.querySelector('#aiTab .ai-chat-header');
+    if (!header) return;
+    
+    let contextEl = document.getElementById('aiContextDisplay');
+    const input = document.getElementById('aiInput');
+    
+    if (aiSessionContext.databases.length > 0) {
+        const dbNames = aiSessionContext.databases.map(db => db.name).join(', ');
+        const dbIcons = aiSessionContext.databases.map(db => {
+            const typeIcon = dbTypeIcons[db.type] || '🗄️';
+            return typeIcon;
+        }).join(' ');
+        
+        if (!contextEl) {
+            contextEl = document.createElement('div');
+            contextEl.id = 'aiContextDisplay';
+            contextEl.className = 'ai-context-display';
+            
+            const h3 = header.querySelector('h3');
+            h3.parentNode.insertBefore(contextEl, h3.nextSibling);
+        }
+        
+        contextEl.innerHTML = `
+            <div class="ai-context-info">
+                <span class="ai-context-label">上下文:</span>
+                <span class="ai-context-value">${dbIcons} ${escapeHtml(dbNames)}</span>
+                <button class="ai-context-clear" onclick="clearAiContext()" title="清除上下文，开始新对话">✕</button>
+            </div>
+        `;
+        
+        // 更新输入框占位符
+        if (input) {
+            input.placeholder = '继续提问... (无需再次 @ 数据库)';
+        }
+    } else {
+        if (contextEl) {
+            contextEl.remove();
+        }
+        
+        // 更新输入框占位符
+        if (input) {
+            input.placeholder = '输入问题... (首次使用 @数据库名)';
+        }
+    }
+}
+
+// 清除AI上下文
+function clearAiContext() {
+    if (confirm('确定要清除当前对话上下文吗？这将开始新的对话。')) {
+        aiSessionContext.databases = [];
+        aiSessionContext.history = [];
+        updateAiContextDisplay();
+        
+        // 显示提示消息
+        const messagesEl = document.getElementById('aiChatMessages');
+        const messageId = 'msg-clear-' + Date.now();
+        const messageHtml = `
+            <div class="ai-message assistant" id="${messageId}" style="opacity: 0.8;">
+                <div class="ai-message-avatar">ℹ️</div>
+                <div class="ai-message-content">
+                    <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
+                        已清除对话上下文，请重新使用 @数据库名 开始新的对话
+                    </div>
+                </div>
+            </div>
+        `;
+        messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
 }

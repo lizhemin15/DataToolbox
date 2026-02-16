@@ -886,6 +886,51 @@ textarea#testApiParams {
     font-weight: 600;
 }
 
+.ai-context-display {
+    margin-left: 16px;
+}
+
+.ai-context-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 4px 8px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ai-context-label {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+}
+
+.ai-context-value {
+    color: white;
+    font-weight: 600;
+}
+
+.ai-context-clear {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    transition: background 0.2s;
+}
+
+.ai-context-clear:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
 .ai-chat-header .btn {
     background: rgba(255, 255, 255, 0.2);
     color: white;

@@ -237,15 +237,21 @@
                         <div class="ai-welcome-message">
                             <div class="ai-welcome-icon">🤖</div>
                             <h3>欢迎使用AI助手</h3>
-                            <p>您可以使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
+                            <p>使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
                             <div class="ai-tip">
-                                <div style="font-weight: 600; margin-bottom: 8px;">💡 提问建议：</div>
+                                <div style="font-weight: 600; margin-bottom: 8px;">💡 智能上下文：</div>
+                                <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
+                                    • 首次提问需要使用 <strong>@数据库名</strong><br>
+                                    • 后续对话会记住数据库，无需重复 @<br>
+                                    • 使用新的 @ 会切换到新数据库<br>
+                                    • 点击右上角 ✕ 可清除上下文
+                                </div>
+                                <div style="font-weight: 600; margin-bottom: 8px;">📝 提问示例：</div>
                                 <div style="text-align: left; padding-left: 20px;">
                                     • "<strong>@数据库</strong> 有哪些表？"<br>
-                                    • "<strong>@数据库</strong> users表有哪些字段？"<br>
-                                    • "<strong>@数据库</strong> 统计每个表的数据量"<br>
-                                    • "<strong>@数据库</strong> 查看products表的前10条数据"<br>
-                                    • "<strong>@数据库</strong> 查询价格大于100的产品"
+                                    • "users表有哪些字段？" <span style="color: #718096; font-size: 12px;">← 继续使用之前的数据库</span><br>
+                                    • "查看products表的前10条数据"<br>
+                                    • "查询价格大于100的产品"
                                 </div>
                             </div>
                         </div>
@@ -253,7 +259,7 @@
                     <div class="ai-input-area">
                         <div id="aiDbSuggestions" class="ai-db-suggestions" style="display:none;"></div>
                         <div class="ai-input-wrapper">
-                            <textarea id="aiInput" class="ai-input" placeholder="输入问题，使用 @ 调用数据库..." rows="1"></textarea>
+                            <textarea id="aiInput" class="ai-input" placeholder="输入问题... (首次使用 @数据库名，后续直接提问)" rows="1"></textarea>
                             <button id="aiSendBtn" class="btn btn-primary ai-send-btn">发送</button>
                         </div>
                     </div>
