@@ -812,6 +812,11 @@ async function previewTable(tableName, keepEditMode = false) {
                 enableTableEditing();
             } else {
                 table.classList.remove('editing-mode');
+                // 移除统计显示（如果存在）
+                const statsEl = document.getElementById('editStats');
+                if (statsEl) {
+                    statsEl.remove();
+                }
             }
         }
     } catch (error) {
@@ -899,6 +904,8 @@ function enableTableEditing() {
             if (this.textContent.trim() === '') {
                 this.innerHTML = '<i class="null-value">NULL</i>';
             }
+            // 更新统计
+            updateEditStats();
         };
         
         // 移除旧的事件监听器（如果存在）
@@ -913,6 +920,55 @@ function enableTableEditing() {
         cell._focusHandler = focusHandler;
         cell._blurHandler = blurHandler;
     });
+    
+    // 初始化统计显示
+    updateEditStats();
+}
+
+// 更新编辑统计
+function updateEditStats() {
+    const table = document.getElementById('dataTable');
+    if (!table || !isTableEditMode) return;
+    
+    const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
+    let newCount = 0;
+    let deletedCount = 0;
+    let normalCount = 0;
+    
+    rows.forEach(row => {
+        const isNew = row.dataset.isNew === 'true';
+        const isDeleted = row.dataset.deleted === 'true';
+        
+        if (isNew) {
+            newCount++;
+        } else if (isDeleted) {
+            deletedCount++;
+        } else {
+            normalCount++;
+        }
+    });
+    
+    // 查找或创建统计显示元素
+    let statsEl = document.getElementById('editStats');
+    if (!statsEl) {
+        statsEl = document.createElement('div');
+        statsEl.id = 'editStats';
+        statsEl.className = 'edit-stats';
+        const previewContent = document.getElementById('previewContent');
+        previewContent.insertBefore(statsEl, previewContent.firstChild);
+    }
+    
+    const totalChanges = newCount + deletedCount;
+    const statsHtml = totalChanges > 0 ? `
+        <span class="stats-item">
+            <span class="stats-label">📊 当前状态：</span>
+            ${normalCount > 0 ? `<span class="stats-badge stats-normal">${normalCount} 行正常</span>` : ''}
+            ${newCount > 0 ? `<span class="stats-badge stats-new">+ ${newCount} 行新增</span>` : ''}
+            ${deletedCount > 0 ? `<span class="stats-badge stats-deleted">- ${deletedCount} 行删除</span>` : ''}
+        </span>
+    ` : '<span class="stats-item"><span class="stats-label">📊 暂无更改</span></span>';
+    
+    statsEl.innerHTML = statsHtml;
 }
 
 // 禁用表格编辑功能
@@ -928,6 +984,13 @@ function disableTableEditing() {
 function cancelTableEdit() {
     isTableEditMode = false;
     disableTableEditing();
+    
+    // 移除统计显示
+    const statsEl = document.getElementById('editStats');
+    if (statsEl) {
+        statsEl.remove();
+    }
+    
     previewTable(currentPreviewTable);
 }
 
@@ -968,15 +1031,26 @@ function addTableRow() {
             firstCell.textContent = '';
         }
     }
+    
+    // 更新统计
+    updateEditStats();
 }
 
 // 删除表格行
 function deleteTableRow(rowId) {
+    console.log('删除行被调用，rowId:', rowId);
     const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
-    if (!row) return;
+    if (!row) {
+        console.error('找不到行，rowId:', rowId);
+        return;
+    }
+    
+    console.log('找到行:', row);
+    console.log('行数据 - isNew:', row.dataset.isNew, 'deleted:', row.dataset.deleted, 'rowIndex:', row.dataset.rowIndex);
     
     // 如果是新增行，直接删除DOM
     if (row.dataset.isNew === 'true') {
+        console.log('删除新增行');
         row.remove();
         
         // 如果删除后没有行了，显示空行提示
@@ -997,6 +1071,7 @@ function deleteTableRow(rowId) {
         
         if (row.dataset.deleted === 'true') {
             // 取消删除标记
+            console.log('取消删除标记');
             row.dataset.deleted = 'false';
             row.classList.remove('row-deleted');
             if (deleteBtn) {
@@ -1005,6 +1080,7 @@ function deleteTableRow(rowId) {
             }
         } else {
             // 标记为删除
+            console.log('标记为删除，rowIndex:', row.dataset.rowIndex);
             row.dataset.deleted = 'true';
             row.classList.add('row-deleted');
             if (deleteBtn) {
@@ -1013,6 +1089,9 @@ function deleteTableRow(rowId) {
             }
         }
     }
+    
+    // 更新统计
+    updateEditStats();
 }
 
 // 保存表格数据
@@ -1022,19 +1101,33 @@ async function saveTableData() {
     const table = document.getElementById('dataTable');
     const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
     
+    console.log('总行数（不包括空行）:', rows.length);
+    
     const updates = [];
     const inserts = [];
     const deletes = [];
     
-    rows.forEach(row => {
+    rows.forEach((row, index) => {
+        const rowId = row.dataset.rowId;
         const rowIndex = row.dataset.rowIndex;
         const isNew = row.dataset.isNew === 'true';
         const isDeleted = row.dataset.deleted === 'true';
         
+        console.log(`行 ${index}:`, {
+            rowId,
+            rowIndex,
+            isNew,
+            isDeleted,
+            hasDeletedClass: row.classList.contains('row-deleted')
+        });
+        
         if (isDeleted) {
             // 只有非新增的行才需要删除
             if (!isNew && rowIndex !== undefined) {
+                console.log(`添加到删除列表: rowIndex=${rowIndex}`);
                 deletes.push(parseInt(rowIndex));
+            } else {
+                console.log('跳过删除（新增行或无索引）');
             }
         } else {
             const rowData = {};
@@ -1047,16 +1140,30 @@ async function saveTableData() {
             });
             
             if (isNew) {
+                console.log('添加到插入列表:', rowData);
                 inserts.push(rowData);
             } else if (rowIndex !== undefined) {
+                console.log(`添加到更新列表: rowIndex=${rowIndex}`, rowData);
                 updates.push({ index: parseInt(rowIndex), data: rowData });
             }
         }
     });
     
+    // 调试日志
+    console.log('准备保存数据：');
+    console.log('- 更新:', updates.length, '条', updates);
+    console.log('- 插入:', inserts.length, '条', inserts);
+    console.log('- 删除:', deletes.length, '条', deletes);
+    
     // 检查是否有更改
     if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
         alert('没有任何更改');
+        return;
+    }
+    
+    // 确认保存
+    const message = `确认保存更改？\n更新: ${updates.length} 条\n插入: ${inserts.length} 条\n删除: ${deletes.length} 条`;
+    if (!confirm(message)) {
         return;
     }
     
@@ -1079,8 +1186,8 @@ async function saveTableData() {
         
         if (data.success) {
             alert('保存成功！');
-            isTableEditMode = false;
-            previewTable(currentPreviewTable);
+            // 保持编辑模式，重新加载数据
+            previewTable(currentPreviewTable, true);
         } else {
             alert('保存失败：' + (data.message || '未知错误'));
         }

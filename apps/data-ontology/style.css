@@ -1784,7 +1784,7 @@ textarea#testApiParams {
 }
 
 .row-deleted {
-    opacity: 0.4;
+    opacity: 0.6;
     text-decoration: line-through;
     background: repeating-linear-gradient(
         45deg,
@@ -1794,14 +1794,56 @@ textarea#testApiParams {
         #fdd 20px
     ) !important;
     position: relative;
+    border: 2px solid #e53e3e !important;
+    animation: deletedRowPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes deletedRowPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(229, 62, 62, 0);
+    }
+}
+
+.row-deleted::after {
+    content: "🗑️ 将被删除";
+    position: absolute;
+    left: -90px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(229, 62, 62, 0.4);
+    animation: slideInLeft 0.3s ease;
+    z-index: 10;
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        left: -60px;
+    }
+    to {
+        opacity: 1;
+        left: -90px;
+    }
 }
 
 .row-deleted .btn-icon-delete {
     background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.3);
 }
 
 .row-deleted .btn-icon-delete:hover {
     background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+    box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.5);
+    transform: translateY(-2px) scale(1.05);
 }
 
 /* 创建表样式 */
@@ -1900,6 +1942,75 @@ textarea#testApiParams {
 /* 编辑模式提示 */
 .preview-content {
     position: relative;
+}
+
+/* 编辑统计 */
+.edit-stats {
+    background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    animation: slideInDown 0.3s ease;
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.stats-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.stats-label {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 14px;
+}
+
+.stats-badge {
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+}
+
+.stats-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.stats-normal {
+    background: linear-gradient(135deg, #bee3f8 0%, #90cdf4 100%);
+    color: #2c5282;
+}
+
+.stats-new {
+    background: linear-gradient(135deg, #c6f6d5 0%, #9ae6b4 100%);
+    color: #22543d;
+}
+
+.stats-deleted {
+    background: linear-gradient(135deg, #fed7d7 0%, #fc8181 100%);
+    color: #742a2a;
 }
 
 .preview-table.editing-mode::after {
