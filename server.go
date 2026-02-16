@@ -2547,14 +2547,19 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析AI返回的SQL
-	sqlQuery, targetDBID := parseAIResponse(aiResponse, dbSchemas)
+	// 解析AI返回的SQL和回复文本
+	sqlQuery, targetDBID, responseText := parseAIResponse(aiResponse, dbSchemas)
 	if sqlQuery == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "AI未能生成有效的SQL查询",
 		})
 		return
+	}
+	
+	// 如果没有提取到回复文本，使用默认文本
+	if responseText == "" {
+		responseText = "已为您执行查询"
 	}
 
 	// 执行SQL查询
@@ -2576,14 +2581,14 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			"success":  false,
 			"message":  "SQL执行失败: " + err.Error(),
 			"sql":      sqlQuery,
-			"response": aiResponse,
+			"response": responseText,
 		})
 		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
-		"response": aiResponse,
+		"response": responseText,
 		"sql":      sqlQuery,
 		"results":  results,
 	})
@@ -2591,7 +2596,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 // buildAIPrompt 构建AI提示词
 func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
-	prompt := "你是一个SQL专家。用户需要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+	prompt := "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
 	prompt += "数据库结构：\n"
 
 	for _, schema := range dbSchemas {
@@ -2604,11 +2609,17 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	}
 
 	prompt += "\n用户问题：" + userMessage + "\n\n"
-	prompt += "请直接返回SQL查询语句，格式为：\n"
+	prompt += "请按以下格式回复：\n"
+	prompt += "1. 首先用一句话简单说明你将要做什么（例如：\"我将为您查询products表中的所有产品信息\"）\n"
+	prompt += "2. 然后提供SQL语句，格式为：\n"
 	prompt += "```sql\n"
 	prompt += "SELECT * FROM table_name;\n"
 	prompt += "```\n\n"
-	prompt += "只返回SQL语句，不要包含其他解释。如果需要查询多个表，请使用第一个数据库。"
+	prompt += "注意：\n"
+	prompt += "- 回复要简洁友好\n"
+	prompt += "- SQL要准确可执行\n"
+	prompt += "- 如果需要查询多个表，请使用第一个数据库\n"
+	prompt += "- 不要包含过多的技术解释"
 
 	return prompt
 }
@@ -2681,49 +2692,69 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	return "", fmt.Errorf("无法解析AI响应")
 }
 
-// parseAIResponse 解析AI响应提取SQL
-func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string) {
+// parseAIResponse 解析AI响应提取SQL和回复文本
+func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string, string) {
+	var sql string
+	var responseText string
+	var dbID string
+
 	// 提取SQL代码块
 	sqlStart := strings.Index(response, "```sql")
+	codeBlockStart := sqlStart
 	if sqlStart == -1 {
 		sqlStart = strings.Index(response, "```")
+		codeBlockStart = sqlStart
 	}
 
 	if sqlStart != -1 {
+		// 提取代码块之前的文本作为回复
+		if codeBlockStart > 0 {
+			responseText = strings.TrimSpace(response[:codeBlockStart])
+		}
+
 		sqlStart = strings.Index(response[sqlStart:], "\n")
 		if sqlStart != -1 {
-			sqlEnd := strings.Index(response[sqlStart+1:], "```")
+			sqlEnd := strings.Index(response[codeBlockStart+sqlStart+1:], "```")
 			if sqlEnd != -1 {
-				sql := strings.TrimSpace(response[sqlStart+1 : sqlStart+1+sqlEnd])
+				sql = strings.TrimSpace(response[codeBlockStart+sqlStart+1 : codeBlockStart+sqlStart+1+sqlEnd])
 				// 返回第一个数据库ID
 				if len(dbSchemas) > 0 {
 					if id, ok := dbSchemas[0]["id"].(string); ok {
-						return sql, id
+						dbID = id
 					}
 				}
-				return sql, ""
+				return sql, dbID, responseText
 			}
 		}
 	}
 
 	// 如果没有代码块，尝试直接查找SQL语句
 	lines := strings.Split(response, "\n")
-	for _, line := range lines {
+	var beforeSQL []string
+	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(strings.ToUpper(line), "SELECT") ||
 			strings.HasPrefix(strings.ToUpper(line), "INSERT") ||
 			strings.HasPrefix(strings.ToUpper(line), "UPDATE") ||
 			strings.HasPrefix(strings.ToUpper(line), "DELETE") {
+			sql = line
+			// SQL之前的行作为回复文本
+			if i > 0 {
+				responseText = strings.TrimSpace(strings.Join(beforeSQL, " "))
+			}
 			if len(dbSchemas) > 0 {
 				if id, ok := dbSchemas[0]["id"].(string); ok {
-					return line, id
+					dbID = id
 				}
 			}
-			return line, ""
+			return sql, dbID, responseText
+		}
+		if line != "" {
+			beforeSQL = append(beforeSQL, line)
 		}
 	}
 
-	return "", ""
+	return "", "", ""
 }
 
 func main() {

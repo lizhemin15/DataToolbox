@@ -1521,36 +1521,51 @@ function addAiAssistantMessage(content, sql, results) {
     
     let resultHtml = '';
     
-    // 如果有SQL，显示SQL
+    // 如果有SQL，显示SQL标题和代码块
     if (sql) {
-        resultHtml += `<div class="ai-sql-block">${escapeHtml(sql)}</div>`;
-    }
-    
-    // 如果有结果，显示表格
-    if (results && results.length > 0) {
-        const columns = Object.keys(results[0]);
         resultHtml += `
-            <div class="ai-result-table">
-                <table>
-                    <thead>
-                        <tr>
-                            ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${results.slice(0, 10).map(row => `
-                            <tr>
-                                ${columns.map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i>NULL</i>'}</td>`).join('')}
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+            <div style="margin-top: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📝 生成的SQL查询：</div>
+                <div class="ai-sql-block">${escapeHtml(sql)}</div>
             </div>
         `;
-        
-        if (results.length > 10) {
-            resultHtml += `<div style="font-size: 12px; color: #718096; margin-top: 8px;">显示前10条，共${results.length}条记录</div>`;
-        }
+    }
+    
+    // 如果有结果，显示结果标题和表格
+    if (results && results.length > 0) {
+        resultHtml += `
+            <div style="margin-top: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                <div class="ai-result-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                ${Object.keys(results[0]).map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${results.slice(0, 10).map(row => `
+                                <tr>
+                                    ${Object.keys(results[0]).map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i style="color: #a0aec0;">NULL</i>'}</td>`).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                    ✓ 共查询到 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，显示前10条' : ''}
+                </div>
+            </div>
+        `;
+    } else if (results && results.length === 0) {
+        resultHtml += `
+            <div style="margin-top: 12px;">
+                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                <div style="padding: 16px; background: #f7fafc; border-radius: 8px; color: #718096; text-align: center;">
+                    暂无数据
+                </div>
+            </div>
+        `;
     }
     
     const messageHtml = `
@@ -1558,7 +1573,7 @@ function addAiAssistantMessage(content, sql, results) {
             <div class="ai-message-avatar">${avatar}</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
-                    ${escapeHtml(content)}
+                    <div style="line-height: 1.6;">${escapeHtml(content)}</div>
                     ${resultHtml}
                 </div>
                 <div class="ai-message-meta">${time}</div>

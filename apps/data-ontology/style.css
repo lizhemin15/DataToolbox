@@ -351,6 +351,8 @@ body {
 
 .tab-content.active {
     display: block;
+    height: calc(100vh - 140px);
+    overflow: hidden;
 }
 
 .container {
@@ -852,13 +854,15 @@ textarea#testApiParams {
     height: 100%;
     display: flex;
     flex-direction: column;
+    padding: 20px;
+    overflow: hidden;
 }
 
 .ai-chat-area {
     flex: 1;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    min-height: 0;
     background: white;
     border-radius: 12px;
     overflow: hidden;
@@ -873,6 +877,7 @@ textarea#testApiParams {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
 }
 
 .ai-chat-header h3 {
@@ -898,6 +903,8 @@ textarea#testApiParams {
     overflow-y: auto;
     padding: 24px;
     background: #f7fafc;
+    min-height: 0;
+    max-height: 100%;
 }
 
 .ai-welcome-message {
@@ -975,6 +982,7 @@ textarea#testApiParams {
 .ai-message-content {
     flex: 1;
     max-width: 70%;
+    min-width: 0;
 }
 
 .ai-message-bubble {
@@ -982,6 +990,8 @@ textarea#testApiParams {
     border-radius: 12px;
     word-wrap: break-word;
     white-space: pre-wrap;
+    max-width: 100%;
+    overflow-x: auto;
 }
 
 .ai-message.user .ai-message-bubble {
@@ -995,6 +1005,7 @@ textarea#testApiParams {
     color: #2d3748;
     border: 1px solid #e2e8f0;
     border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .ai-message-meta {
@@ -1010,23 +1021,39 @@ textarea#testApiParams {
 
 .ai-db-reference {
     display: inline-block;
-    background: rgba(102, 126, 234, 0.1);
-    color: #667eea;
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
     padding: 2px 8px;
     border-radius: 4px;
-    font-weight: 600;
+    font-weight: 700;
     margin: 0 2px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* 在助手消息中的数据库引用样式 */
+.ai-message.assistant .ai-db-reference {
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    text-shadow: none;
 }
 
 .ai-sql-block {
     background: #2d3748;
     color: #e2e8f0;
-    padding: 12px;
+    padding: 14px 16px;
     border-radius: 8px;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     font-size: 13px;
+    line-height: 1.6;
     margin: 8px 0;
     overflow-x: auto;
+    border-left: 3px solid #667eea;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    max-width: 100%;
+    white-space: pre-wrap;
+    word-break: break-all;
 }
 
 .ai-result-table {
@@ -1034,25 +1061,30 @@ textarea#testApiParams {
     overflow-x: auto;
     border-radius: 8px;
     border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    background: white;
+    max-width: 100%;
 }
 
 .ai-result-table table {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
+    min-width: 500px;
 }
 
 .ai-result-table th {
-    background: #edf2f7;
-    padding: 8px 12px;
+    background: linear-gradient(180deg, #f7fafc 0%, #edf2f7 100%);
+    padding: 10px 14px;
     text-align: left;
     font-weight: 600;
     color: #2d3748;
     border-bottom: 2px solid #cbd5e0;
+    white-space: nowrap;
 }
 
 .ai-result-table td {
-    padding: 8px 12px;
+    padding: 10px 14px;
     border-bottom: 1px solid #e2e8f0;
     color: #4a5568;
 }
@@ -1061,8 +1093,9 @@ textarea#testApiParams {
     border-bottom: none;
 }
 
-.ai-result-table tr:hover {
+.ai-result-table tbody tr:hover {
     background: #f7fafc;
+    transition: background 0.15s ease;
 }
 
 .ai-loading {
@@ -1101,6 +1134,7 @@ textarea#testApiParams {
     background: white;
     border-top: 1px solid #e2e8f0;
     position: relative;
+    flex-shrink: 0;
 }
 
 .ai-db-suggestions {
