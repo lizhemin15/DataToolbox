@@ -11,6 +11,12 @@ let currentApi = null;
 let isEditApiMode = false;
 let editingApiId = null;
 
+// AI助手状态
+let aiConfig = null;
+let aiMessages = [];
+let currentDbReference = null;
+let dbSuggestionIndex = -1;
+
 // API基础URL
 const API_BASE = window.location.origin;
 
@@ -152,6 +158,19 @@ function initEventListeners() {
         }
     });
     document.getElementById('executeTestBtn').addEventListener('click', executeApiTest);
+    
+    // AI助手事件
+    document.getElementById('aiSettingsBtn').addEventListener('click', showAiSettingsModal);
+    document.getElementById('closeAiSettingsModal').addEventListener('click', hideAiSettingsModal);
+    document.getElementById('aiSettingsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideAiSettingsModal();
+        }
+    });
+    document.getElementById('aiSettingsForm').addEventListener('submit', handleSaveAiSettings);
+    document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
+    document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
+    document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
 }
 
 // 登录处理
@@ -231,6 +250,8 @@ function switchTab(tabName) {
     // 标签页切换时加载数据
     if (tabName === 'api') {
         loadApis();
+    } else if (tabName === 'ai') {
+        loadAiConfig();
     }
 }
 
@@ -1162,4 +1183,455 @@ function showTestApiError(message) {
     const errorEl = document.getElementById('testApiError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
+}
+
+// ==================== AI助手功能 ====================
+
+// 加载AI配置
+async function loadAiConfig() {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.config) {
+            aiConfig = data.config;
+        }
+    } catch (error) {
+        console.error('加载AI配置失败：', error);
+    }
+}
+
+// 显示AI设置弹窗
+function showAiSettingsModal() {
+    document.getElementById('aiSettingsModal').classList.add('show');
+    
+    // 预填充配置
+    if (aiConfig) {
+        document.getElementById('aiUrlInput').value = aiConfig.url || '';
+        document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
+        document.getElementById('aiModelInput').value = aiConfig.model || '';
+    } else {
+        document.getElementById('aiSettingsForm').reset();
+    }
+    
+    document.getElementById('aiSettingsError').classList.remove('show');
+    document.getElementById('aiSettingsSuccess').classList.remove('show');
+}
+
+// 隐藏AI设置弹窗
+function hideAiSettingsModal() {
+    document.getElementById('aiSettingsModal').classList.remove('show');
+}
+
+// 保存AI配置
+async function handleSaveAiSettings(e) {
+    e.preventDefault();
+
+    const config = {
+        url: document.getElementById('aiUrlInput').value,
+        api_key: document.getElementById('aiApiKeyInput').value,
+        model: document.getElementById('aiModelInput').value
+    };
+
+    const errorEl = document.getElementById('aiSettingsError');
+    const successEl = document.getElementById('aiSettingsSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify(config)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            aiConfig = config;
+            successEl.textContent = 'AI配置保存成功！';
+            successEl.classList.add('show');
+            setTimeout(() => {
+                hideAiSettingsModal();
+            }, 1000);
+        } else {
+            errorEl.textContent = data.message || '保存失败';
+            errorEl.classList.add('show');
+        }
+    } catch (error) {
+        errorEl.textContent = '保存失败：' + error.message;
+        errorEl.classList.add('show');
+    }
+}
+
+// 处理AI输入框输入
+function handleAiInputChange(e) {
+    const input = e.target;
+    const value = input.value;
+    const cursorPos = input.selectionStart;
+    
+    // 自动调整高度
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    
+    // 检测@符号
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\S*)$/);
+    
+    if (atMatch) {
+        const searchTerm = atMatch[1].toLowerCase();
+        showDbSuggestions(searchTerm);
+    } else {
+        hideDbSuggestions();
+    }
+}
+
+// 显示数据库建议
+function showDbSuggestions(searchTerm) {
+    const suggestions = databases.filter(db => 
+        db.name.toLowerCase().includes(searchTerm)
+    );
+    
+    if (suggestions.length === 0) {
+        hideDbSuggestions();
+        return;
+    }
+    
+    const suggestionsEl = document.getElementById('aiDbSuggestions');
+    suggestionsEl.innerHTML = suggestions.map((db, index) => {
+        const typeIcon = dbTypeIcons[db.type] || '🗄️';
+        const isFileDb = dbTypeDefaults[db.type]?.isFile;
+        const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+        
+        return `
+            <div class="ai-db-suggestion ${index === dbSuggestionIndex ? 'active' : ''}" 
+                 onclick="selectDbSuggestion('${db.id}')" 
+                 data-db-id="${db.id}">
+                <span class="ai-db-suggestion-icon">${typeIcon}</span>
+                <span class="ai-db-suggestion-name">${db.name}</span>
+                <span class="ai-db-suggestion-info">${info}</span>
+            </div>
+        `;
+    }).join('');
+    
+    suggestionsEl.style.display = 'block';
+    dbSuggestionIndex = -1;
+}
+
+// 隐藏数据库建议
+function hideDbSuggestions() {
+    document.getElementById('aiDbSuggestions').style.display = 'none';
+    dbSuggestionIndex = -1;
+}
+
+// 选择数据库建议
+function selectDbSuggestion(dbId) {
+    const db = databases.find(d => d.id === dbId);
+    if (!db) return;
+    
+    const input = document.getElementById('aiInput');
+    const value = input.value;
+    const cursorPos = input.selectionStart;
+    
+    // 找到@符号的位置
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
+    
+    if (atIndex !== -1) {
+        const newValue = value.substring(0, atIndex) + `@${db.name} ` + value.substring(cursorPos);
+        input.value = newValue;
+        input.selectionStart = input.selectionEnd = atIndex + db.name.length + 2;
+        input.focus();
+    }
+    
+    hideDbSuggestions();
+}
+
+// 处理AI输入框按键
+function handleAiInputKeydown(e) {
+    const suggestionsEl = document.getElementById('aiDbSuggestions');
+    
+    if (suggestionsEl.style.display === 'block') {
+        const suggestions = suggestionsEl.querySelectorAll('.ai-db-suggestion');
+        
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            dbSuggestionIndex = Math.min(dbSuggestionIndex + 1, suggestions.length - 1);
+            updateSuggestionHighlight(suggestions);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            dbSuggestionIndex = Math.max(dbSuggestionIndex - 1, -1);
+            updateSuggestionHighlight(suggestions);
+        } else if (e.key === 'Enter' && dbSuggestionIndex >= 0) {
+            e.preventDefault();
+            const dbId = suggestions[dbSuggestionIndex].dataset.dbId;
+            selectDbSuggestion(dbId);
+        } else if (e.key === 'Escape') {
+            hideDbSuggestions();
+        }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendAiMessage();
+    }
+}
+
+// 更新建议高亮
+function updateSuggestionHighlight(suggestions) {
+    suggestions.forEach((el, index) => {
+        if (index === dbSuggestionIndex) {
+            el.classList.add('active');
+            el.scrollIntoView({ block: 'nearest' });
+        } else {
+            el.classList.remove('active');
+        }
+    });
+}
+
+// 发送AI消息
+async function handleSendAiMessage() {
+    const input = document.getElementById('aiInput');
+    const message = input.value.trim();
+    
+    if (!message) return;
+    
+    // 检查AI配置
+    if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
+        showAiError('请先配置AI设置');
+        return;
+    }
+    
+    // 提取数据库引用
+    const dbMatches = [...message.matchAll(/@([^\s]+)/g)];
+    const dbReferences = [];
+    
+    for (const match of dbMatches) {
+        const dbName = match[1];
+        const db = databases.find(d => d.name === dbName);
+        if (db) {
+            dbReferences.push(db);
+        }
+    }
+    
+    if (dbReferences.length === 0) {
+        showAiError('请使用 @数据库名 来引用数据库');
+        return;
+    }
+    
+    // 添加用户消息
+    addAiMessage('user', message);
+    
+    // 清空输入框
+    input.value = '';
+    input.style.height = 'auto';
+    
+    // 禁用发送按钮
+    const sendBtn = document.getElementById('aiSendBtn');
+    sendBtn.disabled = true;
+    
+    // 显示加载状态
+    const loadingId = addAiLoadingMessage();
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/ai/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({
+                message: message,
+                databases: dbReferences.map(db => db.id)
+            })
+        });
+
+        const data = await response.json();
+
+        // 移除加载消息
+        removeAiMessage(loadingId);
+
+        if (data.success) {
+            addAiAssistantMessage(data.response, data.sql, data.results);
+        } else {
+            showAiError(data.message || '查询失败');
+        }
+    } catch (error) {
+        removeAiMessage(loadingId);
+        showAiError('查询失败：' + error.message);
+    } finally {
+        sendBtn.disabled = false;
+    }
+}
+
+// 添加AI消息
+function addAiMessage(role, content) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-' + Date.now();
+    
+    // 移除欢迎消息
+    const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
+    const avatar = role === 'user' ? '👤' : '🤖';
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    // 处理数据库引用高亮
+    let displayContent = content;
+    const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
+    for (const match of dbMatches) {
+        const dbName = match[1];
+        displayContent = displayContent.replace(
+            new RegExp(`@${dbName}`, 'g'),
+            `<span class="ai-db-reference">@${dbName}</span>`
+        );
+    }
+    
+    const messageHtml = `
+        <div class="ai-message ${role}" id="${messageId}">
+            <div class="ai-message-avatar">${avatar}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">${displayContent}</div>
+                <div class="ai-message-meta">${time}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 添加AI助手消息（带SQL和结果）
+function addAiAssistantMessage(content, sql, results) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-' + Date.now();
+    
+    const avatar = '🤖';
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    let resultHtml = '';
+    
+    // 如果有SQL，显示SQL
+    if (sql) {
+        resultHtml += `<div class="ai-sql-block">${escapeHtml(sql)}</div>`;
+    }
+    
+    // 如果有结果，显示表格
+    if (results && results.length > 0) {
+        const columns = Object.keys(results[0]);
+        resultHtml += `
+            <div class="ai-result-table">
+                <table>
+                    <thead>
+                        <tr>
+                            ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${results.slice(0, 10).map(row => `
+                            <tr>
+                                ${columns.map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i>NULL</i>'}</td>`).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        if (results.length > 10) {
+            resultHtml += `<div style="font-size: 12px; color: #718096; margin-top: 8px;">显示前10条，共${results.length}条记录</div>`;
+        }
+    }
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">${avatar}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">
+                    ${escapeHtml(content)}
+                    ${resultHtml}
+                </div>
+                <div class="ai-message-meta">${time}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 添加加载消息
+function addAiLoadingMessage() {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-loading-' + Date.now();
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">🤖</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">
+                    <div class="ai-loading">
+                        <div class="ai-loading-dot"></div>
+                        <div class="ai-loading-dot"></div>
+                        <div class="ai-loading-dot"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 移除AI消息
+function removeAiMessage(messageId) {
+    const messageEl = document.getElementById(messageId);
+    if (messageEl) {
+        messageEl.remove();
+    }
+}
+
+// 显示AI错误
+function showAiError(message) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-error-' + Date.now();
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">⚠️</div>
+            <div class="ai-message-content">
+                <div class="ai-error">${escapeHtml(message)}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
 }

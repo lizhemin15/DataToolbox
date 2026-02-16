@@ -761,11 +761,19 @@ type ApiInfo struct {
 	Description  string `json:"description,omitempty"`
 }
 
+// AIConfig AI配置
+type AIConfig struct {
+	URL    string `json:"url"`
+	APIKey string `json:"api_key"`
+	Model  string `json:"model"`
+}
+
 // 数据本体池存储
 var (
 	dataOntologyUsers     = make(map[string]*User)
 	dataOntologyDatabases = make(map[string]*DatabaseConfig)
 	dataOntologyApis      = make(map[string]*ApiConfig)
+	dataOntologyAIConfig  *AIConfig
 	dataOntologyMu        sync.RWMutex
 )
 
@@ -774,6 +782,7 @@ type DataOntologyStore struct {
 	Users     map[string]*User             `json:"users"`
 	Databases map[string]*DatabaseConfig   `json:"databases"`
 	Apis      map[string]*ApiConfig        `json:"apis"`
+	AIConfig  *AIConfig                    `json:"ai_config,omitempty"`
 }
 
 // 获取持久化文件路径
@@ -829,6 +838,11 @@ func loadDataOntologyStore() error {
 		log.Printf("已加载 %d 个接口配置", len(dataOntologyApis))
 	}
 	
+	if store.AIConfig != nil {
+		dataOntologyAIConfig = store.AIConfig
+		log.Printf("已加载AI配置")
+	}
+	
 	return nil
 }
 
@@ -848,6 +862,7 @@ func saveDataOntologyStore() error {
 		Users:     dataOntologyUsers,
 		Databases: dataOntologyDatabases,
 		Apis:      dataOntologyApis,
+		AIConfig:  dataOntologyAIConfig,
 	}
 	dataOntologyMu.RUnlock()
 	
@@ -2286,6 +2301,352 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 	return results, nil
 }
 
+// ==================== AI助手功能 ====================
+
+// handleAIConfig 处理AI配置
+func handleAIConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// 获取AI配置
+		dataOntologyMu.RLock()
+		config := dataOntologyAIConfig
+		dataOntologyMu.RUnlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"config":  config,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		// 保存AI配置
+		var config AIConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		// 验证配置
+		if config.URL == "" || config.APIKey == "" || config.Model == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请填写完整的配置信息",
+			})
+			return
+		}
+
+		// 保存配置
+		dataOntologyMu.Lock()
+		dataOntologyAIConfig = &config
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存AI配置失败: %v", err)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "保存失败",
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "配置保存成功",
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"message": "不支持的请求方法",
+	})
+}
+
+// handleAIQuery 处理AI查询
+func handleAIQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	// 解析请求
+	var queryReq struct {
+		Message   string   `json:"message"`
+		Databases []string `json:"databases"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	// 检查AI配置
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	if aiConfig == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请先配置AI设置",
+		})
+		return
+	}
+
+	// 获取数据库配置和表结构
+	dataOntologyMu.RLock()
+	var dbSchemas []map[string]interface{}
+	for _, dbID := range queryReq.Databases {
+		dbConfig, exists := dataOntologyDatabases[dbID]
+		if !exists {
+			continue
+		}
+
+		// 获取表结构
+		tables, err := getTablesList(dbConfig)
+		if err != nil {
+			log.Printf("获取数据库 %s 表列表失败: %v", dbConfig.Name, err)
+			continue
+		}
+
+		dbSchemas = append(dbSchemas, map[string]interface{}{
+			"name":   dbConfig.Name,
+			"type":   dbConfig.Type,
+			"tables": tables,
+			"id":     dbID,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	if len(dbSchemas) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未找到有效的数据库",
+		})
+		return
+	}
+
+	// 构建AI提示词
+	prompt := buildAIPrompt(queryReq.Message, dbSchemas)
+
+	// 调用AI服务生成SQL
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "AI服务调用失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 解析AI返回的SQL
+	sqlQuery, targetDBID := parseAIResponse(aiResponse, dbSchemas)
+	if sqlQuery == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "AI未能生成有效的SQL查询",
+		})
+		return
+	}
+
+	// 执行SQL查询
+	dataOntologyMu.RLock()
+	dbConfig, exists := dataOntologyDatabases[targetDBID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	results, err := executeSQLQuery(dbConfig, sqlQuery, []interface{}{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  false,
+			"message":  "SQL执行失败: " + err.Error(),
+			"sql":      sqlQuery,
+			"response": aiResponse,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"response": aiResponse,
+		"sql":      sqlQuery,
+		"results":  results,
+	})
+}
+
+// buildAIPrompt 构建AI提示词
+func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
+	prompt := "你是一个SQL专家。用户需要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+	prompt += "数据库结构：\n"
+
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		prompt += "表列表: "
+		if tables, ok := schema["tables"].([]string); ok {
+			prompt += strings.Join(tables, ", ")
+		}
+		prompt += "\n"
+	}
+
+	prompt += "\n用户问题：" + userMessage + "\n\n"
+	prompt += "请直接返回SQL查询语句，格式为：\n"
+	prompt += "```sql\n"
+	prompt += "SELECT * FROM table_name;\n"
+	prompt += "```\n\n"
+	prompt += "只返回SQL语句，不要包含其他解释。如果需要查询多个表，请使用第一个数据库。"
+
+	return prompt
+}
+
+// callAIService 调用AI服务
+func callAIService(config *AIConfig, prompt string) (string, error) {
+	// 构建请求体
+	requestBody := map[string]interface{}{
+		"model": config.Model,
+		"messages": []map[string]string{
+			{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+		"temperature": 0.1,
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("构建请求失败: %v", err)
+	}
+
+	// 创建HTTP请求
+	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+config.APIKey)
+
+	// 发送请求
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("解析响应失败: %v", err)
+	}
+
+	// 检查响应状态
+	if resp.StatusCode != http.StatusOK {
+		if errMsg, ok := result["error"].(map[string]interface{}); ok {
+			if msg, ok := errMsg["message"].(string); ok {
+				return "", fmt.Errorf("AI服务错误: %s", msg)
+			}
+		}
+		return "", fmt.Errorf("AI服务返回错误状态: %d", resp.StatusCode)
+	}
+
+	// 提取响应内容
+	if choices, ok := result["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok {
+					return content, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("无法解析AI响应")
+}
+
+// parseAIResponse 解析AI响应提取SQL
+func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string) {
+	// 提取SQL代码块
+	sqlStart := strings.Index(response, "```sql")
+	if sqlStart == -1 {
+		sqlStart = strings.Index(response, "```")
+	}
+
+	if sqlStart != -1 {
+		sqlStart = strings.Index(response[sqlStart:], "\n")
+		if sqlStart != -1 {
+			sqlEnd := strings.Index(response[sqlStart+1:], "```")
+			if sqlEnd != -1 {
+				sql := strings.TrimSpace(response[sqlStart+1 : sqlStart+1+sqlEnd])
+				// 返回第一个数据库ID
+				if len(dbSchemas) > 0 {
+					if id, ok := dbSchemas[0]["id"].(string); ok {
+						return sql, id
+					}
+				}
+				return sql, ""
+			}
+		}
+	}
+
+	// 如果没有代码块，尝试直接查找SQL语句
+	lines := strings.Split(response, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToUpper(line), "SELECT") ||
+			strings.HasPrefix(strings.ToUpper(line), "INSERT") ||
+			strings.HasPrefix(strings.ToUpper(line), "UPDATE") ||
+			strings.HasPrefix(strings.ToUpper(line), "DELETE") {
+			if len(dbSchemas) > 0 {
+				if id, ok := dbSchemas[0]["id"].(string); ok {
+					return line, id
+				}
+			}
+			return line, ""
+		}
+	}
+
+	return "", ""
+}
+
 func main() {
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
@@ -2345,6 +2706,10 @@ func main() {
 			handleApiDetail(w, r)
 		}
 	})
+	
+	// AI助手API路由
+	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
+	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	
 	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))
