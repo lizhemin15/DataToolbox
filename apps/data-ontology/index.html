@@ -7,6 +7,32 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- 服务端检测错误页面 -->
+    <div id="serverErrorPage" class="page" style="display: none;">
+        <div class="server-error-container">
+            <div class="server-error-box">
+                <div class="server-error-icon">⚠️</div>
+                <h1>无法启动应用</h1>
+                <p class="server-error-message">数据本体池需要通过服务端运行，直接打开HTML文件无法使用。</p>
+                <div class="server-error-details">
+                    <h3>如何正确使用：</h3>
+                    <ol>
+                        <li>确保已编译并运行 DataToolbox 服务器程序</li>
+                        <li>通过浏览器访问服务器地址（例如：http://localhost:8080）</li>
+                        <li>导航到数据本体池应用</li>
+                    </ol>
+                </div>
+                <div class="server-error-tech">
+                    <p><strong>技术详情：</strong></p>
+                    <p id="serverErrorDetail"></p>
+                </div>
+                <div class="server-error-actions">
+                    <button id="returnToMainBtn" class="btn btn-primary">返回主界面</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 登录页面 -->
     <div id="loginPage" class="page active">
         <div class="login-container">
@@ -42,7 +68,7 @@
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance" disabled>数据治理</button>
                         <button class="nav-tab" data-tab="ontology" disabled>本体论抽象</button>
-                        <button class="nav-tab" data-tab="api" disabled>接口分发</button>
+                        <button class="nav-tab" data-tab="api">接口分发</button>
                         <button class="nav-tab" data-tab="ai" disabled>AI助手</button>
                     </div>
                 </div>
@@ -139,10 +165,64 @@
         </div>
 
         <div id="apiTab" class="tab-content">
-            <div class="coming-soon">
-                <div class="coming-soon-icon">🚧</div>
-                <h2>接口分发</h2>
-                <p>功能开发中...</p>
+            <div class="container">
+                <div class="sidebar">
+                    <div class="sidebar-header">
+                        <h3>接口列表</h3>
+                        <button id="addApiBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                    </div>
+                    <div id="apiList" class="db-list">
+                        <!-- 接口列表将动态生成 -->
+                    </div>
+                </div>
+
+                <div class="main-content">
+                    <div id="apiWelcomeView" class="welcome-view">
+                        <div class="welcome-icon">🔌</div>
+                        <h2>欢迎使用接口分发</h2>
+                        <p>请在左侧添加或选择一个接口开始使用</p>
+                    </div>
+
+                    <div id="apiDetailView" class="db-detail-view" style="display:none;">
+                        <div class="detail-header">
+                            <h2 id="apiName">接口名称</h2>
+                            <div class="detail-actions">
+                                <button id="editApiBtn" class="btn btn-sm">✏️ 编辑</button>
+                                <button id="testApiBtn" class="btn btn-sm btn-primary">🧪 测试</button>
+                                <button id="deleteApiBtn" class="btn btn-sm btn-danger">删除</button>
+                            </div>
+                        </div>
+
+                        <div class="db-info">
+                            <div class="info-item">
+                                <span class="info-label">接口路径:</span>
+                                <span id="apiPath" class="info-value"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">请求方法:</span>
+                                <span id="apiMethod" class="info-value"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">数据库:</span>
+                                <span id="apiDatabase" class="info-value"></span>
+                            </div>
+                        </div>
+
+                        <div class="tables-section">
+                            <h3>SQL语句</h3>
+                            <div class="sql-display">
+                                <pre id="apiSqlDisplay"></pre>
+                            </div>
+                        </div>
+
+                        <div class="tables-section">
+                            <h3>参数说明</h3>
+                            <div id="apiParamsDisplay" class="params-display">
+                                <!-- 参数列表将动态生成 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -247,6 +327,94 @@
                 <div id="dbFormError" class="error-message"></div>
                 <div id="dbFormSuccess" class="success-message"></div>
             </form>
+        </div>
+    </div>
+
+    <!-- 添加/编辑接口弹窗 -->
+    <div id="addApiModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="apiModalTitle">添加接口</h2>
+                <button class="modal-close" id="closeApiModal">&times;</button>
+            </div>
+            <form id="addApiForm" class="modal-body">
+                <div class="form-group">
+                    <label for="apiNameInput">接口名称</label>
+                    <input type="text" id="apiNameInput" placeholder="例如: 获取用户列表" required>
+                </div>
+                <div class="form-group">
+                    <label for="apiPathInput">接口路径</label>
+                    <input type="text" id="apiPathInput" placeholder="例如: /api/users" required>
+                    <small>路径必须以 / 开头</small>
+                </div>
+                <div class="form-group">
+                    <label for="apiMethodInput">请求方法</label>
+                    <select id="apiMethodInput" required>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="apiDbSelect">选择数据库</label>
+                    <select id="apiDbSelect" required>
+                        <option value="">请选择数据库</option>
+                        <!-- 将动态填充数据库列表 -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="apiSqlInput">SQL语句 (MyBatis语法)</label>
+                    <textarea id="apiSqlInput" rows="8" placeholder="支持MyBatis语法，例如:&#10;SELECT * FROM users WHERE id = #{id} AND status = #{status}&#10;&#10;参数格式:&#10;#{paramName} - 预编译参数(推荐)&#10;${paramName} - 直接替换(谨慎使用)" required></textarea>
+                    <small>使用 #{参数名} 表示预编译参数，使用 ${参数名} 表示直接替换</small>
+                </div>
+                <div class="form-group">
+                    <label for="apiDescInput">接口描述</label>
+                    <textarea id="apiDescInput" rows="3" placeholder="可选，描述接口的功能和用途"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+                <div id="apiFormError" class="error-message"></div>
+                <div id="apiFormSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 测试接口弹窗 -->
+    <div id="testApiModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>测试接口</h2>
+                <button class="modal-close" id="closeTestApiModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>接口信息</label>
+                    <div class="test-api-info">
+                        <div><strong>路径:</strong> <span id="testApiPath"></span></div>
+                        <div><strong>方法:</strong> <span id="testApiMethod"></span></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>请求参数 (JSON格式)</label>
+                    <textarea id="testApiParams" rows="8" placeholder='请输入JSON格式的参数，例如:&#10;{&#10;  "id": 1,&#10;  "status": "active"&#10;}'></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button id="executeTestBtn" class="btn btn-primary">执行测试</button>
+                </div>
+                <div id="testApiError" class="error-message"></div>
+                <div class="form-group" id="testApiResultGroup" style="display:none;">
+                    <label>响应结果</label>
+                    <div class="test-result">
+                        <div class="test-result-header">
+                            <span>状态: <span id="testResultStatus"></span></span>
+                            <span>耗时: <span id="testResultTime"></span>ms</span>
+                        </div>
+                        <pre id="testResultContent"></pre>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

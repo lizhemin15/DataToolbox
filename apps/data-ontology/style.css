@@ -18,6 +18,99 @@ body {
     display: block;
 }
 
+/* 服务端错误页面 */
+.server-error-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+}
+
+.server-error-box {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    padding: 40px;
+    width: 100%;
+    max-width: 600px;
+    text-align: center;
+}
+
+.server-error-icon {
+    font-size: 80px;
+    margin-bottom: 20px;
+}
+
+.server-error-box h1 {
+    font-size: 32px;
+    color: #2d3748;
+    margin-bottom: 16px;
+}
+
+.server-error-message {
+    color: #e53e3e;
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 30px;
+}
+
+.server-error-details {
+    background: #f7fafc;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.server-error-details h3 {
+    font-size: 18px;
+    color: #2d3748;
+    margin-bottom: 16px;
+}
+
+.server-error-details ol {
+    padding-left: 24px;
+    margin: 0;
+}
+
+.server-error-details li {
+    color: #4a5568;
+    font-size: 14px;
+    line-height: 1.8;
+    margin-bottom: 8px;
+}
+
+.server-error-tech {
+    background: #fff5f5;
+    border: 1px solid #feb2b2;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: left;
+}
+
+.server-error-tech p {
+    color: #742a2a;
+    font-size: 13px;
+    margin-bottom: 4px;
+    line-height: 1.6;
+}
+
+.server-error-tech p strong {
+    font-weight: 600;
+}
+
+.server-error-actions {
+    margin-top: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.server-error-actions .btn {
+    min-width: 160px;
+}
+
 /* 登录页面 */
 .login-container {
     display: flex;
@@ -621,4 +714,134 @@ body {
 
 .modal-footer .btn {
     flex: 1;
+}
+
+/* 接口管理样式 */
+.modal-large {
+    max-width: 800px;
+}
+
+.sql-display {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sql-display pre {
+    margin: 0;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #2d3748;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.params-display {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.param-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.param-item:last-child {
+    border-bottom: none;
+}
+
+.param-name {
+    font-weight: 600;
+    color: #4a5568;
+    margin-right: 8px;
+}
+
+.param-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.param-type.required {
+    background: #fed7d7;
+    color: #c53030;
+}
+
+.param-type.optional {
+    background: #bee3f8;
+    color: #2c5282;
+}
+
+.test-api-info {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.test-api-info div {
+    padding: 4px 0;
+    color: #4a5568;
+}
+
+.test-result {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.test-result-header {
+    background: #edf2f7;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.test-result pre {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2d3748;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#apiFormError,
+#apiFormSuccess,
+#testApiError {
+    margin-top: 16px;
+}
+
+.success-message {
+    background: #c6f6d5;
+    color: #22543d;
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: none;
+    margin-top: 16px;
+}
+
+.success-message.show {
+    display: block;
+}
+
+textarea#apiSqlInput,
+textarea#testApiParams {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.5;
 }

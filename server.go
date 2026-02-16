@@ -738,10 +738,34 @@ type DatabaseInfo struct {
 	Tables    []string `json:"tables,omitempty"`
 }
 
+// ApiConfig 接口配置
+type ApiConfig struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Method      string `json:"method"`      // GET, POST, PUT, DELETE
+	DatabaseID  string `json:"database_id"` // 关联的数据库ID
+	SQL         string `json:"sql"`         // MyBatis风格的SQL语句
+	Description string `json:"description,omitempty"`
+}
+
+// ApiInfo 接口信息（包含数据库名称）
+type ApiInfo struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	Method       string `json:"method"`
+	DatabaseID   string `json:"database_id"`
+	DatabaseName string `json:"database_name,omitempty"`
+	SQL          string `json:"sql"`
+	Description  string `json:"description,omitempty"`
+}
+
 // 数据本体池存储
 var (
 	dataOntologyUsers     = make(map[string]*User)
 	dataOntologyDatabases = make(map[string]*DatabaseConfig)
+	dataOntologyApis      = make(map[string]*ApiConfig)
 	dataOntologyMu        sync.RWMutex
 )
 
@@ -749,6 +773,7 @@ var (
 type DataOntologyStore struct {
 	Users     map[string]*User             `json:"users"`
 	Databases map[string]*DatabaseConfig   `json:"databases"`
+	Apis      map[string]*ApiConfig        `json:"apis"`
 }
 
 // 获取持久化文件路径
@@ -799,6 +824,11 @@ func loadDataOntologyStore() error {
 		log.Printf("已加载 %d 个数据库配置", len(dataOntologyDatabases))
 	}
 	
+	if store.Apis != nil {
+		dataOntologyApis = store.Apis
+		log.Printf("已加载 %d 个接口配置", len(dataOntologyApis))
+	}
+	
 	return nil
 }
 
@@ -817,6 +847,7 @@ func saveDataOntologyStore() error {
 	store := DataOntologyStore{
 		Users:     dataOntologyUsers,
 		Databases: dataOntologyDatabases,
+		Apis:      dataOntologyApis,
 	}
 	dataOntologyMu.RUnlock()
 	
@@ -1757,6 +1788,504 @@ func handleRunGo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ==================== 接口管理功能 ====================
+
+// handleApis 处理接口列表的GET和POST请求
+func handleApis(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取接口列表
+		dataOntologyMu.RLock()
+		defer dataOntologyMu.RUnlock()
+
+		apiList := make([]*ApiInfo, 0, len(dataOntologyApis))
+		for _, api := range dataOntologyApis {
+			apiInfo := &ApiInfo{
+				ID:         api.ID,
+				Name:       api.Name,
+				Path:       api.Path,
+				Method:     api.Method,
+				DatabaseID: api.DatabaseID,
+			}
+
+			// 获取数据库名称
+			if db, exists := dataOntologyDatabases[api.DatabaseID]; exists {
+				apiInfo.DatabaseName = db.Name
+			}
+
+			apiList = append(apiList, apiInfo)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"apis":    apiList,
+		})
+
+	case http.MethodPost:
+		// 添加新接口
+		var apiConfig ApiConfig
+		if err := json.NewDecoder(r.Body).Decode(&apiConfig); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		// 验证必填字段
+		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" ||
+			apiConfig.DatabaseID == "" || apiConfig.SQL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "缺少必填字段",
+			})
+			return
+		}
+
+		// 验证数据库是否存在
+		dataOntologyMu.RLock()
+		_, dbExists := dataOntologyDatabases[apiConfig.DatabaseID]
+		dataOntologyMu.RUnlock()
+
+		if !dbExists {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// 生成ID
+		apiConfig.ID = uuid.New().String()
+
+		// 保存接口配置
+		dataOntologyMu.Lock()
+		dataOntologyApis[apiConfig.ID] = &apiConfig
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存接口配置失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"api":     apiConfig,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
+// handleApiDetail 处理单个接口的GET、PUT、DELETE请求
+func handleApiDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	// 提取接口ID
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少接口ID",
+		})
+		return
+	}
+	apiID := pathParts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取接口详情
+		dataOntologyMu.RLock()
+		api, exists := dataOntologyApis[apiID]
+		if !exists {
+			dataOntologyMu.RUnlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "接口不存在",
+			})
+			return
+		}
+
+		apiInfo := &ApiInfo{
+			ID:          api.ID,
+			Name:        api.Name,
+			Path:        api.Path,
+			Method:      api.Method,
+			DatabaseID:  api.DatabaseID,
+			SQL:         api.SQL,
+			Description: api.Description,
+		}
+
+		// 获取数据库名称
+		if db, dbExists := dataOntologyDatabases[api.DatabaseID]; dbExists {
+			apiInfo.DatabaseName = db.Name
+		}
+
+		dataOntologyMu.RUnlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"api":     apiInfo,
+		})
+
+	case http.MethodPut:
+		// 更新接口
+		var apiUpdate ApiConfig
+		if err := json.NewDecoder(r.Body).Decode(&apiUpdate); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		dataOntologyMu.Lock()
+		api, exists := dataOntologyApis[apiID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "接口不存在",
+			})
+			return
+		}
+
+		// 验证数据库是否存在
+		if apiUpdate.DatabaseID != "" {
+			if _, dbExists := dataOntologyDatabases[apiUpdate.DatabaseID]; !dbExists {
+				dataOntologyMu.Unlock()
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "数据库不存在",
+				})
+				return
+			}
+		}
+
+		// 更新字段
+		if apiUpdate.Name != "" {
+			api.Name = apiUpdate.Name
+		}
+		if apiUpdate.Path != "" {
+			api.Path = apiUpdate.Path
+		}
+		if apiUpdate.Method != "" {
+			api.Method = apiUpdate.Method
+		}
+		if apiUpdate.DatabaseID != "" {
+			api.DatabaseID = apiUpdate.DatabaseID
+		}
+		if apiUpdate.SQL != "" {
+			api.SQL = apiUpdate.SQL
+		}
+		api.Description = apiUpdate.Description
+
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存接口配置失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"api":     api,
+		})
+
+	case http.MethodDelete:
+		// 删除接口
+		dataOntologyMu.Lock()
+		if _, exists := dataOntologyApis[apiID]; !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "接口不存在",
+			})
+			return
+		}
+
+		delete(dataOntologyApis, apiID)
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存接口配置失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
+// handleApiTest 处理接口测试请求
+func handleApiTest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	// 提取接口ID
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
+	if len(pathParts) < 2 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少接口ID",
+		})
+		return
+	}
+	apiID := pathParts[0]
+
+	// 解析测试参数
+	var testReq struct {
+		Params map[string]interface{} `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&testReq); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	// 获取接口配置
+	dataOntologyMu.RLock()
+	api, exists := dataOntologyApis[apiID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "接口不存在",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dbConfig, dbExists := dataOntologyDatabases[api.DatabaseID]
+	if !dbExists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+	dataOntologyMu.RUnlock()
+
+	// 解析MyBatis风格的SQL并替换参数
+	finalSQL, args, err := parseMyBatisSQL(api.SQL, testReq.Params)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "SQL解析失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 执行SQL查询
+	result, err := executeSQLQuery(dbConfig, finalSQL, args)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// parseMyBatisSQL 解析MyBatis风格的SQL语句
+// 支持 #{param} 预编译参数和 ${param} 直接替换
+func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string, []interface{}, error) {
+	var args []interface{}
+	finalSQL := sqlTemplate
+
+	// 首先处理 ${param} - 直接替换
+	dollarPattern := `\$\{([^}]+)\}`
+	finalSQL = replaceWithRegex(finalSQL, dollarPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		if val, exists := params[paramName]; exists {
+			return fmt.Sprintf("%v", val)
+		}
+		return match
+	})
+
+	// 然后处理 #{param} - 预编译参数
+	hashPattern := `#\{([^}]+)\}`
+	finalSQL = replaceWithRegex(finalSQL, hashPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		if val, exists := params[paramName]; exists {
+			args = append(args, val)
+			return "?"
+		}
+		return match
+	})
+
+	return finalSQL, args, nil
+}
+
+// replaceWithRegex 使用正则表达式替换字符串
+func replaceWithRegex(input, pattern string, replacer func(string) string) string {
+	result := input
+	start := 0
+	for {
+		// 查找下一个匹配
+		idx := -1
+		matchLen := 0
+
+		if strings.Contains(pattern, `\$\{`) {
+			// 查找 ${...}
+			idx = strings.Index(result[start:], "${")
+			if idx >= 0 {
+				idx += start
+				end := strings.Index(result[idx:], "}")
+				if end >= 0 {
+					matchLen = end + 1
+				}
+			}
+		} else if strings.Contains(pattern, `#\{`) {
+			// 查找 #{...}
+			idx = strings.Index(result[start:], "#{")
+			if idx >= 0 {
+				idx += start
+				end := strings.Index(result[idx:], "}")
+				if end >= 0 {
+					matchLen = end + 1
+				}
+			}
+		}
+
+		if idx < 0 || matchLen == 0 {
+			break
+		}
+
+		match := result[idx : idx+matchLen]
+		replacement := replacer(match)
+		result = result[:idx] + replacement + result[idx+matchLen:]
+		start = idx + len(replacement)
+	}
+	return result
+}
+
+// executeSQLQuery 执行SQL查询并返回结果
+func executeSQLQuery(dbConfig *DatabaseConfig, sql string, args []interface{}) ([]map[string]interface{}, error) {
+	// MongoDB 特殊处理
+	if dbConfig.Type == "mongodb" {
+		return nil, fmt.Errorf("MongoDB 暂不支持SQL查询")
+	}
+
+	// 其他NoSQL数据库
+	if dbConfig.Type == "elasticsearch" || dbConfig.Type == "redis" ||
+		dbConfig.Type == "memcached" || dbConfig.Type == "neo4j" ||
+		dbConfig.Type == "cassandra" || dbConfig.Type == "hbase" {
+		return nil, fmt.Errorf("%s 暂不支持SQL查询", dbConfig.Type)
+	}
+
+	// SQL数据库
+	driver, dsn, err := buildDSN(dbConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// 执行查询
+	rows, err := db.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// 获取列名
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	// 读取结果
+	var results []map[string]interface{}
+	for rows.Next() {
+		// 创建扫描目标
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+
+		// 构建结果行
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			// 处理字节数组
+			if b, ok := val.([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
 func main() {
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
@@ -1803,6 +2332,17 @@ func main() {
 			handleTableData(w, r)
 		} else {
 			handleDatabaseDetail(w, r)
+		}
+	})
+	
+	// 接口管理API路由
+	mux.HandleFunc("/api/data-ontology/apis", handleApis)
+	mux.HandleFunc("/api/data-ontology/apis/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/test") {
+			handleApiTest(w, r)
+		} else {
+			handleApiDetail(w, r)
 		}
 	})
 	

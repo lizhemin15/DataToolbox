@@ -5,11 +5,22 @@ let currentDb = null;
 let isEditMode = false;
 let editingDbId = null;
 
+// 接口管理状态
+let apis = [];
+let currentApi = null;
+let isEditApiMode = false;
+let editingApiId = null;
+
 // API基础URL
 const API_BASE = window.location.origin;
 
 // 初始化
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // 检测是否通过服务端运行
+    if (!checkServerAvailability()) {
+        return; // 如果服务端不可用，直接返回，不初始化应用
+    }
+
     // 检查登录状态
     const token = localStorage.getItem('dataOntologyToken');
     if (token) {
@@ -22,6 +33,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initEventListeners();
 });
+
+// 检测服务端是否可用
+function checkServerAvailability() {
+    // 检测1: 检查是否通过 file:// 协议打开
+    if (window.location.protocol === 'file:') {
+        showServerError('检测到通过 file:// 协议打开文件。当前协议：' + window.location.protocol);
+        return false;
+    }
+
+    // 检测2: 检查是否有有效的服务器地址
+    if (!window.location.origin || window.location.origin === 'null') {
+        showServerError('无法检测到有效的服务器地址。');
+        return false;
+    }
+
+    // 检测3: 异步检查服务器是否响应（可选，这里先返回true）
+    // 后续的API调用失败会自然地显示错误
+    return true;
+}
+
+// 显示服务端错误页面
+function showServerError(detail) {
+    // 隐藏所有页面
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('mainPage').style.display = 'none';
+    
+    // 显示错误页面
+    const errorPage = document.getElementById('serverErrorPage');
+    errorPage.style.display = 'block';
+    
+    // 设置错误详情
+    document.getElementById('serverErrorDetail').textContent = detail;
+    
+    // 绑定返回按钮事件
+    const returnBtn = document.getElementById('returnToMainBtn');
+    if (returnBtn) {
+        returnBtn.onclick = function() {
+            // 返回应用商店主界面
+            window.location.href = '../../index.html';
+        };
+    }
+}
 
 // 初始化事件监听
 function initEventListeners() {
@@ -77,6 +130,28 @@ function initEventListeners() {
     document.getElementById('closePreviewBtn').addEventListener('click', function() {
         document.getElementById('tablePreview').style.display = 'none';
     });
+
+    // 接口管理事件
+    document.getElementById('addApiBtn').addEventListener('click', showAddApiModal);
+    document.getElementById('closeApiModal').addEventListener('click', hideAddApiModal);
+    document.getElementById('addApiModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideAddApiModal();
+        }
+    });
+    document.getElementById('addApiForm').addEventListener('submit', handleAddApi);
+    document.getElementById('editApiBtn').addEventListener('click', handleEditApi);
+    document.getElementById('testApiBtn').addEventListener('click', showTestApiModal);
+    document.getElementById('deleteApiBtn').addEventListener('click', handleDeleteApi);
+    
+    // 测试接口事件
+    document.getElementById('closeTestApiModal').addEventListener('click', hideTestApiModal);
+    document.getElementById('testApiModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideTestApiModal();
+        }
+    });
+    document.getElementById('executeTestBtn').addEventListener('click', executeApiTest);
 }
 
 // 登录处理
@@ -152,6 +227,11 @@ function switchTab(tabName) {
         content.classList.remove('active');
     });
     document.getElementById(`${tabName}Tab`).classList.add('active');
+
+    // 标签页切换时加载数据
+    if (tabName === 'api') {
+        loadApis();
+    }
 }
 
 // 数据库类型默认端口配置
@@ -673,4 +753,413 @@ async function handleDeleteDatabase() {
     } catch (error) {
         alert('删除失败：' + error.message);
     }
+}
+
+// ==================== 接口管理功能 ====================
+
+// 加载接口列表
+async function loadApis() {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            apis = data.apis || [];
+            renderApiList();
+        }
+    } catch (error) {
+        console.error('加载接口列表失败：', error);
+    }
+}
+
+// 渲染接口列表
+function renderApiList() {
+    const listEl = document.getElementById('apiList');
+    
+    if (apis.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无接口</div>';
+        return;
+    }
+
+    listEl.innerHTML = apis.map(api => {
+        const methodColor = {
+            'GET': '#48bb78',
+            'POST': '#4299e1',
+            'PUT': '#ed8936',
+            'DELETE': '#f56565'
+        }[api.method] || '#718096';
+        
+        return `
+            <div class="db-item ${currentApi && currentApi.id === api.id ? 'active' : ''}" onclick="selectApi('${api.id}')">
+                <div class="db-item-name">${api.name}</div>
+                <div class="db-item-info">
+                    <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// 选择接口
+function selectApi(apiId) {
+    currentApi = apis.find(api => api.id === apiId);
+    if (currentApi) {
+        renderApiList();
+        loadApiDetail(apiId);
+    }
+}
+
+// 加载接口详情
+async function loadApiDetail(apiId) {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('apiWelcomeView').style.display = 'none';
+            document.getElementById('apiDetailView').style.display = 'block';
+            
+            const api = data.api;
+            document.getElementById('apiName').textContent = api.name;
+            document.getElementById('apiPath').textContent = api.path;
+            document.getElementById('apiMethod').textContent = api.method;
+            document.getElementById('apiDatabase').textContent = api.database_name || api.database_id;
+            document.getElementById('apiSqlDisplay').textContent = api.sql;
+            
+            // 解析并显示参数
+            const params = parseMyBatisParams(api.sql);
+            renderApiParams(params);
+        }
+    } catch (error) {
+        console.error('加载接口详情失败：', error);
+    }
+}
+
+// 解析MyBatis参数
+function parseMyBatisParams(sql) {
+    const params = new Set();
+    
+    // 匹配 #{paramName} 格式
+    const hashPattern = /#\{([^}]+)\}/g;
+    let match;
+    while ((match = hashPattern.exec(sql)) !== null) {
+        params.add({
+            name: match[1].trim(),
+            type: 'prepared',
+            required: true
+        });
+    }
+    
+    // 匹配 ${paramName} 格式
+    const dollarPattern = /\$\{([^}]+)\}/g;
+    while ((match = dollarPattern.exec(sql)) !== null) {
+        const paramName = match[1].trim();
+        // 检查是否已经作为 prepared 参数存在
+        const existing = Array.from(params).find(p => p.name === paramName);
+        if (!existing) {
+            params.add({
+                name: paramName,
+                type: 'direct',
+                required: true
+            });
+        }
+    }
+    
+    return Array.from(params);
+}
+
+// 渲染接口参数
+function renderApiParams(params) {
+    const displayEl = document.getElementById('apiParamsDisplay');
+    
+    if (params.length === 0) {
+        displayEl.innerHTML = '<div style="text-align:center;color:#718096;padding:12px;">无参数</div>';
+        return;
+    }
+    
+    displayEl.innerHTML = params.map(param => {
+        const typeLabel = param.type === 'prepared' ? '预编译' : '直接替换';
+        const typeClass = param.required ? 'required' : 'optional';
+        const requiredLabel = param.required ? '必填' : '可选';
+        
+        return `
+            <div class="param-item">
+                <span class="param-name">${param.name}</span>
+                <span class="param-type ${typeClass}">${requiredLabel}</span>
+                <span style="color:#718096;margin-left:8px;font-size:13px;">(${typeLabel})</span>
+            </div>
+        `;
+    }).join('');
+}
+
+// 显示添加接口弹窗
+async function showAddApiModal() {
+    isEditApiMode = false;
+    editingApiId = null;
+    document.getElementById('apiModalTitle').textContent = '添加接口';
+    document.getElementById('addApiModal').classList.add('show');
+    document.getElementById('addApiForm').reset();
+    document.getElementById('apiFormError').classList.remove('show');
+    document.getElementById('apiFormSuccess').classList.remove('show');
+    
+    // 加载数据库列表
+    await loadDatabasesForSelect();
+}
+
+// 加载数据库列表到下拉框
+async function loadDatabasesForSelect() {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            const selectEl = document.getElementById('apiDbSelect');
+            const currentValue = selectEl.value;
+            
+            selectEl.innerHTML = '<option value="">请选择数据库</option>' + 
+                (data.databases || []).map(db => 
+                    `<option value="${db.id}">${db.name}</option>`
+                ).join('');
+            
+            // 恢复之前的选择
+            if (currentValue) {
+                selectEl.value = currentValue;
+            }
+        }
+    } catch (error) {
+        console.error('加载数据库列表失败：', error);
+    }
+}
+
+// 隐藏添加接口弹窗
+function hideAddApiModal() {
+    document.getElementById('addApiModal').classList.remove('show');
+    isEditApiMode = false;
+    editingApiId = null;
+}
+
+// 添加/编辑接口
+async function handleAddApi(e) {
+    e.preventDefault();
+
+    const apiData = {
+        name: document.getElementById('apiNameInput').value,
+        path: document.getElementById('apiPathInput').value,
+        method: document.getElementById('apiMethodInput').value,
+        database_id: document.getElementById('apiDbSelect').value,
+        sql: document.getElementById('apiSqlInput').value,
+        description: document.getElementById('apiDescInput').value
+    };
+
+    // 验证路径格式
+    if (!apiData.path.startsWith('/')) {
+        showApiFormError('接口路径必须以 / 开头');
+        return;
+    }
+
+    const errorEl = document.getElementById('apiFormError');
+    const successEl = document.getElementById('apiFormSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+
+    try {
+        const url = isEditApiMode 
+            ? `${API_BASE}/api/data-ontology/apis/${editingApiId}`
+            : `${API_BASE}/api/data-ontology/apis`;
+        
+        const method = isEditApiMode ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify(apiData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            successEl.textContent = isEditApiMode ? '接口更新成功！' : '接口添加成功！';
+            successEl.classList.add('show');
+            setTimeout(() => {
+                hideAddApiModal();
+                loadApis();
+                if (isEditApiMode && currentApi && currentApi.id === editingApiId) {
+                    setTimeout(() => {
+                        loadApiDetail(editingApiId);
+                    }, 300);
+                }
+            }, 1000);
+        } else {
+            showApiFormError(data.message || (isEditApiMode ? '更新失败' : '添加失败'));
+        }
+    } catch (error) {
+        showApiFormError((isEditApiMode ? '更新失败：' : '添加失败：') + error.message);
+    }
+}
+
+// 显示接口表单错误
+function showApiFormError(message) {
+    const errorEl = document.getElementById('apiFormError');
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
+}
+
+// 编辑接口
+async function handleEditApi() {
+    if (!currentApi) return;
+    
+    isEditApiMode = true;
+    editingApiId = currentApi.id;
+    document.getElementById('apiModalTitle').textContent = '编辑接口';
+    document.getElementById('addApiModal').classList.add('show');
+    
+    // 预填充表单
+    document.getElementById('apiNameInput').value = currentApi.name;
+    document.getElementById('apiPathInput').value = currentApi.path;
+    document.getElementById('apiMethodInput').value = currentApi.method;
+    document.getElementById('apiSqlInput').value = currentApi.sql;
+    document.getElementById('apiDescInput').value = currentApi.description || '';
+    
+    // 加载数据库列表并选择当前数据库
+    await loadDatabasesForSelect();
+    document.getElementById('apiDbSelect').value = currentApi.database_id;
+    
+    document.getElementById('apiFormError').classList.remove('show');
+    document.getElementById('apiFormSuccess').classList.remove('show');
+}
+
+// 删除接口
+async function handleDeleteApi() {
+    if (!currentApi) return;
+
+    if (!confirm(`确定要删除接口 "${currentApi.name}" 吗？此操作不可恢复。`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            currentApi = null;
+            document.getElementById('apiWelcomeView').style.display = 'flex';
+            document.getElementById('apiDetailView').style.display = 'none';
+            loadApis();
+        } else {
+            alert(data.message || '删除失败');
+        }
+    } catch (error) {
+        alert('删除失败：' + error.message);
+    }
+}
+
+// 显示测试接口弹窗
+function showTestApiModal() {
+    if (!currentApi) return;
+    
+    document.getElementById('testApiModal').classList.add('show');
+    document.getElementById('testApiPath').textContent = currentApi.path;
+    document.getElementById('testApiMethod').textContent = currentApi.method;
+    document.getElementById('testApiParams').value = '';
+    document.getElementById('testApiError').classList.remove('show');
+    document.getElementById('testApiResultGroup').style.display = 'none';
+    
+    // 预填充参数示例
+    const params = parseMyBatisParams(currentApi.sql);
+    if (params.length > 0) {
+        const exampleParams = {};
+        params.forEach(param => {
+            exampleParams[param.name] = '';
+        });
+        document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
+    }
+}
+
+// 隐藏测试接口弹窗
+function hideTestApiModal() {
+    document.getElementById('testApiModal').classList.remove('show');
+}
+
+// 执行接口测试
+async function executeApiTest() {
+    if (!currentApi) return;
+    
+    const paramsText = document.getElementById('testApiParams').value.trim();
+    let params = {};
+    
+    // 解析参数
+    if (paramsText) {
+        try {
+            params = JSON.parse(paramsText);
+        } catch (error) {
+            showTestApiError('参数格式错误，请输入有效的JSON格式');
+            return;
+        }
+    }
+    
+    const errorEl = document.getElementById('testApiError');
+    const resultGroup = document.getElementById('testApiResultGroup');
+    errorEl.classList.remove('show');
+    resultGroup.style.display = 'none';
+    
+    const startTime = Date.now();
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ params })
+        });
+
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('testResultStatus').textContent = '成功';
+            document.getElementById('testResultStatus').style.color = '#38a169';
+            document.getElementById('testResultTime').textContent = duration;
+            document.getElementById('testResultContent').textContent = JSON.stringify(data.data, null, 2);
+            resultGroup.style.display = 'block';
+        } else {
+            showTestApiError(data.message || '测试失败');
+        }
+    } catch (error) {
+        showTestApiError('测试失败：' + error.message);
+    }
+}
+
+// 显示测试接口错误
+function showTestApiError(message) {
+    const errorEl = document.getElementById('testApiError');
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
 }
