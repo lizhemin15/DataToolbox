@@ -696,14 +696,9 @@ async function loadDatabaseDetail(dbId) {
 // 渲染表列表
 function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
-    const headerHtml = `
-        <div class="tables-list-header">
-            <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">+ 创建表</button>
-        </div>
-    `;
     
     if (tables.length === 0) {
-        listEl.innerHTML = headerHtml + '<div style="text-align:center;color:#718096;padding:20px;">暂无数据表</div>';
+        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无数据表</div>';
         return;
     }
 
@@ -713,7 +708,7 @@ function renderTablesList(tables) {
         </div>
     `).join('');
     
-    listEl.innerHTML = headerHtml + '<div class="tables-grid">' + tablesHtml + '</div>';
+    listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
 }
 
 // 当前预览的表名
@@ -721,11 +716,19 @@ let currentPreviewTable = null;
 let isTableEditMode = false;
 
 // 预览表数据
-async function previewTable(tableName) {
-    if (!currentDb) return;
+async function previewTable(tableName, keepEditMode = false) {
+    if (!currentDb) {
+        console.error('没有选中数据库');
+        return;
+    }
 
+    console.log('预览表:', tableName, '保持编辑模式:', keepEditMode, '当前编辑模式:', isTableEditMode);
     currentPreviewTable = tableName;
-    isTableEditMode = false;
+    
+    // 如果不是保持编辑模式，则重置
+    if (!keepEditMode) {
+        isTableEditMode = false;
+    }
 
     try {
         // 首先获取表结构
@@ -746,7 +749,6 @@ async function previewTable(tableName) {
 
         if (data.success) {
             document.getElementById('tablePreview').style.display = 'block';
-            document.getElementById('previewTableName').textContent = tableName;
             
             // 更新预览头部按钮
             updatePreviewHeader();
@@ -821,33 +823,61 @@ async function previewTable(tableName) {
 
 // 更新预览头部按钮
 function updatePreviewHeader() {
-    const header = document.querySelector('#tablePreview .preview-header');
-    if (!header) return;
+    const actionsContainer = document.querySelector('#tablePreview .preview-actions');
+    const tableNameEl = document.getElementById('previewTableName');
     
+    if (!actionsContainer || !tableNameEl) {
+        console.error('找不到预览头部元素');
+        return;
+    }
+    
+    // 更新表名
+    tableNameEl.textContent = currentPreviewTable;
+    
+    // 更新按钮
     const actionsHtml = isTableEditMode ? `
-        <div class="preview-actions">
-            <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ 添加行</button>
-            <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">💾 保存</button>
-            <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
-        </div>
+        <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ 添加行</button>
+        <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">💾 保存</button>
+        <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
     ` : `
-        <div class="preview-actions">
-            <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
-            <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
-            <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
-        </div>
+        <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+        <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
+        <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
     `;
     
-    header.innerHTML = `
-        <h3 id="previewTableName">${currentPreviewTable}</h3>
-        ${actionsHtml}
-    `;
+    actionsContainer.innerHTML = actionsHtml;
 }
 
 // 启用表格编辑模式
 function enableTableEditMode() {
+    console.log('enableTableEditMode被调用');
+    console.log('currentPreviewTable:', currentPreviewTable);
+    console.log('currentDb:', currentDb);
+    
+    if (!currentPreviewTable) {
+        console.error('没有选中的表');
+        alert('请先选择一个表');
+        return;
+    }
+    
+    if (!currentDb) {
+        console.error('没有选中数据库');
+        alert('请先选择数据库');
+        return;
+    }
+    
+    console.log('启用编辑模式，当前表:', currentPreviewTable);
     isTableEditMode = true;
-    previewTable(currentPreviewTable);
+    
+    // 显示加载提示
+    const previewContent = document.getElementById('previewContent');
+    if (previewContent) {
+        const loadingHtml = '<div style="text-align:center;padding:40px;color:#667eea;"><div style="font-size:24px;margin-bottom:12px;">⏳</div><div>正在加载编辑模式...</div></div>';
+        previewContent.innerHTML = loadingHtml;
+    }
+    
+    // 重新加载表格数据
+    previewTable(currentPreviewTable, true);
 }
 
 // 启用表格编辑功能

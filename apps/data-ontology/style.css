@@ -541,23 +541,59 @@ body {
     margin-top: 30px;
 }
 
-.tables-section h3 {
-    font-size: 20px;
-    color: #2d3748;
-    margin-bottom: 20px;
-    font-weight: 600;
+.tables-section-header {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 10px;
-    padding-bottom: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
     border-bottom: 3px solid transparent;
     border-image: linear-gradient(90deg, #667eea 0%, #764ba2 50%, transparent 50%);
     border-image-slice: 1;
 }
 
+.tables-section h3 {
+    font-size: 20px;
+    color: #2d3748;
+    margin: 0;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .tables-section h3::before {
     content: "📊";
     font-size: 24px;
+}
+
+.tables-section-header .btn-primary {
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 2px 8px rgba(72, 187, 120, 0.3);
+    font-weight: 600;
+    padding: 8px 18px;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tables-section-header .btn-primary::before {
+    content: "➕";
+    font-size: 14px;
+}
+
+.tables-section-header .btn-primary:hover {
+    box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
+    transform: translateY(-2px) scale(1.05);
+    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+}
+
+.tables-section-header .btn-primary:active {
+    transform: translateY(0) scale(1);
 }
 
 .tables-list {
@@ -1537,21 +1573,8 @@ textarea#testApiParams {
 
 /* ==================== 表格管理样式 ==================== */
 
-.tables-list-header {
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 2px solid #e2e8f0;
-    display: flex;
-    justify-content: flex-end;
-}
-
-.tables-list-header .btn-primary {
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-    font-weight: 600;
-}
-
-.tables-list-header .btn-primary:hover {
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+.tables-list {
+    /* 容器样式 */
 }
 
 .tables-grid {
@@ -1584,11 +1607,44 @@ textarea#testApiParams {
     background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
     color: white;
     border: none;
+    position: relative;
+    overflow: hidden;
+}
+
+.preview-actions .btn-primary::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.preview-actions .btn-primary:hover::before {
+    width: 300px;
+    height: 300px;
 }
 
 .preview-actions .btn-primary:hover {
     background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
     box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
+}
+
+.preview-actions #editTableBtn {
+    animation: pulseEdit 2s ease-in-out infinite;
+}
+
+@keyframes pulseEdit {
+    0%, 100% {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    50% {
+        box-shadow: 0 2px 12px rgba(72, 187, 120, 0.5);
+    }
 }
 
 .preview-actions .btn-danger {

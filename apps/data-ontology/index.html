@@ -127,7 +127,10 @@
                         </div>
 
                         <div class="tables-section">
-                            <h3>数据表列表</h3>
+                            <div class="tables-section-header">
+                                <h3>数据表列表</h3>
+                                <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
+                            </div>
                             <div id="tablesList" class="tables-list">
                                 <!-- 表列表将动态生成 -->
                             </div>
@@ -136,7 +139,11 @@
                         <div id="tablePreview" class="table-preview" style="display:none;">
                             <div class="preview-header">
                                 <h3 id="previewTableName">表名</h3>
-                                <button id="closePreviewBtn" class="btn btn-sm">关闭</button>
+                                <div class="preview-actions">
+                                    <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+                                    <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
+                                    <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
+                                </div>
                             </div>
                             <div id="previewContent" class="preview-content">
                                 <!-- 表数据将动态生成 -->
