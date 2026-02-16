@@ -2537,6 +2537,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	// 最多重试3次
 	maxRetries := 3
 	var lastError string
+	var lastSQL string
 	var attempts []map[string]interface{}
 
 	for retry := 0; retry < maxRetries; retry++ {
@@ -2573,6 +2574,21 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
+		
+		// 检测是否生成了相同的SQL（去除空格和换行后比较）
+		normalizedSQL := strings.ReplaceAll(strings.ReplaceAll(sqlQuery, " ", ""), "\n", "")
+		normalizedLastSQL := strings.ReplaceAll(strings.ReplaceAll(lastSQL, " ", ""), "\n", "")
+		if retry > 0 && normalizedSQL == normalizedLastSQL {
+			lastError = "AI重复生成相同的SQL，无法修复问题"
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": responseText,
+				"sql":      sqlQuery,
+			})
+			break // 终止重试
+		}
+		lastSQL = sqlQuery
 
 		// 如果没有提取到回复文本，使用默认文本
 		if responseText == "" {
@@ -2645,16 +2661,30 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	}
 
 	prompt += "\n用户问题：" + userMessage + "\n\n"
+	prompt += "⚠️ 重要规则：\n"
+	prompt += "1. 【必须】只生成一条SQL语句！不能生成多条SQL语句！\n"
+	prompt += "2. 如果需要查询多个表，使用UNION ALL或者一次性查询所有需要的表。\n\n"
+	prompt += "📚 常见查询示例：\n"
+	prompt += "- 查询表字段：\n"
+	prompt += "  SELECT column_name, data_type, column_comment \n"
+	prompt += "  FROM information_schema.columns \n"
+	prompt += "  WHERE table_schema = DATABASE() AND table_name = 'your_table'\n\n"
+	prompt += "- 查询多个表的字段（合并为一条SQL）：\n"
+	prompt += "  SELECT table_name, column_name, data_type \n"
+	prompt += "  FROM information_schema.columns \n"
+	prompt += "  WHERE table_schema = DATABASE() AND table_name IN ('table1', 'table2')\n\n"
+	prompt += "- 查询表数据：\n"
+	prompt += "  SELECT * FROM table_name LIMIT 10\n\n"
 	prompt += "请按以下格式回复：\n"
-	prompt += "1. 首先用一句话简单说明你将要做什么（例如：\"我将为您查询products表中的所有产品信息\"）\n"
-	prompt += "2. 然后提供SQL语句，格式为：\n"
+	prompt += "1. 用一句话说明你将要做什么（例如：\"我将查询products和users表的字段信息\"）\n"
+	prompt += "2. 提供SQL语句（只能有一条）：\n"
 	prompt += "```sql\n"
-	prompt += "SELECT * FROM table_name;\n"
+	prompt += "SELECT ... FROM ... ;\n"
 	prompt += "```\n\n"
 	prompt += "注意：\n"
 	prompt += "- 回复要简洁友好\n"
-	prompt += "- SQL要准确可执行\n"
-	prompt += "- 如果需要查询多个表，请使用第一个数据库\n"
+	prompt += "- 只生成一条可执行的SQL语句\n"
+	prompt += "- 不要生成多条SQL语句\n"
 	prompt += "- 不要包含过多的技术解释"
 
 	return prompt
@@ -2675,25 +2705,41 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 	}
 
 	prompt += "\n用户问题：" + userMessage + "\n\n"
-	prompt += "之前的尝试：\n"
+	prompt += "之前失败的尝试：\n"
 	for _, attempt := range attempts {
 		if sql, ok := attempt["sql"].(string); ok && sql != "" {
-			prompt += fmt.Sprintf("尝试 %d - SQL: %s\n", attempt["attempt"], sql)
+			prompt += fmt.Sprintf("尝试 %d:\n", attempt["attempt"])
+			prompt += fmt.Sprintf("SQL: %s\n", sql)
 			prompt += fmt.Sprintf("错误: %s\n\n", attempt["error"])
 		}
 	}
 
-	prompt += "请仔细分析错误原因，生成正确的SQL。\n"
-	prompt += "常见错误：\n"
-	prompt += "- 表名不存在：请使用正确的表名\n"
-	prompt += "- 字段不存在：请检查字段名是否正确\n"
-	prompt += "- 语法错误：请检查SQL语法\n\n"
+	prompt += "⚠️ 重要注意事项：\n"
+	prompt += "1. 【必须】只生成一条SQL语句，不要生成多条语句！\n"
+	prompt += "2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n"
+	prompt += "   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n"
+	prompt += "   - 是否有语法错误的关键字？\n"
+	prompt += "   - 是否缺少或多余了分号、引号等符号？\n"
+	prompt += "3. 如果错误信息包含'Table doesn't exist'，请使用正确的表名\n"
+	prompt += "4. 如果错误信息包含'Column doesn't exist'，请使用正确的字段名\n"
+	prompt += "5. 如果需要查询多个表的结构，使用UNION ALL合并结果：\n"
+	prompt += "   SELECT 'table1' as table_name, column_name FROM information_schema.columns WHERE table_name='table1'\n"
+	prompt += "   UNION ALL\n"
+	prompt += "   SELECT 'table2' as table_name, column_name FROM information_schema.columns WHERE table_name='table2'\n\n"
+
+	// 分析最常见的错误类型
+	if strings.Contains(lastError, "near") && strings.Contains(lastError, "at line 2") {
+		prompt += "🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n"
+		prompt += "请修改为只生成一条SQL语句，或者使用UNION ALL合并多个查询。\n\n"
+	}
+
 	prompt += "请按以下格式回复：\n"
-	prompt += "1. 简单说明你的修正方案\n"
-	prompt += "2. 提供修正后的SQL：\n"
+	prompt += "1. 简单说明你发现的问题和修正方案（一句话）\n"
+	prompt += "2. 提供修正后的SQL（只能有一条SQL语句）：\n"
 	prompt += "```sql\n"
-	prompt += "SELECT * FROM table_name;\n"
-	prompt += "```"
+	prompt += "SELECT ... FROM ...;\n"
+	prompt += "```\n\n"
+	prompt += "❗ 再次强调：只生成一条SQL语句！"
 
 	return prompt
 }
