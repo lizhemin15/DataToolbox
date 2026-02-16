@@ -2382,6 +2382,15 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 
 // ==================== AI助手功能 ====================
 
+// sendSSE 发送Server-Sent Events消息
+func sendSSE(w http.ResponseWriter, eventType string, data interface{}) {
+	jsonData, _ := json.Marshal(data)
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, jsonData)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 // handleAIConfig 处理AI配置
 func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -2455,22 +2464,33 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAIQuery 处理AI查询
+// handleAIQuery 处理AI查询（流式响应）
 func handleAIQuery(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	// 设置流式响应头
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
+		sendSSE(w, "error", map[string]interface{}{
 			"message": "未授权",
 		})
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
+		sendSSE(w, "error", map[string]interface{}{
 			"message": "只支持POST请求",
+		})
+		return
+	}
+	
+	// 确保支持流式传输
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "不支持流式传输",
 		})
 		return
 	}
@@ -2481,12 +2501,17 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		Databases []string `json:"databases"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
+		sendSSE(w, "error", map[string]interface{}{
 			"message": "请求格式错误",
 		})
 		return
 	}
+
+	// 发送开始事件
+	sendSSE(w, "start", map[string]interface{}{
+		"message": "开始处理您的问题...",
+	})
+	flusher.Flush()
 
 	// 检查AI配置
 	dataOntologyMu.RLock()
@@ -2494,8 +2519,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RUnlock()
 
 	if aiConfig == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
+		sendSSE(w, "error", map[string]interface{}{
 			"message": "请先配置AI设置",
 		})
 		return
@@ -2527,8 +2551,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RUnlock()
 
 	if len(dbSchemas) == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
+		sendSSE(w, "error", map[string]interface{}{
 			"message": "未找到有效的数据库",
 		})
 		return
@@ -2541,6 +2564,21 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var attempts []map[string]interface{}
 
 	for retry := 0; retry < maxRetries; retry++ {
+		// 发送生成SQL事件
+		if retry == 0 {
+			sendSSE(w, "thinking", map[string]interface{}{
+				"message": "正在分析您的问题并生成SQL...",
+				"attempt": retry + 1,
+			})
+		} else {
+			sendSSE(w, "retry", map[string]interface{}{
+				"message": fmt.Sprintf("第%d次重试，正在根据错误调整SQL...", retry+1),
+				"attempt": retry + 1,
+				"error":   lastError,
+			})
+		}
+		flusher.Flush()
+
 		// 构建AI提示词（如果是重试，添加错误信息）
 		var prompt string
 		if retry == 0 {
@@ -2559,6 +2597,11 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"response": "",
 				"sql":      "",
 			})
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+			})
+			flusher.Flush()
 			continue
 		}
 
@@ -2572,10 +2615,15 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"response": aiResponse,
 				"sql":      "",
 			})
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+			})
+			flusher.Flush()
 			continue
 		}
 		
-		// 检测是否生成了相同的SQL（去除空格和换行后比较）
+		// 检测是否生成了相同的SQL
 		normalizedSQL := strings.ReplaceAll(strings.ReplaceAll(sqlQuery, " ", ""), "\n", "")
 		normalizedLastSQL := strings.ReplaceAll(strings.ReplaceAll(lastSQL, " ", ""), "\n", "")
 		if retry > 0 && normalizedSQL == normalizedLastSQL {
@@ -2586,14 +2634,32 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"response": responseText,
 				"sql":      sqlQuery,
 			})
-			break // 终止重试
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+				"sql":     sqlQuery,
+			})
+			flusher.Flush()
+			break
 		}
 		lastSQL = sqlQuery
 
-		// 如果没有提取到回复文本，使用默认文本
+		// 发送SQL生成完成事件
 		if responseText == "" {
 			responseText = "已为您执行查询"
 		}
+		sendSSE(w, "sql_generated", map[string]interface{}{
+			"attempt":  retry + 1,
+			"response": responseText,
+			"sql":      sqlQuery,
+		})
+		flusher.Flush()
+
+		// 发送执行SQL事件
+		sendSSE(w, "executing", map[string]interface{}{
+			"message": "正在执行SQL查询...",
+		})
+		flusher.Flush()
 
 		// 执行SQL查询
 		dataOntologyMu.RLock()
@@ -2608,6 +2674,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"response": responseText,
 				"sql":      sqlQuery,
 			})
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+				"sql":     sqlQuery,
+			})
+			flusher.Flush()
 			continue
 		}
 
@@ -2620,30 +2692,38 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"response": responseText,
 				"sql":      sqlQuery,
 			})
-			// 如果不是最后一次重试，继续
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+				"sql":     sqlQuery,
+			})
+			flusher.Flush()
+			
 			if retry < maxRetries-1 {
 				continue
 			}
 		} else {
 			// 成功了，返回结果
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":  true,
+			sendSSE(w, "success", map[string]interface{}{
 				"response": responseText,
 				"sql":      sqlQuery,
 				"results":  results,
 				"attempts": attempts,
 				"retries":  retry,
 			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
 			return
 		}
 	}
 
 	// 所有重试都失败了
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  false,
+	sendSSE(w, "error", map[string]interface{}{
 		"message":  lastError,
 		"attempts": attempts,
 	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
 }
 
 // buildAIPrompt 构建AI提示词
@@ -2663,20 +2743,30 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "\n用户问题：" + userMessage + "\n\n"
 	prompt += "⚠️ 重要规则：\n"
 	prompt += "1. 【必须】只生成一条SQL语句！不能生成多条SQL语句！\n"
-	prompt += "2. 如果需要查询多个表，使用UNION ALL或者一次性查询所有需要的表。\n\n"
-	prompt += "📚 常见查询示例：\n"
-	prompt += "- 查询表字段：\n"
-	prompt += "  SELECT column_name, data_type, column_comment \n"
-	prompt += "  FROM information_schema.columns \n"
-	prompt += "  WHERE table_schema = DATABASE() AND table_name = 'your_table'\n\n"
-	prompt += "- 查询多个表的字段（合并为一条SQL）：\n"
-	prompt += "  SELECT table_name, column_name, data_type \n"
-	prompt += "  FROM information_schema.columns \n"
-	prompt += "  WHERE table_schema = DATABASE() AND table_name IN ('table1', 'table2')\n\n"
-	prompt += "- 查询表数据：\n"
+	prompt += "2. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
+	prompt += "3. 使用子查询或聚合函数来统计多个表的信息\n\n"
+	prompt += "📚 根据问题类型选择正确的SQL：\n\n"
+	prompt += "🔍 查询表结构/字段信息：\n"
+	prompt += "  SELECT table_name, column_name, data_type, column_comment\n"
+	prompt += "  FROM information_schema.columns\n"
+	prompt += "  WHERE table_schema = DATABASE() AND table_name IN ('table1', 'table2')\n"
+	prompt += "  ORDER BY table_name, ordinal_position\n\n"
+	prompt += "📊 分析/统计多个表的数据：\n"
+	prompt += "  SELECT \n"
+	prompt += "    'products' as table_name, COUNT(*) as row_count FROM products\n"
+	prompt += "  UNION ALL\n"
+	prompt += "  SELECT 'users' as table_name, COUNT(*) as row_count FROM users\n\n"
+	prompt += "📋 查看表的样本数据：\n"
 	prompt += "  SELECT * FROM table_name LIMIT 10\n\n"
+	prompt += "❌ 错误示例（不要这样做）：\n"
+	prompt += "  SELECT * FROM table1 UNION ALL SELECT * FROM table2  -- 错误！不同表结构无法合并\n\n"
+	prompt += "🎯 理解用户意图：\n"
+	prompt += "- 如果问\"有哪些字段/列\"：查询 information_schema.columns\n"
+	prompt += "- 如果问\"分析数据/统计\"：使用 COUNT(*), SUM(), AVG() 等聚合函数\n"
+	prompt += "- 如果问\"查看数据/内容\"：使用 SELECT * FROM ... LIMIT 10\n"
+	prompt += "- 如果涉及多个表：用子查询或统计，不要用 UNION ALL 合并不同结构的数据\n\n"
 	prompt += "请按以下格式回复：\n"
-	prompt += "1. 用一句话说明你将要做什么（例如：\"我将查询products和users表的字段信息\"）\n"
+	prompt += "1. 用一句话说明你将要做什么（例如：\"我将统计各表的数据量\"）\n"
 	prompt += "2. 提供SQL语句（只能有一条）：\n"
 	prompt += "```sql\n"
 	prompt += "SELECT ... FROM ... ;\n"
@@ -2684,7 +2774,7 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "注意：\n"
 	prompt += "- 回复要简洁友好\n"
 	prompt += "- 只生成一条可执行的SQL语句\n"
-	prompt += "- 不要生成多条SQL语句\n"
+	prompt += "- 优先使用统计和聚合，不要直接合并不同表的数据\n"
 	prompt += "- 不要包含过多的技术解释"
 
 	return prompt
@@ -2722,15 +2812,28 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 	prompt += "   - 是否缺少或多余了分号、引号等符号？\n"
 	prompt += "3. 如果错误信息包含'Table doesn't exist'，请使用正确的表名\n"
 	prompt += "4. 如果错误信息包含'Column doesn't exist'，请使用正确的字段名\n"
-	prompt += "5. 如果需要查询多个表的结构，使用UNION ALL合并结果：\n"
-	prompt += "   SELECT 'table1' as table_name, column_name FROM information_schema.columns WHERE table_name='table1'\n"
-	prompt += "   UNION ALL\n"
-	prompt += "   SELECT 'table2' as table_name, column_name FROM information_schema.columns WHERE table_name='table2'\n\n"
+	prompt += "5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n"
+	prompt += "   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n"
+	prompt += "   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
+	prompt += "   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n"
 
 	// 分析最常见的错误类型
 	if strings.Contains(lastError, "near") && strings.Contains(lastError, "at line 2") {
 		prompt += "🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n"
-		prompt += "请修改为只生成一条SQL语句，或者使用UNION ALL合并多个查询。\n\n"
+		prompt += "请修改为只生成一条SQL语句。\n\n"
+	}
+	
+	if strings.Contains(lastError, "different number of columns") {
+		prompt += "🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n"
+		prompt += "解决方案：\n"
+		prompt += "1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
+		prompt += "2. 如果是查询字段，使用：SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('table1','table2')\n"
+		prompt += "3. 不要直接合并不同结构的表数据！\n\n"
+	}
+	
+	if strings.Contains(lastError, "connectex") || strings.Contains(lastError, "connection") {
+		prompt += "🔍 根据错误分析：数据库连接超时或失败！\n"
+		prompt += "请生成简单的SQL语句，避免复杂查询导致超时。\n\n"
 	}
 
 	prompt += "请按以下格式回复：\n"

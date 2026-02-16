@@ -1395,7 +1395,7 @@ function updateSuggestionHighlight(suggestions) {
     });
 }
 
-// 发送AI消息
+// 发送AI消息（流式）
 async function handleSendAiMessage() {
     const input = document.getElementById('aiInput');
     const message = input.value.trim();
@@ -1436,8 +1436,8 @@ async function handleSendAiMessage() {
     const sendBtn = document.getElementById('aiSendBtn');
     sendBtn.disabled = true;
     
-    // 显示加载状态
-    const loadingId = addAiLoadingMessage();
+    // 创建流式消息容器
+    const streamMessageId = addAiStreamMessage();
     
     try {
         const response = await fetch(`${API_BASE}/api/data-ontology/ai/query`, {
@@ -1452,29 +1452,31 @@ async function handleSendAiMessage() {
             })
         });
 
-        const data = await response.json();
-
-        // 移除加载消息
-        removeAiMessage(loadingId);
-
-        if (data.success) {
-            // 如果有重试记录，显示带重试过程的消息
-            if (data.attempts && data.attempts.length > 0) {
-                addAiAssistantMessageWithRetries(data.response, data.sql, data.results, data.attempts, data.retries);
-            } else {
-                addAiAssistantMessage(data.response, data.sql, data.results);
-            }
-        } else {
-            // 显示失败信息和所有尝试
-            if (data.attempts && data.attempts.length > 0) {
-                showAiErrorWithAttempts(data.message || '查询失败', data.attempts);
-            } else {
-                showAiError(data.message || '查询失败');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, {stream: true});
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                const eventMatch = line.match(/^event: (.+)\ndata: (.+)$/);
+                if (eventMatch) {
+                    const eventType = eventMatch[1];
+                    const data = JSON.parse(eventMatch[2]);
+                    handleStreamEvent(streamMessageId, eventType, data);
+                }
             }
         }
     } catch (error) {
-        removeAiMessage(loadingId);
-        showAiError('查询失败：' + error.message);
+        updateStreamMessage(streamMessageId, 'error', {message: '查询失败：' + error.message});
     } finally {
         sendBtn.disabled = false;
     }
@@ -1737,6 +1739,187 @@ function toggleRetryDetails(retryId) {
         details.style.display = 'none';
         icon.textContent = '▼';
     }
+}
+
+// 添加流式消息容器
+function addAiStreamMessage() {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-stream-' + Date.now();
+    
+    // 移除欢迎消息
+    const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
+    const avatar = '🤖';
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">${avatar}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">
+                    <div id="${messageId}-status" class="ai-stream-status"></div>
+                    <div id="${messageId}-content" class="ai-stream-content"></div>
+                    <div id="${messageId}-attempts" class="ai-stream-attempts" style="display:none;"></div>
+                </div>
+                <div class="ai-message-meta">${time}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 处理流式事件
+function handleStreamEvent(messageId, eventType, data) {
+    const statusEl = document.getElementById(`${messageId}-status`);
+    const contentEl = document.getElementById(`${messageId}-content`);
+    const attemptsEl = document.getElementById(`${messageId}-attempts`);
+    const messagesEl = document.getElementById('aiChatMessages');
+    
+    switch (eventType) {
+        case 'start':
+            statusEl.innerHTML = `<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> ${escapeHtml(data.message)}</div>`;
+            break;
+            
+        case 'thinking':
+            statusEl.innerHTML = `<div class="ai-status-thinking">🤔 ${escapeHtml(data.message)}</div>`;
+            break;
+            
+        case 'retry':
+            const retryHtml = `<div class="ai-status-retry">🔄 ${escapeHtml(data.message)}<br><span style="font-size:12px;color:#856404;">错误: ${escapeHtml(data.error)}</span></div>`;
+            attemptsEl.style.display = 'block';
+            attemptsEl.insertAdjacentHTML('beforeend', retryHtml);
+            statusEl.innerHTML = `<div class="ai-status-thinking">🔄 ${escapeHtml(data.message)}</div>`;
+            break;
+            
+        case 'sql_generated':
+            statusEl.innerHTML = `<div class="ai-status-success">✅ SQL生成完成</div>`;
+            contentEl.innerHTML = `
+                <div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.response)}</div>
+                <div style="margin-top: 12px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📝 生成的SQL查询：</div>
+                    <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
+                </div>
+            `;
+            break;
+            
+        case 'executing':
+            statusEl.innerHTML = `<div class="ai-status-executing">⚡ ${escapeHtml(data.message)}</div>`;
+            break;
+            
+        case 'attempt_failed':
+            const failedHtml = `<div class="ai-attempt-failed">❌ 尝试 ${data.attempt} 失败: ${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:12px;padding:8px;margin-top:4px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
+            attemptsEl.style.display = 'block';
+            attemptsEl.insertAdjacentHTML('beforeend', failedHtml);
+            break;
+            
+        case 'success':
+            statusEl.innerHTML = '';
+            
+            let resultHtml = `<div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.response)}</div>`;
+            
+            // 显示重试信息（如果有）
+            if (data.attempts && data.attempts.length > 0) {
+                const retryId = 'retry-' + messageId;
+                resultHtml += `
+                    <div style="margin-top: 12px;">
+                        <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 13px; color: #856404;">🔄 经过 ${data.retries} 次重试后成功</span>
+                            <span id="${retryId}-icon" style="font-size: 12px; color: #856404;">▼</span>
+                        </div>
+                        <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            ${data.attempts.map((attempt, index) => `
+                                <div style="margin-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
+                                    <div style="font-size: 12px; font-weight: 600; color: #e53e3e; margin-bottom: 4px;">❌ 尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
+                                    ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            resultHtml += `
+                <div style="margin-top: 12px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">${data.attempts && data.attempts.length > 0 ? '✅ 最终成功的SQL查询：' : '📝 生成的SQL查询：'}</div>
+                    <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
+                </div>
+            `;
+            
+            if (data.results && data.results.length > 0) {
+                resultHtml += `
+                    <div style="margin-top: 12px;">
+                        <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                        <div class="ai-result-table">
+                            <table>
+                                <thead>
+                                    <tr>${Object.keys(data.results[0]).map(col => `<th>${escapeHtml(col)}</th>`).join('')}</tr>
+                                </thead>
+                                <tbody>
+                                    ${data.results.slice(0, 10).map(row => `
+                                        <tr>${Object.keys(data.results[0]).map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i style="color: #a0aec0;">NULL</i>'}</td>`).join('')}</tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                            ✓ 共查询到 <strong>${data.results.length}</strong> 条记录${data.results.length > 10 ? '，显示前10条' : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (data.results && data.results.length === 0) {
+                resultHtml += `
+                    <div style="margin-top: 12px;">
+                        <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                        <div style="padding: 16px; background: #f7fafc; border-radius: 8px; color: #718096; text-align: center;">暂无数据</div>
+                    </div>
+                `;
+            }
+            
+            contentEl.innerHTML = resultHtml;
+            attemptsEl.style.display = 'none';
+            break;
+            
+        case 'error':
+            statusEl.innerHTML = '';
+            let errorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(data.message)}</div>`;
+            
+            if (data.attempts && data.attempts.length > 0) {
+                const retryId = 'retry-' + messageId;
+                errorHtml += `
+                    <div style="font-size: 12px; margin-bottom: 12px;">已尝试 ${data.attempts.length} 次，均未成功</div>
+                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">查看所有尝试</span>
+                        <span id="${retryId}-icon" style="font-size: 12px;">▼</span>
+                    </div>
+                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                        ${data.attempts.map((attempt, index) => `
+                            <div style="margin-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
+                                <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px;">尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
+                                ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            errorHtml += '</div>';
+            contentEl.innerHTML = errorHtml;
+            attemptsEl.style.display = 'none';
+            break;
+            
+        case 'done':
+            // 完成，不需要特别处理
+            break;
+    }
+    
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 // 添加加载消息

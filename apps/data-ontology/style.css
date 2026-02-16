@@ -1252,3 +1252,73 @@ textarea#testApiParams {
         max-height: 500px;
     }
 }
+
+.ai-stream-status {
+    margin-bottom: 8px;
+}
+
+.ai-status-thinking {
+    padding: 8px 12px;
+    background: #e6f7ff;
+    border-left: 3px solid #1890ff;
+    border-radius: 6px;
+    color: #0050b3;
+    font-size: 13px;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ai-status-retry {
+    padding: 8px 12px;
+    background: #fff3cd;
+    border-left: 3px solid #ffc107;
+    border-radius: 6px;
+    color: #856404;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.ai-status-executing {
+    padding: 8px 12px;
+    background: #f0f5ff;
+    border-left: 3px solid #597ef7;
+    border-radius: 6px;
+    color: #1d39c4;
+    font-size: 13px;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ai-status-success {
+    padding: 8px 12px;
+    background: #d4edda;
+    border-left: 3px solid #28a745;
+    border-radius: 6px;
+    color: #155724;
+    font-size: 13px;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
+
+.ai-attempt-failed {
+    padding: 8px 12px;
+    background: #fff0f0;
+    border-left: 3px solid #ff4d4f;
+    border-radius: 6px;
+    color: #cf1322;
+    font-size: 12px;
+    margin-bottom: 8px;
+}
+
+.ai-stream-attempts {
+    margin-top: 12px;
+}
+
+.ai-stream-content {
+    line-height: 1.6;
+}
