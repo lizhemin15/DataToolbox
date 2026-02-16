@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1826,6 +1827,269 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 处理不同的HTTP方法
+	switch r.Method {
+	case http.MethodPost:
+		// 处理数据保存（更新、插入、删除）
+		handleTableDataSave(w, r, config, tableName)
+		return
+	case http.MethodGet:
+		// 处理数据查询
+		handleTableDataQuery(w, r, config, tableName)
+		return
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+}
+
+// TableDataSaveRequest 保存表格数据的请求体
+type TableDataSaveRequest struct {
+	Updates []struct {
+		Index int                    `json:"index"`
+		Data  map[string]interface{} `json:"data"`
+	} `json:"updates"`
+	Inserts []map[string]interface{} `json:"inserts"`
+	Deletes []int                    `json:"deletes"`
+}
+
+// handleTableDataSave 处理表格数据保存（更新、插入、删除）
+func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 解析请求体
+	var req TableDataSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("收到保存请求: 表=%s, 更新=%d条, 插入=%d条, 删除=%d条", 
+		tableName, len(req.Updates), len(req.Inserts), len(req.Deletes))
+
+	// 只支持SQL数据库的数据修改
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB暂不支持此功能",
+		})
+		return
+	}
+
+	// 建立数据库连接
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 首先查询所有数据以获取主键
+	var query string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = fmt.Sprintf(`SELECT * FROM "%s"`, tableName)
+	case "oracle", "dm":
+		query = fmt.Sprintf("SELECT * FROM %s", tableName)
+	case "sqlserver":
+		query = fmt.Sprintf("SELECT * FROM [%s]", tableName)
+	case "duckdb":
+		query = fmt.Sprintf("SELECT * FROM %s", tableName)
+	case "clickhouse":
+		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
+	default:
+		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 获取列名
+	columns, err := rows.Columns()
+	if err != nil {
+		rows.Close()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取列名失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 读取所有数据
+	allData := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		allData = append(allData, row)
+	}
+	rows.Close()
+
+	log.Printf("查询到 %d 行数据", len(allData))
+
+	updated := 0
+	inserted := 0
+	deleted := 0
+
+	// 1. 处理删除（从后往前删，避免索引混乱）
+	if len(req.Deletes) > 0 {
+		// 排序删除索引（从大到小）
+		sort.Sort(sort.Reverse(sort.IntSlice(req.Deletes)))
+		log.Printf("处理删除: %v", req.Deletes)
+
+		for _, index := range req.Deletes {
+			if index < 0 || index >= len(allData) {
+				log.Printf("跳过无效索引: %d", index)
+				continue
+			}
+
+			rowData := allData[index]
+			
+			// 构建WHERE条件（使用所有列匹配）
+			whereClauses := make([]string, 0)
+			whereValues := make([]interface{}, 0)
+			for col, val := range rowData {
+				if val == nil {
+					whereClauses = append(whereClauses, fmt.Sprintf("`%s` IS NULL", col))
+				} else {
+					whereClauses = append(whereClauses, fmt.Sprintf("`%s` = ?", col))
+					whereValues = append(whereValues, val)
+				}
+			}
+
+			deleteQuery := fmt.Sprintf("DELETE FROM `%s` WHERE %s LIMIT 1", 
+				tableName, strings.Join(whereClauses, " AND "))
+			
+			log.Printf("执行删除SQL: %s", deleteQuery)
+			result, err := db.Exec(deleteQuery, whereValues...)
+			if err != nil {
+				log.Printf("删除失败: %v", err)
+				continue
+			}
+
+			affected, _ := result.RowsAffected()
+			deleted += int(affected)
+			log.Printf("删除成功，影响行数: %d", affected)
+		}
+	}
+
+	// 2. 处理更新
+	for _, update := range req.Updates {
+		if update.Index < 0 || update.Index >= len(allData) {
+			continue
+		}
+
+		oldRow := allData[update.Index]
+		
+		// 构建UPDATE语句
+		setClauses := make([]string, 0)
+		setValues := make([]interface{}, 0)
+		for col, val := range update.Data {
+			setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+			setValues = append(setValues, val)
+		}
+
+		// 构建WHERE条件（使用旧数据匹配）
+		whereClauses := make([]string, 0)
+		whereValues := make([]interface{}, 0)
+		for col, val := range oldRow {
+			if val == nil {
+				whereClauses = append(whereClauses, fmt.Sprintf("`%s` IS NULL", col))
+			} else {
+				whereClauses = append(whereClauses, fmt.Sprintf("`%s` = ?", col))
+				whereValues = append(whereValues, val)
+			}
+		}
+
+		updateQuery := fmt.Sprintf("UPDATE `%s` SET %s WHERE %s LIMIT 1",
+			tableName, strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
+		
+		allValues := append(setValues, whereValues...)
+		result, err := db.Exec(updateQuery, allValues...)
+		if err != nil {
+			log.Printf("更新失败: %v", err)
+			continue
+		}
+
+		affected, _ := result.RowsAffected()
+		updated += int(affected)
+	}
+
+	// 3. 处理插入
+	for _, insertData := range req.Inserts {
+		cols := make([]string, 0)
+		placeholders := make([]string, 0)
+		values := make([]interface{}, 0)
+
+		for col, val := range insertData {
+			cols = append(cols, fmt.Sprintf("`%s`", col))
+			placeholders = append(placeholders, "?")
+			values = append(values, val)
+		}
+
+		insertQuery := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+			tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		
+		result, err := db.Exec(insertQuery, values...)
+		if err != nil {
+			log.Printf("插入失败: %v", err)
+			continue
+		}
+
+		affected, _ := result.RowsAffected()
+		inserted += int(affected)
+	}
+
+	log.Printf("保存完成: 更新=%d, 插入=%d, 删除=%d", updated, inserted, deleted)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"updated": updated,
+		"inserted": inserted,
+		"deleted": deleted,
+	})
+}
+
+// handleTableDataQuery 处理表格数据查询
+func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
 	var data []map[string]interface{}
 
 	// MongoDB 特殊处理
