@@ -2213,7 +2213,7 @@ func replaceWithRegex(input, pattern string, replacer func(string) string) strin
 }
 
 // executeSQLQuery 执行SQL查询并返回结果
-func executeSQLQuery(dbConfig *DatabaseConfig, sql string, args []interface{}) ([]map[string]interface{}, error) {
+func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface{}) ([]map[string]interface{}, error) {
 	// MongoDB 特殊处理
 	if dbConfig.Type == "mongodb" {
 		return nil, fmt.Errorf("MongoDB 暂不支持SQL查询")
@@ -2239,7 +2239,7 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sql string, args []interface{}) (
 	defer db.Close()
 
 	// 执行查询
-	rows, err := db.Query(sql, args...)
+	rows, err := db.Query(sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
