@@ -768,6 +768,13 @@ type AIConfig struct {
 	Model  string `json:"model"`
 }
 
+// AIQueryRequest AI查询请求
+type AIQueryRequest struct {
+	Message   string                   `json:"message"`
+	Databases []string                 `json:"databases"`
+	History   []map[string]interface{} `json:"history,omitempty"`
+}
+
 // 数据本体池存储
 var (
 	dataOntologyUsers     = make(map[string]*User)
@@ -2496,11 +2503,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 解析请求
-	var queryReq struct {
-		Message   string   `json:"message"`
-		Databases []string `json:"databases"`
-		History   []map[string]interface{} `json:"history,omitempty"`
-	}
+	var queryReq AIQueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
 		sendSSE(w, "error", map[string]interface{}{
 			"message": "请求格式错误",
@@ -2513,12 +2516,6 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		"message": "开始处理您的问题...",
 	})
 	flusher.Flush()
-	
-	// 检测是否是创建接口的请求
-	if isCreateApiRequest(queryReq.Message) {
-		handleAICreateApi(w, flusher, queryReq, dbSchemas, aiConfig)
-		return
-	}
 
 	// 检查AI配置
 	dataOntologyMu.RLock()
@@ -2561,6 +2558,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		sendSSE(w, "error", map[string]interface{}{
 			"message": "未找到有效的数据库",
 		})
+		return
+	}
+	
+	// 检测是否是创建接口的请求
+	if isCreateApiRequest(queryReq.Message) {
+		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
 	}
 
@@ -2935,11 +2938,7 @@ func isCreateApiRequest(message string) bool {
 }
 
 // handleAICreateApi 处理AI创建接口请求
-func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq struct {
-	Message   string                   `json:"message"`
-	Databases []string                 `json:"databases"`
-	History   []map[string]interface{} `json:"history,omitempty"`
-}, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
 	
 	sendSSE(w, "thinking", map[string]interface{}{
 		"message": "正在分析您的需求并生成接口配置...",
