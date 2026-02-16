@@ -767,26 +767,32 @@ async function previewTable(tableName) {
             
             // 即使数据为空也显示表头
             const hasData = data.data && data.data.length > 0;
+            const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
             const tableHtml = `
                 <table class="preview-table" id="dataTable">
                     <thead>
                         <tr>
-                            ${columns.map(col => `<th>${col}</th>`).join('')}
-                            <th class="action-column">操作</th>
+                            ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                            ${actionColumnHtml}
                         </tr>
                     </thead>
                     <tbody>
-                        ${hasData ? data.data.map((row, rowIndex) => `
-                            <tr data-row-index="${rowIndex}">
-                                ${columns.map(col => `<td data-column="${col}" class="editable-cell">${row[col] !== null ? escapeHtml(String(row[col])) : '<i class="null-value">NULL</i>'}</td>`).join('')}
-                                <td class="action-column">
-                                    <button class="btn-icon" onclick="deleteTableRow(${rowIndex})" title="删除行">🗑️</button>
-                                </td>
-                            </tr>
-                        `).join('') : `
+                        ${hasData ? data.data.map((row, rowIndex) => {
+                            const rowId = 'row-' + Date.now() + '-' + rowIndex;
+                            return `
+                                <tr data-row-id="${rowId}" data-row-index="${rowIndex}">
+                                    ${columns.map(col => {
+                                        const value = row[col];
+                                        const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
+                                        return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
+                                    }).join('')}
+                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button></td>` : ''}
+                                </tr>
+                            `;
+                        }).join('') : `
                             <tr class="empty-row">
-                                <td colspan="${columns.length + 1}" style="text-align:center;color:#718096;padding:20px;">
-                                    表中暂无数据，点击上方"添加行"按钮添加数据
+                                <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
+                                    ${isTableEditMode ? '表中暂无数据，点击上方"+ 添加行"按钮添加数据' : '表中暂无数据'}
                                 </td>
                             </tr>
                         `}
@@ -798,8 +804,12 @@ async function previewTable(tableName) {
             previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             
             // 如果在编辑模式，添加编辑功能
+            const table = document.getElementById('dataTable');
             if (isTableEditMode) {
+                table.classList.add('editing-mode');
                 enableTableEditing();
+            } else {
+                table.classList.remove('editing-mode');
             }
         }
     } catch (error) {
@@ -837,8 +847,7 @@ function updatePreviewHeader() {
 // 启用表格编辑模式
 function enableTableEditMode() {
     isTableEditMode = true;
-    updatePreviewHeader();
-    enableTableEditing();
+    previewTable(currentPreviewTable);
 }
 
 // 启用表格编辑功能
@@ -849,18 +858,30 @@ function enableTableEditing() {
         cell.classList.add('editing');
         
         // 处理NULL值的编辑
-        cell.addEventListener('focus', function() {
+        const focusHandler = function() {
             const nullEl = this.querySelector('.null-value');
             if (nullEl) {
                 this.textContent = '';
             }
-        });
+        };
         
-        cell.addEventListener('blur', function() {
+        const blurHandler = function() {
             if (this.textContent.trim() === '') {
                 this.innerHTML = '<i class="null-value">NULL</i>';
             }
-        });
+        };
+        
+        // 移除旧的事件监听器（如果存在）
+        cell.removeEventListener('focus', focusHandler);
+        cell.removeEventListener('blur', blurHandler);
+        
+        // 添加新的事件监听器
+        cell.addEventListener('focus', focusHandler);
+        cell.addEventListener('blur', blurHandler);
+        
+        // 保存处理器引用以便后续移除
+        cell._focusHandler = focusHandler;
+        cell._blurHandler = blurHandler;
     });
 }
 
@@ -894,15 +915,15 @@ function addTableRow() {
         emptyRow.remove();
     }
     
-    const rowIndex = tbody.children.length;
+    const rowId = 'row-new-' + Date.now();
     const newRow = document.createElement('tr');
-    newRow.dataset.rowIndex = rowIndex;
+    newRow.dataset.rowId = rowId;
     newRow.dataset.isNew = 'true';
     newRow.innerHTML = headers.map(col => 
-        `<td data-column="${col}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
+        `<td data-column="${escapeHtml(col)}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
     ).join('') + `
         <td class="action-column">
-            <button class="btn-icon" onclick="deleteTableRow(${rowIndex})" title="删除行">🗑️</button>
+            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button>
         </td>
     `;
     
@@ -912,20 +933,55 @@ function addTableRow() {
     const firstCell = newRow.querySelector('.editable-cell');
     if (firstCell) {
         firstCell.focus();
+        // 清空NULL提示
+        if (firstCell.querySelector('.null-value')) {
+            firstCell.textContent = '';
+        }
     }
 }
 
 // 删除表格行
-function deleteTableRow(rowIndex) {
-    if (!confirm('确定要删除这一行吗？')) {
-        return;
-    }
+function deleteTableRow(rowId) {
+    const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
+    if (!row) return;
     
-    const row = document.querySelector(`tr[data-row-index="${rowIndex}"]`);
-    if (row) {
-        row.dataset.deleted = 'true';
-        row.style.opacity = '0.5';
-        row.style.textDecoration = 'line-through';
+    // 如果是新增行，直接删除DOM
+    if (row.dataset.isNew === 'true') {
+        row.remove();
+        
+        // 如果删除后没有行了，显示空行提示
+        const tbody = document.getElementById('dataTable').querySelector('tbody');
+        if (tbody.children.length === 0) {
+            const columns = Array.from(document.querySelectorAll('#dataTable thead th')).length;
+            tbody.innerHTML = `
+                <tr class="empty-row">
+                    <td colspan="${columns}" style="text-align:center;color:#718096;padding:20px;">
+                        表中暂无数据，点击上方"+ 添加行"按钮添加数据
+                    </td>
+                </tr>
+            `;
+        }
+    } else {
+        // 已存在的行，标记为删除或取消删除
+        const deleteBtn = row.querySelector('.btn-icon-delete');
+        
+        if (row.dataset.deleted === 'true') {
+            // 取消删除标记
+            row.dataset.deleted = 'false';
+            row.classList.remove('row-deleted');
+            if (deleteBtn) {
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.title = '删除行';
+            }
+        } else {
+            // 标记为删除
+            row.dataset.deleted = 'true';
+            row.classList.add('row-deleted');
+            if (deleteBtn) {
+                deleteBtn.textContent = '↶';
+                deleteBtn.title = '撤销删除';
+            }
+        }
     }
 }
 
@@ -947,8 +1003,8 @@ async function saveTableData() {
         
         if (isDeleted) {
             // 只有非新增的行才需要删除
-            if (!isNew) {
-                deletes.push(rowIndex);
+            if (!isNew && rowIndex !== undefined) {
+                deletes.push(parseInt(rowIndex));
             }
         } else {
             const rowData = {};
@@ -957,16 +1013,22 @@ async function saveTableData() {
                 const column = cell.dataset.column;
                 const nullEl = cell.querySelector('.null-value');
                 const value = nullEl ? null : cell.textContent.trim();
-                rowData[column] = value;
+                rowData[column] = value === '' ? null : value;
             });
             
             if (isNew) {
                 inserts.push(rowData);
-            } else {
-                updates.push({ index: rowIndex, data: rowData });
+            } else if (rowIndex !== undefined) {
+                updates.push({ index: parseInt(rowIndex), data: rowData });
             }
         }
     });
+    
+    // 检查是否有更改
+    if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
+        alert('没有任何更改');
+        return;
+    }
     
     // 发送保存请求
     try {
