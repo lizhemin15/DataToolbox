@@ -1005,6 +1005,85 @@ func getTablesQuery(dbType string) string {
 	}
 }
 
+// getTablesList 获取数据库表列表
+func getTablesList(config *DatabaseConfig) ([]string, error) {
+	var tables []string
+
+	// MongoDB 特殊处理
+	if config.Type == "mongodb" {
+		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+			config.User, config.Password, config.Host, config.Port, config.Database)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+		if err != nil {
+			return nil, err
+		}
+		defer client.Disconnect(ctx)
+		
+		db := client.Database(config.Database)
+		collections, err := db.ListCollectionNames(ctx, bson.M{})
+		if err != nil {
+			return nil, err
+		}
+		return collections, nil
+	}
+
+	// Redis 不支持表列表
+	if config.Type == "redis" {
+		return []string{"DB 0", "DB 1", "DB 2", "DB 3", "DB 4", "DB 5"}, nil
+	}
+
+	// 其他NoSQL数据库暂不支持
+	if config.Type == "neo4j" || config.Type == "elasticsearch" || 
+	   config.Type == "influxdb" || config.Type == "memcached" || 
+	   config.Type == "cassandra" || config.Type == "hbase" {
+		return []string{}, nil
+	}
+
+	// SQL数据库通用处理
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+
+	// 获取表列表
+	query := getTablesQuery(config.Type)
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err == nil {
+			tables = append(tables, tableName)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if tables == nil {
+		tables = []string{}
+	}
+
+	return tables, nil
+}
+
 // 验证Token
 func verifyToken(r *http.Request) bool {
 	authHeader := r.Header.Get("Authorization")
