@@ -961,13 +961,17 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 	case "dm":
 		// 达梦数据库连接字符串
 		// 格式: dm://username:password@host:port/schema
+		log.Printf("DM配置: 原始Host='%s', 原始Port=%d", config.Host, config.Port)
+		
 		host := config.Host
 		if host == "" {
 			host = "localhost"
+			log.Printf("DM: Host为空，使用默认值 localhost")
 		}
 		port := config.Port
 		if port == 0 {
 			port = 5236
+			log.Printf("DM: Port为0，使用默认值 5236")
 		}
 		
 		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
@@ -976,6 +980,8 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
 				config.User, config.Password, host, port, config.Database)
 		}
+		
+		log.Printf("DM最终DSN: %s", dsn)
 		return "dm", dsn, nil
 
 	case "sqlite":
@@ -1545,6 +1551,9 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// 调试日志：打印生成的 DSN
+	log.Printf("生成的 DSN: driver=%s, dsn=%s", driver, dsn)
 
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
