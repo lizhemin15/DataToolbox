@@ -1370,7 +1370,7 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
-		uri := buildMongoURI(config)
+		uri := buildMongoURI(&config)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
