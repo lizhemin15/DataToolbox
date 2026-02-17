@@ -27,6 +27,7 @@ import (
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
 	_ "github.com/sijms/go-ora/v2"
+	_ "gitee.com/chunanyong/dm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
