@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -142,6 +143,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     
     steps:
       - name: Checkout code
@@ -153,7 +156,7 @@ jobs:
           path: artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
           body: |
@@ -190,5 +193,3 @@ jobs:
             ```
             
             启动后访问: http://localhost:端口号
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
