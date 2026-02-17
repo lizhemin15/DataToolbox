@@ -2838,15 +2838,37 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	defer db.Close()
 
 	// 构建CREATE TABLE语句
+	// 根据数据库类型选择标识符引用符
+	var quoteChar string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb", "dm":
+		quoteChar = `"`
+	case "sqlserver":
+		quoteChar = "["
+	case "oracle":
+		quoteChar = "" // Oracle 不使用引用符或使用双引号
+	default:
+		quoteChar = "`"
+	}
+	
+	quoteIdentifier := func(name string) string {
+		if quoteChar == "[" {
+			return "[" + name + "]"
+		} else if quoteChar == "" {
+			return name
+		}
+		return quoteChar + name + quoteChar
+	}
+	
 	columnDefs := make([]string, 0)
 	primaryKeys := make([]string, 0)
 
 	for _, col := range req.Columns {
-		colDef := fmt.Sprintf("`%s` %s", col.Name, col.Type)
+		colDef := fmt.Sprintf("%s %s", quoteIdentifier(col.Name), col.Type)
 		
 		// 添加长度
 		if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR") {
-			colDef = fmt.Sprintf("`%s` %s(%s)", col.Name, col.Type, col.Size)
+			colDef = fmt.Sprintf("%s %s(%s)", quoteIdentifier(col.Name), col.Type, col.Size)
 		}
 		
 		// 添加NOT NULL
@@ -2861,6 +2883,11 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 				colDef = fmt.Sprintf(`"%s" SERIAL`, col.Name)
 			case "sqlserver":
 				colDef = fmt.Sprintf("[%s] %s IDENTITY(1,1)", col.Name, col.Type)
+			case "dm":
+				colDef = fmt.Sprintf(`"%s" %s IDENTITY(1,1)`, col.Name, col.Type)
+			case "oracle":
+				// Oracle 使用序列，这里简化处理
+				colDef = fmt.Sprintf("%s %s GENERATED ALWAYS AS IDENTITY", col.Name, col.Type)
 			default:
 				colDef += " AUTO_INCREMENT"
 			}
@@ -2870,7 +2897,7 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		
 		// 收集主键
 		if col.PrimaryKey {
-			primaryKeys = append(primaryKeys, fmt.Sprintf("`%s`", col.Name))
+			primaryKeys = append(primaryKeys, quoteIdentifier(col.Name))
 		}
 	}
 
@@ -2879,8 +2906,8 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(primaryKeys, ", ")))
 	}
 
-	createQuery := fmt.Sprintf("CREATE TABLE `%s` (\n    %s\n)", 
-		req.Name, strings.Join(columnDefs, ",\n    "))
+	createQuery := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)", 
+		quoteIdentifier(req.Name), strings.Join(columnDefs, ",\n    "))
 
 	log.Printf("执行创建表: %s", createQuery)
 	_, err = db.Exec(createQuery)
