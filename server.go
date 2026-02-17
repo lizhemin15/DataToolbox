@@ -960,8 +960,22 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 
 	case "dm":
 		// 达梦数据库连接字符串
-		dsn := fmt.Sprintf("dm://%s:%s@%s:%d?schema=%s",
-			config.User, config.Password, config.Host, config.Port, config.Database)
+		// 格式: dm://username:password@host:port/schema
+		host := config.Host
+		if host == "" {
+			host = "localhost"
+		}
+		port := config.Port
+		if port == 0 {
+			port = 5236
+		}
+		
+		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
+			config.User, config.Password, host, port)
+		if config.Database != "" {
+			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
+				config.User, config.Password, host, port, config.Database)
+		}
 		return "dm", dsn, nil
 
 	case "sqlite":
