@@ -1383,6 +1383,10 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 调试日志：打印接收到的配置
+	log.Printf("测试连接配置: Type=%s, Host=%s, Port=%d, User=%s, Database=%s", 
+		config.Type, config.Host, config.Port, config.User, config.Database)
+
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
 		uri := buildMongoURI(&config)
