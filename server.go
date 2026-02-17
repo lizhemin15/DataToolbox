@@ -1678,6 +1678,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		// MongoDB 特殊处理
 		if config.Type == "mongodb" {
 			uri := buildMongoURI(config)
+			log.Printf("MongoDB 连接数据库: %s", config.Database)
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
@@ -1688,10 +1689,17 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 					db := client.Database(config.Database)
 					collections, err := db.ListCollectionNames(ctx, bson.M{})
 					if err == nil {
+						log.Printf("MongoDB 获取到 %d 个集合: %v", len(collections), collections)
 						tables = collections
 						connected = true
+					} else {
+						log.Printf("MongoDB 获取集合列表失败: %v", err)
 					}
+				} else {
+					log.Printf("MongoDB Ping 失败: %v", err)
 				}
+			} else {
+				log.Printf("MongoDB 连接失败: %v", err)
 			}
 		} else if config.Type == "redis" {
 			// Redis 不支持表列表，显示数据库索引
@@ -1747,6 +1755,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				Name:      config.Name,
 				Host:      config.Host,
 				Port:      config.Port,
+				Database:  config.Database,
 				Path:      config.Path,
 				Connected: connected,
 				Tables:    tables,

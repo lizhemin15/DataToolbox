@@ -697,6 +697,7 @@ async function loadDatabaseDetail(dbId) {
             document.getElementById('dbName').textContent = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
             document.getElementById('dbHost').textContent = isFileDb ? data.database.path : data.database.host;
             document.getElementById('dbPort').textContent = isFileDb ? '-' : data.database.port;
+            document.getElementById('dbDatabase').textContent = data.database.database || '-';
             
             const statusEl = document.getElementById('dbStatus');
             if (data.database.connected) {
@@ -737,7 +738,24 @@ function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
     
     if (tables.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无数据表</div>';
+        const dbNameEl = document.getElementById('dbDatabase');
+        const currentDbName = dbNameEl ? dbNameEl.textContent : '';
+        
+        let hint = '';
+        if (currentDb && currentDb.type === 'mongodb') {
+            hint = `<div style="margin-top:12px;font-size:13px;color:#a0aec0;">
+                当前连接数据库: <strong style="color:#718096;">${currentDbName}</strong><br/>
+                如果数据库名称不正确，请编辑配置修改为正确的数据库名称（如 sample_mflix）
+            </div>`;
+        }
+        
+        listEl.innerHTML = `
+            <div style="text-align:center;color:#718096;padding:40px;">
+                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">📂</div>
+                <div style="font-size:16px;">暂无数据表</div>
+                ${hint}
+            </div>
+        `;
         return;
     }
 
