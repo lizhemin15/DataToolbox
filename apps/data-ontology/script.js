@@ -757,13 +757,20 @@ async function previewTable(tableName, keepEditMode = false) {
             
             // 获取列信息（优先使用结构信息，否则从数据推断）
             let columns = [];
-            if (structureData.success && structureData.columns) {
+            if (structureData.success && structureData.columns && structureData.columns.length > 0) {
                 columns = structureData.columns.map(col => col.name);
             } else if (data.data && data.data.length > 0) {
                 columns = Object.keys(data.data[0]);
             } else {
-                // 如果既没有结构信息又没有数据，显示提示
-                previewContent.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">无法获取表结构</div>';
+                // 如果既没有结构信息又没有数据，尝试通过DESCRIBE获取
+                // 显示提示信息
+                previewContent.innerHTML = `
+                    <div style="text-align:center;padding:40px;">
+                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">📋</div>
+                        <div style="color:#718096;font-size:16px;margin-bottom:12px;">表结构为空或无法获取</div>
+                        <div style="color:#a0aec0;font-size:14px;">此表可能是新创建的空表</div>
+                    </div>
+                `;
                 return;
             }
             

@@ -1827,15 +1827,39 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查是否是特殊路径
+	if strings.HasSuffix(path, "/structure") {
+		// 获取表结构
+		handleTableStructure(w, r, config, tableName)
+		return
+	}
+	
+	if strings.HasSuffix(path, "/data") {
+		// 数据操作路径
+		if r.Method == http.MethodPost {
+			handleTableDataSave(w, r, config, tableName)
+		} else {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "不支持的请求方法",
+			})
+		}
+		return
+	}
+	
 	// 处理不同的HTTP方法
 	switch r.Method {
 	case http.MethodPost:
-		// 处理数据保存（更新、插入、删除）
-		handleTableDataSave(w, r, config, tableName)
+		// 创建表
+		handleTableCreate(w, r, config)
 		return
 	case http.MethodGet:
 		// 处理数据查询
 		handleTableDataQuery(w, r, config, tableName)
+		return
+	case http.MethodDelete:
+		// 删除表
+		handleTableDrop(w, r, config, tableName)
 		return
 	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2215,6 +2239,307 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data":    data,
+	})
+}
+
+// handleTableStructure 获取表结构
+func handleTableStructure(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 只支持SQL数据库
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB暂不支持此功能",
+		})
+		return
+	}
+
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 根据数据库类型查询表结构
+	var query string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = fmt.Sprintf(`
+			SELECT column_name, data_type, is_nullable, column_default
+			FROM information_schema.columns
+			WHERE table_name = '%s'
+			ORDER BY ordinal_position
+		`, tableName)
+	case "mysql", "mariadb", "tidb":
+		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
+	case "sqlite", "duckdb":
+		query = fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
+	case "sqlserver":
+		query = fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY ORDINAL_POSITION
+		`, tableName)
+	default:
+		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询表结构失败: " + err.Error(),
+		})
+		return
+	}
+	defer rows.Close()
+
+	columns := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var colName, colType string
+		var nullable, extra interface{}
+		
+		// 根据不同数据库类型处理不同的返回格式
+		switch config.Type {
+		case "mysql", "mariadb", "tidb":
+			// Field, Type, Null, Key, Default, Extra
+			var key, defaultVal interface{}
+			if err := rows.Scan(&colName, &colType, &nullable, &key, &defaultVal, &extra); err == nil {
+				columns = append(columns, map[string]interface{}{
+					"name":     colName,
+					"type":     colType,
+					"nullable": nullable != "NO",
+				})
+			}
+		case "postgresql", "timescaledb", "cockroachdb", "sqlserver":
+			var defaultVal interface{}
+			if err := rows.Scan(&colName, &colType, &nullable, &defaultVal); err == nil {
+				columns = append(columns, map[string]interface{}{
+					"name":     colName,
+					"type":     colType,
+					"nullable": nullable != "NO",
+				})
+			}
+		case "sqlite", "duckdb":
+			// cid, name, type, notnull, dflt_value, pk
+			var cid, notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &colName, &colType, &notnull, &dfltValue, &pk); err == nil {
+				columns = append(columns, map[string]interface{}{
+					"name":     colName,
+					"type":     colType,
+					"nullable": notnull == 0,
+				})
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"columns": columns,
+	})
+}
+
+// handleTableDrop 删除表
+func handleTableDrop(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 只支持SQL数据库
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB暂不支持此功能",
+		})
+		return
+	}
+
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 构建DROP TABLE语句
+	var dropQuery string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		dropQuery = fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, tableName)
+	case "oracle", "dm":
+		dropQuery = fmt.Sprintf("DROP TABLE %s", tableName)
+	case "sqlserver":
+		dropQuery = fmt.Sprintf("DROP TABLE IF EXISTS [%s]", tableName)
+	default:
+		dropQuery = fmt.Sprintf("DROP TABLE IF EXISTS `%s`", tableName)
+	}
+
+	log.Printf("执行删除表: %s", dropQuery)
+	_, err = db.Exec(dropQuery)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "删除表失败: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("表 %s 删除成功", tableName)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "表删除成功",
+	})
+}
+
+// TableCreateRequest 创建表请求
+type TableCreateRequest struct {
+	Name    string `json:"name"`
+	Columns []struct {
+		Name          string `json:"name"`
+		Type          string `json:"type"`
+		Size          string `json:"size"`
+		NotNull       bool   `json:"not_null"`
+		PrimaryKey    bool   `json:"primary_key"`
+		AutoIncrement bool   `json:"auto_increment"`
+	} `json:"columns"`
+}
+
+// handleTableCreate 创建表
+func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseConfig) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	// 只支持SQL数据库
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB暂不支持此功能",
+		})
+		return
+	}
+
+	var req TableCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Name == "" || len(req.Columns) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表名和字段不能为空",
+		})
+		return
+	}
+
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 构建CREATE TABLE语句
+	columnDefs := make([]string, 0)
+	primaryKeys := make([]string, 0)
+
+	for _, col := range req.Columns {
+		colDef := fmt.Sprintf("`%s` %s", col.Name, col.Type)
+		
+		// 添加长度
+		if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR") {
+			colDef = fmt.Sprintf("`%s` %s(%s)", col.Name, col.Type, col.Size)
+		}
+		
+		// 添加NOT NULL
+		if col.NotNull {
+			colDef += " NOT NULL"
+		}
+		
+		// 添加AUTO_INCREMENT
+		if col.AutoIncrement {
+			switch config.Type {
+			case "postgresql", "timescaledb", "cockroachdb":
+				colDef = fmt.Sprintf(`"%s" SERIAL`, col.Name)
+			case "sqlserver":
+				colDef = fmt.Sprintf("[%s] %s IDENTITY(1,1)", col.Name, col.Type)
+			default:
+				colDef += " AUTO_INCREMENT"
+			}
+		}
+		
+		columnDefs = append(columnDefs, colDef)
+		
+		// 收集主键
+		if col.PrimaryKey {
+			primaryKeys = append(primaryKeys, fmt.Sprintf("`%s`", col.Name))
+		}
+	}
+
+	// 添加主键约束
+	if len(primaryKeys) > 0 {
+		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(primaryKeys, ", ")))
+	}
+
+	createQuery := fmt.Sprintf("CREATE TABLE `%s` (\n    %s\n)", 
+		req.Name, strings.Join(columnDefs, ",\n    "))
+
+	log.Printf("执行创建表: %s", createQuery)
+	_, err = db.Exec(createQuery)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "创建表失败: " + err.Error(),
+		})
+		return
+	}
+
+	log.Printf("表 %s 创建成功", req.Name)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "表创建成功",
 	})
 }
 
