@@ -2452,7 +2452,6 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var colName string
-		var otherFields []interface{}
 		
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
