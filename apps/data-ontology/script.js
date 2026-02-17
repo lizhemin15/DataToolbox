@@ -1453,12 +1453,40 @@ function parseMyBatisParams(sql) {
 function renderApiParams(params) {
     const displayEl = document.getElementById('apiParamsDisplay');
     
+    // 检查SQL语法问题
+    let sqlWarningHtml = '';
+    if (currentApi && currentApi.sql) {
+        const warnings = validateSqlSyntax(currentApi.sql);
+        if (warnings.length > 0) {
+            const errorWarnings = warnings.filter(w => w.type === 'error');
+            if (errorWarnings.length > 0) {
+                sqlWarningHtml = `
+                    <div class="sql-syntax-error">
+                        <div class="error-icon">⚠️</div>
+                        <div class="error-content">
+                            <div class="error-title">SQL语法错误</div>
+                            <div class="error-message">${errorWarnings[0].message}</div>
+                            <div class="error-fix">
+                                <strong>建议修复：</strong>
+                                <div class="fix-example">
+                                    <div class="fix-before">❌ ${escapeHtml(currentApi.sql)}</div>
+                                    <div class="fix-after">✅ ${escapeHtml(currentApi.sql.replace(/#\{/g, '${'))}</div>
+                                </div>
+                                <button class="btn btn-sm btn-primary" onclick="quickFixSql()" style="margin-top:8px;">🔧 一键修复</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+    }
+    
     if (params.length === 0) {
-        displayEl.innerHTML = '<div style="text-align:center;color:#718096;padding:12px;">无参数</div>';
+        displayEl.innerHTML = sqlWarningHtml + '<div style="text-align:center;color:#718096;padding:12px;">无参数</div>';
         return;
     }
     
-    displayEl.innerHTML = params.map(param => {
+    const paramsHtml = params.map(param => {
         const typeLabel = param.type === 'prepared' ? '预编译' : '直接替换';
         const typeClass = param.required ? 'required' : 'optional';
         const requiredLabel = param.required ? '必填' : '可选';
@@ -1479,6 +1507,51 @@ function renderApiParams(params) {
             </div>
         `;
     }).join('');
+    
+    displayEl.innerHTML = sqlWarningHtml + paramsHtml;
+}
+
+// 一键修复SQL
+async function quickFixSql() {
+    if (!currentApi) return;
+    
+    if (!confirm('将 #{} 替换为 ${}，确认修复？')) {
+        return;
+    }
+    
+    // 修复SQL
+    const fixedSql = currentApi.sql.replace(/#\{/g, '${');
+    
+    // 更新接口
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({
+                name: currentApi.name,
+                path: currentApi.path,
+                method: currentApi.method,
+                database_id: currentApi.database_id,
+                sql: fixedSql,
+                description: currentApi.description,
+                default_params: currentApi.default_params
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('修复成功！');
+            loadApiDetail(currentApi.id);
+        } else {
+            alert('修复失败：' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('修复失败：' + error.message);
+    }
 }
 
 // 显示添加接口弹窗
@@ -1570,6 +1643,25 @@ async function handleAddApi(e) {
         return;
     }
 
+    // 验证SQL语法
+    const sqlWarnings = validateSqlSyntax(apiData.sql);
+    if (sqlWarnings.length > 0) {
+        const errors = sqlWarnings.filter(w => w.type === 'error');
+        if (errors.length > 0) {
+            showApiFormError(errors[0].message);
+            return;
+        }
+        
+        // 如果只有警告，询问用户是否继续
+        const warnings = sqlWarnings.filter(w => w.type === 'warning');
+        if (warnings.length > 0) {
+            const warningMsg = warnings.map(w => w.message).join('\n\n');
+            if (!confirm('⚠️ SQL语法警告：\n\n' + warningMsg + '\n\n是否继续保存？')) {
+                return;
+            }
+        }
+    }
+
     const errorEl = document.getElementById('apiFormError');
     const successEl = document.getElementById('apiFormSuccess');
     errorEl.classList.remove('show');
@@ -1649,6 +1741,33 @@ function showApiFormError(message) {
     const errorEl = document.getElementById('apiFormError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
+}
+
+// 验证SQL语法
+function validateSqlSyntax(sql) {
+    const warnings = [];
+    
+    // 检查DDL语句是否使用了预编译参数
+    const isDDL = /^\s*(CREATE|DROP|ALTER|TRUNCATE)\s+/i.test(sql);
+    const hasPreparedParams = /#\{[^}]+\}/g.test(sql);
+    
+    if (isDDL && hasPreparedParams) {
+        warnings.push({
+            type: 'error',
+            message: 'DDL语句（CREATE/DROP/ALTER）不能使用预编译参数 #{}，请改用直接替换 ${}'
+        });
+    }
+    
+    // 检查${} 的SQL注入风险
+    const hasDirectReplace = /\$\{[^}]+\}/g.test(sql);
+    if (hasDirectReplace && !isDDL) {
+        warnings.push({
+            type: 'warning',
+            message: '检测到直接替换 ${}，请注意SQL注入风险。建议优先使用预编译参数 #{}'
+        });
+    }
+    
+    return warnings;
 }
 
 // 编辑接口

@@ -195,6 +195,19 @@ body {
     min-height: 80px;
 }
 
+.form-group small {
+    display: block;
+    margin-top: 8px;
+    color: #718096;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.form-group small strong {
+    color: #2d3748;
+    font-weight: 600;
+}
+
 .btn {
     padding: 10px 20px;
     border: none;
@@ -2085,6 +2098,84 @@ textarea#testApiParams {
     font-weight: 500;
 }
 
+/* SQL语法错误提示 */
+.sql-syntax-error {
+    background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+    border: 2px solid #fc8181;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 16px;
+    box-shadow: 0 4px 12px rgba(252, 129, 129, 0.2);
+    animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-10px); }
+    75% { transform: translateX(10px); }
+}
+
+.error-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.error-content {
+    flex: 1;
+}
+
+.error-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #c53030;
+    margin-bottom: 8px;
+}
+
+.error-message {
+    font-size: 14px;
+    color: #742a2a;
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.error-fix {
+    background: rgba(255, 255, 255, 0.6);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #fc8181;
+}
+
+.error-fix strong {
+    color: #c53030;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.fix-example {
+    margin: 8px 0;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+}
+
+.fix-before {
+    background: #fff5f5;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    color: #c53030;
+    border-left: 3px solid #e53e3e;
+}
+
+.fix-after {
+    background: #f0fff4;
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #22543d;
+    border-left: 3px solid #48bb78;
+}
+
 /* 响应式优化 */
 @media (max-width: 1200px) {
     .table-column-item {
@@ -2094,6 +2185,10 @@ textarea#testApiParams {
     
     .table-column-item label {
         grid-column: 1 / -1;
+    }
+    
+    .sql-syntax-error {
+        flex-direction: column;
     }
 }
 

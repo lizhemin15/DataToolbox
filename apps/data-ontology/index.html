@@ -412,7 +412,12 @@
                 <div class="form-group">
                     <label for="apiSqlInput">SQL语句 (MyBatis语法)</label>
                     <textarea id="apiSqlInput" rows="8" placeholder="支持MyBatis语法，例如:&#10;SELECT * FROM users WHERE id = #{id} AND status = #{status}&#10;&#10;参数格式:&#10;#{paramName} - 预编译参数(推荐)&#10;${paramName} - 直接替换(谨慎使用)" required></textarea>
-                    <small>使用 #{参数名} 表示预编译参数，使用 ${参数名} 表示直接替换</small>
+                    <small>
+                        <strong>参数语法：</strong><br>
+                        • #{参数名} - 预编译参数（推荐，用于数据查询，防止SQL注入）<br>
+                        • ${参数名} - 直接替换（用于表名、列名等）<br>
+                        <strong style="color:#e53e3e;">⚠️ DDL语句（CREATE/DROP/ALTER）必须使用 ${} 而不是 #{}</strong>
+                    </small>
                 </div>
                 <div class="form-group">
                     <label for="apiDefaultParamsInput">默认参数值 (JSON格式)</label>
