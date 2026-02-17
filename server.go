@@ -961,6 +961,7 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 	case "dm":
 		// 达梦数据库连接字符串
 		// 格式: dm://username:password@host:port/schema
+		// 需要对用户名和密码进行 URL 编码，避免特殊字符导致解析错误
 		log.Printf("DM配置: 原始Host='%s', 原始Port=%d", config.Host, config.Port)
 		
 		host := config.Host
@@ -974,14 +975,18 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 			log.Printf("DM: Port为0，使用默认值 5236")
 		}
 		
+		// URL 编码用户名和密码，避免特殊字符（如 @、:、/ 等）导致 DSN 解析错误
+		encodedUser := url.QueryEscape(config.User)
+		encodedPassword := url.QueryEscape(config.Password)
+		
 		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
-			config.User, config.Password, host, port)
+			encodedUser, encodedPassword, host, port)
 		if config.Database != "" {
 			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
-				config.User, config.Password, host, port, config.Database)
+				encodedUser, encodedPassword, host, port, config.Database)
 		}
 		
-		log.Printf("DM最终DSN: %s", dsn)
+		log.Printf("DM最终DSN(已编码): %s", dsn)
 		return "dm", dsn, nil
 
 	case "sqlite":
