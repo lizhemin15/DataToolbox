@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1015,15 +1016,35 @@ func getTablesQuery(dbType string) string {
 	}
 }
 
+// buildMongoURI 构建 MongoDB 连接 URI，自动检测是否为 Atlas
+func buildMongoURI(config *DatabaseConfig) string {
+	// 检查是否为 MongoDB Atlas（包含 .mongodb.net）
+	if strings.Contains(config.Host, ".mongodb.net") {
+		// MongoDB Atlas 使用 SRV 连接格式，不需要端口号
+		uri := fmt.Sprintf("mongodb+srv://%s:%s@%s/%s?retryWrites=true&w=majority",
+			url.QueryEscape(config.User), 
+			url.QueryEscape(config.Password), 
+			config.Host, 
+			config.Database)
+		return uri
+	}
+	// 标准 MongoDB 连接格式
+	return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+		url.QueryEscape(config.User), 
+		url.QueryEscape(config.Password), 
+		config.Host, 
+		config.Port, 
+		config.Database)
+}
+
 // getTablesList 获取数据库表列表
 func getTablesList(config *DatabaseConfig) ([]string, error) {
 	var tables []string
 
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
-		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		uri := buildMongoURI(config)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
@@ -1100,9 +1121,8 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 
 	// MongoDB 特殊处理 - 通过采样文档推断字段
 	if config.Type == "mongodb" {
-		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		uri := buildMongoURI(config)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
@@ -1350,9 +1370,8 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
-		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		uri := buildMongoURI(config)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
@@ -1658,9 +1677,8 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 
 		// MongoDB 特殊处理
 		if config.Type == "mongodb" {
-			uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-				config.User, config.Password, config.Host, config.Port, config.Database)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			uri := buildMongoURI(config)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
 			client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
@@ -2118,9 +2136,8 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
-		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-			config.User, config.Password, config.Host, config.Port, config.Database)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		uri := buildMongoURI(config)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
