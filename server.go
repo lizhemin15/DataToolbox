@@ -1867,16 +1867,18 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	// 从URL中提取数据库ID和表名
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	if len(parts) < 7 {
+	
+	// 路径格式: /api/data-ontology/databases/{id}/tables 或 /api/data-ontology/databases/{id}/tables/{name}
+	if len(parts) < 6 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
+	
 	dbID := parts[4]
-	tableName := parts[6]
-
+	
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
@@ -1888,6 +1890,23 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// 如果路径以 /tables 结尾（创建表）
+	if strings.HasSuffix(path, "/tables") && r.Method == http.MethodPost {
+		handleTableCreate(w, r, config)
+		return
+	}
+	
+	// 其他情况需要表名
+	if len(parts) < 7 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	
+	tableName := parts[6]
 
 	// 检查是否是特殊路径
 	if strings.HasSuffix(path, "/structure") {
@@ -1911,10 +1930,6 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	
 	// 处理不同的HTTP方法
 	switch r.Method {
-	case http.MethodPost:
-		// 创建表
-		handleTableCreate(w, r, config)
-		return
 	case http.MethodGet:
 		// 处理数据查询
 		handleTableDataQuery(w, r, config, tableName)
@@ -4366,7 +4381,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if strings.Contains(path, "/tables/") {
+		if strings.Contains(path, "/tables/") || strings.HasSuffix(path, "/tables") {
 			handleTableData(w, r)
 		} else {
 			handleDatabaseDetail(w, r)
