@@ -37,6 +37,7 @@ jobs:
 
       - name: Download dependencies
         run: |
+          go mod tidy
           go mod download
 
       - name: Build
