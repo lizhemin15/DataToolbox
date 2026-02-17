@@ -853,6 +853,7 @@ function updatePreviewHeader() {
         <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
     ` : `
         <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+        <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">🔧 编辑结构</button>
         <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
         <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
     `;
@@ -1293,6 +1294,204 @@ function closePreview() {
     document.getElementById('tablePreview').style.display = 'none';
     currentPreviewTable = null;
     isTableEditMode = false;
+}
+
+// 显示编辑表结构模态框
+async function showEditStructureModal() {
+    if (!currentDb || !currentPreviewTable) return;
+    
+    try {
+        // 获取当前表结构
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            }
+        });
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('获取表结构失败：' + (data.message || '未知错误'));
+            return;
+        }
+        
+        // 渲染编辑界面
+        renderEditStructure(data.columns || []);
+        document.getElementById('editStructureModal').style.display = 'block';
+    } catch (error) {
+        alert('获取表结构失败：' + error.message);
+    }
+}
+
+// 渲染编辑结构界面
+function renderEditStructure(columns) {
+    const container = document.getElementById('structureColumnsContainer');
+    
+    let html = '';
+    columns.forEach((col, index) => {
+        html += `
+            <div class="structure-column-item" data-index="${index}">
+                <div class="structure-column-header">
+                    <span class="column-number">#${index + 1}</span>
+                    <input type="text" class="form-control" value="${col.name}" data-field="name" placeholder="列名" />
+                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+                </div>
+                <div class="structure-column-fields">
+                    <div class="form-group">
+                        <label>类型</label>
+                        <select class="form-control" data-field="type">
+                            <option value="INT" ${col.type.toUpperCase().includes('INT') ? 'selected' : ''}>INT</option>
+                            <option value="BIGINT" ${col.type.toUpperCase().includes('BIGINT') ? 'selected' : ''}>BIGINT</option>
+                            <option value="VARCHAR" ${col.type.toUpperCase().includes('VARCHAR') ? 'selected' : ''}>VARCHAR</option>
+                            <option value="TEXT" ${col.type.toUpperCase().includes('TEXT') ? 'selected' : ''}>TEXT</option>
+                            <option value="DATETIME" ${col.type.toUpperCase().includes('DATETIME') ? 'selected' : ''}>DATETIME</option>
+                            <option value="TIMESTAMP" ${col.type.toUpperCase().includes('TIMESTAMP') ? 'selected' : ''}>TIMESTAMP</option>
+                            <option value="DATE" ${col.type.toUpperCase().includes('DATE') && !col.type.toUpperCase().includes('DATETIME') ? 'selected' : ''}>DATE</option>
+                            <option value="DECIMAL" ${col.type.toUpperCase().includes('DECIMAL') ? 'selected' : ''}>DECIMAL</option>
+                            <option value="FLOAT" ${col.type.toUpperCase().includes('FLOAT') ? 'selected' : ''}>FLOAT</option>
+                            <option value="DOUBLE" ${col.type.toUpperCase().includes('DOUBLE') ? 'selected' : ''}>DOUBLE</option>
+                            <option value="BOOLEAN" ${col.type.toUpperCase().includes('BOOL') ? 'selected' : ''}>BOOLEAN</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>长度</label>
+                        <input type="text" class="form-control" data-field="size" placeholder="如: 255" 
+                            value="${extractSize(col.type)}" />
+                    </div>
+                    <div class="form-group-inline">
+                        <label>
+                            <input type="checkbox" data-field="nullable" ${col.nullable ? 'checked' : ''} />
+                            允许NULL
+                        </label>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// 提取类型中的长度信息
+function extractSize(typeStr) {
+    const match = typeStr.match(/\((\d+)\)/);
+    return match ? match[1] : '';
+}
+
+// 添加新列
+function addStructureColumn() {
+    const container = document.getElementById('structureColumnsContainer');
+    const index = container.children.length;
+    
+    const newColumn = document.createElement('div');
+    newColumn.className = 'structure-column-item';
+    newColumn.dataset.index = index;
+    newColumn.innerHTML = `
+        <div class="structure-column-header">
+            <span class="column-number">#${index + 1}</span>
+            <input type="text" class="form-control" data-field="name" placeholder="列名" />
+            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+        </div>
+        <div class="structure-column-fields">
+            <div class="form-group">
+                <label>类型</label>
+                <select class="form-control" data-field="type">
+                    <option value="INT">INT</option>
+                    <option value="BIGINT">BIGINT</option>
+                    <option value="VARCHAR" selected>VARCHAR</option>
+                    <option value="TEXT">TEXT</option>
+                    <option value="DATETIME">DATETIME</option>
+                    <option value="TIMESTAMP">TIMESTAMP</option>
+                    <option value="DATE">DATE</option>
+                    <option value="DECIMAL">DECIMAL</option>
+                    <option value="FLOAT">FLOAT</option>
+                    <option value="DOUBLE">DOUBLE</option>
+                    <option value="BOOLEAN">BOOLEAN</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>长度</label>
+                <input type="text" class="form-control" data-field="size" placeholder="如: 255" value="255" />
+            </div>
+            <div class="form-group-inline">
+                <label>
+                    <input type="checkbox" data-field="nullable" checked />
+                    允许NULL
+                </label>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(newColumn);
+}
+
+// 移除列
+function removeStructureColumn(index) {
+    const item = document.querySelector(`.structure-column-item[data-index="${index}"]`);
+    if (item) {
+        item.remove();
+    }
+}
+
+// 保存表结构修改
+async function saveTableStructure() {
+    if (!currentDb || !currentPreviewTable) return;
+    
+    const container = document.getElementById('structureColumnsContainer');
+    const columnItems = container.querySelectorAll('.structure-column-item');
+    
+    const newColumns = [];
+    columnItems.forEach(item => {
+        const name = item.querySelector('[data-field="name"]').value.trim();
+        const type = item.querySelector('[data-field="type"]').value;
+        const size = item.querySelector('[data-field="size"]').value.trim();
+        const nullable = item.querySelector('[data-field="nullable"]').checked;
+        
+        if (name) {
+            newColumns.push({
+                name,
+                type,
+                size,
+                nullable
+            });
+        }
+    });
+    
+    if (newColumns.length === 0) {
+        alert('至少需要一个列');
+        return;
+    }
+    
+    if (!confirm(`确定要修改表 "${currentPreviewTable}" 的结构吗？\n此操作可能导致数据丢失！`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ columns: newColumns })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert('表结构修改成功！');
+            closeEditStructureModal();
+            previewTable(currentPreviewTable);
+        } else {
+            alert('修改失败：' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('修改失败：' + error.message);
+    }
+}
+
+// 关闭编辑结构模态框
+function closeEditStructureModal() {
+    document.getElementById('editStructureModal').style.display = 'none';
 }
 
 // 删除数据库

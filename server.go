@@ -2242,13 +2242,25 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 	})
 }
 
-// handleTableStructure 获取表结构
+// handleTableStructure 获取或修改表结构
 func handleTableStructure(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
 	// 只支持SQL数据库
 	if config.Type == "mongodb" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "MongoDB暂不支持此功能",
+		})
+		return
+	}
+
+	// 根据HTTP方法分发
+	if r.Method == http.MethodPut {
+		handleTableStructureUpdate(w, r, config, tableName)
+		return
+	} else if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
 		})
 		return
 	}
@@ -2351,6 +2363,275 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		"success": true,
 		"columns": columns,
 	})
+}
+
+// TableStructureUpdateRequest 修改表结构请求
+type TableStructureUpdateRequest struct {
+	Columns []struct {
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Size     string `json:"size"`
+		Nullable bool   `json:"nullable"`
+	} `json:"columns"`
+}
+
+// handleTableStructureUpdate 修改表结构
+func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 解析请求
+	var req TableStructureUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误: " + err.Error(),
+		})
+		return
+	}
+
+	if len(req.Columns) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "至少需要一个列",
+		})
+		return
+	}
+
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	// 获取当前表结构
+	var query string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = fmt.Sprintf(`
+			SELECT column_name, data_type, is_nullable
+			FROM information_schema.columns
+			WHERE table_name = '%s'
+			ORDER BY ordinal_position
+		`, tableName)
+	case "mysql", "mariadb", "tidb":
+		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
+	case "sqlite", "duckdb":
+		query = fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
+	case "sqlserver":
+		query = fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY ORDINAL_POSITION
+		`, tableName)
+	default:
+		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询表结构失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 获取现有列
+	existingColumns := make(map[string]bool)
+	for rows.Next() {
+		var colName string
+		var otherFields []interface{}
+		
+		switch config.Type {
+		case "mysql", "mariadb", "tidb":
+			var colType, nullable interface{}
+			var key, defaultVal, extra interface{}
+			if err := rows.Scan(&colName, &colType, &nullable, &key, &defaultVal, &extra); err == nil {
+				existingColumns[colName] = true
+			}
+		case "postgresql", "timescaledb", "cockroachdb", "sqlserver":
+			var colType, nullable interface{}
+			var defaultVal interface{}
+			if err := rows.Scan(&colName, &colType, &nullable, &defaultVal); err == nil {
+				existingColumns[colName] = true
+			}
+		case "sqlite", "duckdb":
+			var cid, notnull, pk int
+			var colType string
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &colName, &colType, &notnull, &dfltValue, &pk); err == nil {
+				existingColumns[colName] = true
+			}
+		}
+	}
+	rows.Close()
+
+	// SQLite需要重建表（不支持ALTER COLUMN）
+	if config.Type == "sqlite" || config.Type == "duckdb" {
+		err = rebuildTableForSQLite(db, tableName, req.Columns)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "修改表结构失败: " + err.Error(),
+			})
+			return
+		}
+	} else {
+		// MySQL等数据库使用ALTER TABLE
+		alterStatements := make([]string, 0)
+		newColumns := make(map[string]bool)
+
+		// 收集新列名
+		for _, col := range req.Columns {
+			newColumns[col.Name] = true
+		}
+
+		// 添加新列或修改现有列
+		for _, col := range req.Columns {
+			colDef := col.Type
+			if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR") {
+				colDef = fmt.Sprintf("%s(%s)", col.Type, col.Size)
+			}
+
+			nullClause := ""
+			if !col.Nullable {
+				nullClause = " NOT NULL"
+			}
+
+			var alterSQL string
+			if existingColumns[col.Name] {
+				// 修改现有列
+				switch config.Type {
+				case "postgresql", "timescaledb", "cockroachdb":
+					alterSQL = fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" TYPE %s`, tableName, col.Name, colDef)
+					if !col.Nullable {
+						alterSQL += fmt.Sprintf(`, ALTER COLUMN "%s" SET NOT NULL`, col.Name)
+					} else {
+						alterSQL += fmt.Sprintf(`, ALTER COLUMN "%s" DROP NOT NULL`, col.Name)
+					}
+				case "sqlserver":
+					alterSQL = fmt.Sprintf("ALTER TABLE [%s] ALTER COLUMN [%s] %s%s", tableName, col.Name, colDef, nullClause)
+				default: // MySQL
+					alterSQL = fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` %s%s", tableName, col.Name, colDef, nullClause)
+				}
+			} else {
+				// 添加新列
+				switch config.Type {
+				case "postgresql", "timescaledb", "cockroachdb":
+					alterSQL = fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s%s`, tableName, col.Name, colDef, nullClause)
+				case "sqlserver":
+					alterSQL = fmt.Sprintf("ALTER TABLE [%s] ADD [%s] %s%s", tableName, col.Name, colDef, nullClause)
+				default: // MySQL
+					alterSQL = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s%s", tableName, col.Name, colDef, nullClause)
+				}
+			}
+			alterStatements = append(alterStatements, alterSQL)
+		}
+
+		// 删除不存在的列
+		for colName := range existingColumns {
+			if !newColumns[colName] {
+				var dropSQL string
+				switch config.Type {
+				case "postgresql", "timescaledb", "cockroachdb":
+					dropSQL = fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s"`, tableName, colName)
+				case "sqlserver":
+					dropSQL = fmt.Sprintf("ALTER TABLE [%s] DROP COLUMN [%s]", tableName, colName)
+				default: // MySQL
+					dropSQL = fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", tableName, colName)
+				}
+				alterStatements = append(alterStatements, dropSQL)
+			}
+		}
+
+		// 执行所有ALTER语句
+		for _, stmt := range alterStatements {
+			log.Printf("执行: %s", stmt)
+			if _, err := db.Exec(stmt); err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "修改表结构失败: " + err.Error() + " (SQL: " + stmt + ")",
+				})
+				return
+			}
+		}
+	}
+
+	log.Printf("表 %s 结构修改成功", tableName)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "表结构修改成功",
+	})
+}
+
+// rebuildTableForSQLite SQLite重建表以修改结构
+func rebuildTableForSQLite(db *sql.DB, tableName string, columns []struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Size     string `json:"size"`
+	Nullable bool   `json:"nullable"`
+}) error {
+	// 创建新表
+	newTableName := tableName + "_new"
+	columnDefs := make([]string, 0)
+
+	for _, col := range columns {
+		colDef := fmt.Sprintf("`%s` %s", col.Name, col.Type)
+		if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR" || col.Type == "TEXT") {
+			colDef = fmt.Sprintf("`%s` %s(%s)", col.Name, col.Type, col.Size)
+		}
+		if !col.Nullable {
+			colDef += " NOT NULL"
+		}
+		columnDefs = append(columnDefs, colDef)
+	}
+
+	createSQL := fmt.Sprintf("CREATE TABLE `%s` (\n    %s\n)", newTableName, strings.Join(columnDefs, ",\n    "))
+	log.Printf("创建新表: %s", createSQL)
+	if _, err := db.Exec(createSQL); err != nil {
+		return fmt.Errorf("创建新表失败: %w", err)
+	}
+
+	// 复制数据（只复制存在的列）
+	columnNames := make([]string, len(columns))
+	for i, col := range columns {
+		columnNames[i] = fmt.Sprintf("`%s`", col.Name)
+	}
+	copySQL := fmt.Sprintf("INSERT INTO `%s` (%s) SELECT %s FROM `%s`",
+		newTableName, strings.Join(columnNames, ", "), strings.Join(columnNames, ", "), tableName)
+	log.Printf("复制数据: %s", copySQL)
+	if _, err := db.Exec(copySQL); err != nil {
+		log.Printf("警告: 复制数据失败（可能是列不匹配）: %v", err)
+		// 不返回错误，允许继续
+	}
+
+	// 删除旧表
+	dropSQL := fmt.Sprintf("DROP TABLE `%s`", tableName)
+	log.Printf("删除旧表: %s", dropSQL)
+	if _, err := db.Exec(dropSQL); err != nil {
+		return fmt.Errorf("删除旧表失败: %w", err)
+	}
+
+	// 重命名新表
+	renameSQL := fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", newTableName, tableName)
+	log.Printf("重命名表: %s", renameSQL)
+	if _, err := db.Exec(renameSQL); err != nil {
+		return fmt.Errorf("重命名表失败: %w", err)
+	}
+
+	return nil
 }
 
 // handleTableDrop 删除表

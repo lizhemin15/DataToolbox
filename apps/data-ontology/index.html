@@ -532,6 +532,31 @@
         </div>
     </div>
 
+    <!-- 编辑表结构模态框 -->
+    <div id="editStructureModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>编辑表结构</h2>
+                <button class="modal-close" onclick="closeEditStructureModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <label>表字段</label>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="addStructureColumn()">+ 添加列</button>
+                    </div>
+                    <div id="structureColumnsContainer" class="table-columns-container">
+                        <!-- 动态生成字段列表 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="saveTableStructure()">保存修改</button>
+                    <button type="button" class="btn" onclick="closeEditStructureModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>

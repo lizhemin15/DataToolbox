@@ -1952,6 +1952,89 @@ textarea#testApiParams {
     box-shadow: 0 4px 8px rgba(238, 90, 82, 0.3);
 }
 
+/* 编辑表结构样式 */
+.structure-column-item {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+    transition: all 0.2s ease;
+}
+
+.structure-column-item:hover {
+    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.structure-column-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.structure-column-header .column-number {
+    min-width: 40px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.structure-column-header input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.structure-column-header input:focus {
+    border-color: #667eea;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.structure-column-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    padding-left: 52px;
+}
+
+.structure-column-fields .form-group {
+    margin-bottom: 0;
+}
+
+.structure-column-fields .form-group-inline {
+    display: flex;
+    align-items: center;
+    padding-top: 24px;
+}
+
+.structure-column-fields .form-group-inline label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #4a5568;
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+}
+
+.structure-column-fields .form-group-inline input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
 /* 编辑模式提示 */
 .preview-content {
     position: relative;
