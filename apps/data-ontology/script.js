@@ -629,8 +629,30 @@ function selectDatabase(dbId) {
     currentDb = databases.find(db => db.id === dbId);
     if (currentDb) {
         renderDatabaseList();
+        showDatabaseLoading();
         loadDatabaseDetail(dbId);
     }
+}
+
+// 显示数据库加载状态
+function showDatabaseLoading() {
+    document.getElementById('welcomeView').style.display = 'none';
+    document.getElementById('dbDetailView').style.display = 'block';
+    
+    // 显示加载状态
+    document.getElementById('dbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
+    document.getElementById('dbStatus').textContent = '连接中...';
+    document.getElementById('dbStatus').className = 'info-value status';
+    
+    const listEl = document.getElementById('tablesList');
+    listEl.innerHTML = `
+        <div style="text-align:center;padding:40px;color:#718096;">
+            <div class="loading-spinner"></div>
+            <div style="margin-top:12px;">正在加载数据库信息...</div>
+        </div>
+    `;
+    
+    document.getElementById('tablePreview').style.display = 'none';
 }
 
 // 加载数据库详情
@@ -687,9 +709,26 @@ async function loadDatabaseDetail(dbId) {
 
             renderTablesList(data.database.tables || []);
             document.getElementById('tablePreview').style.display = 'none';
+        } else {
+            // 加载失败显示错误信息
+            const listEl = document.getElementById('tablesList');
+            listEl.innerHTML = `
+                <div style="text-align:center;padding:40px;color:#e53e3e;">
+                    <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                    <div>加载失败：${data.message || '未知错误'}</div>
+                </div>
+            `;
         }
     } catch (error) {
         console.error('加载数据库详情失败：', error);
+        // 网络错误或其他异常
+        const listEl = document.getElementById('tablesList');
+        listEl.innerHTML = `
+            <div style="text-align:center;padding:40px;color:#e53e3e;">
+                <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                <div>加载失败：网络错误或服务器无响应</div>
+            </div>
+        `;
     }
 }
 
@@ -729,6 +768,16 @@ async function previewTable(tableName, keepEditMode = false) {
     if (!keepEditMode) {
         isTableEditMode = false;
     }
+
+    // 显示加载状态
+    document.getElementById('tablePreview').style.display = 'block';
+    const previewContent = document.getElementById('previewContent');
+    previewContent.innerHTML = `
+        <div style="text-align:center;padding:60px;color:#718096;">
+            <div class="loading-spinner"></div>
+            <div style="margin-top:16px;">正在加载表数据...</div>
+        </div>
+    `;
 
     try {
         // 首先获取表结构

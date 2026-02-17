@@ -1678,17 +1678,19 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		// MongoDB 特殊处理
 		if config.Type == "mongodb" {
 			uri := buildMongoURI(config)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 
 			client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 			if err == nil {
 				defer client.Disconnect(ctx)
-				db := client.Database(config.Database)
-				collections, err := db.ListCollectionNames(ctx, bson.M{})
-				if err == nil {
-					tables = collections
-					connected = true
+				if err := client.Ping(ctx, nil); err == nil {
+					db := client.Database(config.Database)
+					collections, err := db.ListCollectionNames(ctx, bson.M{})
+					if err == nil {
+						tables = collections
+						connected = true
+					}
 				}
 			}
 		} else if config.Type == "redis" {
