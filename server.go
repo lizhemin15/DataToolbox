@@ -2073,6 +2073,33 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 
 	log.Printf("查询到 %d 行数据", len(allData))
 
+	// 根据数据库类型确定标识符引用符和是否支持 LIMIT
+	var quoteChar string
+	var supportsLimit bool
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb", "dm":
+		quoteChar = `"`
+		supportsLimit = config.Type != "dm" // 达梦不支持 LIMIT
+	case "sqlserver":
+		quoteChar = "["
+		supportsLimit = false
+	case "oracle":
+		quoteChar = ""
+		supportsLimit = false
+	default:
+		quoteChar = "`"
+		supportsLimit = true
+	}
+	
+	quoteIdentifier := func(name string) string {
+		if quoteChar == "[" {
+			return "[" + name + "]"
+		} else if quoteChar == "" {
+			return name
+		}
+		return quoteChar + name + quoteChar
+	}
+
 	updated := 0
 	inserted := 0
 	deleted := 0
@@ -2096,15 +2123,23 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			whereValues := make([]interface{}, 0)
 			for col, val := range rowData {
 				if val == nil {
-					whereClauses = append(whereClauses, fmt.Sprintf("`%s` IS NULL", col))
+					whereClauses = append(whereClauses, fmt.Sprintf("%s IS NULL", quoteIdentifier(col)))
 				} else {
-					whereClauses = append(whereClauses, fmt.Sprintf("`%s` = ?", col))
+					whereClauses = append(whereClauses, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 					whereValues = append(whereValues, val)
 				}
 			}
 
-			deleteQuery := fmt.Sprintf("DELETE FROM `%s` WHERE %s LIMIT 1", 
-				tableName, strings.Join(whereClauses, " AND "))
+			var deleteQuery string
+			if supportsLimit {
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s LIMIT 1", 
+					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
+			} else {
+				// 达梦、Oracle、SQL Server 不支持 DELETE ... LIMIT
+				// WHERE 条件已包含所有列匹配，理论上只会删除一行
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s", 
+					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
+			}
 			
 			log.Printf("执行删除SQL: %s", deleteQuery)
 			result, err := db.Exec(deleteQuery, whereValues...)
@@ -2131,7 +2166,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		setClauses := make([]string, 0)
 		setValues := make([]interface{}, 0)
 		for col, val := range update.Data {
-			setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+			setClauses = append(setClauses, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 			setValues = append(setValues, val)
 		}
 
@@ -2140,25 +2175,35 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		whereValues := make([]interface{}, 0)
 		for col, val := range oldRow {
 			if val == nil {
-				whereClauses = append(whereClauses, fmt.Sprintf("`%s` IS NULL", col))
+				whereClauses = append(whereClauses, fmt.Sprintf("%s IS NULL", quoteIdentifier(col)))
 			} else {
-				whereClauses = append(whereClauses, fmt.Sprintf("`%s` = ?", col))
+				whereClauses = append(whereClauses, fmt.Sprintf("%s = ?", quoteIdentifier(col)))
 				whereValues = append(whereValues, val)
 			}
 		}
 
-		updateQuery := fmt.Sprintf("UPDATE `%s` SET %s WHERE %s LIMIT 1",
-			tableName, strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
+		var updateQuery string
+		if supportsLimit {
+			updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s LIMIT 1",
+				quoteIdentifier(tableName), strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
+		} else {
+			// 达梦、Oracle、SQL Server 不支持 UPDATE ... LIMIT
+			// WHERE 条件已包含所有列匹配，理论上只会更新一行
+			updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s",
+				quoteIdentifier(tableName), strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
+		}
 		
 		allValues := append(setValues, whereValues...)
+		log.Printf("执行更新SQL: %s", updateQuery)
 		result, err := db.Exec(updateQuery, allValues...)
 		if err != nil {
-			log.Printf("更新失败: %v", err)
+			log.Printf("更新失败: %v, SQL: %s", err, updateQuery)
 			continue
 		}
 
 		affected, _ := result.RowsAffected()
 		updated += int(affected)
+		log.Printf("更新成功，影响行数: %d", affected)
 	}
 
 	// 3. 处理插入
@@ -2168,22 +2213,24 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		values := make([]interface{}, 0)
 
 		for col, val := range insertData {
-			cols = append(cols, fmt.Sprintf("`%s`", col))
+			cols = append(cols, quoteIdentifier(col))
 			placeholders = append(placeholders, "?")
 			values = append(values, val)
 		}
 
-		insertQuery := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
-			tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+			quoteIdentifier(tableName), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 		
+		log.Printf("执行插入SQL: %s", insertQuery)
 		result, err := db.Exec(insertQuery, values...)
 		if err != nil {
-			log.Printf("插入失败: %v", err)
+			log.Printf("插入失败: %v, SQL: %s", err, insertQuery)
 			continue
 		}
 
 		affected, _ := result.RowsAffected()
 		inserted += int(affected)
+		log.Printf("插入成功，影响行数: %d", affected)
 	}
 
 	log.Printf("保存完成: 更新=%d, 插入=%d, 删除=%d", updated, inserted, deleted)
