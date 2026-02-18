@@ -2245,11 +2245,22 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			values = append(values, val)
 		}
 
-		insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-			quoteIdentifier(tableName), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		var insertQuery string
+		var result sql.Result
+		var err error
 		
-		log.Printf("执行插入SQL: %s", insertQuery)
-		result, err := db.Exec(insertQuery, values...)
+		// 如果所有列都被跳过（只有自增列），使用 DEFAULT VALUES
+		if len(cols) == 0 {
+			insertQuery = fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", quoteIdentifier(tableName))
+			log.Printf("执行插入SQL (默认值): %s", insertQuery)
+			result, err = db.Exec(insertQuery)
+		} else {
+			insertQuery = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+				quoteIdentifier(tableName), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+			log.Printf("执行插入SQL: %s", insertQuery)
+			result, err = db.Exec(insertQuery, values...)
+		}
+		
 		if err != nil {
 			log.Printf("插入失败: %v, SQL: %s", err, insertQuery)
 			continue
