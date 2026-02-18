@@ -1030,7 +1030,7 @@ func getTablesQuery(dbType string) string {
 	case "oracle":
 		return "SELECT table_name FROM user_tables"
 	case "dm":
-		return "SELECT NAME FROM SYSOBJECTS WHERE TYPE='SCHOBJ' AND SUBTYPE='UTAB'"
+		return "SELECT TABLE_NAME FROM USER_TABLES"
 	case "sqlite":
 		return "SELECT name FROM sqlite_master WHERE type='table'"
 	case "duckdb":
@@ -1761,15 +1761,22 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 						connected = true
 						// 获取表列表
 						query := getTablesQuery(config.Type)
+						log.Printf("执行查询表列表: %s", query)
 						rows, err := db.Query(query)
-						if err == nil {
+						if err != nil {
+							log.Printf("查询表列表失败: %v", err)
+						} else {
 							defer rows.Close()
 							for rows.Next() {
 								var tableName string
 								if err := rows.Scan(&tableName); err == nil {
 									tables = append(tables, tableName)
+									log.Printf("找到表: %s", tableName)
+								} else {
+									log.Printf("扫描表名失败: %v", err)
 								}
 							}
+							log.Printf("共找到 %d 个表", len(tables))
 						}
 					}
 				}
