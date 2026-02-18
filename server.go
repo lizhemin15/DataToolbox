@@ -2207,12 +2207,39 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	}
 
 	// 3. 处理插入
+	// 对于达梦数据库，需要先查询自增列并排除
+	identityColumns := make(map[string]bool)
+	if config.Type == "dm" {
+		identQuery := fmt.Sprintf(`
+			SELECT a.NAME
+			FROM SYS.SYSCOLUMNS a, sys.sysobjects b
+			WHERE b.id = a.id AND b.name = '%s' AND (a.INFO2 & 0x01) = 0x01
+		`, tableName)
+		identRows, err := db.Query(identQuery)
+		if err == nil {
+			defer identRows.Close()
+			for identRows.Next() {
+				var colName string
+				if err := identRows.Scan(&colName); err == nil {
+					identityColumns[colName] = true
+					log.Printf("发现自增列: %s", colName)
+				}
+			}
+		}
+	}
+	
 	for _, insertData := range req.Inserts {
 		cols := make([]string, 0)
 		placeholders := make([]string, 0)
 		values := make([]interface{}, 0)
 
 		for col, val := range insertData {
+			// 达梦数据库：跳过自增列
+			if config.Type == "dm" && identityColumns[col] {
+				log.Printf("跳过自增列 %s", col)
+				continue
+			}
+			
 			cols = append(cols, quoteIdentifier(col))
 			placeholders = append(placeholders, "?")
 			values = append(values, val)
