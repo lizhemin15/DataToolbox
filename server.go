@@ -2388,6 +2388,20 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 			WHERE TABLE_NAME = '%s'
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
+	case "dm":
+		query = fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, tableName)
+	case "oracle":
+		query = fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, tableName)
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -2426,6 +2440,17 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 					"name":     colName,
 					"type":     colType,
 					"nullable": nullable != "NO",
+				})
+			}
+		case "dm", "oracle":
+			// COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
+			var nullableStr string
+			var defaultVal interface{}
+			if err := rows.Scan(&colName, &colType, &nullableStr, &defaultVal); err == nil {
+				columns = append(columns, map[string]interface{}{
+					"name":     colName,
+					"type":     colType,
+					"nullable": nullableStr == "Y",
 				})
 			}
 		case "sqlite", "duckdb":
@@ -2518,6 +2543,13 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			WHERE TABLE_NAME = '%s'
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
+	case "dm", "oracle":
+		query = fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, tableName)
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -2547,6 +2579,11 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			var colType, nullable interface{}
 			var defaultVal interface{}
 			if err := rows.Scan(&colName, &colType, &nullable, &defaultVal); err == nil {
+				existingColumns[colName] = true
+			}
+		case "dm", "oracle":
+			var colType, nullable interface{}
+			if err := rows.Scan(&colName, &colType, &nullable); err == nil {
 				existingColumns[colName] = true
 			}
 		case "sqlite", "duckdb":
