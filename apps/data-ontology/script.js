@@ -4399,31 +4399,7 @@ async function deleteGovTask() {
 
 async function runGovTask() {
     if (!currentGovTask) return;
-    try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/run`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({})
-        });
-        const data = await response.json();
-        if (data.success) {
-            currentGovTask.status = 'running';
-            showGovTaskDetail(currentGovTask);
-            renderGovTaskList();
-            setTimeout(() => {
-                loadGovTaskLogs();
-                refreshGovTaskStatus();
-            }, 3000);
-        } else {
-            alert(data.message || '运行失败');
-        }
-    } catch (error) {
-        alert('运行失败: ' + error.message);
-    }
+    await executeGovTaskInBrowser(currentGovTask.go_code, null, '');
 }
 
 async function toggleGovTask() {
@@ -4499,58 +4475,155 @@ async function executeInteractiveTask() {
     if (!currentGovTask) return;
     const inputType = currentGovTask.input_type || 'file';
     const inputText = document.getElementById('govInputText')?.value || '';
+    const file = govSelectedFile;
 
-    if ((inputType === 'file' || inputType === 'both') && govSelectedFile) {
-        const formData = new FormData();
-        formData.append('file', govSelectedFile);
-        if (inputText) formData.append('input_text', inputText);
-        try {
-            const token = localStorage.getItem('dataOntologyToken');
-            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/upload`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
-            });
-            const data = await response.json();
-            if (data.success) {
-                currentGovTask.status = 'running';
-                showGovTaskDetail(currentGovTask);
-                renderGovTaskList();
-                setTimeout(() => { loadGovTaskLogs(); refreshGovTaskStatus(); }, 3000);
-            } else {
-                alert(data.message || '执行失败');
-            }
-        } catch (error) {
-            alert('执行失败: ' + error.message);
-        }
-    } else if (inputType === 'text' || (inputType === 'both' && !govSelectedFile)) {
-        if (!inputText) {
-            alert('请输入文本内容');
-            return;
-        }
-        try {
-            const token = localStorage.getItem('dataOntologyToken');
-            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/run`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ input_text: inputText })
-            });
-            const data = await response.json();
-            if (data.success) {
-                currentGovTask.status = 'running';
-                showGovTaskDetail(currentGovTask);
-                renderGovTaskList();
-                setTimeout(() => { loadGovTaskLogs(); refreshGovTaskStatus(); }, 3000);
-            } else {
-                alert(data.message || '执行失败');
-            }
-        } catch (error) {
-            alert('执行失败: ' + error.message);
-        }
-    } else {
+    if ((inputType === 'file' || inputType === 'both') && !file && !inputText) {
         alert('请选择文件或输入文本');
+        return;
+    }
+    if (inputType === 'text' && !inputText) {
+        alert('请输入文本内容');
+        return;
+    }
+
+    await executeGovTaskInBrowser(currentGovTask.go_code, file, inputText);
+}
+
+// ==================== 浏览器端 JS 执行引擎 ====================
+
+let govLibsLoaded = false;
+
+async function ensureGovLibsLoaded() {
+    if (govLibsLoaded) return;
+    const libs = [
+        { global: 'XLSX',    src: '../../lib/xlsx.full.min.js' },
+        { global: 'Papa',    src: '../../lib/papaparse.min.js' },
+        { global: 'mammoth', src: '../../lib/mammoth.browser.min.js' },
+    ];
+    for (const lib of libs) {
+        if (!window[lib.global]) {
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = lib.src;
+                s.onload = resolve;
+                s.onerror = () => reject(new Error(`加载 ${lib.src} 失败`));
+                document.head.appendChild(s);
+            });
+        }
+    }
+    govLibsLoaded = true;
+}
+
+function createGovHelper(logLines) {
+    const token = localStorage.getItem('dataOntologyToken');
+    const dbId = currentGovTask?.database_id || '';
+
+    return {
+        log(msg) {
+            logLines.push(String(msg));
+        },
+        readExcel(file) {
+            if (!file) throw new Error('未提供文件');
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const wb = XLSX.read(e.target.result, { type: 'array' });
+                        resolve(wb);
+                    } catch (err) { reject(err); }
+                };
+                reader.onerror = () => reject(new Error('读取文件失败'));
+                reader.readAsArrayBuffer(file);
+            });
+        },
+        async readWord(file) {
+            if (!file) throw new Error('未提供文件');
+            const arrayBuffer = await file.arrayBuffer();
+            return mammoth.extractRawText({ arrayBuffer });
+        },
+        async querySQL(sql, params) {
+            if (!dbId) throw new Error('未关联数据库，请编辑任务关联一个数据库');
+            const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ database_id: dbId, sql, params: params || [] })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message || 'SQL执行失败');
+            return data.data || [];
+        },
+        async executeSQL(sql, params) {
+            if (!dbId) throw new Error('未关联数据库，请编辑任务关联一个数据库');
+            const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ database_id: dbId, sql, params: params || [] })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message || 'SQL执行失败');
+            return data.rows_affected || 0;
+        }
+    };
+}
+
+async function executeGovTaskInBrowser(code, file, inputText) {
+    if (!currentGovTask) return;
+    const logLines = [];
+    const taskId = currentGovTask.id;
+
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
+
+    let status = 'success';
+    let errorMsg = '';
+
+    try {
+        await ensureGovLibsLoaded();
+        const gov = createGovHelper(logLines);
+
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', code);
+        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth);
+    } catch (err) {
+        status = 'error';
+        errorMsg = err.message || String(err);
+        logLines.push(`[错误] ${errorMsg}`);
+    }
+
+    const output = logLines.join('\n');
+
+    currentGovTask.status = status;
+    currentGovTask.last_output = output;
+    currentGovTask.last_error = errorMsg;
+    currentGovTask.last_run_at = new Date().toISOString();
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const inputDesc = file ? `file: ${file.name}` : (inputText ? `text: ${inputText.substring(0, 50)}` : '');
+    container.innerHTML = `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date().toLocaleString()}</span>
+                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '错误'}</span>
+            </div>
+            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
+            ${output ? `<div class="gov-log-output">${escapeHtml(output)}</div>` : ''}
+            ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
+        </div>
+    `;
+
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
+        });
+    } catch (e) {
+        console.error('保存日志失败:', e);
     }
 }
