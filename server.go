@@ -3721,6 +3721,18 @@ func replaceWithRegex(input, pattern string, replacer func(string) string) strin
 	return result
 }
 
+// isWriteOperation 检测SQL是否为写操作（INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/TRUNCATE等）
+func isWriteOperation(sql string) bool {
+	trimmed := strings.TrimSpace(strings.ToUpper(sql))
+	writeKeywords := []string{"INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "REPLACE", "MERGE", "GRANT", "REVOKE", "RENAME"}
+	for _, kw := range writeKeywords {
+		if strings.HasPrefix(trimmed, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // executeSQLQuery 执行SQL查询并返回结果
 func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface{}) ([]map[string]interface{}, error) {
 	// MongoDB 特殊处理
@@ -4073,6 +4085,20 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		})
 		flusher.Flush()
 
+		// 检测写操作，需要用户确认
+		if isWriteOperation(sqlQuery) {
+			sendSSE(w, "confirm_write", map[string]interface{}{
+				"response": responseText,
+				"sql":      sqlQuery,
+				"dbId":     targetDBID,
+				"attempts": attempts,
+				"retries":  retry,
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+
 		// 发送执行SQL事件
 		sendSSE(w, "executing", map[string]interface{}{
 			"message": "正在执行SQL查询...",
@@ -4142,6 +4168,82 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	})
 	sendSSE(w, "done", map[string]interface{}{})
 	flusher.Flush()
+}
+
+// handleAIConfirmExecute 处理用户确认后的写操作执行
+func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	var req struct {
+		SQL  string `json:"sql"`
+		DBID string `json:"dbId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	if req.SQL == "" || req.DBID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少必要参数",
+		})
+		return
+	}
+
+	if !isWriteOperation(req.SQL) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "该SQL不是写操作，无需确认",
+		})
+		return
+	}
+
+	dataOntologyMu.RLock()
+	dbConfig, exists := dataOntologyDatabases[req.DBID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	results, err := executeSQLQuery(dbConfig, req.SQL, []interface{}{})
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "SQL执行失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"results": results,
+		"message": "执行成功",
+	})
 }
 
 // getDBSQLHints 根据数据库类型返回对应的 SQL 语法提示
@@ -4788,6 +4890,7 @@ func main() {
 	// AI助手API路由
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
+	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	
 	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))

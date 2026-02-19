@@ -3027,8 +3027,8 @@ function addAiAssistantMessage(content, sql, results) {
     // 如果有SQL，显示SQL标题和代码块
     if (sql) {
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📝 生成的SQL查询：</div>
+            <div style="margin-top: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📝 生成的SQL查询：</div>
                 <div class="ai-sql-block">${escapeHtml(sql)}</div>
             </div>
         `;
@@ -3037,8 +3037,8 @@ function addAiAssistantMessage(content, sql, results) {
     // 如果有结果，显示结果标题和表格
     if (results && results.length > 0) {
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+            <div style="margin-top: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 查询结果：</div>
                 <div class="ai-result-table">
                     <table>
                         <thead>
@@ -3055,16 +3055,16 @@ function addAiAssistantMessage(content, sql, results) {
                         </tbody>
                     </table>
                 </div>
-                <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
                     ✓ 共查询到 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，显示前10条' : ''}
                 </div>
             </div>
         `;
     } else if (results && results.length === 0) {
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
-                <div style="padding: 16px; background: #f7fafc; border-radius: 8px; color: #718096; text-align: center;">
+            <div style="margin-top: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 查询结果：</div>
+                <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">
                     暂无数据
                 </div>
             </div>
@@ -3076,7 +3076,7 @@ function addAiAssistantMessage(content, sql, results) {
             <div class="ai-message-avatar">${avatar}</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
-                    <div style="line-height: 1.6;">${escapeHtml(content)}</div>
+                    <div>${formatAIText(content)}</div>
                     ${resultHtml}
                 </div>
                 <div class="ai-message-meta">${time}</div>
@@ -3104,20 +3104,20 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     if (retries > 0) {
         const retryId = 'retry-' + messageId;
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 13px; color: #856404;">
+            <div style="margin-top: 6px;">
+                <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 5px 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 12px; color: #856404;">
                         🔄 经过 ${retries} 次重试后成功
                     </span>
-                    <span id="${retryId}-icon" style="font-size: 12px; color: #856404;">▼</span>
+                    <span id="${retryId}-icon" style="font-size: 11px; color: #856404;">▼</span>
                 </div>
-                <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e2e8f0;">
+                <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 5px; border: 1px solid #e2e8f0;">
                     ${attempts.map((attempt, index) => `
-                        <div style="margin-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
-                            <div style="font-size: 12px; font-weight: 600; color: #e53e3e; margin-bottom: 4px;">
+                        <div style="margin-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
+                            <div style="font-size: 11px; font-weight: 600; color: #e53e3e; margin-bottom: 2px;">
                                 ❌ 尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}
                             </div>
-                            ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">${escapeHtml(attempt.sql)}</div>` : ''}
+                            ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">${escapeHtml(attempt.sql)}</div>` : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -3128,8 +3128,8 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     // 如果有SQL，显示SQL标题和代码块
     if (sql) {
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">✅ 最终成功的SQL查询：</div>
+            <div style="margin-top: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">✅ 最终成功的SQL查询：</div>
                 <div class="ai-sql-block">${escapeHtml(sql)}</div>
             </div>
         `;
@@ -3138,8 +3138,8 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     // 如果有结果，显示结果标题和表格
     if (results && results.length > 0) {
         resultHtml += `
-            <div style="margin-top: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+            <div style="margin-top: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 查询结果：</div>
                 <div class="ai-result-table">
                     <table>
                         <thead>
@@ -3156,7 +3156,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
                         </tbody>
                     </table>
                 </div>
-                <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
                     ✓ 共查询到 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，显示前10条' : ''}
                 </div>
             </div>
@@ -3168,7 +3168,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
             <div class="ai-message-avatar">${avatar}</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
-                    <div style="line-height: 1.6;">${escapeHtml(content)}</div>
+                    <div>${formatAIText(content)}</div>
                     ${resultHtml}
                 </div>
                 <div class="ai-message-meta">${time}</div>
@@ -3193,19 +3193,19 @@ function showAiErrorWithAttempts(message, attempts) {
             <div class="ai-message-avatar">⚠️</div>
             <div class="ai-message-content">
                 <div class="ai-error">
-                    <div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(message)}</div>
-                    <div style="font-size: 12px; margin-bottom: 12px;">已尝试 ${attempts.length} 次，均未成功</div>
-                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">查看所有尝试</span>
-                        <span id="${retryId}-icon" style="font-size: 12px;">▼</span>
+                    <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(message)}</div>
+                    <div style="font-size: 11px; margin-bottom: 6px;">已尝试 ${attempts.length} 次，均未成功</div>
+                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px;">查看所有尝试</span>
+                        <span id="${retryId}-icon" style="font-size: 11px;">▼</span>
                     </div>
-                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
                         ${attempts.map((attempt, index) => `
-                            <div style="margin-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
-                                <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px;">
+                            <div style="margin-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
+                                <div style="font-size: 11px; font-weight: 600; margin-bottom: 2px;">
                                     尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}
                                 </div>
-                                ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">${escapeHtml(attempt.sql)}</div>` : ''}
+                                ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">${escapeHtml(attempt.sql)}</div>` : ''}
                             </div>
                         `).join('')}
                     </div>
@@ -3230,6 +3230,54 @@ function toggleRetryDetails(retryId) {
         details.style.display = 'none';
         icon.textContent = '▼';
     }
+}
+
+async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
+    const confirmEl = document.getElementById(confirmId);
+    if (!confirmEl) return;
+
+    confirmEl.innerHTML = `<div class="ai-status-executing">⚡ 正在执行写操作...</div>`;
+
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ sql, dbId })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            let html = `<div class="ai-status-success" style="margin-bottom: 4px;">✅ 写操作执行成功</div>`;
+            if (result.results && result.results.length > 0) {
+                html += `
+                    <div style="margin-top: 6px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 执行结果：</div>
+                        <div class="ai-result-table">
+                            <table>
+                                <thead><tr>${Object.keys(result.results[0]).map(col => `<th>${escapeHtml(col)}</th>`).join('')}</tr></thead>
+                                <tbody>${result.results.slice(0, 10).map(row => `<tr>${Object.keys(result.results[0]).map(col => `<td>${row[col] !== null ? escapeHtml(String(row[col])) : '<i style="color:#a0aec0;">NULL</i>'}</td>`).join('')}</tr>`).join('')}</tbody>
+                            </table>
+                        </div>
+                    </div>`;
+            } else {
+                html += `<div style="font-size: 12px; color: #718096; margin-top: 4px;">操作已成功执行。</div>`;
+            }
+            confirmEl.innerHTML = html;
+        } else {
+            confirmEl.innerHTML = `<div class="ai-error">${escapeHtml(result.message)}</div>`;
+        }
+    } catch (error) {
+        confirmEl.innerHTML = `<div class="ai-error">执行失败：${escapeHtml(error.message)}</div>`;
+    }
+}
+
+function cancelConfirmedSQL(confirmId, messageId) {
+    const confirmEl = document.getElementById(confirmId);
+    if (!confirmEl) return;
+    confirmEl.innerHTML = `<div class="ai-status-retry" style="animation: none;">🚫 用户已取消执行该写操作</div>`;
 }
 
 // 添加流式消息容器
@@ -3283,7 +3331,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             break;
             
         case 'retry':
-            const retryHtml = `<div class="ai-status-retry">🔄 ${escapeHtml(data.message)}<br><span style="font-size:12px;color:#856404;">错误: ${escapeHtml(data.error)}</span></div>`;
+            const retryHtml = `<div class="ai-status-retry">🔄 ${escapeHtml(data.message)}<br><span style="font-size:11px;color:#856404;">错误: ${escapeHtml(data.error)}</span></div>`;
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', retryHtml);
             statusEl.innerHTML = `<div class="ai-status-thinking">🔄 ${escapeHtml(data.message)}</div>`;
@@ -3292,9 +3340,9 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
         case 'sql_generated':
             statusEl.innerHTML = `<div class="ai-status-success">✅ SQL生成完成</div>`;
             contentEl.innerHTML = `
-                <div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.response)}</div>
-                <div style="margin-top: 12px;">
-                    <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📝 生成的SQL查询：</div>
+                <div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>
+                <div style="margin-top: 6px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📝 生成的SQL查询：</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
             `;
@@ -3305,7 +3353,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             break;
             
         case 'attempt_failed':
-            const failedHtml = `<div class="ai-attempt-failed">❌ 尝试 ${data.attempt} 失败: ${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:12px;padding:8px;margin-top:4px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
+            const failedHtml = `<div class="ai-attempt-failed">❌ 尝试 ${data.attempt} 失败: ${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:11px;padding:6px;margin-top:3px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', failedHtml);
             break;
@@ -3313,22 +3361,22 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
         case 'success':
             statusEl.innerHTML = '';
             
-            let resultHtml = `<div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.response)}</div>`;
+            let resultHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             
             // 显示重试信息（如果有）
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 resultHtml += `
-                    <div style="margin-top: 12px;">
-                        <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 13px; color: #856404;">🔄 经过 ${data.retries} 次重试后成功</span>
-                            <span id="${retryId}-icon" style="font-size: 12px; color: #856404;">▼</span>
+                    <div style="margin-top: 6px;">
+                        <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 5px 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 12px; color: #856404;">🔄 经过 ${data.retries} 次重试后成功</span>
+                            <span id="${retryId}-icon" style="font-size: 11px; color: #856404;">▼</span>
                         </div>
-                        <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e2e8f0;">
+                        <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 5px; border: 1px solid #e2e8f0;">
                             ${data.attempts.map((attempt, index) => `
-                                <div style="margin-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
-                                    <div style="font-size: 12px; font-weight: 600; color: #e53e3e; margin-bottom: 4px;">❌ 尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
-                                    ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
+                                <div style="margin-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
+                                    <div style="font-size: 11px; font-weight: 600; color: #e53e3e; margin-bottom: 2px;">❌ 尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
+                                    ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
                                 </div>
                             `).join('')}
                         </div>
@@ -3337,16 +3385,16 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             }
             
             resultHtml += `
-                <div style="margin-top: 12px;">
-                    <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">${data.attempts && data.attempts.length > 0 ? '✅ 最终成功的SQL查询：' : '📝 生成的SQL查询：'}</div>
+                <div style="margin-top: 6px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">${data.attempts && data.attempts.length > 0 ? '✅ 最终成功的SQL查询：' : '📝 生成的SQL查询：'}</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
             `;
             
             if (data.results && data.results.length > 0) {
                 resultHtml += `
-                    <div style="margin-top: 12px;">
-                        <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
+                    <div style="margin-top: 6px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 查询结果：</div>
                         <div class="ai-result-table">
                             <table>
                                 <thead>
@@ -3359,16 +3407,16 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                                 </tbody>
                             </table>
                         </div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 8px; padding-left: 4px;">
+                        <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
                             ✓ 共查询到 <strong>${data.results.length}</strong> 条记录${data.results.length > 10 ? '，显示前10条' : ''}
                         </div>
                     </div>
                 `;
             } else if (data.results && data.results.length === 0) {
                 resultHtml += `
-                    <div style="margin-top: 12px;">
-                        <div style="font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px;">📊 查询结果：</div>
-                        <div style="padding: 16px; background: #f7fafc; border-radius: 8px; color: #718096; text-align: center;">暂无数据</div>
+                    <div style="margin-top: 6px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📊 查询结果：</div>
+                        <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">暂无数据</div>
                     </div>
                 `;
             }
@@ -3376,22 +3424,46 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = resultHtml;
             attemptsEl.style.display = 'none';
             break;
+
+        case 'confirm_write':
+            statusEl.innerHTML = '';
+            const confirmId = 'confirm-' + messageId;
+            let confirmHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
+            confirmHtml += `
+                <div style="margin-top: 6px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📝 待执行的SQL：</div>
+                    <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
+                </div>
+                <div class="ai-confirm-write" id="${confirmId}">
+                    <div class="ai-confirm-warning">
+                        <span class="ai-confirm-icon">⚠️</span>
+                        <span>该操作将修改数据库数据，请确认是否执行？</span>
+                    </div>
+                    <div class="ai-confirm-actions">
+                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQL('${confirmId}', ${escapeHtml(JSON.stringify(data.sql))}, ${escapeHtml(JSON.stringify(data.dbId))}, '${messageId}')">✓ 确认执行</button>
+                        <button class="btn ai-confirm-btn-no" onclick="cancelConfirmedSQL('${confirmId}', '${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = confirmHtml;
+            attemptsEl.style.display = 'none';
+            break;
             
         case 'error':
             statusEl.innerHTML = '';
-            let errorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(data.message)}</div>`;
+            let errorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(data.message)}</div>`;
             
             // 显示AI原始响应（用于调试）
             if (data.response) {
                 const debugId = 'debug-' + messageId;
                 errorHtml += `
-                    <div style="margin-top: 12px;">
-                        <div class="ai-retry-header" onclick="toggleRetryDetails('${debugId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 13px;">查看AI原始响应（调试）</span>
-                            <span id="${debugId}-icon" style="font-size: 12px;">▼</span>
+                    <div style="margin-top: 6px;">
+                        <div class="ai-retry-header" onclick="toggleRetryDetails('${debugId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 12px;">查看AI原始响应（调试）</span>
+                            <span id="${debugId}-icon" style="font-size: 11px;">▼</span>
                         </div>
-                        <div id="${debugId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
-                            <pre style="white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 0;">${escapeHtml(data.response)}</pre>
+                        <div id="${debugId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                            <pre style="white-space: pre-wrap; word-break: break-word; font-size: 11px; margin: 0;">${escapeHtml(data.response)}</pre>
                         </div>
                     </div>
                 `;
@@ -3400,16 +3472,16 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 errorHtml += `
-                    <div style="font-size: 12px; margin-top: 12px; margin-bottom: 12px;">已尝试 ${data.attempts.length} 次，均未成功</div>
-                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">查看所有尝试</span>
-                        <span id="${retryId}-icon" style="font-size: 12px;">▼</span>
+                    <div style="font-size: 11px; margin-top: 6px; margin-bottom: 6px;">已尝试 ${data.attempts.length} 次，均未成功</div>
+                    <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px;">查看所有尝试</span>
+                        <span id="${retryId}-icon" style="font-size: 11px;">▼</span>
                     </div>
-                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 8px; padding: 12px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                    <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
                         ${data.attempts.map((attempt, index) => `
-                            <div style="margin-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '12px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
-                                <div style="font-size: 12px; font-weight: 600; margin-bottom: 4px;">尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
-                                ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 12px; padding: 8px 10px; margin-top: 6px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
+                            <div style="margin-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
+                                <div style="font-size: 11px; font-weight: 600; margin-bottom: 2px;">尝试 ${attempt.attempt}：${escapeHtml(attempt.error)}</div>
+                                ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
                             </div>
                         `).join('')}
                     </div>
@@ -3444,7 +3516,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             }
             
             const configHtml = `
-                <div style="line-height: 1.6; margin-bottom: 12px;">${escapeHtml(data.message)}</div>
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview">
                     <div class="ai-api-config-header">
                         <span style="font-weight: 600;">接口配置预览</span>
@@ -3542,6 +3614,13 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+function formatAIText(text) {
+    let escaped = escapeHtml(text).trim();
+    escaped = escaped.replace(/\n{2,}/g, '\n');
+    escaped = escaped.replace(/\n/g, '<br>');
+    return escaped;
 }
 
 // 更新AI上下文显示
