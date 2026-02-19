@@ -180,23 +180,26 @@
                 <div class="sidebar">
                     <div class="sidebar-header">
                         <h3>接口列表</h3>
-                        <button id="addApiBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                        <div class="sidebar-header-actions">
+                            <div class="apikey-trigger-wrap">
+                                <button id="apikeyTriggerBtn" class="btn btn-sm" title="API Key 管理">🔑</button>
+                                <div id="apikeyPopover" class="apikey-popover">
+                                    <div class="apikey-popover-title">API Key</div>
+                                    <div id="apikeyContent" class="apikey-content">
+                                        <span class="apikey-placeholder">未生成</span>
+                                    </div>
+                                    <div class="apikey-actions">
+                                        <button id="generateApikeyBtn" class="btn btn-sm btn-primary apikey-btn">生成</button>
+                                        <button id="copyApikeyBtn" class="btn btn-sm apikey-btn" style="display:none;">复制</button>
+                                        <button id="deleteApikeyBtn" class="btn btn-sm btn-danger apikey-btn" style="display:none;">删除</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button id="addApiBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                        </div>
                     </div>
                     <div id="apiList" class="db-list">
                         <!-- 接口列表将动态生成 -->
-                    </div>
-                    <div class="apikey-section">
-                        <div class="apikey-header">
-                            <span class="apikey-label">🔑 API Key</span>
-                        </div>
-                        <div id="apikeyContent" class="apikey-content">
-                            <span class="apikey-placeholder">未生成</span>
-                        </div>
-                        <div class="apikey-actions">
-                            <button id="generateApikeyBtn" class="btn btn-sm btn-primary apikey-btn">生成</button>
-                            <button id="copyApikeyBtn" class="btn btn-sm apikey-btn" style="display:none;">复制</button>
-                            <button id="deleteApikeyBtn" class="btn btn-sm btn-danger apikey-btn" style="display:none;">删除</button>
-                        </div>
                     </div>
                 </div>
 

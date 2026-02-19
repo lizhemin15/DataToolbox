@@ -4144,11 +4144,79 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
+// getDBSQLHints 根据数据库类型返回对应的 SQL 语法提示
+func getDBSQLHints(dbType string) (queryColumns, limitSyntax, sampleQuery string) {
+	switch dbType {
+	case "dm":
+		queryColumns = "  SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE\n" +
+			"  FROM USER_TAB_COLUMNS\n" +
+			"  WHERE TABLE_NAME IN ('TABLE1', 'TABLE2')\n" +
+			"  ORDER BY TABLE_NAME, COLUMN_ID"
+		limitSyntax = "SELECT * FROM table_name WHERE ROWNUM <= 10"
+		sampleQuery = "SELECT * FROM table_name WHERE ROWNUM <= 10"
+	case "oracle":
+		queryColumns = "  SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE\n" +
+			"  FROM USER_TAB_COLUMNS\n" +
+			"  WHERE TABLE_NAME IN ('TABLE1', 'TABLE2')\n" +
+			"  ORDER BY TABLE_NAME, COLUMN_ID"
+		limitSyntax = "SELECT * FROM table_name WHERE ROWNUM <= 10"
+		sampleQuery = "SELECT * FROM table_name WHERE ROWNUM <= 10"
+	case "postgresql", "timescaledb", "cockroachdb":
+		queryColumns = "  SELECT table_name, column_name, data_type, is_nullable\n" +
+			"  FROM information_schema.columns\n" +
+			"  WHERE table_schema = 'public' AND table_name IN ('table1', 'table2')\n" +
+			"  ORDER BY table_name, ordinal_position"
+		limitSyntax = "SELECT * FROM table_name LIMIT 10"
+		sampleQuery = "SELECT * FROM table_name LIMIT 10"
+	case "sqlserver":
+		queryColumns = "  SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE\n" +
+			"  FROM INFORMATION_SCHEMA.COLUMNS\n" +
+			"  WHERE TABLE_NAME IN ('table1', 'table2')\n" +
+			"  ORDER BY TABLE_NAME, ORDINAL_POSITION"
+		limitSyntax = "SELECT TOP 10 * FROM table_name"
+		sampleQuery = "SELECT TOP 10 * FROM table_name"
+	default:
+		queryColumns = "  SELECT table_name, column_name, data_type, column_comment\n" +
+			"  FROM information_schema.columns\n" +
+			"  WHERE table_schema = DATABASE() AND table_name IN ('table1', 'table2')\n" +
+			"  ORDER BY table_name, ordinal_position"
+		limitSyntax = "SELECT * FROM table_name LIMIT 10"
+		sampleQuery = "SELECT * FROM table_name LIMIT 10"
+	}
+	return
+}
+
+// getDBSpecificWarnings 根据数据库类型返回特定的语法警告
+func getDBSpecificWarnings(dbType string) string {
+	switch dbType {
+	case "dm":
+		return "⚠️ 达梦数据库语法注意事项：\n" +
+			"- 【禁止】不要使用 LIMIT，用 WHERE ROWNUM <= N 限制行数\n" +
+			"- 【禁止】不要使用 information_schema，用 USER_TAB_COLUMNS、USER_TABLES 等数据字典视图\n" +
+			"- 【禁止】不要使用 DATABASE() 函数\n" +
+			"- 表名和列名默认大写\n" +
+			"- 字符串用单引号\n" +
+			"- 支持 ROWNUM 伪列来限制结果集\n\n"
+	case "oracle":
+		return "⚠️ Oracle 语法注意事项：\n" +
+			"- 不要使用 LIMIT，用 WHERE ROWNUM <= N\n" +
+			"- 不要使用 information_schema，用 USER_TAB_COLUMNS 等数据字典视图\n" +
+			"- 表名和列名默认大写\n\n"
+	case "sqlserver":
+		return "⚠️ SQL Server 语法注意事项：\n" +
+			"- 不要使用 LIMIT，用 SELECT TOP N\n" +
+			"- 使用 INFORMATION_SCHEMA.COLUMNS 查询字段信息\n\n"
+	default:
+		return ""
+	}
+}
+
 // buildAIPrompt 构建AI提示词
 func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
 	prompt := "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
 	prompt += "数据库结构：\n"
 
+	var primaryDBType string
 	for _, schema := range dbSchemas {
 		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
 		prompt += "表列表: "
@@ -4156,32 +4224,39 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 			prompt += strings.Join(tables, ", ")
 		}
 		prompt += "\n"
+		if primaryDBType == "" {
+			if t, ok := schema["type"].(string); ok {
+				primaryDBType = t
+			}
+		}
 	}
 
+	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
+
 	prompt += "\n用户问题：" + userMessage + "\n\n"
+
+	prompt += getDBSpecificWarnings(primaryDBType)
+
 	prompt += "⚠️ 重要规则：\n"
 	prompt += "1. 【必须】只生成一条SQL语句！不能生成多条SQL语句！\n"
 	prompt += "2. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
 	prompt += "3. 使用子查询或聚合函数来统计多个表的信息\n\n"
 	prompt += "📚 根据问题类型选择正确的SQL：\n\n"
 	prompt += "🔍 查询表结构/字段信息：\n"
-	prompt += "  SELECT table_name, column_name, data_type, column_comment\n"
-	prompt += "  FROM information_schema.columns\n"
-	prompt += "  WHERE table_schema = DATABASE() AND table_name IN ('table1', 'table2')\n"
-	prompt += "  ORDER BY table_name, ordinal_position\n\n"
+	prompt += queryColumns + "\n\n"
 	prompt += "📊 分析/统计多个表的数据：\n"
 	prompt += "  SELECT \n"
 	prompt += "    'products' as table_name, COUNT(*) as row_count FROM products\n"
 	prompt += "  UNION ALL\n"
 	prompt += "  SELECT 'users' as table_name, COUNT(*) as row_count FROM users\n\n"
 	prompt += "📋 查看表的样本数据：\n"
-	prompt += "  SELECT * FROM table_name LIMIT 10\n\n"
+	prompt += "  " + sampleQuery + "\n\n"
 	prompt += "❌ 错误示例（不要这样做）：\n"
 	prompt += "  SELECT * FROM table1 UNION ALL SELECT * FROM table2  -- 错误！不同表结构无法合并\n\n"
 	prompt += "🎯 理解用户意图：\n"
-	prompt += "- 如果问\"有哪些字段/列\"：查询 information_schema.columns\n"
+	prompt += "- 如果问\"有哪些字段/列\"：查询数据字典/元数据表\n"
 	prompt += "- 如果问\"分析数据/统计\"：使用 COUNT(*), SUM(), AVG() 等聚合函数\n"
-	prompt += "- 如果问\"查看数据/内容\"：使用 SELECT * FROM ... LIMIT 10\n"
+	prompt += "- 如果问\"查看数据/内容\"：使用 " + sampleQuery + "\n"
 	prompt += "- 如果涉及多个表：用子查询或统计，不要用 UNION ALL 合并不同结构的数据\n\n"
 	prompt += "请按以下格式回复：\n"
 	prompt += "1. 用一句话说明你将要做什么（例如：\"我将统计各表的数据量\"）\n"
@@ -4203,6 +4278,7 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 	prompt := "你是一个专业的数据库助手。之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
 	prompt += "数据库结构：\n"
 
+	var primaryDBType string
 	for _, schema := range dbSchemas {
 		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
 		prompt += "表列表: "
@@ -4210,7 +4286,14 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 			prompt += strings.Join(tables, ", ")
 		}
 		prompt += "\n"
+		if primaryDBType == "" {
+			if t, ok := schema["type"].(string); ok {
+				primaryDBType = t
+			}
+		}
 	}
+
+	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
 
 	prompt += "\n用户问题：" + userMessage + "\n\n"
 	prompt += "之前失败的尝试：\n"
@@ -4222,36 +4305,46 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 		}
 	}
 
+	prompt += getDBSpecificWarnings(primaryDBType)
+
 	prompt += "⚠️ 重要注意事项：\n"
 	prompt += "1. 【必须】只生成一条SQL语句，不要生成多条语句！\n"
 	prompt += "2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n"
 	prompt += "   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n"
 	prompt += "   - 是否有语法错误的关键字？\n"
 	prompt += "   - 是否缺少或多余了分号、引号等符号？\n"
-	prompt += "3. 如果错误信息包含'Table doesn't exist'，请使用正确的表名\n"
-	prompt += "4. 如果错误信息包含'Column doesn't exist'，请使用正确的字段名\n"
+	prompt += "3. 如果错误信息包含'Table doesn't exist'或'对象不存在'，请使用正确的表名\n"
+	prompt += "4. 如果错误信息包含'Column doesn't exist'或'列不存在'，请使用正确的字段名\n"
 	prompt += "5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n"
 	prompt += "   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n"
 	prompt += "   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
 	prompt += "   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n"
 
-	// 分析最常见的错误类型
+	prompt += "📚 正确的SQL参考示例：\n"
+	prompt += "🔍 查询表结构：\n" + queryColumns + "\n"
+	prompt += "📋 查看样本数据：" + sampleQuery + "\n\n"
+
 	if strings.Contains(lastError, "near") && strings.Contains(lastError, "at line 2") {
 		prompt += "🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n"
 		prompt += "请修改为只生成一条SQL语句。\n\n"
 	}
-	
+
 	if strings.Contains(lastError, "different number of columns") {
 		prompt += "🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n"
 		prompt += "解决方案：\n"
 		prompt += "1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
-		prompt += "2. 如果是查询字段，使用：SELECT table_name, column_name FROM information_schema.columns WHERE table_name IN ('table1','table2')\n"
+		prompt += "2. 如果是查询字段，使用：\n" + queryColumns + "\n"
 		prompt += "3. 不要直接合并不同结构的表数据！\n\n"
 	}
-	
+
 	if strings.Contains(lastError, "connectex") || strings.Contains(lastError, "connection") {
 		prompt += "🔍 根据错误分析：数据库连接超时或失败！\n"
 		prompt += "请生成简单的SQL语句，避免复杂查询导致超时。\n\n"
+	}
+
+	if strings.Contains(lastError, "LIMIT") || strings.Contains(lastError, "语法分析") {
+		prompt += "🔍 根据错误分析：SQL语法不兼容当前数据库！\n"
+		prompt += "请严格使用当前数据库（" + primaryDBType + "）支持的SQL语法。\n\n"
 	}
 
 	prompt += "请按以下格式回复：\n"

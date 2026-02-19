@@ -150,6 +150,16 @@ function initEventListeners() {
     });
 
     // 接口管理事件
+    document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        document.getElementById('apikeyPopover').classList.toggle('show');
+    });
+    document.addEventListener('click', function(e) {
+        const popover = document.getElementById('apikeyPopover');
+        if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
+            popover.classList.remove('show');
+        }
+    });
     document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
     document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
     document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
