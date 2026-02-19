@@ -12,3 +12,7 @@ package/
 
 # GitHub Actions artifacts
 artifacts/
+
+# 数据治理
+governance-uploads/
+governance-workspace/go.sum

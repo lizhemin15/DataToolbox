@@ -21,7 +21,7 @@ let dbSuggestionIndex = -1;
 const aiModules = [
     { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '查询、写入、表结构操作' },
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
-    { id: 'data-governance', name: '数据治理', icon: '🔧', description: '开发中...' },
+    { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
     { id: 'ontology', name: '本体论抽象', icon: '🧠', description: '开发中...' },
 ];
 
@@ -290,6 +290,8 @@ function switchTab(tabName) {
     } else if (tabName === 'ai') {
         loadAiConfig();
         updateAiContextDisplay();
+    } else if (tabName === 'governance') {
+        loadGovernanceTasks();
     }
 }
 
@@ -1721,16 +1723,30 @@ async function loadApis() {
     }
 }
 
+// 过滤接口列表
+function filterApiList() {
+    renderApiList();
+}
+
 // 渲染接口列表
 function renderApiList() {
     const listEl = document.getElementById('apiList');
+    const searchInput = document.getElementById('apiSearchInput');
+    const keyword = (searchInput ? searchInput.value : '').trim().toLowerCase();
     
-    if (apis.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无接口</div>';
+    const filtered = keyword
+        ? apis.filter(api => 
+            api.name.toLowerCase().includes(keyword) || 
+            api.path.toLowerCase().includes(keyword) ||
+            api.method.toLowerCase().includes(keyword))
+        : apis;
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = `<div style="text-align:center;color:#718096;padding:20px;">${keyword ? '无匹配接口' : '暂无接口'}</div>`;
         return;
     }
 
-    listEl.innerHTML = apis.map(api => {
+    listEl.innerHTML = filtered.map(api => {
         const methodColor = {
             'GET': '#48bb78',
             'POST': '#4299e1',
@@ -4028,4 +4044,513 @@ function showCreateTableError(message) {
     const errorEl = document.getElementById('createTableError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
+}
+
+// ==================== 数据治理模块 ====================
+
+let govTasks = [];
+let currentGovTask = null;
+let isEditGovMode = false;
+let editingGovTaskId = null;
+let govCurrentFilter = 'all';
+let govSelectedFile = null;
+
+// 初始化治理模块事件
+(function initGovernanceEvents() {
+    document.addEventListener('DOMContentLoaded', function() {
+        const addBtn = document.getElementById('addGovernanceTaskBtn');
+        if (addBtn) addBtn.addEventListener('click', showAddGovTaskModal);
+
+        const closeBtn = document.getElementById('closeGovTaskModal');
+        if (closeBtn) closeBtn.addEventListener('click', hideGovTaskModal);
+
+        const form = document.getElementById('govTaskForm');
+        if (form) form.addEventListener('submit', handleGovTaskSubmit);
+
+        const enabledInput = document.getElementById('govEnabledInput');
+        if (enabledInput) enabledInput.addEventListener('change', function() {
+            document.getElementById('govEnabledLabel').textContent = this.checked ? '已启用' : '已禁用';
+        });
+
+        const modal = document.getElementById('govTaskModal');
+        if (modal) modal.addEventListener('click', function(e) {
+            if (e.target === this) hideGovTaskModal();
+        });
+
+        // 拖拽上传
+        const dropZone = document.getElementById('govDropZone');
+        if (dropZone) {
+            dropZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                this.classList.add('drag-over');
+            });
+            dropZone.addEventListener('dragleave', function() {
+                this.classList.remove('drag-over');
+            });
+            dropZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.classList.remove('drag-over');
+                if (e.dataTransfer.files.length > 0) {
+                    setGovFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+    });
+})();
+
+async function loadGovernanceTasks() {
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            govTasks = data.tasks || [];
+            renderGovTaskList();
+        }
+    } catch (error) {
+        console.error('加载治理任务失败:', error);
+    }
+}
+
+function renderGovTaskList() {
+    const container = document.getElementById('govTaskList');
+    if (!container) return;
+
+    const search = (document.getElementById('govTaskSearchInput')?.value || '').toLowerCase();
+    let filtered = govTasks.filter(t => {
+        if (govCurrentFilter !== 'all' && t.type !== govCurrentFilter) return false;
+        if (search && !t.name.toLowerCase().includes(search)) return false;
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="gov-output-placeholder" style="padding:30px;color:#a0aec0;">暂无任务</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(t => `
+        <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
+             onclick="selectGovTask('${t.id}')">
+            <div class="gov-task-item-icon">${t.type === 'scheduled' ? '⏰' : '📤'}</div>
+            <div class="gov-task-item-info">
+                <div class="gov-task-item-name">${escapeHtml(t.name)}</div>
+                <div class="gov-task-item-meta">
+                    <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '定时' : '交互'}</span>
+                    <span class="gov-status-dot ${t.status}"></span>
+                    <span>${t.status === 'idle' ? '空闲' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '错误'}</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterGovTaskList() {
+    renderGovTaskList();
+}
+
+function filterGovByType(type) {
+    govCurrentFilter = type;
+    document.querySelectorAll('.gov-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === type);
+    });
+    renderGovTaskList();
+}
+
+async function selectGovTask(taskId) {
+    const task = govTasks.find(t => t.id === taskId);
+    if (!task) return;
+    currentGovTask = task;
+    renderGovTaskList();
+    showGovTaskDetail(task);
+    loadGovTaskLogs();
+}
+
+function showGovTaskDetail(task) {
+    document.getElementById('govWelcomeView').style.display = 'none';
+    document.getElementById('govTaskDetailView').style.display = 'block';
+
+    document.getElementById('govTaskName').textContent = task.name;
+    document.getElementById('govTaskType').textContent = task.type === 'scheduled' ? '⏰ 定时任务' : '📤 交互任务';
+
+    const statusMap = { idle: '空闲', running: '运行中', success: '成功', error: '错误' };
+    const statusEl = document.getElementById('govTaskStatus');
+    statusEl.textContent = statusMap[task.status] || task.status;
+    statusEl.className = 'info-value status ' + task.status;
+
+    const cronItem = document.getElementById('govCronItem');
+    const enabledItem = document.getElementById('govEnabledItem');
+    if (task.type === 'scheduled') {
+        cronItem.style.display = '';
+        enabledItem.style.display = '';
+        document.getElementById('govTaskCron').textContent = task.cron_expr || '未设置';
+        document.getElementById('govTaskEnabled').textContent = task.enabled ? '已启用' : '已禁用';
+        document.getElementById('govToggleBtn').textContent = task.enabled ? '禁用' : '启用';
+    } else {
+        cronItem.style.display = 'none';
+        enabledItem.style.display = 'none';
+    }
+
+    // 数据库
+    const dbName = databases.find(d => d.id === task.database_id);
+    document.getElementById('govTaskDb').textContent = dbName ? dbName.name : '未关联';
+
+    document.getElementById('govTaskLastRun').textContent = task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '从未运行';
+
+    document.getElementById('govTaskCode').textContent = task.go_code;
+
+    // 交互区域
+    const interactiveSection = document.getElementById('govInteractiveSection');
+    if (task.type === 'interactive') {
+        interactiveSection.style.display = '';
+        const inputType = task.input_type || 'file';
+        document.getElementById('govFileUploadArea').style.display = (inputType === 'file' || inputType === 'both') ? '' : 'none';
+        document.getElementById('govTextInputArea').style.display = (inputType === 'text' || inputType === 'both') ? '' : 'none';
+        const exts = task.accept_exts && task.accept_exts.length > 0 ? task.accept_exts.join(', ') : '所有类型';
+        document.getElementById('govAcceptExts').textContent = '支持: ' + exts;
+        if (task.accept_exts && task.accept_exts.length > 0) {
+            document.getElementById('govFileInput').accept = task.accept_exts.join(',');
+        } else {
+            document.getElementById('govFileInput').accept = '';
+        }
+    } else {
+        interactiveSection.style.display = 'none';
+    }
+    clearGovFile();
+}
+
+async function loadGovTaskLogs() {
+    if (!currentGovTask) return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            renderGovLogs(data.logs || []);
+        }
+    } catch (error) {
+        console.error('加载任务日志失败:', error);
+    }
+}
+
+function renderGovLogs(logs) {
+    const container = document.getElementById('govTaskOutput');
+    if (logs.length === 0) {
+        container.innerHTML = '<div class="gov-output-placeholder">暂无执行记录</div>';
+        return;
+    }
+    const sorted = [...logs].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+    container.innerHTML = sorted.map(log => `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' → ' + new Date(log.end_time).toLocaleString() : ''}</span>
+                <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '错误' : '运行中'}</span>
+            </div>
+            ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
+            ${log.output ? `<div class="gov-log-output">${escapeHtml(log.output)}</div>` : ''}
+            ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 新建/编辑任务
+function showAddGovTaskModal() {
+    isEditGovMode = false;
+    editingGovTaskId = null;
+    document.getElementById('govModalTitle').textContent = '新建任务';
+    document.getElementById('govTaskForm').reset();
+    document.getElementById('govEnabledInput').checked = true;
+    document.getElementById('govEnabledLabel').textContent = '已启用';
+    onGovTaskTypeChange();
+    populateGovDbSelect();
+    document.getElementById('govFormError').textContent = '';
+    document.getElementById('govFormError').classList.remove('show');
+    document.getElementById('govFormSuccess').textContent = '';
+    document.getElementById('govFormSuccess').classList.remove('show');
+    document.getElementById('govTaskModal').classList.add('active');
+}
+
+function editGovTask() {
+    if (!currentGovTask) return;
+    isEditGovMode = true;
+    editingGovTaskId = currentGovTask.id;
+    document.getElementById('govModalTitle').textContent = '编辑任务';
+    document.getElementById('govTaskNameInput').value = currentGovTask.name;
+    document.getElementById('govTaskTypeInput').value = currentGovTask.type;
+    document.getElementById('govTaskDescInput').value = currentGovTask.description || '';
+    document.getElementById('govCodeInput').value = currentGovTask.go_code;
+    document.getElementById('govCronInput').value = currentGovTask.cron_expr || '';
+    document.getElementById('govEnabledInput').checked = currentGovTask.enabled;
+    document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
+    document.getElementById('govInputTypeSelect').value = currentGovTask.input_type || 'file';
+    document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
+    populateGovDbSelect();
+    document.getElementById('govTaskDbSelect').value = currentGovTask.database_id || '';
+    onGovTaskTypeChange();
+    document.getElementById('govFormError').textContent = '';
+    document.getElementById('govFormError').classList.remove('show');
+    document.getElementById('govFormSuccess').textContent = '';
+    document.getElementById('govFormSuccess').classList.remove('show');
+    document.getElementById('govTaskModal').classList.add('active');
+}
+
+function hideGovTaskModal() {
+    document.getElementById('govTaskModal').classList.remove('active');
+}
+
+function onGovTaskTypeChange() {
+    const type = document.getElementById('govTaskTypeInput').value;
+    document.getElementById('govScheduledFields').style.display = type === 'scheduled' ? '' : 'none';
+    document.getElementById('govInteractiveFields').style.display = type === 'interactive' ? '' : 'none';
+}
+
+function populateGovDbSelect() {
+    const select = document.getElementById('govTaskDbSelect');
+    select.innerHTML = '<option value="">不关联数据库</option>';
+    databases.forEach(db => {
+        select.innerHTML += `<option value="${db.id}">${escapeHtml(db.name)} (${db.type})</option>`;
+    });
+}
+
+async function handleGovTaskSubmit(e) {
+    e.preventDefault();
+    const type = document.getElementById('govTaskTypeInput').value;
+    const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
+    const taskData = {
+        name: document.getElementById('govTaskNameInput').value.trim(),
+        type: type,
+        description: document.getElementById('govTaskDescInput').value.trim(),
+        go_code: document.getElementById('govCodeInput').value,
+        database_id: document.getElementById('govTaskDbSelect').value,
+        cron_expr: type === 'scheduled' ? document.getElementById('govCronInput').value.trim() : '',
+        enabled: type === 'scheduled' ? document.getElementById('govEnabledInput').checked : false,
+        input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
+        accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+    };
+
+    if (!taskData.name || !taskData.go_code) {
+        document.getElementById('govFormError').textContent = '任务名称和Go代码不能为空';
+        document.getElementById('govFormError').classList.add('show');
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const url = isEditGovMode
+            ? `${API_BASE}/api/data-ontology/governance/tasks/${editingGovTaskId}`
+            : `${API_BASE}/api/data-ontology/governance/tasks`;
+        const method = isEditGovMode ? 'PUT' : 'POST';
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(taskData)
+        });
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('govFormSuccess').textContent = isEditGovMode ? '更新成功' : '创建成功';
+            document.getElementById('govFormSuccess').classList.add('show');
+            setTimeout(() => {
+                hideGovTaskModal();
+                loadGovernanceTasks().then(() => {
+                    if (data.task) selectGovTask(data.task.id);
+                });
+            }, 600);
+        } else {
+            document.getElementById('govFormError').textContent = data.message || '操作失败';
+            document.getElementById('govFormError').classList.add('show');
+        }
+    } catch (error) {
+        document.getElementById('govFormError').textContent = '请求失败: ' + error.message;
+        document.getElementById('govFormError').classList.add('show');
+    }
+}
+
+async function deleteGovTask() {
+    if (!currentGovTask) return;
+    if (!confirm(`确定删除任务「${currentGovTask.name}」？`)) return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentGovTask = null;
+            document.getElementById('govTaskDetailView').style.display = 'none';
+            document.getElementById('govWelcomeView').style.display = '';
+            loadGovernanceTasks();
+        }
+    } catch (error) {
+        alert('删除失败: ' + error.message);
+    }
+}
+
+async function runGovTask() {
+    if (!currentGovTask) return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/run`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentGovTask.status = 'running';
+            showGovTaskDetail(currentGovTask);
+            renderGovTaskList();
+            setTimeout(() => {
+                loadGovTaskLogs();
+                refreshGovTaskStatus();
+            }, 3000);
+        } else {
+            alert(data.message || '运行失败');
+        }
+    } catch (error) {
+        alert('运行失败: ' + error.message);
+    }
+}
+
+async function toggleGovTask() {
+    if (!currentGovTask) return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/toggle`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentGovTask.enabled = data.enabled;
+            showGovTaskDetail(currentGovTask);
+            renderGovTaskList();
+        }
+    } catch (error) {
+        alert('操作失败: ' + error.message);
+    }
+}
+
+async function refreshGovTaskStatus() {
+    if (!currentGovTask) return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success && data.task) {
+            const idx = govTasks.findIndex(t => t.id === data.task.id);
+            if (idx >= 0) govTasks[idx] = data.task;
+            currentGovTask = data.task;
+            showGovTaskDetail(data.task);
+            renderGovTaskList();
+            loadGovTaskLogs();
+            if (data.task.status === 'running') {
+                setTimeout(refreshGovTaskStatus, 3000);
+            }
+        }
+    } catch (error) {
+        console.error('刷新任务状态失败:', error);
+    }
+}
+
+// 文件上传
+function handleGovFileSelect(event) {
+    if (event.target.files.length > 0) {
+        setGovFile(event.target.files[0]);
+    }
+}
+
+function setGovFile(file) {
+    govSelectedFile = file;
+    document.getElementById('govFileName').textContent = file.name + ' (' + formatFileSize(file.size) + ')';
+    document.getElementById('govSelectedFile').style.display = 'flex';
+}
+
+function clearGovFile() {
+    govSelectedFile = null;
+    document.getElementById('govFileInput').value = '';
+    document.getElementById('govSelectedFile').style.display = 'none';
+    document.getElementById('govInputText') && (document.getElementById('govInputText').value = '');
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function executeInteractiveTask() {
+    if (!currentGovTask) return;
+    const inputType = currentGovTask.input_type || 'file';
+    const inputText = document.getElementById('govInputText')?.value || '';
+
+    if ((inputType === 'file' || inputType === 'both') && govSelectedFile) {
+        const formData = new FormData();
+        formData.append('file', govSelectedFile);
+        if (inputText) formData.append('input_text', inputText);
+        try {
+            const token = localStorage.getItem('dataOntologyToken');
+            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/upload`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            const data = await response.json();
+            if (data.success) {
+                currentGovTask.status = 'running';
+                showGovTaskDetail(currentGovTask);
+                renderGovTaskList();
+                setTimeout(() => { loadGovTaskLogs(); refreshGovTaskStatus(); }, 3000);
+            } else {
+                alert(data.message || '执行失败');
+            }
+        } catch (error) {
+            alert('执行失败: ' + error.message);
+        }
+    } else if (inputType === 'text' || (inputType === 'both' && !govSelectedFile)) {
+        if (!inputText) {
+            alert('请输入文本内容');
+            return;
+        }
+        try {
+            const token = localStorage.getItem('dataOntologyToken');
+            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/run`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ input_text: inputText })
+            });
+            const data = await response.json();
+            if (data.success) {
+                currentGovTask.status = 'running';
+                showGovTaskDetail(currentGovTask);
+                renderGovTaskList();
+                setTimeout(() => { loadGovTaskLogs(); refreshGovTaskStatus(); }, 3000);
+            } else {
+                alert(data.message || '执行失败');
+            }
+        } catch (error) {
+            alert('执行失败: ' + error.message);
+        }
+    } else {
+        alert('请选择文件或输入文本');
+    }
 }

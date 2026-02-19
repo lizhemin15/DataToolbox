@@ -27,5 +27,19 @@
       "password": "your-password",
       "database": "mydb"
     }
+  },
+  "governance_tasks": {
+    "example-task-id": {
+      "id": "example-task-id",
+      "name": "示例定时任务",
+      "type": "scheduled",
+      "description": "每天凌晨2点统计数据库表行数",
+      "go_code": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}\n",
+      "database_id": "example-mysql-id",
+      "cron_expr": "0 2 * * *",
+      "enabled": false,
+      "created_at": "2025-01-01T00:00:00Z",
+      "status": "idle"
+    }
   }
 }

@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -782,21 +784,57 @@ type AIQueryRequest struct {
 	History   []map[string]interface{} `json:"history,omitempty"`
 }
 
+// GovernanceTask 数据治理任务
+type GovernanceTask struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`                    // "scheduled" | "interactive"
+	Description string   `json:"description,omitempty"`
+	GoCode      string   `json:"go_code"`
+	DatabaseID  string   `json:"database_id,omitempty"`
+	CronExpr    string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
+	Enabled     bool     `json:"enabled"`
+	InputType   string   `json:"input_type,omitempty"`    // "file" | "text" | "both"
+	AcceptExts  []string `json:"accept_exts,omitempty"`   // [".xlsx",".csv",".docx"]
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	Status      string   `json:"status"`                  // "idle" | "running" | "success" | "error"
+	LastOutput  string   `json:"last_output,omitempty"`
+	LastError   string   `json:"last_error,omitempty"`
+	LastRunAt   string   `json:"last_run_at,omitempty"`
+}
+
+// GovernanceTaskLog 任务执行日志
+type GovernanceTaskLog struct {
+	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time,omitempty"`
+	Status    string `json:"status"` // "running" | "success" | "error"
+	Output    string `json:"output,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Input     string `json:"input,omitempty"`
+}
+
 // 数据本体池存储
 var (
 	dataOntologyUsers     = make(map[string]*User)
 	dataOntologyDatabases = make(map[string]*DatabaseConfig)
 	dataOntologyApis      = make(map[string]*ApiConfig)
 	dataOntologyAIConfig  *AIConfig
+	governanceTasks       = make(map[string]*GovernanceTask)
+	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMu        sync.RWMutex
 )
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users     map[string]*User             `json:"users"`
-	Databases map[string]*DatabaseConfig   `json:"databases"`
-	Apis      map[string]*ApiConfig        `json:"apis"`
-	AIConfig  *AIConfig                    `json:"ai_config,omitempty"`
+	Users     map[string]*User                  `json:"users"`
+	Databases map[string]*DatabaseConfig        `json:"databases"`
+	Apis      map[string]*ApiConfig             `json:"apis"`
+	AIConfig  *AIConfig                         `json:"ai_config,omitempty"`
+	Tasks     map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
+	TaskLogs  map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
 }
 
 // 获取持久化文件路径
@@ -857,6 +895,16 @@ func loadDataOntologyStore() error {
 		log.Printf("已加载AI配置")
 	}
 	
+	if store.Tasks != nil {
+		governanceTasks = store.Tasks
+		log.Printf("已加载 %d 个治理任务", len(governanceTasks))
+	}
+	
+	if store.TaskLogs != nil {
+		governanceTaskLogs = store.TaskLogs
+		log.Printf("已加载治理任务日志")
+	}
+	
 	return nil
 }
 
@@ -877,6 +925,8 @@ func saveDataOntologyStore() error {
 		Databases: dataOntologyDatabases,
 		Apis:      dataOntologyApis,
 		AIConfig:  dataOntologyAIConfig,
+		Tasks:     governanceTasks,
+		TaskLogs:  governanceTaskLogs,
 	}
 	dataOntologyMu.RUnlock()
 	
@@ -921,8 +971,404 @@ func initDataOntology() {
 	}
 	dataOntologyMu.Unlock()
 	
-	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d", 
-		len(dataOntologyUsers), len(dataOntologyDatabases))
+	// 如果没有治理任务，创建示例任务
+	dataOntologyMu.Lock()
+	if len(governanceTasks) == 0 {
+		now := time.Now().Format(time.RFC3339)
+		
+		// 示例1: 定时任务 - 数据库表统计
+		scheduledID := uuid.New().String()
+		governanceTasks[scheduledID] = &GovernanceTask{
+			ID:          scheduledID,
+			Name:        "数据库表行数统计",
+			Type:        "scheduled",
+			Description: "定时统计数据库所有表的行数，输出报告",
+			GoCode: `package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"strings"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func main() {
+	dbType := os.Getenv("DB_TYPE")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+
+	if dbHost == "" {
+		fmt.Println("未配置数据库连接信息，请关联一个数据库")
+		return
+	}
+
+	var dsn string
+	switch dbType {
+	case "mysql", "mariadb", "tidb":
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbUser, dbPass, dbHost, dbPort, dbName)
+	case "postgresql", "cockroachdb":
+		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	default:
+		fmt.Printf("暂不支持的数据库类型: %s\n", dbType)
+		return
+	}
+
+	db, err := sql.Open(dbType, dsn)
+	if err != nil {
+		fmt.Printf("连接失败: %v\n", err)
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SHOW TABLES")
+	if err != nil {
+		fmt.Printf("查询表列表失败: %v\n", err)
+		return
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		rows.Scan(&name)
+		tables = append(tables, name)
+	}
+
+	fmt.Println(strings.Repeat("=", 40))
+	fmt.Printf("数据库: %s | 共 %d 张表\n", dbName, len(tables))
+	fmt.Println(strings.Repeat("=", 40))
+
+	for _, table := range tables {
+		var count int
+		db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+		fmt.Printf("  %-30s %d 行\n", table, count)
+	}
+	fmt.Println(strings.Repeat("=", 40))
+	fmt.Println("统计完成")
+}
+`,
+			CronExpr:   "0 2 * * *",
+			Enabled:    false,
+			CreatedAt:  now,
+			Status:     "idle",
+		}
+
+		// 示例2: 交互任务 - Excel数据导入
+		interactiveID := uuid.New().String()
+		governanceTasks[interactiveID] = &GovernanceTask{
+			ID:          interactiveID,
+			Name:        "Excel数据解析入库",
+			Type:        "interactive",
+			Description: "上传Excel文件，解析内容并插入到指定数据库表中",
+			GoCode: `package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/xuri/excelize/v2"
+)
+
+func main() {
+	filePath := os.Getenv("GOVERNANCE_INPUT_FILE")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+
+	if filePath == "" {
+		fmt.Println("未上传文件")
+		return
+	}
+
+	// 打开Excel文件
+	f, err := excelize.OpenFile(filePath)
+	if err != nil {
+		fmt.Printf("打开Excel失败: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	sheets := f.GetSheetList()
+	fmt.Printf("Excel文件包含 %d 个工作表: %v\n", len(sheets), sheets)
+
+	// 读取第一个工作表
+	rows, err := f.GetRows(sheets[0])
+	if err != nil {
+		fmt.Printf("读取工作表失败: %v\n", err)
+		return
+	}
+
+	if len(rows) < 2 {
+		fmt.Println("工作表数据不足（至少需要表头+1行数据）")
+		return
+	}
+
+	headers := rows[0]
+	dataRows := rows[1:]
+	fmt.Printf("表头: %v\n", headers)
+	fmt.Printf("数据行数: %d\n", len(dataRows))
+
+	// 连接数据库（如果配置了）
+	if dbHost != "" {
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbUser, dbPass, dbHost, dbPort, dbName)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			fmt.Printf("数据库连接失败: %v\n", err)
+			return
+		}
+		defer db.Close()
+		fmt.Println("数据库连接成功，可以执行入库操作")
+		// 在此处添加具体的INSERT逻辑
+		// 例如: db.Exec("INSERT INTO target_table (...) VALUES (...)", ...)
+	}
+
+	// 输出前5行预览
+	fmt.Println("\n--- 数据预览 (前5行) ---")
+	limit := 5
+	if len(dataRows) < limit {
+		limit = len(dataRows)
+	}
+	for i := 0; i < limit; i++ {
+		fmt.Printf("  行%d: %v\n", i+1, dataRows[i])
+	}
+	fmt.Printf("\n处理完成，共 %d 行数据\n", len(dataRows))
+}
+`,
+			InputType:  "file",
+			AcceptExts: []string{".xlsx", ".xls"},
+			CreatedAt:  now,
+			Status:     "idle",
+		}
+
+		// 示例3: 交互任务 - CSV文本解析
+		textTaskID := uuid.New().String()
+		governanceTasks[textTaskID] = &GovernanceTask{
+			ID:          textTaskID,
+			Name:        "CSV文本解析",
+			Type:        "interactive",
+			Description: "输入CSV格式文本，解析并展示结构化结果",
+			GoCode: `package main
+
+import (
+	"encoding/csv"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	inputText := os.Getenv("GOVERNANCE_INPUT_TEXT")
+	if inputText == "" {
+		fmt.Println("未输入文本内容")
+		return
+	}
+
+	reader := csv.NewReader(strings.NewReader(inputText))
+	records, err := reader.ReadAll()
+	if err != nil {
+		fmt.Printf("CSV解析失败: %v\n", err)
+		return
+	}
+
+	if len(records) == 0 {
+		fmt.Println("CSV内容为空")
+		return
+	}
+
+	headers := records[0]
+	fmt.Printf("列数: %d\n", len(headers))
+	fmt.Printf("表头: %v\n", headers)
+	fmt.Printf("数据行数: %d\n", len(records)-1)
+
+	fmt.Println("\n--- 解析结果 ---")
+	for i, row := range records {
+		if i == 0 {
+			continue
+		}
+		fmt.Printf("行 %d:\n", i)
+		for j, val := range row {
+			if j < len(headers) {
+				fmt.Printf("  %s = %s\n", headers[j], val)
+			}
+		}
+	}
+	fmt.Println("解析完成")
+}
+`,
+			InputType:  "text",
+			CreatedAt:  now,
+			Status:     "idle",
+		}
+
+		// 示例4: 定时任务 - 数据同步检查
+		syncCheckID := uuid.New().String()
+		governanceTasks[syncCheckID] = &GovernanceTask{
+			ID:          syncCheckID,
+			Name:        "数据完整性检查",
+			Type:        "scheduled",
+			Description: "定时检查数据库中关键表的数据完整性（空值、重复等）",
+			GoCode: `package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+func main() {
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+
+	if dbHost == "" {
+		fmt.Println("未配置数据库连接信息")
+		return
+	}
+
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbUser, dbPass, dbHost, dbPort, dbName)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		fmt.Printf("连接失败: %v\n", err)
+		return
+	}
+	defer db.Close()
+
+	fmt.Printf("数据完整性检查报告 - %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Println(strings.Repeat("=", 50))
+
+	// 获取所有表
+	rows, _ := db.Query("SHOW TABLES")
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var t string
+		rows.Scan(&t)
+		tables = append(tables, t)
+	}
+
+	for _, table := range tables {
+		fmt.Printf("\n[%s]\n", table)
+
+		// 获取列信息
+		colRows, _ := db.Query(fmt.Sprintf("SHOW COLUMNS FROM %s", table))
+		var columns []string
+		for colRows.Next() {
+			var field, colType, null, key string
+			var defVal, extra sql.NullString
+			colRows.Scan(&field, &colType, &null, &key, &defVal, &extra)
+			columns = append(columns, field)
+
+			if null == "YES" {
+				var nullCount int
+				db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s IS NULL", table, field)).Scan(&nullCount)
+				if nullCount > 0 {
+					fmt.Printf("  ⚠ %s: %d 个空值\n", field, nullCount)
+				}
+			}
+		}
+		colRows.Close()
+
+		var totalRows int
+		db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&totalRows)
+		fmt.Printf("  总行数: %d, 列数: %d\n", totalRows, len(columns))
+	}
+
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println("检查完成")
+}
+`,
+			CronExpr:   "30 1 * * *",
+			Enabled:    false,
+			CreatedAt:  now,
+			Status:     "idle",
+		}
+
+		// 示例5: 交互任务 - Word文档解析
+		docTaskID := uuid.New().String()
+		governanceTasks[docTaskID] = &GovernanceTask{
+			ID:          docTaskID,
+			Name:        "Word文档内容提取",
+			Type:        "interactive",
+			Description: "上传Word文档，提取文本内容并输出",
+			GoCode: `package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/nguyenthenguyen/docx"
+)
+
+func main() {
+	filePath := os.Getenv("GOVERNANCE_INPUT_FILE")
+	if filePath == "" {
+		fmt.Println("未上传文件")
+		return
+	}
+
+	r, err := docx.ReadDocxFile(filePath)
+	if err != nil {
+		fmt.Printf("打开Word文档失败: %v\n", err)
+		return
+	}
+	defer r.Close()
+
+	doc := r.Editable()
+	content := doc.GetContent()
+
+	// 简单清理XML标签
+	lines := strings.Split(content, "\n")
+	fmt.Printf("文档段落数: %d\n", len(lines))
+	fmt.Println(strings.Repeat("=", 40))
+
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			fmt.Printf("[%d] %s\n", i+1, line)
+		}
+	}
+
+	fmt.Println(strings.Repeat("=", 40))
+	fmt.Println("文档内容提取完成")
+}
+`,
+			InputType:  "file",
+			AcceptExts: []string{".docx"},
+			CreatedAt:  now,
+			Status:     "idle",
+		}
+
+		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
+		
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存示例治理任务失败: %v", err)
+		}
+		dataOntologyMu.Lock()
+	}
+	dataOntologyMu.Unlock()
+	
+	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d", 
+		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
+	
+	// 启动治理任务调度器
+	go governanceScheduler()
 }
 
 // 密码哈希
@@ -4966,6 +5412,507 @@ func parseAIResponse(response string, dbSchemas []map[string]interface{}) (strin
 	return "", "", ""
 }
 
+// ==================== 数据治理模块 ====================
+
+func getGovernanceWorkspacePath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "governance-workspace"
+	}
+	return filepath.Join(filepath.Dir(exePath), "governance-workspace")
+}
+
+func getGovernanceUploadPath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "governance-uploads"
+	}
+	return filepath.Join(filepath.Dir(exePath), "governance-uploads")
+}
+
+// handleGovernanceTasks 处理治理任务列表和创建
+func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		defer dataOntologyMu.RUnlock()
+
+		taskList := make([]*GovernanceTask, 0, len(governanceTasks))
+		for _, t := range governanceTasks {
+			taskList = append(taskList, t)
+		}
+		sort.Slice(taskList, func(i, j int) bool {
+			return taskList[i].CreatedAt > taskList[j].CreatedAt
+		})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "tasks": taskList})
+
+	case http.MethodPost:
+		var task GovernanceTask
+		if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if task.Name == "" || task.Type == "" || task.GoCode == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务名称、类型和Go代码不能为空"})
+			return
+		}
+		task.ID = uuid.New().String()
+		task.CreatedAt = time.Now().Format(time.RFC3339)
+		task.Status = "idle"
+		if task.Type == "scheduled" && task.Enabled {
+			task.Enabled = true
+		}
+
+		dataOntologyMu.Lock()
+		governanceTasks[task.ID] = &task
+		dataOntologyMu.Unlock()
+
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存治理任务失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleGovernanceTaskDetail 处理单个治理任务的 GET/PUT/DELETE
+func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/tasks/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少任务ID"})
+		return
+	}
+	taskID := pathParts[0]
+
+	// 子路由分发
+	if len(pathParts) >= 2 {
+		switch pathParts[1] {
+		case "run":
+			handleGovernanceTaskRun(w, r, taskID)
+			return
+		case "toggle":
+			handleGovernanceTaskToggle(w, r, taskID)
+			return
+		case "logs":
+			handleGovernanceTaskLogs(w, r, taskID)
+			return
+		case "upload":
+			handleGovernanceTaskUpload(w, r, taskID)
+			return
+		}
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		task, exists := governanceTasks[taskID]
+		dataOntologyMu.RUnlock()
+		if !exists {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
+
+	case http.MethodPut:
+		var update GovernanceTask
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		dataOntologyMu.Lock()
+		task, exists := governanceTasks[taskID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+			return
+		}
+		if update.Name != "" {
+			task.Name = update.Name
+		}
+		if update.Description != "" {
+			task.Description = update.Description
+		}
+		if update.GoCode != "" {
+			task.GoCode = update.GoCode
+		}
+		if update.DatabaseID != "" {
+			task.DatabaseID = update.DatabaseID
+		}
+		if update.CronExpr != "" {
+			task.CronExpr = update.CronExpr
+		}
+		if update.InputType != "" {
+			task.InputType = update.InputType
+		}
+		if update.AcceptExts != nil {
+			task.AcceptExts = update.AcceptExts
+		}
+		task.Enabled = update.Enabled
+		task.UpdatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Unlock()
+
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存治理任务更新失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
+
+	case http.MethodDelete:
+		dataOntologyMu.Lock()
+		if _, exists := governanceTasks[taskID]; !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+			return
+		}
+		delete(governanceTasks, taskID)
+		delete(governanceTaskLogs, taskID)
+		dataOntologyMu.Unlock()
+
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存治理任务删除失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "删除成功"})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleGovernanceTaskToggle 启用/禁用定时任务
+func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	dataOntologyMu.Lock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+	task.Enabled = !task.Enabled
+	task.UpdatedAt = time.Now().Format(time.RFC3339)
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务状态失败: %v", err)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": task.Enabled})
+}
+
+// handleGovernanceTaskLogs 获取任务执行日志
+func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	dataOntologyMu.RLock()
+	logs := governanceTaskLogs[taskID]
+	dataOntologyMu.RUnlock()
+
+	if logs == nil {
+		logs = make([]*GovernanceTaskLog, 0)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
+}
+
+// handleGovernanceTaskRun 手动运行任务（定时任务手动触发 或 交互任务传入文本）
+func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+	goCode := task.GoCode
+	dbID := task.DatabaseID
+	taskType := task.Type
+	dataOntologyMu.RUnlock()
+
+	var inputText string
+	if taskType == "interactive" {
+		var req struct {
+			InputText string `json:"input_text"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		inputText = req.InputText
+	}
+
+	go executeGovernanceTask(taskID, goCode, dbID, inputText, "")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "任务已开始执行"})
+}
+
+// handleGovernanceTaskUpload 交互任务上传文件
+func handleGovernanceTaskUpload(w http.ResponseWriter, r *http.Request, taskID string) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	r.ParseMultipartForm(100 << 20) // 100MB
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件上传失败: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	uploadDir := getGovernanceUploadPath()
+	os.MkdirAll(uploadDir, 0755)
+	savePath := filepath.Join(uploadDir, fmt.Sprintf("%s_%s", uuid.New().String(), header.Filename))
+	dst, err := os.Create(savePath)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存文件失败: " + err.Error()})
+		return
+	}
+	defer dst.Close()
+	io.Copy(dst, file)
+
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+	goCode := task.GoCode
+	dbID := task.DatabaseID
+	dataOntologyMu.RUnlock()
+
+	inputText := r.FormValue("input_text")
+	go executeGovernanceTask(taskID, goCode, dbID, inputText, savePath)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "文件上传成功，任务已开始执行"})
+}
+
+// executeGovernanceTask 执行治理任务的Go代码
+func executeGovernanceTask(taskID, goCode, dbID, inputText, inputFile string) {
+	logEntry := &GovernanceTaskLog{
+		ID:        uuid.New().String(),
+		TaskID:    taskID,
+		StartTime: time.Now().Format(time.RFC3339),
+		Status:    "running",
+	}
+	if inputText != "" {
+		logEntry.Input = "text: " + inputText
+	}
+	if inputFile != "" {
+		logEntry.Input = "file: " + filepath.Base(inputFile)
+	}
+
+	dataOntologyMu.Lock()
+	if task, ok := governanceTasks[taskID]; ok {
+		task.Status = "running"
+		task.LastRunAt = logEntry.StartTime
+	}
+	governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], logEntry)
+	// 只保留最近 50 条日志
+	if len(governanceTaskLogs[taskID]) > 50 {
+		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
+	}
+	dataOntologyMu.Unlock()
+
+	workspace := getGovernanceWorkspacePath()
+	os.MkdirAll(workspace, 0755)
+
+	tmpFile, err := os.CreateTemp(workspace, "gov-task-*.go")
+	if err != nil {
+		finishGovernanceTask(taskID, logEntry, "", "创建临时文件失败: "+err.Error())
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.WriteString(goCode); err != nil {
+		tmpFile.Close()
+		finishGovernanceTask(taskID, logEntry, "", "写入代码失败: "+err.Error())
+		return
+	}
+	tmpFile.Close()
+
+	cmd := exec.Command("go", "run", tmpPath)
+	cmd.Dir = workspace
+
+	// 通过环境变量传递上下文
+	cmd.Env = append(os.Environ(),
+		"GOVERNANCE_TASK_ID="+taskID,
+		"GOVERNANCE_INPUT_TEXT="+inputText,
+		"GOVERNANCE_INPUT_FILE="+inputFile,
+	)
+
+	if dbID != "" {
+		dataOntologyMu.RLock()
+		if dbCfg, ok := dataOntologyDatabases[dbID]; ok {
+			cmd.Env = append(cmd.Env,
+				"DB_TYPE="+dbCfg.Type,
+				"DB_HOST="+dbCfg.Host,
+				"DB_PORT="+fmt.Sprintf("%d", dbCfg.Port),
+				"DB_USER="+dbCfg.User,
+				"DB_PASSWORD="+dbCfg.Password,
+				"DB_NAME="+dbCfg.Database,
+				"DB_PATH="+dbCfg.Path,
+			)
+		}
+		dataOntologyMu.RUnlock()
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	timer := time.AfterFunc(5*time.Minute, func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+	})
+	defer timer.Stop()
+
+	err = cmd.Run()
+	if err != nil {
+		errMsg := stderr.String()
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		finishGovernanceTask(taskID, logEntry, stdout.String(), errMsg)
+		return
+	}
+	finishGovernanceTask(taskID, logEntry, stdout.String(), "")
+}
+
+func finishGovernanceTask(taskID string, logEntry *GovernanceTaskLog, output, errMsg string) {
+	logEntry.EndTime = time.Now().Format(time.RFC3339)
+	logEntry.Output = output
+	if errMsg != "" {
+		logEntry.Status = "error"
+		logEntry.Error = errMsg
+	} else {
+		logEntry.Status = "success"
+	}
+
+	dataOntologyMu.Lock()
+	if task, ok := governanceTasks[taskID]; ok {
+		if errMsg != "" {
+			task.Status = "error"
+			task.LastError = errMsg
+			task.LastOutput = output
+		} else {
+			task.Status = "success"
+			task.LastOutput = output
+			task.LastError = ""
+		}
+	}
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务执行结果失败: %v", err)
+	}
+}
+
+// ==================== 治理任务调度器 ====================
+
+func governanceScheduler() {
+	for {
+		time.Sleep(30 * time.Second)
+		now := time.Now()
+
+		dataOntologyMu.RLock()
+		var tasksToRun []struct {
+			id     string
+			code   string
+			dbID   string
+		}
+		for _, task := range governanceTasks {
+			if task.Type == "scheduled" && task.Enabled && task.Status != "running" {
+				if cronMatch(task.CronExpr, now) {
+					tasksToRun = append(tasksToRun, struct {
+						id   string
+						code string
+						dbID string
+					}{task.ID, task.GoCode, task.DatabaseID})
+				}
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		for _, t := range tasksToRun {
+			go executeGovernanceTask(t.id, t.code, t.dbID, "", "")
+		}
+	}
+}
+
+// cronMatch 简易 cron 表达式匹配 "分 时 日 月 周"
+func cronMatch(expr string, t time.Time) bool {
+	if expr == "" {
+		return false
+	}
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return false
+	}
+	values := []int{t.Minute(), t.Hour(), t.Day(), int(t.Month()), int(t.Weekday())}
+	for i, field := range fields {
+		if !cronFieldMatch(field, values[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func cronFieldMatch(field string, value int) bool {
+	if field == "*" {
+		return true
+	}
+	// 支持逗号分隔
+	for _, part := range strings.Split(field, ",") {
+		part = strings.TrimSpace(part)
+		// 支持 */n 步进
+		if strings.HasPrefix(part, "*/") {
+			step, err := strconv.Atoi(strings.TrimPrefix(part, "*/"))
+			if err == nil && step > 0 && value%step == 0 {
+				return true
+			}
+			continue
+		}
+		// 支持 a-b 范围
+		if strings.Contains(part, "-") {
+			rangeParts := strings.Split(part, "-")
+			if len(rangeParts) == 2 {
+				low, err1 := strconv.Atoi(rangeParts[0])
+				high, err2 := strconv.Atoi(rangeParts[1])
+				if err1 == nil && err2 == nil && value >= low && value <= high {
+					return true
+				}
+			}
+			continue
+		}
+		// 精确匹配
+		v, err := strconv.Atoi(part)
+		if err == nil && v == value {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
@@ -5031,6 +5978,10 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
+	
+	// 数据治理API路由
+	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
+	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
 	
 	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))
