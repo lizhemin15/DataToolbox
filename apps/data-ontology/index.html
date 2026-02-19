@@ -728,7 +728,7 @@
                     <select id="govTaskDbSelect">
                         <option value="">不关联数据库</option>
                     </select>
-                    <small>关联后，数据库连接信息将通过环境变量传递给Go代码 (DB_TYPE, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME)</small>
+                    <small>关联后可通过 gov.querySQL / gov.executeSQL 操作该数据库</small>
                 </div>
                 <div id="govScheduledFields">
                     <div class="form-row">
@@ -767,6 +767,44 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <div class="gov-codegen-toggle" onclick="toggleCodeGen()">
+                        <span>入库代码生成助手</span>
+                        <span id="codegenArrow" class="gov-codegen-arrow">▶</span>
+                    </div>
+                    <div id="govCodeGenPanel" class="gov-codegen-panel" style="display:none;">
+                        <div class="gov-codegen-row">
+                            <div class="gov-codegen-field">
+                                <label>数据源类型</label>
+                                <select id="codegenSourceType" class="gov-codegen-select">
+                                    <option value="excel">Excel 文件 (.xlsx)</option>
+                                    <option value="csv_file">CSV 文件</option>
+                                    <option value="csv_text">CSV 文本输入</option>
+                                </select>
+                            </div>
+                            <div class="gov-codegen-field">
+                                <label>目标表</label>
+                                <select id="codegenTable" class="gov-codegen-select" onchange="onCodegenTableChange()">
+                                    <option value="">请先选择关联数据库</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="codegenMappingArea" style="display:none;">
+                            <label>列映射 <small>（勾选要导入的列，设置对应的源数据列序号）</small></label>
+                            <div class="gov-codegen-mapping-header">
+                                <span class="gov-cg-check"></span>
+                                <span class="gov-cg-col">数据库列</span>
+                                <span class="gov-cg-type">类型</span>
+                                <span class="gov-cg-src">源列序号</span>
+                            </div>
+                            <div id="codegenMappingBody"></div>
+                        </div>
+                        <div class="gov-codegen-actions">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="generateImportCode()">生成代码</button>
+                            <button type="button" class="btn btn-sm" onclick="refreshCodegenTables()">刷新表列表</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label for="govCodeInput">任务代码 (JavaScript)</label>
                     <textarea id="govCodeInput" rows="18" placeholder="// 可用的全局对象和变量:
 // INPUT_FILE  - 上传的文件对象 (File)
@@ -777,6 +815,7 @@
 //
 // gov.log(msg)                    - 输出日志
 // gov.readExcel(file)             - 读取Excel，返回workbook
+// gov.readCSV(text)               - 解析CSV文本，返回二维数组
 // gov.readWord(file)              - 读取Word，返回{value,messages}
 // gov.querySQL(sql, params?)      - 查询SQL，返回数据数组
 // gov.executeSQL(sql, params?)    - 执行SQL，返回affected行数

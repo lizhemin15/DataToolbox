@@ -4077,6 +4077,11 @@ let govSelectedFile = null;
             if (e.target === this) hideGovTaskModal();
         });
 
+        const dbSelect = document.getElementById('govTaskDbSelect');
+        if (dbSelect) dbSelect.addEventListener('change', function() {
+            if (document.getElementById('govCodeGenPanel').style.display !== 'none') refreshCodegenTables();
+        });
+
         // 拖拽上传
         const dropZone = document.getElementById('govDropZone');
         if (dropZone) {
@@ -4562,339 +4567,179 @@ function createGovHelper(logLines) {
             const result = await _runSQL(dbId, sql, params || []);
             return result.rows_affected || 0;
         },
-        async showImportWizard(headers, rows) {
-            return _showImportWizard(headers, rows, logLines, _runSQL);
-        }
     };
 }
 
-async function _showImportWizard(headers, rows, logLines, runSQL) {
-    return new Promise((resolveWizard) => {
-        const container = document.getElementById('govTaskOutput');
-        let selectedDbId = '', selectedDbType = '';
-        let tableMode = 'existing', selectedTable = '', newTableName = '';
-        let targetColumns = [];
-        let columnMapping = {};
+// ==================== 入库代码生成助手 ====================
+let codegenColumns = [];
 
-        function getDbType(dbId) {
-            const db = databases.find(d => d.id === dbId);
-            return db ? db.type : 'mysql';
+function toggleCodeGen() {
+    const panel = document.getElementById('govCodeGenPanel');
+    const arrow = document.getElementById('codegenArrow');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    arrow.classList.toggle('open', !visible);
+    if (!visible) refreshCodegenTables();
+}
+
+async function refreshCodegenTables() {
+    const dbId = document.getElementById('govTaskDbSelect').value;
+    const sel = document.getElementById('codegenTable');
+    codegenColumns = [];
+    document.getElementById('codegenMappingArea').style.display = 'none';
+
+    if (!dbId) {
+        sel.innerHTML = '<option value="">请先选择关联数据库</option>';
+        return;
+    }
+
+    const db = databases.find(d => d.id === dbId);
+    if (!db) return;
+
+    sel.innerHTML = '<option value="">加载中...</option>';
+    const token = localStorage.getItem('dataOntologyToken');
+
+    try {
+        let sql;
+        if (db.type === 'sqlite') sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+        else if (db.type === 'postgresql') sql = "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'";
+        else sql = 'SHOW TABLES';
+
+        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ database_id: dbId, sql, params: [] })
+        });
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.message);
+
+        const tables = (result.data || []).map(row => Object.values(row)[0]);
+        sel.innerHTML = '<option value="">-- 请选择目标表 --</option>' + tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    } catch (e) {
+        sel.innerHTML = `<option value="">加载失败: ${escapeHtml(e.message)}</option>`;
+    }
+}
+
+async function onCodegenTableChange() {
+    const tableName = document.getElementById('codegenTable').value;
+    const dbId = document.getElementById('govTaskDbSelect').value;
+    const db = databases.find(d => d.id === dbId);
+    const area = document.getElementById('codegenMappingArea');
+    const body = document.getElementById('codegenMappingBody');
+
+    if (!tableName || !db) {
+        area.style.display = 'none';
+        codegenColumns = [];
+        return;
+    }
+
+    const token = localStorage.getItem('dataOntologyToken');
+    try {
+        let sql;
+        if (db.type === 'sqlite') sql = `PRAGMA table_info('${tableName}')`;
+        else if (db.type === 'postgresql') sql = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name='${tableName}'`;
+        else sql = 'SHOW COLUMNS FROM `' + tableName + '`';
+
+        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ database_id: dbId, sql, params: [] })
+        });
+        const result = await resp.json();
+        if (!result.success) throw new Error(result.message);
+
+        codegenColumns = (result.data || []).map(row => {
+            if (db.type === 'sqlite') return { name: row.name, type: row.type || 'TEXT' };
+            if (db.type === 'postgresql') return { name: row.column_name, type: row.data_type };
+            return { name: row.Field, type: row.Type };
+        });
+
+        body.innerHTML = codegenColumns.map((col, i) => `
+            <div class="gov-codegen-mapping-row">
+                <span class="gov-cg-check"><input type="checkbox" class="codegen-col-check" data-idx="${i}" checked></span>
+                <span class="gov-cg-col">${escapeHtml(col.name)}</span>
+                <span class="gov-cg-type">${escapeHtml(col.type)}</span>
+                <span class="gov-cg-src"><input type="number" class="codegen-col-src" data-idx="${i}" value="${i}" min="0"></span>
+            </div>
+        `).join('');
+        area.style.display = 'block';
+    } catch (e) {
+        area.style.display = 'none';
+        codegenColumns = [];
+    }
+}
+
+function generateImportCode() {
+    const sourceType = document.getElementById('codegenSourceType').value;
+    const tableName = document.getElementById('codegenTable').value;
+    const dbId = document.getElementById('govTaskDbSelect').value;
+    const db = databases.find(d => d.id === dbId);
+
+    if (!tableName) { alert('请先选择目标表'); return; }
+
+    const checks = document.querySelectorAll('.codegen-col-check');
+    const srcs = document.querySelectorAll('.codegen-col-src');
+    const mappings = [];
+    checks.forEach((chk, i) => {
+        if (chk.checked) {
+            const srcIdx = parseInt(srcs[i].value);
+            mappings.push({ col: codegenColumns[i].name, srcIdx });
         }
-
-        async function fetchTables(databaseId, dbType) {
-            let sql;
-            if (dbType === 'sqlite') sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
-            else if (dbType === 'postgresql') sql = "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'";
-            else sql = 'SHOW TABLES';
-            const result = await runSQL(databaseId, sql);
-            return (result.data || []).map(row => Object.values(row)[0]);
-        }
-
-        async function fetchColumns(databaseId, dbType, tableName) {
-            let sql;
-            if (dbType === 'sqlite') sql = `PRAGMA table_info('${tableName}')`;
-            else if (dbType === 'postgresql') sql = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name='${tableName}'`;
-            else sql = 'SHOW COLUMNS FROM `' + tableName + '`';
-            const result = await runSQL(databaseId, sql);
-            return (result.data || []).map(row => {
-                if (dbType === 'sqlite') return { name: row.name, type: row.type || 'TEXT' };
-                if (dbType === 'postgresql') return { name: row.column_name, type: row.data_type };
-                return { name: row.Field, type: row.Type };
-            });
-        }
-
-        function quoteId(name, dbType) {
-            if (dbType === 'mysql' || dbType === 'mariadb') return '`' + name + '`';
-            return '"' + name + '"';
-        }
-
-        const SQL_TYPES = ['VARCHAR(255)', 'INT', 'BIGINT', 'DECIMAL(10,2)', 'TEXT', 'DATE', 'DATETIME', 'BOOLEAN', 'FLOAT', 'DOUBLE'];
-
-        function renderWizard() {
-            const previewRows = rows.slice(0, 8);
-            container.innerHTML = `
-<div class="gov-import-wizard">
-    <div class="gov-wizard-header"><h4>数据导入向导</h4><span class="gov-wizard-info">${rows.length} 行 × ${headers.length} 列</span></div>
-    <div class="gov-wizard-section">
-        <div class="gov-wizard-label">数据预览</div>
-        <div class="gov-preview-table-wrap">
-            <table class="gov-preview-table">
-                <thead><tr>${headers.map(h => '<th>' + escapeHtml(String(h)) + '</th>').join('')}</tr></thead>
-                <tbody>${previewRows.map(row => '<tr>' + headers.map((_, i) => '<td>' + escapeHtml(String(row[i] ?? '')) + '</td>').join('') + '</tr>').join('')}</tbody>
-            </table>
-        </div>
-        ${rows.length > 8 ? '<div class="gov-preview-more">... 还有 ' + (rows.length - 8) + ' 行</div>' : ''}
-    </div>
-    <div class="gov-wizard-section">
-        <div class="gov-wizard-label">目标数据库</div>
-        <select id="wizDbSelect" class="gov-wizard-select">
-            <option value="">-- 请选择 --</option>
-            ${databases.map(db => '<option value="' + db.id + '"' + (db.id === selectedDbId ? ' selected' : '') + '>' + escapeHtml(db.name) + ' (' + db.type + ')</option>').join('')}
-        </select>
-    </div>
-    <div class="gov-wizard-section" id="wizTableSection" style="display:${selectedDbId ? 'block' : 'none'}">
-        <div class="gov-wizard-label">目标表</div>
-        <div class="gov-wizard-radios">
-            <label><input type="radio" name="wizTableMode" value="existing" ${tableMode === 'existing' ? 'checked' : ''}> 选择已有表</label>
-            <label><input type="radio" name="wizTableMode" value="new" ${tableMode === 'new' ? 'checked' : ''}> 新建表</label>
-        </div>
-        <div id="wizExistingTable" style="display:${tableMode === 'existing' ? 'block' : 'none'}">
-            <select id="wizTableSelect" class="gov-wizard-select"><option value="">加载中...</option></select>
-        </div>
-        <div id="wizNewTable" style="display:${tableMode === 'new' ? 'block' : 'none'}">
-            <input id="wizNewTableName" class="gov-wizard-input" placeholder="输入新表名" value="${escapeHtml(newTableName)}">
-        </div>
-    </div>
-    <div class="gov-wizard-section" id="wizMappingSection" style="display:none">
-        <div class="gov-wizard-label">列映射</div>
-        <div id="wizMappingBody"></div>
-    </div>
-    <div class="gov-wizard-section" id="wizNewColSection" style="display:none">
-        <div class="gov-wizard-label">列定义</div>
-        <div id="wizNewColBody"></div>
-    </div>
-    <div class="gov-wizard-actions">
-        <button class="btn" id="wizCancelBtn">取消</button>
-        <button class="btn btn-primary" id="wizImportBtn" disabled>开始导入</button>
-    </div>
-    <div id="wizProgress" class="gov-wizard-progress" style="display:none">
-        <div class="gov-wizard-progress-bar"><div class="gov-wizard-progress-fill" id="wizProgressFill"></div></div>
-        <div id="wizProgressText" class="gov-wizard-progress-text"></div>
-    </div>
-</div>`;
-            bindWizardEvents();
-        }
-
-        function renderMapping() {
-            const section = document.getElementById('wizMappingSection');
-            const body = document.getElementById('wizMappingBody');
-            if (tableMode === 'existing' && targetColumns.length > 0) {
-                section.style.display = 'block';
-                body.innerHTML = headers.map((h, i) => {
-                    const mapped = columnMapping[i] || '';
-                    return `<div class="gov-mapping-row">
-                        <span class="gov-mapping-src">${escapeHtml(String(h))}</span>
-                        <span class="gov-mapping-arrow">→</span>
-                        <select class="gov-wizard-select gov-mapping-sel" data-idx="${i}">
-                            <option value="">(跳过)</option>
-                            ${targetColumns.map(c => '<option value="' + escapeHtml(c.name) + '"' + (c.name === mapped ? ' selected' : '') + '>' + escapeHtml(c.name) + ' (' + escapeHtml(c.type) + ')</option>').join('')}
-                        </select>
-                    </div>`;
-                }).join('');
-                body.querySelectorAll('.gov-mapping-sel').forEach(sel => {
-                    sel.addEventListener('change', () => {
-                        const idx = parseInt(sel.dataset.idx);
-                        columnMapping[idx] = sel.value;
-                        updateImportBtn();
-                    });
-                });
-            } else {
-                section.style.display = 'none';
-            }
-            updateImportBtn();
-        }
-
-        function renderNewColumns() {
-            const section = document.getElementById('wizNewColSection');
-            const body = document.getElementById('wizNewColBody');
-            if (tableMode === 'new') {
-                section.style.display = 'block';
-                body.innerHTML = headers.map((h, i) => {
-                    const colName = columnMapping[i] || String(h).replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_').substring(0, 64);
-                    const colType = (targetColumns[i] && targetColumns[i].type) || 'VARCHAR(255)';
-                    return `<div class="gov-mapping-row">
-                        <input class="gov-wizard-input gov-newcol-name" data-idx="${i}" value="${escapeHtml(colName)}" placeholder="列名">
-                        <select class="gov-wizard-select gov-newcol-type" data-idx="${i}">
-                            ${SQL_TYPES.map(t => '<option' + (t === colType ? ' selected' : '') + '>' + t + '</option>').join('')}
-                        </select>
-                    </div>`;
-                }).join('');
-                body.querySelectorAll('.gov-newcol-name').forEach(inp => {
-                    inp.addEventListener('input', () => {
-                        columnMapping[parseInt(inp.dataset.idx)] = inp.value;
-                        updateImportBtn();
-                    });
-                });
-                body.querySelectorAll('.gov-newcol-type').forEach(sel => {
-                    sel.addEventListener('change', () => {
-                        if (!targetColumns[parseInt(sel.dataset.idx)]) targetColumns[parseInt(sel.dataset.idx)] = {};
-                        targetColumns[parseInt(sel.dataset.idx)].type = sel.value;
-                    });
-                });
-                headers.forEach((h, i) => { if (!columnMapping[i]) columnMapping[i] = String(h).replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_').substring(0, 64); });
-            } else {
-                section.style.display = 'none';
-            }
-            updateImportBtn();
-        }
-
-        function updateImportBtn() {
-            const btn = document.getElementById('wizImportBtn');
-            if (!btn) return;
-            if (!selectedDbId) { btn.disabled = true; return; }
-            if (tableMode === 'existing') {
-                const hasMapped = Object.values(columnMapping).some(v => v);
-                btn.disabled = !selectedTable || !hasMapped;
-            } else {
-                btn.disabled = !newTableName || !Object.values(columnMapping).some(v => v);
-            }
-        }
-
-        function bindWizardEvents() {
-            document.getElementById('wizDbSelect').addEventListener('change', async function() {
-                selectedDbId = this.value;
-                selectedDbType = getDbType(selectedDbId);
-                selectedTable = '';
-                targetColumns = [];
-                columnMapping = {};
-                document.getElementById('wizTableSection').style.display = selectedDbId ? 'block' : 'none';
-                document.getElementById('wizMappingSection').style.display = 'none';
-                document.getElementById('wizNewColSection').style.display = 'none';
-                if (selectedDbId && tableMode === 'existing') await loadTables();
-                if (selectedDbId && tableMode === 'new') renderNewColumns();
-                updateImportBtn();
-            });
-
-            document.querySelectorAll('input[name="wizTableMode"]').forEach(radio => {
-                radio.addEventListener('change', async function() {
-                    tableMode = this.value;
-                    document.getElementById('wizExistingTable').style.display = tableMode === 'existing' ? 'block' : 'none';
-                    document.getElementById('wizNewTable').style.display = tableMode === 'new' ? 'block' : 'none';
-                    selectedTable = '';
-                    columnMapping = {};
-                    targetColumns = [];
-                    if (tableMode === 'existing' && selectedDbId) await loadTables();
-                    if (tableMode === 'new') renderNewColumns();
-                    renderMapping();
-                });
-            });
-
-            const nameInput = document.getElementById('wizNewTableName');
-            if (nameInput) nameInput.addEventListener('input', function() { newTableName = this.value; updateImportBtn(); });
-
-            document.getElementById('wizCancelBtn').addEventListener('click', () => {
-                logLines.push('导入已取消');
-                resolveWizard();
-            });
-
-            document.getElementById('wizImportBtn').addEventListener('click', doImport);
-
-            if (selectedDbId && tableMode === 'existing') loadTables();
-        }
-
-        async function loadTables() {
-            const sel = document.getElementById('wizTableSelect');
-            sel.innerHTML = '<option value="">加载中...</option>';
-            try {
-                const tables = await fetchTables(selectedDbId, selectedDbType);
-                sel.innerHTML = '<option value="">-- 请选择 --</option>' + tables.map(t => '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>').join('');
-                sel.addEventListener('change', async function() {
-                    selectedTable = this.value;
-                    columnMapping = {};
-                    if (selectedTable) {
-                        targetColumns = await fetchColumns(selectedDbId, selectedDbType, selectedTable);
-                        autoMapColumns();
-                    } else {
-                        targetColumns = [];
-                    }
-                    renderMapping();
-                });
-            } catch (e) {
-                sel.innerHTML = '<option value="">加载失败: ' + escapeHtml(e.message) + '</option>';
-            }
-        }
-
-        function autoMapColumns() {
-            columnMapping = {};
-            headers.forEach((h, i) => {
-                const srcName = String(h).toLowerCase().trim();
-                const match = targetColumns.find(c => c.name.toLowerCase() === srcName);
-                if (match) columnMapping[i] = match.name;
-            });
-        }
-
-        async function doImport() {
-            const btn = document.getElementById('wizImportBtn');
-            const cancelBtn = document.getElementById('wizCancelBtn');
-            btn.disabled = true;
-            cancelBtn.disabled = true;
-            const progress = document.getElementById('wizProgress');
-            const fill = document.getElementById('wizProgressFill');
-            const text = document.getElementById('wizProgressText');
-            progress.style.display = 'block';
-
-            try {
-                let tableName, mappedIndices, mappedCols;
-
-                if (tableMode === 'new') {
-                    tableName = newTableName.trim();
-                    mappedIndices = [];
-                    mappedCols = [];
-                    headers.forEach((_, i) => {
-                        const colName = columnMapping[i];
-                        if (colName) {
-                            mappedIndices.push(i);
-                            const colType = (targetColumns[i] && targetColumns[i].type) || 'VARCHAR(255)';
-                            mappedCols.push({ name: colName, type: colType });
-                        }
-                    });
-                    text.textContent = '正在创建表 ' + tableName + ' ...';
-                    const q = quoteId(tableName, selectedDbType);
-                    const colDefs = mappedCols.map(c => quoteId(c.name, selectedDbType) + ' ' + c.type).join(', ');
-                    await runSQL(selectedDbId, `CREATE TABLE ${q} (${colDefs})`);
-                    logLines.push(`✓ 已创建表: ${tableName}`);
-                } else {
-                    tableName = selectedTable;
-                    mappedIndices = [];
-                    mappedCols = [];
-                    headers.forEach((_, i) => {
-                        if (columnMapping[i]) {
-                            mappedIndices.push(i);
-                            mappedCols.push({ name: columnMapping[i] });
-                        }
-                    });
-                }
-
-                const totalRows = rows.length;
-                let inserted = 0, failed = 0;
-                const colNames = mappedCols.map(c => quoteId(c.name, selectedDbType)).join(', ');
-                const placeholders = mappedCols.map(() => '?').join(', ');
-
-                for (let r = 0; r < totalRows; r++) {
-                    const row = rows[r];
-                    const vals = mappedIndices.map(i => row[i] ?? null);
-                    try {
-                        await runSQL(selectedDbId, `INSERT INTO ${quoteId(tableName, selectedDbType)} (${colNames}) VALUES (${placeholders})`, vals);
-                        inserted++;
-                    } catch (e) {
-                        failed++;
-                        if (failed <= 3) logLines.push(`✗ 第 ${r + 1} 行失败: ${e.message}`);
-                    }
-                    if (r % 10 === 0 || r === totalRows - 1) {
-                        const pct = Math.round(((r + 1) / totalRows) * 100);
-                        fill.style.width = pct + '%';
-                        text.textContent = `导入中 ${r + 1}/${totalRows} (成功 ${inserted}, 失败 ${failed})`;
-                        await new Promise(ok => setTimeout(ok, 0));
-                    }
-                }
-
-                fill.style.width = '100%';
-                text.textContent = `导入完成: 成功 ${inserted} 行, 失败 ${failed} 行`;
-                logLines.push(`✓ 导入完成: ${tableName} ← 成功 ${inserted} 行, 失败 ${failed} 行`);
-                if (failed > 3) logLines.push(`  (仅显示前3条错误)`);
-            } catch (e) {
-                text.textContent = '导入失败: ' + e.message;
-                logLines.push('✗ 导入失败: ' + e.message);
-            }
-
-            btn.textContent = '完成';
-            btn.disabled = false;
-            cancelBtn.style.display = 'none';
-            btn.onclick = () => resolveWizard();
-        }
-
-        renderWizard();
     });
+
+    if (mappings.length === 0) { alert('请至少勾选一个列'); return; }
+
+    const q = (db && (db.type === 'mysql' || db.type === 'mariadb')) ? '`' : '"';
+    const colList = mappings.map(m => `${q}${m.col}${q}`).join(', ');
+    const placeholders = mappings.map(() => '?').join(', ');
+    const valExpr = mappings.map(m => `row[${m.srcIdx}]`).join(', ');
+    const colComments = mappings.map(m => `//   源列 ${m.srcIdx} → ${m.col}`).join('\n');
+
+    let parseCode = '';
+    if (sourceType === 'excel') {
+        parseCode = `const workbook = await gov.readExcel(INPUT_FILE);
+const sheetName = workbook.SheetNames[0];
+const allData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+const headers = allData[0];
+const rows = allData.slice(1);
+gov.log(\`解析工作表: \${sheetName}, \${rows.length} 行 × \${headers.length} 列\`);`;
+    } else if (sourceType === 'csv_file') {
+        parseCode = `const text = await INPUT_FILE.text();
+const parsed = Papa.parse(text, { header: false });
+const allData = parsed.data.filter(r => r.some(c => c));
+const headers = allData[0];
+const rows = allData.slice(1);
+gov.log(\`解析CSV文件: \${rows.length} 行 × \${headers.length} 列\`);`;
+    } else {
+        parseCode = `const parsed = Papa.parse(INPUT_TEXT, { header: false });
+const allData = parsed.data.filter(r => r.some(c => c));
+const headers = allData[0];
+const rows = allData.slice(1);
+gov.log(\`解析CSV文本: \${rows.length} 行 × \${headers.length} 列\`);`;
+    }
+
+    const code = `${parseCode}
+
+// 列映射:
+${colComments}
+
+let inserted = 0, failed = 0;
+for (const row of rows) {
+    try {
+        await gov.executeSQL(
+            'INSERT INTO ${q}${tableName}${q} (${colList}) VALUES (${placeholders})',
+            [${valExpr}]
+        );
+        inserted++;
+    } catch (e) {
+        failed++;
+        if (failed <= 5) gov.log(\`✗ 行 \${inserted + failed} 失败: \${e.message}\`);
+    }
+}
+
+gov.log(\`\\n入库完成: ${tableName} ← 成功 \${inserted} 行, 失败 \${failed} 行\`);`;
+
+    document.getElementById('govCodeInput').value = code;
 }
 
 async function executeGovTaskInBrowser(code, file, inputText) {
