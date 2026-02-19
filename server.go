@@ -3949,7 +3949,13 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取数据库配置和表结构
+	// 发送读取表结构事件
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在读取数据库表结构信息...",
+	})
+	flusher.Flush()
+
+	// 获取数据库配置和表结构（含字段信息）
 	dataOntologyMu.RLock()
 	var dbSchemas []map[string]interface{}
 	for _, dbID := range queryReq.Databases {
@@ -3958,17 +3964,38 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 获取表结构
 		tables, err := getTablesList(dbConfig)
 		if err != nil {
 			log.Printf("获取数据库 %s 表列表失败: %v", dbConfig.Name, err)
 			continue
 		}
 
+		// 获取每张表的字段信息
+		var tablesWithColumns []map[string]interface{}
+		maxTables := 15
+		if len(tables) > maxTables {
+			tables = tables[:maxTables]
+		}
+		for _, tableName := range tables {
+			columns, err := getTableColumns(dbConfig, tableName)
+			if err != nil {
+				log.Printf("获取表 %s 字段失败: %v", tableName, err)
+				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+					"name":    tableName,
+					"columns": []map[string]interface{}{},
+				})
+				continue
+			}
+			tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+				"name":    tableName,
+				"columns": columns,
+			})
+		}
+
 		dbSchemas = append(dbSchemas, map[string]interface{}{
 			"name":   dbConfig.Name,
 			"type":   dbConfig.Type,
-			"tables": tables,
+			"tables": tablesWithColumns,
 			"id":     dbID,
 		})
 	}
@@ -4313,25 +4340,56 @@ func getDBSpecificWarnings(dbType string) string {
 	}
 }
 
-// buildAIPrompt 构建AI提示词
-func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
-	prompt := "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
-	prompt += "数据库结构：\n"
-
+// formatDBSchemaForPrompt 将数据库结构格式化为提示词文本，返回格式化文本和主数据库类型
+func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string) {
+	var sb strings.Builder
 	var primaryDBType string
+
 	for _, schema := range dbSchemas {
-		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
-		prompt += "表列表: "
-		if tables, ok := schema["tables"].([]string); ok {
-			prompt += strings.Join(tables, ", ")
-		}
-		prompt += "\n"
+		sb.WriteString(fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"]))
+		sb.WriteString(strings.Repeat("=", 50) + "\n")
+
 		if primaryDBType == "" {
 			if t, ok := schema["type"].(string); ok {
 				primaryDBType = t
 			}
 		}
+
+		// 新格式：带字段信息的表结构
+		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, table := range tables {
+				tableName, _ := table["name"].(string)
+				sb.WriteString(fmt.Sprintf("\n表: %s\n", tableName))
+				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
+					sb.WriteString("  字段:\n")
+					for _, col := range columns {
+						colName := col["name"]
+						colType := col["type"]
+						nullable := ""
+						if n, ok := col["nullable"].(string); ok && n == "N" {
+							nullable = " [NOT NULL]"
+						}
+						sb.WriteString(fmt.Sprintf("    - %s (%s)%s\n", colName, colType, nullable))
+					}
+				} else {
+					sb.WriteString("  （字段信息不可用）\n")
+				}
+			}
+		} else if tables, ok := schema["tables"].([]string); ok {
+			// 旧格式：仅表名列表
+			sb.WriteString("表列表: " + strings.Join(tables, ", ") + "\n")
+		}
 	}
+	return sb.String(), primaryDBType
+}
+
+// buildAIPrompt 构建AI提示词
+func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
+	prompt := "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
+
+	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
+	prompt += schemaText
 
 	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
 
@@ -4341,8 +4399,10 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 
 	prompt += "⚠️ 重要规则：\n"
 	prompt += "1. 【必须】只生成一条SQL语句！不能生成多条SQL语句！\n"
-	prompt += "2. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
-	prompt += "3. 使用子查询或聚合函数来统计多个表的信息\n\n"
+	prompt += "2. 【必须】只使用上面列出的真实表名和字段名，绝对不要编造列名！\n"
+	prompt += "3. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
+	prompt += "4. 对于INSERT操作，必须使用表中实际存在的字段名，根据字段类型填入合理的示例数据\n"
+	prompt += "5. 使用子查询或聚合函数来统计多个表的信息\n\n"
 	prompt += "📚 根据问题类型选择正确的SQL：\n\n"
 	prompt += "🔍 查询表结构/字段信息：\n"
 	prompt += queryColumns + "\n\n"
@@ -4353,12 +4413,16 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "  SELECT 'users' as table_name, COUNT(*) as row_count FROM users\n\n"
 	prompt += "📋 查看表的样本数据：\n"
 	prompt += "  " + sampleQuery + "\n\n"
+	prompt += "✏️ 写入数据时：\n"
+	prompt += "  必须先参考上方的表结构，使用实际存在的字段名，根据数据类型生成合理的值\n\n"
 	prompt += "❌ 错误示例（不要这样做）：\n"
-	prompt += "  SELECT * FROM table1 UNION ALL SELECT * FROM table2  -- 错误！不同表结构无法合并\n\n"
+	prompt += "  SELECT * FROM table1 UNION ALL SELECT * FROM table2  -- 错误！不同表结构无法合并\n"
+	prompt += "  INSERT INTO table1 (column1, column2) VALUES (...)  -- 错误！不要编造字段名\n\n"
 	prompt += "🎯 理解用户意图：\n"
-	prompt += "- 如果问\"有哪些字段/列\"：查询数据字典/元数据表\n"
+	prompt += "- 如果问\"有哪些字段/列\"：根据上方提供的表结构直接回答，或查询数据字典\n"
 	prompt += "- 如果问\"分析数据/统计\"：使用 COUNT(*), SUM(), AVG() 等聚合函数\n"
 	prompt += "- 如果问\"查看数据/内容\"：使用 " + sampleQuery + "\n"
+	prompt += "- 如果要求\"写入/插入数据\"：根据上方表结构中的真实字段名生成INSERT语句\n"
 	prompt += "- 如果涉及多个表：用子查询或统计，不要用 UNION ALL 合并不同结构的数据\n\n"
 	prompt += "请按以下格式回复：\n"
 	prompt += "1. 用一句话说明你将要做什么（例如：\"我将统计各表的数据量\"）\n"
@@ -4369,7 +4433,7 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "注意：\n"
 	prompt += "- 回复要简洁友好\n"
 	prompt += "- 只生成一条可执行的SQL语句\n"
-	prompt += "- 优先使用统计和聚合，不要直接合并不同表的数据\n"
+	prompt += "- 严格使用上面提供的真实字段名，不要猜测或编造\n"
 	prompt += "- 不要包含过多的技术解释"
 
 	return prompt
@@ -4378,22 +4442,10 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 // buildRetryPrompt 构建重试提示词
 func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}) string {
 	prompt := "你是一个专业的数据库助手。之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
-	prompt += "数据库结构：\n"
+	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
 
-	var primaryDBType string
-	for _, schema := range dbSchemas {
-		prompt += fmt.Sprintf("\n数据库: %s (类型: %s)\n", schema["name"], schema["type"])
-		prompt += "表列表: "
-		if tables, ok := schema["tables"].([]string); ok {
-			prompt += strings.Join(tables, ", ")
-		}
-		prompt += "\n"
-		if primaryDBType == "" {
-			if t, ok := schema["type"].(string); ok {
-				primaryDBType = t
-			}
-		}
-	}
+	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
+	prompt += schemaText
 
 	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
 
@@ -4543,51 +4595,58 @@ func isCreateApiRequest(message string) bool {
 // handleAICreateApi 处理AI创建接口请求
 func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
 	
-	sendSSE(w, "thinking", map[string]interface{}{
-		"message": "正在读取数据库表结构信息...",
-	})
-	flusher.Flush()
-	
-	// 增强 dbSchemas - 为每个表获取详细的字段信息
-	dataOntologyMu.RLock()
-	for i, schema := range dbSchemas {
-		dbID, _ := schema["id"].(string)
-		dbConfig, exists := dataOntologyDatabases[dbID]
-		if !exists {
-			continue
+	// 如果 dbSchemas 尚未增强（tables 还是 []string），则获取字段信息
+	needEnhance := false
+	if len(dbSchemas) > 0 {
+		if _, ok := dbSchemas[0]["tables"].([]string); ok {
+			needEnhance = true
 		}
-		
-		tables, _ := schema["tables"].([]string)
-		var tablesWithColumns []map[string]interface{}
-		
-		// 限制表数量，避免请求过大（最多读取前10个表）
-		maxTables := 10
-		if len(tables) > maxTables {
-			tables = tables[:maxTables]
-		}
-		
-		for _, tableName := range tables {
-			columns, err := getTableColumns(dbConfig, tableName)
-			if err != nil {
-				log.Printf("获取表 %s 字段失败: %v", tableName, err)
-				// 即使失败也添加表信息，只是没有字段
-				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
-					"name":    tableName,
-					"columns": []map[string]interface{}{},
-				})
+	}
+
+	if needEnhance {
+		sendSSE(w, "thinking", map[string]interface{}{
+			"message": "正在读取数据库表结构信息...",
+		})
+		flusher.Flush()
+
+		dataOntologyMu.RLock()
+		for i, schema := range dbSchemas {
+			dbID, _ := schema["id"].(string)
+			dbConfig, exists := dataOntologyDatabases[dbID]
+			if !exists {
 				continue
 			}
-			
-			tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
-				"name":    tableName,
-				"columns": columns,
-			})
+
+			tables, _ := schema["tables"].([]string)
+			var tablesWithColumns []map[string]interface{}
+
+			maxTables := 10
+			if len(tables) > maxTables {
+				tables = tables[:maxTables]
+			}
+
+			for _, tableName := range tables {
+				columns, err := getTableColumns(dbConfig, tableName)
+				if err != nil {
+					log.Printf("获取表 %s 字段失败: %v", tableName, err)
+					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+						"name":    tableName,
+						"columns": []map[string]interface{}{},
+					})
+					continue
+				}
+
+				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+					"name":    tableName,
+					"columns": columns,
+				})
+			}
+
+			dbSchemas[i]["tables"] = tablesWithColumns
 		}
-		
-		dbSchemas[i]["tables"] = tablesWithColumns
+		dataOntologyMu.RUnlock()
 	}
-	dataOntologyMu.RUnlock()
-	
+
 	sendSSE(w, "thinking", map[string]interface{}{
 		"message": "正在分析您的需求并生成接口配置...",
 	})
