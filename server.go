@@ -3466,6 +3466,87 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleApiDispatch 处理用户定义路径的外部API调用
+func handleApiDispatch(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqPath := r.URL.Path
+		reqMethod := r.Method
+
+		if reqMethod == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		dataOntologyMu.RLock()
+		var matchedApi *ApiConfig
+		var matchedDb *DatabaseConfig
+		for _, api := range dataOntologyApis {
+			if api.Path == reqPath && strings.EqualFold(api.Method, reqMethod) {
+				matchedApi = api
+				if db, ok := dataOntologyDatabases[api.DatabaseID]; ok {
+					matchedDb = db
+				}
+				break
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		if matchedApi == nil || matchedDb == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if !verifyToken(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "未授权，请提供有效的 API Key 或 Token",
+			})
+			return
+		}
+
+		params := make(map[string]interface{})
+		isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
+		if isBodyMethod && r.Body != nil {
+			json.NewDecoder(r.Body).Decode(&params)
+		}
+		for k, v := range r.URL.Query() {
+			if _, exists := params[k]; !exists {
+				if len(v) == 1 {
+					params[k] = v[0]
+				} else {
+					params[k] = v
+				}
+			}
+		}
+
+		finalSQL, args, err := parseMyBatisSQL(matchedApi.SQL, params)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "SQL解析失败: " + err.Error(),
+			})
+			return
+		}
+
+		result, err := executeSQLQuery(matchedDb, finalSQL, args)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "查询失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data":    result,
+		})
+	})
+}
+
 // handleApiTest 处理接口测试请求
 func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -4619,7 +4700,7 @@ func main() {
 	fs := http.FileServer(http.Dir(rootDir))
 	mux.Handle("/", fs)
 	
-	handler := loggingMiddleware(corsMiddleware(mux))
+	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)
