@@ -17,9 +17,18 @@ let aiConfig = null;
 let aiMessages = [];
 let currentDbReference = null;
 let dbSuggestionIndex = -1;
+
+const aiModules = [
+    { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '查询、写入、表结构操作' },
+    { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
+    { id: 'data-governance', name: '数据治理', icon: '🔧', description: '开发中...' },
+    { id: 'ontology', name: '本体论抽象', icon: '🧠', description: '开发中...' },
+];
+
 let aiSessionContext = {
-    databases: [], // 当前会话使用的数据库
-    history: []    // 对话历史
+    databases: [],
+    modules: [],
+    history: []
 };
 
 // API基础URL
@@ -2739,86 +2748,118 @@ function handleAiInputChange(e) {
     }
 }
 
-// 显示数据库建议
+// 显示@建议（模块+数据库混合）
 function showDbSuggestions(searchTerm) {
-    const suggestions = databases.filter(db => 
+    const matchedModules = aiModules.filter(m =>
+        m.name.toLowerCase().includes(searchTerm)
+    );
+    const matchedDbs = databases.filter(db =>
         db.name.toLowerCase().includes(searchTerm)
     );
-    
-    if (suggestions.length === 0) {
+
+    if (matchedModules.length === 0 && matchedDbs.length === 0) {
         hideDbSuggestions();
         return;
     }
-    
+
     const suggestionsEl = document.getElementById('aiDbSuggestions');
-    suggestionsEl.innerHTML = suggestions.map((db, index) => {
-        const typeIcon = dbTypeIcons[db.type] || '🗄️';
-        const isFileDb = dbTypeDefaults[db.type]?.isFile;
-        const info = isFileDb ? db.path : `${db.host}:${db.port}`;
-        
-        return `
-            <div class="ai-db-suggestion ${index === dbSuggestionIndex ? 'active' : ''}" 
-                 onclick="selectDbSuggestion('${db.id}')" 
-                 data-db-id="${db.id}">
-                <span class="ai-db-suggestion-icon">${typeIcon}</span>
-                <span class="ai-db-suggestion-name">${db.name}</span>
-                <span class="ai-db-suggestion-info">${info}</span>
+    let html = '';
+
+    if (matchedModules.length > 0) {
+        html += '<div class="ai-suggestion-group-title">功能模块</div>';
+        html += matchedModules.map(m => `
+            <div class="ai-db-suggestion ai-module-suggestion"
+                 onclick="selectSuggestion('module','${m.id}')"
+                 data-type="module" data-id="${m.id}">
+                <span class="ai-db-suggestion-icon">${m.icon}</span>
+                <span class="ai-db-suggestion-name">${m.name}</span>
+                <span class="ai-db-suggestion-info">${m.description}</span>
             </div>
-        `;
-    }).join('');
-    
+        `).join('');
+    }
+
+    if (matchedDbs.length > 0) {
+        html += '<div class="ai-suggestion-group-title">数据库</div>';
+        html += matchedDbs.map(db => {
+            const typeIcon = dbTypeIcons[db.type] || '🗄️';
+            const isFileDb = dbTypeDefaults[db.type]?.isFile;
+            const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+            return `
+                <div class="ai-db-suggestion"
+                     onclick="selectSuggestion('db','${db.id}')"
+                     data-type="db" data-id="${db.id}">
+                    <span class="ai-db-suggestion-icon">${typeIcon}</span>
+                    <span class="ai-db-suggestion-name">${db.name}</span>
+                    <span class="ai-db-suggestion-info">${info}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    suggestionsEl.innerHTML = html;
     suggestionsEl.style.display = 'block';
     dbSuggestionIndex = -1;
 }
 
-// 隐藏数据库建议
+// 隐藏建议
 function hideDbSuggestions() {
     document.getElementById('aiDbSuggestions').style.display = 'none';
     dbSuggestionIndex = -1;
 }
 
-// 选择数据库建议
-function selectDbSuggestion(dbId) {
-    const db = databases.find(d => d.id === dbId);
-    if (!db) return;
-    
+// 统一选择建议项
+function selectSuggestion(type, id) {
+    let name = '';
+    if (type === 'module') {
+        const m = aiModules.find(m => m.id === id);
+        if (!m) return;
+        name = m.name;
+    } else {
+        const db = databases.find(d => d.id === id);
+        if (!db) return;
+        name = db.name;
+    }
+
     const input = document.getElementById('aiInput');
     const value = input.value;
     const cursorPos = input.selectionStart;
-    
-    // 找到@符号的位置
     const textBeforeCursor = value.substring(0, cursorPos);
     const atIndex = textBeforeCursor.lastIndexOf('@');
-    
+
     if (atIndex !== -1) {
-        const newValue = value.substring(0, atIndex) + `@${db.name} ` + value.substring(cursorPos);
+        const newValue = value.substring(0, atIndex) + `@${name} ` + value.substring(cursorPos);
         input.value = newValue;
-        input.selectionStart = input.selectionEnd = atIndex + db.name.length + 2;
+        input.selectionStart = input.selectionEnd = atIndex + name.length + 2;
         input.focus();
     }
-    
+
     hideDbSuggestions();
+}
+
+// 兼容旧调用
+function selectDbSuggestion(dbId) {
+    selectSuggestion('db', dbId);
 }
 
 // 处理AI输入框按键
 function handleAiInputKeydown(e) {
     const suggestionsEl = document.getElementById('aiDbSuggestions');
-    
+
     if (suggestionsEl.style.display === 'block') {
-        const suggestions = suggestionsEl.querySelectorAll('.ai-db-suggestion');
-        
+        const items = suggestionsEl.querySelectorAll('.ai-db-suggestion');
+
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            dbSuggestionIndex = Math.min(dbSuggestionIndex + 1, suggestions.length - 1);
-            updateSuggestionHighlight(suggestions);
+            dbSuggestionIndex = Math.min(dbSuggestionIndex + 1, items.length - 1);
+            updateSuggestionHighlight(items);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             dbSuggestionIndex = Math.max(dbSuggestionIndex - 1, -1);
-            updateSuggestionHighlight(suggestions);
+            updateSuggestionHighlight(items);
         } else if (e.key === 'Enter' && dbSuggestionIndex >= 0) {
             e.preventDefault();
-            const dbId = suggestions[dbSuggestionIndex].dataset.dbId;
-            selectDbSuggestion(dbId);
+            const item = items[dbSuggestionIndex];
+            selectSuggestion(item.dataset.type, item.dataset.id);
         } else if (e.key === 'Escape') {
             hideDbSuggestions();
         }
@@ -2853,41 +2894,52 @@ async function handleSendAiMessage() {
         return;
     }
     
-    // 提取数据库引用
-    const dbMatches = [...message.matchAll(/@([^\s]+)/g)];
+    // 提取所有@引用，区分模块和数据库
+    const allMatches = [...message.matchAll(/@([^\s]+)/g)];
     const dbReferences = [];
-    
-    for (const match of dbMatches) {
-        const dbName = match[1];
-        const db = databases.find(d => d.name === dbName);
+    const moduleReferences = [];
+
+    for (const match of allMatches) {
+        const refName = match[1];
+        const mod = aiModules.find(m => m.name === refName);
+        if (mod) {
+            moduleReferences.push(mod);
+            continue;
+        }
+        const db = databases.find(d => d.name === refName);
         if (db) {
             dbReferences.push(db);
         }
     }
-    
-    // 如果消息中有@引用，更新会话上下文
+
+    // 更新模块上下文
+    if (moduleReferences.length > 0) {
+        aiSessionContext.modules = moduleReferences;
+    }
+
+    // 更新数据库上下文
     if (dbReferences.length > 0) {
         aiSessionContext.databases = dbReferences;
-        updateAiContextDisplay();
     } else if (aiSessionContext.databases.length > 0) {
-        // 如果没有新的@引用，但有历史数据库，继续使用
         dbReferences.push(...aiSessionContext.databases);
     } else {
-        // 既没有@引用，也没有历史数据库
         showAiError('请使用 @数据库名 来引用数据库，或在之前的对话中已经引用过数据库');
         return;
     }
-    
+
+    updateAiContextDisplay();
+
     // 添加到历史记录
     aiSessionContext.history.push({
         role: 'user',
         content: message,
-        databases: dbReferences.map(db => db.id)
+        databases: dbReferences.map(db => db.id),
+        modules: aiSessionContext.modules.map(m => m.id)
     });
-    
+
     // 添加用户消息（如果没有@但使用了上下文，显示提示）
     let displayMessage = message;
-    if (dbMatches.length === 0 && aiSessionContext.databases.length > 0) {
+    if (allMatches.length === 0 && aiSessionContext.databases.length > 0) {
         const contextDbs = aiSessionContext.databases.map(db => `@${db.name}`).join(' ');
         displayMessage = message + `\n<div class="ai-context-hint">💡 使用上下文: ${contextDbs}</div>`;
     }
@@ -2914,7 +2966,8 @@ async function handleSendAiMessage() {
             body: JSON.stringify({
                 message: message,
                 databases: dbReferences.map(db => db.id),
-                history: aiSessionContext.history.slice(-5) // 只发送最近5条历史
+                modules: aiSessionContext.modules.map(m => m.id),
+                history: aiSessionContext.history.slice(-5)
             })
         });
 
@@ -3627,46 +3680,51 @@ function formatAIText(text) {
 function updateAiContextDisplay() {
     const header = document.querySelector('#aiTab .ai-chat-header');
     if (!header) return;
-    
+
     let contextEl = document.getElementById('aiContextDisplay');
     const input = document.getElementById('aiInput');
-    
-    if (aiSessionContext.databases.length > 0) {
-        const dbNames = aiSessionContext.databases.map(db => db.name).join(', ');
-        const dbIcons = aiSessionContext.databases.map(db => {
-            const typeIcon = dbTypeIcons[db.type] || '🗄️';
-            return typeIcon;
-        }).join(' ');
-        
+    const hasDbs = aiSessionContext.databases.length > 0;
+    const hasMods = aiSessionContext.modules.length > 0;
+
+    if (hasDbs || hasMods) {
         if (!contextEl) {
             contextEl = document.createElement('div');
             contextEl.id = 'aiContextDisplay';
             contextEl.className = 'ai-context-display';
-            
             const h3 = header.querySelector('h3');
             h3.parentNode.insertBefore(contextEl, h3.nextSibling);
         }
-        
+
+        let tagsHtml = '';
+        if (hasMods) {
+            tagsHtml += aiSessionContext.modules.map(m =>
+                `<span class="ai-context-tag ai-context-tag-module">${m.icon} ${escapeHtml(m.name)}</span>`
+            ).join('');
+        }
+        if (hasDbs) {
+            tagsHtml += aiSessionContext.databases.map(db => {
+                const icon = dbTypeIcons[db.type] || '🗄️';
+                return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
+            }).join('');
+        }
+
         contextEl.innerHTML = `
             <div class="ai-context-info">
                 <span class="ai-context-label">上下文:</span>
-                <span class="ai-context-value">${dbIcons} ${escapeHtml(dbNames)}</span>
+                <span class="ai-context-value">${tagsHtml}</span>
                 <button class="ai-context-clear" onclick="clearAiContext()" title="清除上下文，开始新对话">✕</button>
             </div>
         `;
-        
-        // 更新输入框占位符
+
         if (input) {
-            input.placeholder = '继续提问... (无需再次 @ 数据库)';
+            input.placeholder = '继续提问... (无需再次 @)';
         }
     } else {
         if (contextEl) {
             contextEl.remove();
         }
-        
-        // 更新输入框占位符
         if (input) {
-            input.placeholder = '输入问题... (首次使用 @数据库名)';
+            input.placeholder = '输入问题... (使用 @ 引用数据库或模块)';
         }
     }
 }
@@ -3675,10 +3733,10 @@ function updateAiContextDisplay() {
 function clearAiContext() {
     if (confirm('确定要清除当前对话上下文吗？这将开始新的对话。')) {
         aiSessionContext.databases = [];
+        aiSessionContext.modules = [];
         aiSessionContext.history = [];
         updateAiContextDisplay();
-        
-        // 显示提示消息
+
         const messagesEl = document.getElementById('aiChatMessages');
         const messageId = 'msg-clear-' + Date.now();
         const messageHtml = `
@@ -3686,7 +3744,7 @@ function clearAiContext() {
                 <div class="ai-message-avatar">ℹ️</div>
                 <div class="ai-message-content">
                     <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
-                        已清除对话上下文，请重新使用 @数据库名 开始新的对话
+                        已清除对话上下文，请重新使用 @ 引用数据库或模块开始新的对话
                     </div>
                 </div>
             </div>

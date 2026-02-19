@@ -778,6 +778,7 @@ type AIConfig struct {
 type AIQueryRequest struct {
 	Message   string                   `json:"message"`
 	Databases []string                 `json:"databases"`
+	Modules   []string                 `json:"modules,omitempty"`
 	History   []map[string]interface{} `json:"history,omitempty"`
 }
 
@@ -1209,9 +1210,9 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	case "sqlite", "duckdb":
 		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	case "oracle":
-		query = fmt.Sprintf("SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '%s' ORDER BY column_id", tableName)
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
 	case "dm":
-		query = fmt.Sprintf("SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '%s' ORDER BY column_id", tableName)
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
 	case "clickhouse":
 		query = fmt.Sprintf("DESCRIBE TABLE %s", tableName)
 	default:
@@ -1255,6 +1256,18 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 					colType = string(v)
 				}
 			}
+			// 提取 Extra 字段中的 auto_increment 标记
+			if len(values) >= 6 {
+				extra := ""
+				if v, ok := values[5].([]byte); ok {
+					extra = string(v)
+				} else if v, ok := values[5].(string); ok {
+					extra = v
+				}
+				if strings.Contains(strings.ToLower(extra), "auto_increment") {
+					colType += " [AUTO_INCREMENT]"
+				}
+			}
 		case "sqlite", "duckdb":
 			// PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
 			if len(values) >= 3 {
@@ -1270,7 +1283,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 				}
 			}
 		default:
-			// information_schema.columns: column_name, data_type
+			// information_schema.columns / user_tab_columns
 			if len(values) >= 2 {
 				if v, ok := values[0].(string); ok {
 					colName = v
@@ -1286,10 +1299,23 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		}
 
 		if colName != "" {
-			columns = append(columns, map[string]interface{}{
+			colInfo := map[string]interface{}{
 				"name": colName,
 				"type": colType,
-			})
+			}
+			// 解析 nullable（第3列，DM/Oracle 返回 'Y'/'N'）
+			if len(values) >= 3 {
+				nullable := ""
+				if v, ok := values[2].(string); ok {
+					nullable = v
+				} else if v, ok := values[2].([]byte); ok {
+					nullable = string(v)
+				}
+				if nullable != "" {
+					colInfo["nullable"] = nullable
+				}
+			}
+			columns = append(columns, colInfo)
 		}
 	}
 
@@ -3759,23 +3785,32 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 	}
 	defer db.Close()
 
-	// 执行查询
+	// 写操作使用 Exec
+	if isWriteOperation(sqlQuery) {
+		result, err := db.Exec(sqlQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		affected, _ := result.RowsAffected()
+		return []map[string]interface{}{
+			{"affected_rows": affected},
+		}, nil
+	}
+
+	// 读操作使用 Query
 	rows, err := db.Query(sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	// 获取列名
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
 
-	// 读取结果
 	var results []map[string]interface{}
 	for rows.Next() {
-		// 创建扫描目标
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
 		for i := range values {
@@ -3786,11 +3821,9 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 			return nil, err
 		}
 
-		// 构建结果行
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := values[i]
-			// 处理字节数组
 			if b, ok := val.([]byte); ok {
 				row[col] = string(b)
 			} else {
@@ -4008,8 +4041,26 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// 检测是否是创建接口的请求
-	if isCreateApiRequest(queryReq.Message) {
+	// 根据模块上下文路由
+	moduleSet := make(map[string]bool)
+	for _, m := range queryReq.Modules {
+		moduleSet[m] = true
+	}
+
+	if moduleSet["api-dispatch"] {
+		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
+	if moduleSet["data-governance"] || moduleSet["ontology"] {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "该模块功能正在开发中，敬请期待",
+		})
+		return
+	}
+
+	// 无模块时保留关键词检测兜底
+	if !moduleSet["db-manage"] && isCreateApiRequest(queryReq.Message) {
 		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
 	}
@@ -4039,9 +4090,9 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		// 构建AI提示词（如果是重试，添加错误信息）
 		var prompt string
 		if retry == 0 {
-			prompt = buildAIPrompt(queryReq.Message, dbSchemas)
+			prompt = buildAIPrompt(queryReq.Message, dbSchemas, queryReq.Modules)
 		} else {
-			prompt = buildRetryPrompt(queryReq.Message, dbSchemas, lastError, attempts)
+			prompt = buildRetryPrompt(queryReq.Message, dbSchemas, lastError, attempts, queryReq.Modules)
 		}
 
 		// 调用AI服务生成SQL
@@ -4323,6 +4374,7 @@ func getDBSpecificWarnings(dbType string) string {
 			"- 【禁止】不要使用 LIMIT，用 WHERE ROWNUM <= N 限制行数\n" +
 			"- 【禁止】不要使用 information_schema，用 USER_TAB_COLUMNS、USER_TABLES 等数据字典视图\n" +
 			"- 【禁止】不要使用 DATABASE() 函数\n" +
+			"- 【禁止】INSERT时不要向自增/IDENTITY列插入值，跳过标记为[自增主键]的列\n" +
 			"- 表名和列名默认大写\n" +
 			"- 字符串用单引号\n" +
 			"- 支持 ROWNUM 伪列来限制结果集\n\n"
@@ -4362,14 +4414,30 @@ func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string
 				sb.WriteString(fmt.Sprintf("\n表: %s\n", tableName))
 				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
 					sb.WriteString("  字段:\n")
-					for _, col := range columns {
-						colName := col["name"]
-						colType := col["type"]
-						nullable := ""
-						if n, ok := col["nullable"].(string); ok && n == "N" {
-							nullable = " [NOT NULL]"
+					for i, col := range columns {
+						colName, _ := col["name"].(string)
+						colType, _ := col["type"].(string)
+						tags := ""
+
+						// 检测自增列：类型中显式标记，或第一个整数类型的 ID 列
+						isAutoInc := strings.Contains(colType, "AUTO_INCREMENT")
+						if !isAutoInc && i == 0 {
+							upperName := strings.ToUpper(colName)
+							upperType := strings.ToUpper(colType)
+							if (upperName == "ID" || strings.HasSuffix(upperName, "_ID")) &&
+								(strings.Contains(upperType, "INT") || strings.Contains(upperType, "NUMBER") || strings.Contains(upperType, "NUMERIC")) {
+								isAutoInc = true
+							}
 						}
-						sb.WriteString(fmt.Sprintf("    - %s (%s)%s\n", colName, colType, nullable))
+
+						if isAutoInc {
+							tags += " [自增主键,INSERT时跳过]"
+						} else {
+							if n, ok := col["nullable"].(string); ok && n == "N" {
+								tags += " [NOT NULL]"
+							}
+						}
+						sb.WriteString(fmt.Sprintf("    - %s (%s)%s\n", colName, colType, tags))
 					}
 				} else {
 					sb.WriteString("  （字段信息不可用）\n")
@@ -4383,9 +4451,21 @@ func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string
 	return sb.String(), primaryDBType
 }
 
+func getModulePromptPrefix(modules []string) string {
+	moduleSet := make(map[string]bool)
+	for _, m := range modules {
+		moduleSet[m] = true
+	}
+
+	if moduleSet["db-manage"] {
+		return "你是一个专业的数据库管理助手，聚焦于SQL查询、数据写入、表结构操作。请根据用户的问题和数据库结构生成SQL语句。\n\n"
+	}
+	return "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+}
+
 // buildAIPrompt 构建AI提示词
-func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
-	prompt := "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}, modules []string) string {
+	prompt := getModulePromptPrefix(modules)
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
 
 	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
@@ -4401,7 +4481,7 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 	prompt += "1. 【必须】只生成一条SQL语句！不能生成多条SQL语句！\n"
 	prompt += "2. 【必须】只使用上面列出的真实表名和字段名，绝对不要编造列名！\n"
 	prompt += "3. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
-	prompt += "4. 对于INSERT操作，必须使用表中实际存在的字段名，根据字段类型填入合理的示例数据\n"
+	prompt += "4. 对于INSERT操作：必须使用表中实际存在的字段名；标记为[自增主键,INSERT时跳过]的列绝对不要包含在INSERT语句中；根据字段类型填入合理的示例数据\n"
 	prompt += "5. 使用子查询或聚合函数来统计多个表的信息\n\n"
 	prompt += "📚 根据问题类型选择正确的SQL：\n\n"
 	prompt += "🔍 查询表结构/字段信息：\n"
@@ -4440,8 +4520,9 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}) strin
 }
 
 // buildRetryPrompt 构建重试提示词
-func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}) string {
-	prompt := "你是一个专业的数据库助手。之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
+func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}, modules []string) string {
+	prompt := getModulePromptPrefix(modules)
+	prompt += "之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
 
 	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
