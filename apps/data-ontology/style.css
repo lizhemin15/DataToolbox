@@ -379,6 +379,7 @@ body {
 
 .sidebar {
     width: 300px;
+    flex-shrink: 0;
     background: white;
     border-radius: 12px;
     padding: 20px;
@@ -437,6 +438,7 @@ body {
 
 .main-content {
     flex: 1;
+    min-width: 0;
     background: white;
     border-radius: 12px;
     padding: 30px;
@@ -907,6 +909,159 @@ body {
 .param-type.optional {
     background: #bee3f8;
     color: #2c5282;
+}
+
+/* ==================== ApiKey 区域 ==================== */
+
+.apikey-section {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.apikey-header {
+    margin-bottom: 8px;
+}
+
+.apikey-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+}
+
+.apikey-content {
+    margin-bottom: 8px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+}
+
+.apikey-value {
+    font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+    color: #2d3748;
+    background: #edf2f7;
+    padding: 4px 8px;
+    border-radius: 4px;
+    word-break: break-all;
+    cursor: default;
+}
+
+.apikey-placeholder {
+    font-size: 12px;
+    color: #a0aec0;
+}
+
+.apikey-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.apikey-btn {
+    font-size: 11px !important;
+    padding: 3px 8px !important;
+}
+
+/* ==================== 调用示例代码区域 ==================== */
+
+.code-examples-section h3::before {
+    content: "💻" !important;
+}
+
+.code-examples-container {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.code-tabs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    padding: 0 8px;
+}
+
+.code-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 6px 0;
+}
+
+.code-tab {
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    color: #a6adc8;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.code-tab:hover {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.code-tab.active {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.code-copy-btn {
+    padding: 5px 12px;
+    border: 1px solid #45475a;
+    background: transparent;
+    color: #a6adc8;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.code-copy-btn:hover {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.code-copy-btn.copied {
+    border-color: #a6e3a1;
+    color: #a6e3a1;
+}
+
+.code-panels {
+    position: relative;
+}
+
+.code-panel {
+    display: none;
+}
+
+.code-panel.active {
+    display: block;
+}
+
+.code-panel pre {
+    margin: 0;
+    padding: 16px 20px;
+    overflow-x: auto;
+}
+
+.code-panel code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #cdd6f4;
+    white-space: pre;
+    tab-size: 4;
 }
 
 .test-api-info {

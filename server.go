@@ -712,6 +712,7 @@ type User struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Token    string `json:"token"`
+	ApiKey   string `json:"api_key,omitempty"`
 }
 
 // DatabaseConfig 数据库配置
@@ -1299,7 +1300,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	return columns, nil
 }
 
-// 验证Token
+// 验证Token（同时支持登录Token和ApiKey）
 func verifyToken(r *http.Request) bool {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -1311,7 +1312,7 @@ func verifyToken(r *http.Request) bool {
 	defer dataOntologyMu.RUnlock()
 
 	for _, user := range dataOntologyUsers {
-		if user.Token == token {
+		if user.Token == token || (user.ApiKey != "" && user.ApiKey == token) {
 			return true
 		}
 	}
@@ -1363,6 +1364,60 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"token":   token,
 	})
+}
+
+// handleApiKey 管理ApiKey（GET获取/POST生成/DELETE删除）
+func handleApiKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	loginToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	var currentUser *User
+	for _, u := range dataOntologyUsers {
+		if u.Token == loginToken {
+			currentUser = u
+			break
+		}
+	}
+	if currentUser == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"api_key": currentUser.ApiKey,
+		})
+	case http.MethodPost:
+		currentUser.ApiKey = "dok_" + uuid.New().String()
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		dataOntologyMu.Lock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"api_key": currentUser.ApiKey,
+		})
+	case http.MethodDelete:
+		currentUser.ApiKey = ""
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		dataOntologyMu.Lock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
 }
 
 // 测试数据库连接
@@ -4533,6 +4588,7 @@ func main() {
 	
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
+	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {

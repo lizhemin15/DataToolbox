@@ -185,6 +185,19 @@
                     <div id="apiList" class="db-list">
                         <!-- 接口列表将动态生成 -->
                     </div>
+                    <div class="apikey-section">
+                        <div class="apikey-header">
+                            <span class="apikey-label">🔑 API Key</span>
+                        </div>
+                        <div id="apikeyContent" class="apikey-content">
+                            <span class="apikey-placeholder">未生成</span>
+                        </div>
+                        <div class="apikey-actions">
+                            <button id="generateApikeyBtn" class="btn btn-sm btn-primary apikey-btn">生成</button>
+                            <button id="copyApikeyBtn" class="btn btn-sm apikey-btn" style="display:none;">复制</button>
+                            <button id="deleteApikeyBtn" class="btn btn-sm btn-danger apikey-btn" style="display:none;">删除</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="main-content">
@@ -230,6 +243,13 @@
                             <h3>参数说明</h3>
                             <div id="apiParamsDisplay" class="params-display">
                                 <!-- 参数列表将动态生成 -->
+                            </div>
+                        </div>
+
+                        <div class="tables-section code-examples-section">
+                            <h3>调用示例</h3>
+                            <div id="apiCodeExamples" class="code-examples-container">
+                                <!-- 代码示例将动态生成 -->
                             </div>
                         </div>
                     </div>

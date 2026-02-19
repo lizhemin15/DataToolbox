@@ -10,6 +10,7 @@ let apis = [];
 let currentApi = null;
 let isEditApiMode = false;
 let editingApiId = null;
+let currentApiKey = '';
 
 // AI助手状态
 let aiConfig = null;
@@ -149,6 +150,9 @@ function initEventListeners() {
     });
 
     // 接口管理事件
+    document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
+    document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
+    document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
     document.getElementById('addApiBtn').addEventListener('click', showAddApiModal);
     document.getElementById('closeApiModal').addEventListener('click', hideAddApiModal);
     document.getElementById('addApiModal').addEventListener('click', function(e) {
@@ -263,6 +267,7 @@ function switchTab(tabName) {
     // 标签页切换时加载数据
     if (tabName === 'api') {
         loadApis();
+        loadApiKey();
     } else if (tabName === 'ai') {
         loadAiConfig();
         updateAiContextDisplay();
@@ -1596,6 +1601,87 @@ async function handleDeleteDatabase() {
 
 // ==================== 接口管理功能 ====================
 
+// ---- ApiKey 管理 ----
+
+async function loadApiKey() {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentApiKey = data.api_key || '';
+            renderApiKeyUI();
+        }
+    } catch (e) {
+        console.error('加载ApiKey失败：', e);
+    }
+}
+
+async function generateApiKey() {
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentApiKey = data.api_key;
+            renderApiKeyUI();
+            if (currentApi) renderCodeExamples(currentApi);
+        }
+    } catch (e) {
+        console.error('生成ApiKey失败：', e);
+    }
+}
+
+async function deleteApiKey() {
+    if (!confirm('删除后，使用此 API Key 的外部调用将全部失效，确认删除？')) return;
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            currentApiKey = '';
+            renderApiKeyUI();
+            if (currentApi) renderCodeExamples(currentApi);
+        }
+    } catch (e) {
+        console.error('删除ApiKey失败：', e);
+    }
+}
+
+function copyApiKey() {
+    if (!currentApiKey) return;
+    navigator.clipboard.writeText(currentApiKey).then(() => {
+        const btn = document.getElementById('copyApikeyBtn');
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = '复制'; }, 1500);
+    });
+}
+
+function renderApiKeyUI() {
+    const contentEl = document.getElementById('apikeyContent');
+    const generateBtn = document.getElementById('generateApikeyBtn');
+    const copyBtn = document.getElementById('copyApikeyBtn');
+    const deleteBtn = document.getElementById('deleteApikeyBtn');
+
+    if (currentApiKey) {
+        const masked = currentApiKey.substring(0, 8) + '••••••••' + currentApiKey.substring(currentApiKey.length - 4);
+        contentEl.innerHTML = `<code class="apikey-value" title="${currentApiKey}">${masked}</code>`;
+        generateBtn.textContent = '重新生成';
+        copyBtn.style.display = '';
+        deleteBtn.style.display = '';
+    } else {
+        contentEl.innerHTML = '<span class="apikey-placeholder">未生成</span>';
+        generateBtn.textContent = '生成';
+        copyBtn.style.display = 'none';
+        deleteBtn.style.display = 'none';
+    }
+}
+
 // 加载接口列表
 async function loadApis() {
     try {
@@ -1681,6 +1767,9 @@ async function loadApiDetail(apiId) {
             // 解析并显示参数
             const params = parseMyBatisParams(api.sql);
             renderApiParams(params);
+            
+            // 渲染调用示例
+            renderCodeExamples(api);
         }
     } catch (error) {
         console.error('加载接口详情失败：', error);
@@ -1782,6 +1871,340 @@ function renderApiParams(params) {
     }).join('');
     
     displayEl.innerHTML = sqlWarningHtml + paramsHtml;
+}
+
+// ==================== 调用示例代码生成 ====================
+
+function getCodeExampleContext(api) {
+    const params = parseMyBatisParams(api.sql);
+    const exampleParams = {};
+    params.forEach(p => {
+        if (api.default_params && api.default_params[p.name] !== undefined) {
+            exampleParams[p.name] = api.default_params[p.name];
+        } else {
+            exampleParams[p.name] = '';
+        }
+    });
+    const hasParams = params.length > 0;
+    const method = (api.method || 'GET').toUpperCase();
+    const isBodyMethod = method === 'POST' || method === 'PUT' || method === 'PATCH';
+    const baseUrl = `${window.location.origin}${api.path}`;
+    const token = currentApiKey || localStorage.getItem('dataOntologyToken') || '<YOUR_TOKEN>';
+
+    let fullUrl = baseUrl;
+    if (!isBodyMethod && hasParams) {
+        const qs = Object.entries(exampleParams)
+            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+            .join('&');
+        fullUrl = `${baseUrl}?${qs}`;
+    }
+
+    return { params: exampleParams, hasParams, method, isBodyMethod, baseUrl, fullUrl, token };
+}
+
+function generateCodeExamples(api) {
+    const ctx = getCodeExampleContext(api);
+    return [
+        { id: 'javascript', label: 'JavaScript', code: genJavaScript(ctx) },
+        { id: 'python', label: 'Python', code: genPython(ctx) },
+        { id: 'java', label: 'Java', code: genJava(ctx) },
+        { id: 'golang', label: 'Go', code: genGolang(ctx) },
+        { id: 'node', label: 'Node.js', code: genNode(ctx) },
+        { id: 'php', label: 'PHP', code: genPhp(ctx) },
+        { id: 'curl', label: 'cURL', code: genCurl(ctx) },
+    ];
+}
+
+function genJavaScript(ctx) {
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyJson = JSON.stringify(ctx.params, null, 4);
+        return `const response = await fetch("${ctx.baseUrl}", {
+    method: "${ctx.method}",
+    headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${ctx.token}"
+    },
+    body: JSON.stringify(${bodyJson})
+});
+
+const data = await response.json();
+console.log(data);`;
+    }
+    if (ctx.isBodyMethod) {
+        return `const response = await fetch("${ctx.baseUrl}", {
+    method: "${ctx.method}",
+    headers: {
+        "Authorization": "Bearer ${ctx.token}"
+    }
+});
+
+const data = await response.json();
+console.log(data);`;
+    }
+    return `const response = await fetch("${ctx.fullUrl}", {
+    headers: {
+        "Authorization": "Bearer ${ctx.token}"
+    }
+});
+
+const data = await response.json();
+console.log(data);`;
+}
+
+function genPython(ctx) {
+    const lines = [];
+    lines.push('import requests');
+    lines.push('');
+    lines.push(`url = "${ctx.baseUrl}"`);
+    lines.push(`headers = {`);
+    lines.push(`    "Authorization": "Bearer ${ctx.token}"`);
+    lines.push(`}`);
+
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const items = Object.entries(ctx.params)
+            .map(([k, v]) => `    "${k}": ${typeof v === 'string' ? `"${v}"` : v}`)
+            .join(',\n');
+        lines.push(`data = {\n${items}\n}`);
+        lines.push('');
+        lines.push(`response = requests.${ctx.method.toLowerCase()}(url, json=data, headers=headers)`);
+    } else if (ctx.isBodyMethod) {
+        lines.push('');
+        lines.push(`response = requests.${ctx.method.toLowerCase()}(url, headers=headers)`);
+    } else if (ctx.hasParams) {
+        const items = Object.entries(ctx.params)
+            .map(([k, v]) => `    "${k}": ${typeof v === 'string' ? `"${v}"` : v}`)
+            .join(',\n');
+        lines.push(`params = {\n${items}\n}`);
+        lines.push('');
+        lines.push(`response = requests.get(url, params=params, headers=headers)`);
+    } else {
+        lines.push('');
+        lines.push(`response = requests.get(url, headers=headers)`);
+    }
+    lines.push('print(response.json())');
+    return lines.join('\n');
+}
+
+function genJava(ctx) {
+    const lines = [];
+    lines.push('import java.net.URI;');
+    lines.push('import java.net.http.HttpClient;');
+    lines.push('import java.net.http.HttpRequest;');
+    lines.push('import java.net.http.HttpResponse;');
+    lines.push('');
+    lines.push('HttpClient client = HttpClient.newHttpClient();');
+
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyEsc = JSON.stringify(JSON.stringify(ctx.params));
+        lines.push(`String body = ${bodyEsc};`);
+        lines.push('');
+        lines.push('HttpRequest request = HttpRequest.newBuilder()');
+        lines.push(`    .uri(URI.create("${ctx.baseUrl}"))`);
+        lines.push('    .header("Content-Type", "application/json")');
+        lines.push(`    .header("Authorization", "Bearer ${ctx.token}")`);
+        lines.push(`    .${ctx.method}(HttpRequest.BodyPublishers.ofString(body))`);
+        lines.push('    .build();');
+    } else {
+        const methodCall = ctx.isBodyMethod
+            ? `${ctx.method}(HttpRequest.BodyPublishers.noBody())`
+            : 'GET()';
+        lines.push('');
+        lines.push('HttpRequest request = HttpRequest.newBuilder()');
+        lines.push(`    .uri(URI.create("${ctx.fullUrl}"))`);
+        lines.push(`    .header("Authorization", "Bearer ${ctx.token}")`);
+        lines.push(`    .${methodCall}`);
+        lines.push('    .build();');
+    }
+
+    lines.push('');
+    lines.push('HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());');
+    lines.push('System.out.println(response.body());');
+    return lines.join('\n');
+}
+
+function genGolang(ctx) {
+    const lines = [];
+    lines.push('package main');
+    lines.push('');
+    lines.push('import (');
+    lines.push('    "fmt"');
+    lines.push('    "io"');
+    lines.push('    "net/http"');
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        lines.push('    "strings"');
+    }
+    lines.push(')');
+    lines.push('');
+    lines.push('func main() {');
+
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyEsc = JSON.stringify(ctx.params).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        lines.push(`    body := strings.NewReader("${bodyEsc}")`);
+        lines.push(`    req, _ := http.NewRequest("${ctx.method}", "${ctx.baseUrl}", body)`);
+        lines.push('    req.Header.Set("Content-Type", "application/json")');
+    } else {
+        lines.push(`    req, _ := http.NewRequest("${ctx.method}", "${ctx.fullUrl}", nil)`);
+    }
+
+    lines.push(`    req.Header.Set("Authorization", "Bearer ${ctx.token}")`);
+    lines.push('');
+    lines.push('    resp, err := http.DefaultClient.Do(req)');
+    lines.push('    if err != nil {');
+    lines.push('        panic(err)');
+    lines.push('    }');
+    lines.push('    defer resp.Body.Close()');
+    lines.push('');
+    lines.push('    data, _ := io.ReadAll(resp.Body)');
+    lines.push('    fmt.Println(string(data))');
+    lines.push('}');
+    return lines.join('\n');
+}
+
+function genNode(ctx) {
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyJson = JSON.stringify(ctx.params, null, 4);
+        return `const response = await fetch("${ctx.baseUrl}", {
+    method: "${ctx.method}",
+    headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${ctx.token}"
+    },
+    body: JSON.stringify(${bodyJson})
+});
+
+const data = await response.json();
+console.log(data);`;
+    }
+    if (ctx.isBodyMethod) {
+        return `const response = await fetch("${ctx.baseUrl}", {
+    method: "${ctx.method}",
+    headers: {
+        "Authorization": "Bearer ${ctx.token}"
+    }
+});
+
+const data = await response.json();
+console.log(data);`;
+    }
+    return `const response = await fetch("${ctx.fullUrl}", {
+    headers: {
+        "Authorization": "Bearer ${ctx.token}"
+    }
+});
+
+const data = await response.json();
+console.log(data);`;
+}
+
+function genPhp(ctx) {
+    const lines = [];
+    lines.push('<?php');
+
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        lines.push(`$url = '${ctx.baseUrl}';`);
+        const items = Object.entries(ctx.params)
+            .map(([k, v]) => `    '${k}' => ${typeof v === 'string' ? `'${v}'` : v}`)
+            .join(',\n');
+        lines.push(`$data = [\n${items}\n];`);
+        lines.push('');
+        lines.push('$ch = curl_init($url);');
+        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
+        lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
+        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
+        lines.push("    'Content-Type: application/json',");
+        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
+        lines.push(']);');
+        lines.push('curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));');
+    } else {
+        lines.push(`$url = '${ctx.fullUrl}';`);
+        lines.push('');
+        lines.push('$ch = curl_init($url);');
+        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
+        if (ctx.method !== 'GET') {
+            lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
+        }
+        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
+        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
+        lines.push(']);');
+    }
+
+    lines.push('');
+    lines.push('$response = curl_exec($ch);');
+    lines.push('curl_close($ch);');
+    lines.push('');
+    lines.push('echo $response;');
+    return lines.join('\n');
+}
+
+function genCurl(ctx) {
+    const lines = [];
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyEsc = JSON.stringify(ctx.params).replace(/'/g, "'\\''");
+        lines.push(`curl -X ${ctx.method} '${ctx.baseUrl}' \\`);
+        lines.push(`  -H 'Content-Type: application/json' \\`);
+        lines.push(`  -H 'Authorization: Bearer ${ctx.token}' \\`);
+        lines.push(`  -d '${bodyEsc}'`);
+    } else {
+        if (ctx.method === 'GET') {
+            lines.push(`curl '${ctx.fullUrl}' \\`);
+        } else {
+            lines.push(`curl -X ${ctx.method} '${ctx.fullUrl}' \\`);
+        }
+        lines.push(`  -H 'Authorization: Bearer ${ctx.token}'`);
+    }
+    return lines.join('\n');
+}
+
+function renderCodeExamples(api) {
+    const container = document.getElementById('apiCodeExamples');
+    if (!container) return;
+
+    const languages = generateCodeExamples(api);
+    const activeTab = container.dataset.activeTab || languages[0].id;
+
+    const tabsHtml = languages.map(lang =>
+        `<button class="code-tab ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}">${lang.label}</button>`
+    ).join('');
+
+    const panelsHtml = languages.map(lang =>
+        `<div class="code-panel ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}"><pre><code>${escapeHtml(lang.code)}</code></pre></div>`
+    ).join('');
+
+    container.innerHTML = `
+        <div class="code-tabs-header">
+            <div class="code-tabs">${tabsHtml}</div>
+            <button class="code-copy-btn" title="复制代码">📋 复制</button>
+        </div>
+        <div class="code-panels">${panelsHtml}</div>
+    `;
+
+    container.dataset.activeTab = activeTab;
+
+    container.querySelectorAll('.code-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const lang = tab.dataset.lang;
+            container.dataset.activeTab = lang;
+            container.querySelectorAll('.code-tab').forEach(t => t.classList.toggle('active', t.dataset.lang === lang));
+            container.querySelectorAll('.code-panel').forEach(p => p.classList.toggle('active', p.dataset.lang === lang));
+        });
+    });
+
+    container.querySelector('.code-copy-btn').addEventListener('click', () => {
+        const activePanel = container.querySelector('.code-panel.active code');
+        if (activePanel) {
+            const text = activePanel.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = container.querySelector('.code-copy-btn');
+                const original = btn.textContent;
+                btn.textContent = '✅ 已复制';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+    });
 }
 
 // 一键修复SQL
