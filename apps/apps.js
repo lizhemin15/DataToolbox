@@ -52,15 +52,6 @@ const appsData = [
         "tags": ["ai", "data", "automation"]
     },
     {
-        "id": "go-learn",
-        "name": "Go语言学习",
-        "icon": "🚀",
-        "description": "闯关式学习Go语言编程，从Hello World到并发编程，循序渐进掌握Go核心特性（需服务端支持）",
-        "keywords": ["Go", "Golang", "学习", "教程", "编程", "闯关", "并发", "goroutine"],
-        "category": "learn",
-        "tags": ["learn", "game"]
-    },
-    {
         "id": "sql-learn",
         "name": "SQL语法学习",
         "icon": "🎓",

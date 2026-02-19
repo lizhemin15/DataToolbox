@@ -789,7 +789,7 @@ type GovernanceTask struct {
 	Name        string   `json:"name"`
 	Type        string   `json:"type"`                    // "scheduled" | "interactive"
 	Description string   `json:"description,omitempty"`
-	GoCode      string   `json:"go_code"`
+	JsCode      string   `json:"js_code"`
 	DatabaseID  string   `json:"database_id,omitempty"`
 	CronExpr    string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
 	Enabled     bool     `json:"enabled"`
@@ -982,7 +982,7 @@ func initDataOntology() {
 			Name:        "数据库表行数统计",
 			Type:        "scheduled",
 			Description: "查询所有表的行数，输出统计报告（需关联数据库）",
-			GoCode: "// 定时任务：统计数据库所有表的行数\n// 需要关联一个数据库才能运行\n\nconst tables = await gov.querySQL('SHOW TABLES');\ngov.log('=' .repeat(40));\ngov.log(`共 ${tables.length} 张表`);\ngov.log('='.repeat(40));\n\nfor (const row of tables) {\n    const tableName = Object.values(row)[0];\n    const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${tableName}`);\n    gov.log(`  ${tableName.padEnd(30)} ${result[0].cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
+			JsCode: "// 定时任务：统计数据库所有表的行数\n// 需要关联一个数据库才能运行\n\nconst tables = await gov.querySQL('SHOW TABLES');\ngov.log('=' .repeat(40));\ngov.log(`共 ${tables.length} 张表`);\ngov.log('='.repeat(40));\n\nfor (const row of tables) {\n    const tableName = Object.values(row)[0];\n    const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${tableName}`);\n    gov.log(`  ${tableName.padEnd(30)} ${result[0].cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
 			CronExpr:   "0 2 * * *",
 			Enabled:    false,
 			CreatedAt:  now,
@@ -996,7 +996,7 @@ func initDataOntology() {
 			Name:        "Excel数据解析入库",
 			Type:        "interactive",
 			Description: "上传Excel文件，解析内容预览，可选入库",
-			GoCode: "// 交互任务：解析上传的Excel文件\n// 使用 SheetJS (XLSX) 库读取Excel\n\nconst workbook = gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${data.length}`);\nif (data.length > 0) {\n    gov.log(`表头: ${data[0].join(', ')}`);\n}\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nconst limit = Math.min(6, data.length);\nfor (let i = 1; i < limit; i++) {\n    gov.log(`  行${i}: ${data[i].join(' | ')}`);\n}\n\ngov.log(`\\n处理完成，共 ${data.length - 1} 行数据`);\n\n// 入库示例（取消注释以启用）:\n// for (let i = 1; i < data.length; i++) {\n//     const row = data[i];\n//     await gov.executeSQL(\n//         'INSERT INTO target_table (col1, col2) VALUES (?, ?)',\n//         [row[0], row[1]]\n//     );\n// }\n// gov.log('入库完成');",
+			JsCode: "// 交互任务：解析上传的Excel文件\n// 使用 SheetJS (XLSX) 库读取Excel\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${data.length}`);\nif (data.length > 0) {\n    gov.log(`表头: ${data[0].join(', ')}`);\n}\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nconst limit = Math.min(6, data.length);\nfor (let i = 1; i < limit; i++) {\n    gov.log(`  行${i}: ${data[i].join(' | ')}`);\n}\n\ngov.log(`\\n处理完成，共 ${data.length - 1} 行数据`);\n\n// 入库示例（取消注释以启用）:\n// for (let i = 1; i < data.length; i++) {\n//     const row = data[i];\n//     await gov.executeSQL(\n//         'INSERT INTO target_table (col1, col2) VALUES (?, ?)',\n//         [row[0], row[1]]\n//     );\n// }\n// gov.log('入库完成');",
 			InputType:  "file",
 			AcceptExts: []string{".xlsx", ".xls"},
 			CreatedAt:  now,
@@ -1010,7 +1010,7 @@ func initDataOntology() {
 			Name:        "CSV文本解析",
 			Type:        "interactive",
 			Description: "输入CSV格式文本，解析并展示结构化结果",
-			GoCode: "// 交互任务：解析输入的CSV文本\n// 使用 PapaParse 库解析CSV\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 解析结果 ---');\nresult.data.forEach((row, i) => {\n    gov.log(`行 ${i + 1}:`);\n    Object.entries(row).forEach(([k, v]) => {\n        gov.log(`  ${k} = ${v}`);\n    });\n});\ngov.log('解析完成');",
+			JsCode: "// 交互任务：解析输入的CSV文本\n// 使用 PapaParse 库解析CSV\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 解析结果 ---');\nresult.data.forEach((row, i) => {\n    gov.log(`行 ${i + 1}:`);\n    Object.entries(row).forEach(([k, v]) => {\n        gov.log(`  ${k} = ${v}`);\n    });\n});\ngov.log('解析完成');",
 			InputType:  "text",
 			CreatedAt:  now,
 			Status:     "idle",
@@ -1023,7 +1023,7 @@ func initDataOntology() {
 			Name:        "数据完整性检查",
 			Type:        "scheduled",
 			Description: "检查数据库表的空值情况（需关联数据库）",
-			GoCode: "// 定时任务：检查各表的数据完整性\n\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\n\nconst tables = await gov.querySQL('SHOW TABLES');\nfor (const row of tables) {\n    const tableName = Object.values(row)[0];\n    gov.log(`\\n[${tableName}]`);\n\n    const columns = await gov.querySQL(`SHOW COLUMNS FROM ${tableName}`);\n    const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${tableName}`);\n\n    for (const col of columns) {\n        if (col.Null === 'YES') {\n            const nullResult = await gov.querySQL(\n                `SELECT COUNT(*) as cnt FROM ${tableName} WHERE ${col.Field} IS NULL`\n            );\n            if (nullResult[0].cnt > 0) {\n                gov.log(`  ⚠ ${col.Field}: ${nullResult[0].cnt} 个空值`);\n            }\n        }\n    }\n    gov.log(`  总行数: ${countResult[0].cnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
+			JsCode: "// 定时任务：检查各表的数据完整性\n\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\n\nconst tables = await gov.querySQL('SHOW TABLES');\nfor (const row of tables) {\n    const tableName = Object.values(row)[0];\n    gov.log(`\\n[${tableName}]`);\n\n    const columns = await gov.querySQL(`SHOW COLUMNS FROM ${tableName}`);\n    const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${tableName}`);\n\n    for (const col of columns) {\n        if (col.Null === 'YES') {\n            const nullResult = await gov.querySQL(\n                `SELECT COUNT(*) as cnt FROM ${tableName} WHERE ${col.Field} IS NULL`\n            );\n            if (nullResult[0].cnt > 0) {\n                gov.log(`  ⚠ ${col.Field}: ${nullResult[0].cnt} 个空值`);\n            }\n        }\n    }\n    gov.log(`  总行数: ${countResult[0].cnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
 			CronExpr:   "30 1 * * *",
 			Enabled:    false,
 			CreatedAt:  now,
@@ -1037,7 +1037,7 @@ func initDataOntology() {
 			Name:        "Word文档内容提取",
 			Type:        "interactive",
 			Description: "上传Word文档(.docx)，提取文本内容",
-			GoCode: "// 交互任务：提取Word文档的文本内容\n// 使用 Mammoth 库将docx转为文本\n\nconst result = await gov.readWord(INPUT_FILE);\ngov.log('='.repeat(40));\ngov.log('Word文档内容：');\ngov.log('='.repeat(40));\ngov.log(result.value);\nif (result.messages && result.messages.length > 0) {\n    gov.log('\\n--- 转换消息 ---');\n    result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\ngov.log('='.repeat(40));\ngov.log('文档内容提取完成');",
+			JsCode: "// 交互任务：提取Word文档的文本内容\n// 使用 Mammoth 库将docx转为文本\n\nconst result = await gov.readWord(INPUT_FILE);\ngov.log('='.repeat(40));\ngov.log('Word文档内容：');\ngov.log('='.repeat(40));\ngov.log(result.value);\nif (result.messages && result.messages.length > 0) {\n    gov.log('\\n--- 转换消息 ---');\n    result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\ngov.log('='.repeat(40));\ngov.log('文档内容提取完成');",
 			InputType:  "file",
 			AcceptExts: []string{".docx"},
 			CreatedAt:  now,
@@ -3272,102 +3272,6 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	})
 }
 
-// RunGoRequest 运行Go代码的请求
-type RunGoRequest struct {
-	Code string `json:"code"`
-}
-
-// RunGoResponse 运行Go代码的响应
-type RunGoResponse struct {
-	Success bool   `json:"success"`
-	Output  string `json:"output"`
-	Error   string `json:"error"`
-}
-
-// handleRunGo 处理运行Go代码的请求
-func handleRunGo(w http.ResponseWriter, r *http.Request) {
-	// 设置响应头
-	w.Header().Set("Content-Type", "application/json")
-
-	// 只接受POST请求
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(RunGoResponse{
-			Success: false,
-			Error:   "只支持POST请求",
-		})
-		return
-	}
-
-	// 解析请求
-	var req RunGoRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(RunGoResponse{
-			Success: false,
-			Error:   "请求格式错误",
-		})
-		return
-	}
-
-	// 创建临时文件
-	tmpFile, err := os.CreateTemp("", "go-learn-*.go")
-	if err != nil {
-		json.NewEncoder(w).Encode(RunGoResponse{
-			Success: false,
-			Error:   "创建临时文件失败: " + err.Error(),
-		})
-		return
-	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
-
-	// 写入代码
-	if _, err := tmpFile.WriteString(req.Code); err != nil {
-		json.NewEncoder(w).Encode(RunGoResponse{
-			Success: false,
-			Error:   "写入代码失败: " + err.Error(),
-		})
-		return
-	}
-	tmpFile.Close()
-
-	// 执行代码
-	cmd := exec.Command("go", "run", tmpFile.Name())
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// 设置超时
-	timer := time.AfterFunc(10*time.Second, func() {
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-	})
-	defer timer.Stop()
-
-	err = cmd.Run()
-
-	// 检查是否有错误
-	if err != nil {
-		errorMsg := stderr.String()
-		if errorMsg == "" {
-			errorMsg = err.Error()
-		}
-		json.NewEncoder(w).Encode(RunGoResponse{
-			Success: false,
-			Error:   errorMsg,
-		})
-		return
-	}
-
-	// 返回成功结果
-	json.NewEncoder(w).Encode(RunGoResponse{
-		Success: true,
-		Output:  stdout.String(),
-	})
-}
-
 // ==================== 接口管理功能 ====================
 
 // handleApis 处理接口列表的GET和POST请求
@@ -5132,7 +5036,7 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
 			return
 		}
-		if task.Name == "" || task.Type == "" || task.GoCode == "" {
+		if task.Name == "" || task.Type == "" || task.JsCode == "" {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务名称、类型和Go代码不能为空"})
 			return
 		}
@@ -5223,8 +5127,8 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.Description != "" {
 			task.Description = update.Description
 		}
-		if update.GoCode != "" {
-			task.GoCode = update.GoCode
+		if update.JsCode != "" {
+			task.JsCode = update.JsCode
 		}
 		if update.DatabaseID != "" {
 			task.DatabaseID = update.DatabaseID
@@ -5488,7 +5392,7 @@ func governanceScheduler() {
 						id   string
 						code string
 						dbID string
-					}{task.ID, task.GoCode, task.DatabaseID})
+					}{task.ID, task.JsCode, task.DatabaseID})
 				}
 			}
 		}
@@ -5588,9 +5492,6 @@ func main() {
 	
 	// WebSocket路由
 	mux.HandleFunc("/ws/chat", handleWebSocket)
-	
-	// API路由
-	mux.HandleFunc("/api/run-go", handleRunGo)
 	
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)

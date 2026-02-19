@@ -4198,7 +4198,7 @@ function showGovTaskDetail(task) {
 
     document.getElementById('govTaskLastRun').textContent = task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '从未运行';
 
-    document.getElementById('govTaskCode').textContent = task.go_code;
+    document.getElementById('govTaskCode').textContent = task.js_code;
 
     // 交互区域
     const interactiveSection = document.getElementById('govInteractiveSection');
@@ -4286,7 +4286,7 @@ function editGovTask() {
     document.getElementById('govTaskNameInput').value = currentGovTask.name;
     document.getElementById('govTaskTypeInput').value = currentGovTask.type;
     document.getElementById('govTaskDescInput').value = currentGovTask.description || '';
-    document.getElementById('govCodeInput').value = currentGovTask.go_code;
+    document.getElementById('govCodeInput').value = currentGovTask.js_code;
     document.getElementById('govCronInput').value = currentGovTask.cron_expr || '';
     document.getElementById('govEnabledInput').checked = currentGovTask.enabled;
     document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
@@ -4328,7 +4328,7 @@ async function handleGovTaskSubmit(e) {
         name: document.getElementById('govTaskNameInput').value.trim(),
         type: type,
         description: document.getElementById('govTaskDescInput').value.trim(),
-        go_code: document.getElementById('govCodeInput').value,
+        js_code: document.getElementById('govCodeInput').value,
         database_id: document.getElementById('govTaskDbSelect').value,
         cron_expr: type === 'scheduled' ? document.getElementById('govCronInput').value.trim() : '',
         enabled: type === 'scheduled' ? document.getElementById('govEnabledInput').checked : false,
@@ -4336,7 +4336,7 @@ async function handleGovTaskSubmit(e) {
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
     };
 
-    if (!taskData.name || !taskData.go_code) {
+    if (!taskData.name || !taskData.js_code) {
         document.getElementById('govFormError').textContent = '任务名称和Go代码不能为空';
         document.getElementById('govFormError').classList.add('show');
         return;
@@ -4399,7 +4399,7 @@ async function deleteGovTask() {
 
 async function runGovTask() {
     if (!currentGovTask) return;
-    await executeGovTaskInBrowser(currentGovTask.go_code, null, '');
+    await executeGovTaskInBrowser(currentGovTask.js_code, null, '');
 }
 
 async function toggleGovTask() {
@@ -4486,7 +4486,7 @@ async function executeInteractiveTask() {
         return;
     }
 
-    await executeGovTaskInBrowser(currentGovTask.go_code, file, inputText);
+    await executeGovTaskInBrowser(currentGovTask.js_code, file, inputText);
 }
 
 // ==================== 浏览器端 JS 执行引擎 ====================
@@ -4522,19 +4522,15 @@ function createGovHelper(logLines) {
         log(msg) {
             logLines.push(String(msg));
         },
-        readExcel(file) {
+        async readExcel(file) {
             if (!file) throw new Error('未提供文件');
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const wb = XLSX.read(e.target.result, { type: 'array' });
-                        resolve(wb);
-                    } catch (err) { reject(err); }
-                };
-                reader.onerror = () => reject(new Error('读取文件失败'));
-                reader.readAsArrayBuffer(file);
-            });
+            const arrayBuffer = await file.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+            const wb = XLSX.read(data, { type: 'array' });
+            if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+                throw new Error('Excel解析失败: 未检测到工作表');
+            }
+            return wb;
         },
         async readWord(file) {
             if (!file) throw new Error('未提供文件');
