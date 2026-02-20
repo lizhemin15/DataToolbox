@@ -4651,6 +4651,7 @@ async function onCodegenTableChange() {
         let sql;
         if (db.type === 'sqlite') sql = `PRAGMA table_info('${tableName}')`;
         else if (db.type === 'postgresql') sql = `SELECT column_name, data_type FROM information_schema.columns WHERE table_name='${tableName}'`;
+        else if (db.type === 'dm' || db.type === 'oracle') sql = `SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, "''").toUpperCase()}' ORDER BY COLUMN_ID`;
         else sql = 'SHOW COLUMNS FROM `' + tableName + '`';
 
         const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
@@ -4664,6 +4665,11 @@ async function onCodegenTableChange() {
         codegenColumns = (result.data || []).map(row => {
             if (db.type === 'sqlite') return { name: row.name, type: row.type || 'TEXT' };
             if (db.type === 'postgresql') return { name: row.column_name, type: row.data_type };
+            if (db.type === 'dm' || db.type === 'oracle') {
+                const name = row.COLUMN_NAME ?? row.column_name;
+                const type = row.DATA_TYPE ?? row.data_type ?? '';
+                return { name: name || '', type: type };
+            }
             return { name: row.Field, type: row.Type };
         });
 
