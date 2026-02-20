@@ -1185,7 +1185,8 @@ func getTablesQuery(dbType string) string {
 	case "oracle":
 		return "SELECT table_name FROM user_tables"
 	case "dm":
-		return "SELECT TABLE_NAME FROM USER_TABLES"
+		// 达梦兼容：用 SYSOBJECTS 避免 USER_TABLES 语法解析问题（-2007）
+		return "SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1"
 	case "sqlite":
 		return "SELECT name FROM sqlite_master WHERE type='table'"
 	case "duckdb":

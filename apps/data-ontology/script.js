@@ -4280,7 +4280,7 @@ function showAddGovTaskModal() {
     document.getElementById('govFormError').classList.remove('show');
     document.getElementById('govFormSuccess').textContent = '';
     document.getElementById('govFormSuccess').classList.remove('show');
-    document.getElementById('govTaskModal').classList.add('active');
+    document.getElementById('govTaskModal').classList.add('show');
 }
 
 function editGovTask() {
@@ -4304,11 +4304,11 @@ function editGovTask() {
     document.getElementById('govFormError').classList.remove('show');
     document.getElementById('govFormSuccess').textContent = '';
     document.getElementById('govFormSuccess').classList.remove('show');
-    document.getElementById('govTaskModal').classList.add('active');
+    document.getElementById('govTaskModal').classList.add('show');
 }
 
 function hideGovTaskModal() {
-    document.getElementById('govTaskModal').classList.remove('active');
+    document.getElementById('govTaskModal').classList.remove('show');
 }
 
 function onGovTaskTypeChange() {
@@ -4538,6 +4538,9 @@ function createGovHelper(logLines) {
         log(msg) {
             logLines.push(String(msg));
         },
+        getDatabases() {
+            return (databases || []).map(d => ({ id: d.id, name: d.name, type: d.type }));
+        },
         async readExcel(file) {
             if (!file) throw new Error('未提供文件');
             const arrayBuffer = await file.arrayBuffer();
@@ -4565,6 +4568,14 @@ function createGovHelper(logLines) {
         async executeSQL(sql, params) {
             if (!dbId) throw new Error('未关联数据库，请编辑任务关联一个数据库');
             const result = await _runSQL(dbId, sql, params || []);
+            return result.rows_affected || 0;
+        },
+        async querySQLForDb(databaseId, sql, params) {
+            const result = await _runSQL(databaseId, sql, params || []);
+            return result.data || [];
+        },
+        async executeSQLForDb(databaseId, sql, params) {
+            const result = await _runSQL(databaseId, sql, params || []);
             return result.rows_affected || 0;
         },
     };
@@ -4603,6 +4614,8 @@ async function refreshCodegenTables() {
         let sql;
         if (db.type === 'sqlite') sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
         else if (db.type === 'postgresql') sql = "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'";
+        else if (db.type === 'dm') sql = "SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1";
+        else if (db.type === 'oracle') sql = "SELECT table_name as name FROM user_tables";
         else sql = 'SHOW TABLES';
 
         const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {

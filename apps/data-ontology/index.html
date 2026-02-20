@@ -812,21 +812,29 @@
                 </div>
                 <div class="form-group">
                     <label for="govCodeInput">任务代码 (JavaScript)</label>
-                    <textarea id="govCodeInput" rows="18" placeholder="// 可用的全局对象和变量:
-// INPUT_FILE  - 上传的文件对象 (File)
-// INPUT_TEXT  - 输入的文本 (string)
-// XLSX        - SheetJS 库 (Excel读写)
-// Papa        - PapaParse 库 (CSV解析)
-// mammoth     - Mammoth 库 (Word读取)
-//
-// gov.log(msg)                    - 输出日志
-// gov.readExcel(file)             - 读取Excel，返回workbook
-// gov.readCSV(text)               - 解析CSV文本，返回二维数组
-// gov.readWord(file)              - 读取Word，返回{value,messages}
-// gov.querySQL(sql, params?)      - 查询SQL，返回数据数组
-// gov.executeSQL(sql, params?)    - 执行SQL，返回affected行数
+                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth
+// gov.log(msg)                      - 输出日志
+// gov.getDatabases()                - 返回 [{id,name,type},...] 可入多个库
+// gov.readExcel(file)               - 读取Excel，返回workbook
+// gov.readCSV(text)                 - 解析CSV，返回二维数组
+// gov.querySQL(sql, params?)        - 当前关联库查询
+// gov.executeSQL(sql, params?)      - 当前关联库执行
+// gov.querySQLForDb(dbId, sql, params?)   - 指定库查询
+// gov.executeSQLForDb(dbId, sql, params?)  - 指定库执行（可一次入多库）
 
-gov.log('Hello, Governance!');" required style="font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.5; tab-size: 4;"></textarea>
+// 示例：同一份 Excel 入库到多个数据库
+// const workbook = await gov.readExcel(INPUT_FILE);
+// const sheet = workbook.Sheets[workbook.SheetNames[0]];
+// const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+// const dbs = gov.getDatabases();
+// for (const db of dbs) {
+//   let n = 0;
+//   for (let i = 1; i < rows.length; i++) {
+//     await gov.executeSQLForDb(db.id, 'INSERT INTO your_table (col1,col2) VALUES (?,?)', [rows[i][0], rows[i][1]]);
+//     n++;
+//   }
+//   gov.log(db.name + ' 写入 ' + n + ' 行');
+// }" required style="font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.5; tab-size: 4;"></textarea>
                 </div>
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存</button>
