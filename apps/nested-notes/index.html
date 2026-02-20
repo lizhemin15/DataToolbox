@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>无限嵌套笔记 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-left">
+                <button class="back-btn" onclick="goBack()" title="返回">←</button>
+                <div class="breadcrumbs" id="breadcrumbs"></div>
+            </div>
+            <div class="header-right">
+                <span class="item-count" id="itemCount"></span>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="搜索..." oninput="handleSearch(this.value)">
+                </div>
+                <button class="action-btn" onclick="exportData()" title="导出JSON">📤 导出</button>
+                <button class="action-btn" onclick="importData()" title="导入JSON">📥 导入</button>
+                <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
+                <button class="action-btn" onclick="showHelp()" title="快捷键帮助">⌨️</button>
+            </div>
+        </header>
+        <main class="content" id="content"></main>
+    </div>
+    <div class="modal-overlay" id="helpModal" onclick="if(event.target===this)this.style.display='none'">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>快捷键</h3>
+                <button onclick="document.getElementById('helpModal').style.display='none'">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="shortcut"><kbd>Enter</kbd><span>新建同级节点</span></div>
+                <div class="shortcut"><kbd>Tab</kbd><span>缩进（成为上方节点的子节点）</span></div>
+                <div class="shortcut"><kbd>Shift + Tab</kbd><span>反缩进</span></div>
+                <div class="shortcut"><kbd>Backspace</kbd><span>删除空节点 / 合并到上方节点</span></div>
+                <div class="shortcut"><kbd>↑ / ↓</kbd><span>在节点间导航</span></div>
+                <div class="shortcut"><kbd>Esc</kbd><span>清除搜索</span></div>
+                <div class="shortcut-divider"></div>
+                <div class="shortcut"><span class="hint-icon">●</span><span>点击圆点聚焦到此节点</span></div>
+                <div class="shortcut"><span class="hint-icon">▶</span><span>点击箭头展开/折叠子节点</span></div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -585,7 +585,7 @@ function saveExcelContent() {
     sendMessage({
         type: 'doc-content-save',
         docId: currentDoc.id,
-        content: { data: excelData }
+        docContent: { data: excelData }
     });
 }
 
@@ -758,7 +758,7 @@ function saveWordContent() {
         sendMessage({
             type: 'doc-content-save',
             docId: currentDoc.id,
-            content: contents
+            docContent: contents
         });
     } catch (e) {
         console.error('保存Word内容失败:', e);

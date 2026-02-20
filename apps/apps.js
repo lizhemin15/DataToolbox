@@ -161,7 +161,7 @@ const appsData = [
     },
     {
         "id": "client-learn",
-        "name": "甲方的基本素养",
+        "name": "提清需求 指南",
         "icon": "🎯",
         "description": "闯关式学习软件项目甲方核心素养，从需求表达到防坑指南，提升与AI和外协团队的协作效率",
         "keywords": ["甲方", "需求", "项目管理", "报价", "合同", "验收", "外包", "AI协作", "学习", "闯关"],
@@ -192,6 +192,15 @@ const appsData = [
         "icon": "🍅",
         "description": "美观的拖拽式待办清单与番茄钟，支持任务管理、优先级设置、专注计时和数据统计",
         "keywords": ["待办", "任务", "番茄钟", "GTD", "时间管理", "专注", "清单", "效率"],
+        "category": "tool",
+        "tags": ["productivity"]
+    },
+    {
+        "id": "nested-notes",
+        "name": "无限嵌套笔记",
+        "icon": "📝",
+        "description": "WorkFlowy风格的无限层级大纲笔记，支持缩进、聚焦、折叠，笔记可导入导出为JSON",
+        "keywords": ["笔记", "大纲", "嵌套", "WorkFlowy", "outliner", "导入", "导出", "JSON"],
         "category": "tool",
         "tags": ["productivity"]
     },
@@ -230,6 +239,15 @@ const appsData = [
         "keywords": ["协作", "文档", "Excel", "Word", "实时编辑", "联机", "多人", "在线编辑"],
         "category": "online",
         "tags": ["office", "network"]
+    },
+    {
+        "id": "monitor-dashboard",
+        "name": "监控大屏",
+        "icon": "📺",
+        "description": "可视化监控大屏，支持拖拽组件布局、编辑/播放模式切换，可添加API数据源（轮询/SSE/WebSocket），配置导入导出",
+        "keywords": ["监控", "大屏", "仪表盘", "Dashboard", "API", "SSE", "WebSocket", "可视化", "拖拽"],
+        "category": "tool",
+        "tags": ["productivity", "data", "network"]
     },
     {
         "id": "data-ontology",

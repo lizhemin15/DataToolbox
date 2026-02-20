@@ -93,7 +93,7 @@ type Message struct {
 	Cursor     interface{} `json:"cursor,omitempty"`
 	Users      interface{} `json:"users,omitempty"`
 	Title      string      `json:"title,omitempty"`
-	DocContent interface{} `json:"content,omitempty"`
+	DocContent interface{} `json:"docContent,omitempty"`
 }
 
 var hub = &Hub{
