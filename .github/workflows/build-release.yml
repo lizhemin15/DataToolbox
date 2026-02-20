@@ -121,6 +121,28 @@ jobs:
           chmod +x package/start.sh
           chmod +x package/datatoolbox-server
 
+      - name: Create systemd service for Linux
+        if: matrix.goos == 'linux'
+        run: |
+          cat > package/datatoolbox.service << 'EOF'
+          [Unit]
+          Description=DataToolbox Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/datatoolbox
+          ExecStart=/opt/datatoolbox/datatoolbox-server
+          Restart=always
+          RestartSec=3
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=datatoolbox
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
       - name: Create ZIP package (Windows)
         if: matrix.goos == 'windows'
         run: |
@@ -192,5 +214,11 @@ jobs:
               "host": "0.0.0.0"
             }
             ```
+            
+            **Linux 持久运行且开机自启（解压包内含 `datatoolbox.service`）：**
+            1. 解压到目录，如 `/opt/datatoolbox`（若用其他目录需先改 `datatoolbox.service` 里的 WorkingDirectory 和 ExecStart）
+            2. `sudo cp /opt/datatoolbox/datatoolbox.service /etc/systemd/system/`
+            3. `sudo systemctl daemon-reload && sudo systemctl enable --now datatoolbox`
+            之后关掉终端或重启服务器都会自动运行；查看状态：`sudo systemctl status datatoolbox`，日志：`journalctl -u datatoolbox -f`
             
             启动后访问: http://localhost:端口号
