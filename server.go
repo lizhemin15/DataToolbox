@@ -782,6 +782,24 @@ type AIQueryRequest struct {
 	History   []map[string]interface{} `json:"history,omitempty"`
 }
 
+// AICodegenRequest 数据治理入库代码 AI 生成请求（与 AI 助手共用 url/api_key/model）
+type AICodegenRequest struct {
+	DatabaseID   string             `json:"database_id"`
+	DatabaseName string             `json:"database_name"`
+	DBType       string             `json:"db_type"`
+	TableName    string             `json:"table_name"`
+	SourceType   string             `json:"source_type"` // excel | csv_file | csv_text
+	Columns      []AICodegenColumn  `json:"columns"`
+	UserHint     string             `json:"user_hint,omitempty"`
+}
+
+// AICodegenColumn 列映射
+type AICodegenColumn struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	SourceIndex int    `json:"source_index"`
+}
+
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
 	ID          string   `json:"id"`
@@ -4700,6 +4718,106 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	return "", fmt.Errorf("无法解析AI响应")
 }
 
+// extractCodeFromAIResponse 从 AI 返回中提取代码（去掉 ```js 等包裹）
+func extractCodeFromAIResponse(s string) string {
+	s = strings.TrimSpace(s)
+	for _, prefix := range []string{"```javascript", "```js", "```"} {
+		if strings.HasPrefix(s, prefix) {
+			s = s[len(prefix):]
+			break
+		}
+	}
+	if idx := strings.Index(s, "```"); idx >= 0 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
+}
+
+// handleAICodegen 处理数据治理入库代码 AI 生成（使用与 AI 助手相同的 api url / api_key / model）
+func handleAICodegen(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "只支持 POST",
+		})
+		return
+	}
+	var req AICodegenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+	if req.TableName == "" || len(req.Columns) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请选择目标表并配置列映射",
+		})
+		return
+	}
+
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请先在 AI 助手中配置 AI 设置（URL、API Key、模型）",
+		})
+		return
+	}
+
+	// 构建 prompt：与前端模板一致的约定（gov.*、INPUT_FILE/INPUT_TEXT、XLSX、Papa、mammoth）
+	var colLines []string
+	for _, c := range req.Columns {
+		colLines = append(colLines, fmt.Sprintf("  - 列 %s (%s) ← 源数据第 %d 列(0-based)", c.Name, c.Type, c.SourceIndex))
+	}
+	sourceDesc := map[string]string{
+		"excel":     "Excel 文件 (.xlsx)，使用 INPUT_FILE，gov.readExcel(INPUT_FILE) 与 XLSX.utils.sheet_to_json",
+		"csv_file":  "CSV 文件，使用 INPUT_FILE.text() 与 Papa.parse",
+		"csv_text":  "CSV 文本，使用 INPUT_TEXT 与 Papa.parse(INPUT_TEXT)",
+	}[req.SourceType]
+	if sourceDesc == "" {
+		sourceDesc = "Excel 文件"
+	}
+
+	prompt := fmt.Sprintf(`你是一个数据治理任务代码生成器。请根据以下配置生成一段可运行的 JavaScript 代码，用于将数据导入到数据库。要求：
+1. 使用环境提供的全局对象：gov（含 gov.log、gov.readExcel、gov.readCSV、gov.querySQL、gov.executeSQL）、INPUT_FILE（文件上传时）、INPUT_TEXT（文本输入时）、XLSX、Papa、mammoth。
+2. 数据库类型为 %s，表名为 %s（注意引号：MySQL/MariaDB 用反引号，其他可用双引号）。
+3. 数据源：%s。
+4. 列映射（目标表列 ← 源数据行数组索引 0-based）：
+%s
+5. 只输出可执行的 JavaScript 代码，不要用 markdown 代码块包裹，不要解释。代码应解析数据后逐行 INSERT，并统计成功/失败行数、用 gov.log 输出。`,
+		req.DBType, req.TableName, sourceDesc, strings.Join(colLines, "\n"))
+	if req.UserHint != "" {
+		prompt += "\n6. 用户补充说明：" + req.UserHint
+	}
+
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "AI 调用失败: " + err.Error(),
+		})
+		return
+	}
+	code := extractCodeFromAIResponse(aiResponse)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"code":    code,
+	})
+}
+
 // isCreateApiRequest 检测是否是创建接口的请求
 func isCreateApiRequest(message string) bool {
 	keywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "帮我创建", "生成API", "创建API"}
@@ -5521,6 +5639,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
+	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)

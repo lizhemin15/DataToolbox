@@ -3059,6 +3059,11 @@ textarea#testApiParams {
     border-radius: 6px;
     background: var(--bg-main);
 }
+.gov-codegen-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 12px 0;
+}
 .gov-codegen-row {
     display: flex;
     gap: 12px;

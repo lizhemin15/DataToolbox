@@ -768,23 +768,24 @@
                 </div>
                 <div class="form-group">
                     <div class="gov-codegen-toggle" onclick="toggleCodeGen()">
-                        <span>入库代码生成助手</span>
+                        <span>导入到数据库（可视化选择库、表与要导入的数据）</span>
                         <span id="codegenArrow" class="gov-codegen-arrow">▶</span>
                     </div>
                     <div id="govCodeGenPanel" class="gov-codegen-panel" style="display:none;">
+                        <p class="gov-codegen-desc">在上方选择「关联数据库」即导入目标库；下方选择目标表与数据源、列映射。</p>
                         <div class="gov-codegen-row">
                             <div class="gov-codegen-field">
-                                <label>数据源类型</label>
+                                <label>导入到哪个表</label>
+                                <select id="codegenTable" class="gov-codegen-select" onchange="onCodegenTableChange()">
+                                    <option value="">请先选择关联数据库</option>
+                                </select>
+                            </div>
+                            <div class="gov-codegen-field">
+                                <label>数据源类型（导什么数据）</label>
                                 <select id="codegenSourceType" class="gov-codegen-select">
                                     <option value="excel">Excel 文件 (.xlsx)</option>
                                     <option value="csv_file">CSV 文件</option>
                                     <option value="csv_text">CSV 文本输入</option>
-                                </select>
-                            </div>
-                            <div class="gov-codegen-field">
-                                <label>目标表</label>
-                                <select id="codegenTable" class="gov-codegen-select" onchange="onCodegenTableChange()">
-                                    <option value="">请先选择关联数据库</option>
                                 </select>
                             </div>
                         </div>
@@ -799,8 +800,13 @@
                             <div id="codegenMappingBody"></div>
                         </div>
                         <div class="gov-codegen-actions">
-                            <button type="button" class="btn btn-primary btn-sm" onclick="generateImportCode()">生成代码</button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="generateImportCode()">根据配置生成代码</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="generateImportCodeWithAI()">AI 辅助生成代码</button>
                             <button type="button" class="btn btn-sm" onclick="refreshCodegenTables()">刷新表列表</button>
+                        </div>
+                        <div class="form-group" style="margin-top:10px;">
+                            <label for="codegenUserHint">自定义说明（选填，供 AI 辅助生成时参考）</label>
+                            <input type="text" id="codegenUserHint" placeholder="例如：第一行是表头需要跳过；日期列格式为 YYYY-MM-DD" style="width:100%;">
                         </div>
                     </div>
                 </div>

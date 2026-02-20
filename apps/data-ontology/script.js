@@ -4742,6 +4742,85 @@ gov.log(\`\\n入库完成: ${tableName} ← 成功 \${inserted} 行, 失败 \${f
     document.getElementById('govCodeInput').value = code;
 }
 
+// AI 辅助生成入库代码（使用与 AI 助手相同的 API URL、API Key、模型）
+async function generateImportCodeWithAI() {
+    const dbId = document.getElementById('govTaskDbSelect').value;
+    const tableName = document.getElementById('codegenTable').value;
+    const sourceType = document.getElementById('codegenSourceType').value;
+    const db = databases.find(d => d.id === dbId);
+
+    if (!dbId || !tableName) {
+        alert('请先选择关联数据库并选择目标表');
+        return;
+    }
+    const checks = document.querySelectorAll('.codegen-col-check');
+    const srcs = document.querySelectorAll('.codegen-col-src');
+    const mappings = [];
+    checks.forEach((chk, i) => {
+        if (chk.checked && codegenColumns[i]) {
+            const srcIdx = parseInt(srcs[i].value, 10);
+            mappings.push({
+                name: codegenColumns[i].name,
+                type: codegenColumns[i].type || 'TEXT',
+                source_index: isNaN(srcIdx) ? i : srcIdx
+            });
+        }
+    });
+    if (mappings.length === 0) {
+        alert('请至少勾选一个要导入的列');
+        return;
+    }
+
+    if (!aiConfig) await loadAiConfig();
+    if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
+        alert('请先在「AI助手」中配置 AI 设置（AI服务URL、API Key、模型名称）后再使用 AI 辅助生成');
+        return;
+    }
+
+    const userHintEl = document.getElementById('codegenUserHint');
+    const userHint = userHintEl ? userHintEl.value.trim() : '';
+
+    const payload = {
+        database_id: dbId,
+        database_name: db.name,
+        db_type: db.type,
+        table_name: tableName,
+        source_type: sourceType,
+        columns: mappings,
+        user_hint: userHint
+    };
+
+    const btn = document.querySelector('.gov-codegen-actions .btn-secondary');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+    }
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/ai/codegen`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (data.success && data.code != null) {
+            document.getElementById('govCodeInput').value = data.code;
+        } else {
+            alert(data.message || 'AI 生成失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'AI 辅助生成代码';
+        }
+    }
+}
+
 async function executeGovTaskInBrowser(code, file, inputText) {
     if (!currentGovTask) return;
     const logLines = [];
