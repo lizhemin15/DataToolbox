@@ -954,6 +954,7 @@ function updatePreviewHeader() {
     ` : `
         <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
         <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">🔧 编辑结构</button>
+        <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">📝 重命名表</button>
         <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
         <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
     `;
@@ -1592,6 +1593,53 @@ async function saveTableStructure() {
 // 关闭编辑结构模态框
 function closeEditStructureModal() {
     document.getElementById('editStructureModal').style.display = 'none';
+}
+
+// 显示重命名表模态框
+function showRenameTableModal() {
+    if (!currentDb || !currentPreviewTable) return;
+    document.getElementById('renameTableNewName').value = currentPreviewTable;
+    document.getElementById('renameTableModal').classList.add('show');
+}
+
+// 隐藏重命名表模态框
+function hideRenameTableModal() {
+    document.getElementById('renameTableModal').classList.remove('show');
+}
+
+// 提交重命名表
+async function submitRenameTable() {
+    if (!currentDb || !currentPreviewTable) return;
+    const newName = document.getElementById('renameTableNewName').value.trim();
+    if (!newName) {
+        alert('请输入新表名');
+        return;
+    }
+    if (newName === currentPreviewTable) {
+        hideRenameTableModal();
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ new_name: newName })
+        });
+        const data = await response.json();
+        if (data.success) {
+            hideRenameTableModal();
+            currentPreviewTable = newName;
+            updatePreviewHeader();
+            loadDatabaseDetail(currentDb.id).then(() => previewTable(newName));
+        } else {
+            alert('重命名失败：' + (data.message || '未知错误'));
+        }
+    } catch (e) {
+        alert('重命名失败：' + e.message);
+    }
 }
 
 // 删除数据库

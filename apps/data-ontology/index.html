@@ -698,6 +698,26 @@
         </div>
     </div>
 
+    <!-- 重命名表模态框 -->
+    <div id="renameTableModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>重命名表</h2>
+                <button class="modal-close" onclick="hideRenameTableModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="renameTableNewName">新表名</label>
+                    <input type="text" id="renameTableNewName" placeholder="请输入新表名">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="submitRenameTable()">确定</button>
+                    <button type="button" class="btn" onclick="hideRenameTableModal()">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 新建/编辑治理任务弹窗 -->
     <div id="govTaskModal" class="modal">
         <div class="modal-content modal-large">

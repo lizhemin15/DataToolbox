@@ -2182,7 +2182,12 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		handleTableStructure(w, r, config, tableName)
 		return
 	}
-	
+
+	if strings.HasSuffix(path, "/rename") && (r.Method == http.MethodPut || r.Method == http.MethodPost) {
+		handleTableRename(w, r, config, tableName)
+		return
+	}
+
 	if strings.HasSuffix(path, "/data") {
 		// 数据操作路径
 		if r.Method == http.MethodPost {
@@ -3130,6 +3135,66 @@ func rebuildTableForSQLite(db *sql.DB, tableName string, columns []struct {
 	}
 
 	return nil
+}
+
+// TableRenameRequest 重命名表请求
+type TableRenameRequest struct {
+	NewName string `json:"new_name"`
+}
+
+// handleTableRename 重命名表
+func handleTableRename(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	w.Header().Set("Content-Type", "application/json")
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "MongoDB 暂不支持重命名表"})
+		return
+	}
+	var req TableRenameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	newName := strings.TrimSpace(req.NewName)
+	if newName == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名不能为空"})
+		return
+	}
+	if newName == tableName {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名与当前表名相同"})
+		return
+	}
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败"})
+		return
+	}
+	defer db.Close()
+
+	var renameSQL string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		renameSQL = fmt.Sprintf(`ALTER TABLE "%s" RENAME TO "%s"`, tableName, newName)
+	case "sqlserver":
+		renameSQL = fmt.Sprintf("EXEC sp_rename '%s', '%s'", tableName, newName)
+	case "dm", "oracle":
+		renameSQL = fmt.Sprintf("ALTER TABLE %s RENAME TO %s", strings.ToUpper(tableName), strings.ToUpper(newName))
+	case "mysql", "mariadb", "tidb":
+		renameSQL = fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", tableName, newName)
+	case "sqlite", "duckdb":
+		renameSQL = fmt.Sprintf("ALTER TABLE \"%s\" RENAME TO \"%s\"", tableName, newName)
+	default:
+		renameSQL = fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", tableName, newName)
+	}
+	if _, err := db.Exec(renameSQL); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "重命名失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "表已重命名", "new_name": newName})
 }
 
 // handleTableDrop 删除表
