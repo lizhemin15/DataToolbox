@@ -4593,6 +4593,17 @@ function createGovHelper(logLines) {
             const result = await _runSQL(databaseId, sql, params || []);
             return result.rows_affected || 0;
         },
+        // 调用 AI 补全（与 AI 助手共用 URL/API Key/模型），返回结构化文本
+        async callAI(prompt) {
+            const resp = await fetch(`${API_BASE}/api/data-ontology/ai/completion`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message || 'AI 调用失败');
+            return data.content || '';
+        },
     };
 }
 

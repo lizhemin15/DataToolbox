@@ -1053,8 +1053,8 @@ func initDataOntology() {
 			ID:          docTaskID,
 			Name:        "Word文档内容提取",
 			Type:        "interactive",
-			Description: "上传Word文档(.docx)，提取文本内容",
-			JsCode: "// 交互任务：提取Word文档的文本内容\n// 使用 Mammoth 库将docx转为文本\n\nconst result = await gov.readWord(INPUT_FILE);\ngov.log('='.repeat(40));\ngov.log('Word文档内容：');\ngov.log('='.repeat(40));\ngov.log(result.value);\nif (result.messages && result.messages.length > 0) {\n    gov.log('\\n--- 转换消息 ---');\n    result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\ngov.log('='.repeat(40));\ngov.log('文档内容提取完成');",
+			Description: "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
+			JsCode: "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nif (structured.length > 0 && currentGovTask && currentGovTask.database_id) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
 			InputType:  "file",
 			AcceptExts: []string{".docx"},
 			CreatedAt:  now,
@@ -2991,7 +2991,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 				case "sqlserver":
 					alterSQL = fmt.Sprintf("ALTER TABLE [%s] ALTER COLUMN [%s] %s%s", tableName, col.Name, colDef, nullClause)
 				case "dm", "oracle":
-					alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s%s", tblUpper, colUpper, colDef, nullClause)
+					// 达梦语法：MODIFY 后直接跟列名，不加 COLUMN 关键字（避免 -2007 语法解析错误）
+					alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY %s %s%s", tblUpper, colUpper, colDef, nullClause)
 				default: // MySQL
 					alterSQL = fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` %s%s", tableName, col.Name, colDef, nullClause)
 				}
@@ -4853,6 +4854,46 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// AICompletionRequest 通用 AI 文本补全请求（与 AI 助手共用 url/api_key/model）
+type AICompletionRequest struct {
+	Prompt string `json:"prompt"`
+}
+
+// handleAICompletion 通用 AI 补全，供治理任务等调用（使用与 AI 助手相同的配置）
+func handleAICompletion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持 POST"})
+		return
+	}
+	var req AICompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	if req.Prompt == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "prompt 不能为空"})
+		return
+	}
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请先在 AI 助手中配置 AI 设置（URL、API Key、模型）"})
+		return
+	}
+	content, err := callAIService(aiConfig, req.Prompt)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "AI 调用失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "content": content})
+}
+
 // isCreateApiRequest 检测是否是创建接口的请求
 func isCreateApiRequest(message string) bool {
 	keywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "帮我创建", "生成API", "创建API"}
@@ -5675,6 +5716,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
+	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
 	
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
