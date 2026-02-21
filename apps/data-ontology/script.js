@@ -4634,7 +4634,13 @@ async function refreshCodegenTables() {
         const result = await resp.json();
         if (!result.success) throw new Error(result.message);
 
-        const tables = (result.data || []).map(row => Object.values(row)[0]);
+        let tables = (result.data || []).map(row => Object.values(row)[0]);
+        if (db.type === 'dm') {
+            tables = tables.filter(t => {
+                const n = String(t);
+                return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_');
+            });
+        }
         sel.innerHTML = '<option value="">-- 请选择目标表 --</option>' + tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
     } catch (e) {
         sel.innerHTML = `<option value="">加载失败: ${escapeHtml(e.message)}</option>`;
