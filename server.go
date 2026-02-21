@@ -2943,6 +2943,26 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	}
 	rows.Close()
 
+	// 达梦：查询自增列，修改表结构时不得 MODIFY 自增列（否则报 -2664）
+	identityColumns := make(map[string]bool)
+	if config.Type == "dm" {
+		tblUpper := strings.ToUpper(tableName)
+		identQuery := fmt.Sprintf(`
+			SELECT a.NAME FROM SYS.SYSCOLUMNS a, SYS.SYSOBJECTS b
+			WHERE b.ID = a.ID AND b.NAME = '%s' AND (a.INFO2 & 0x01) = 0x01
+		`, tblUpper)
+		identRows, err := db.Query(identQuery)
+		if err == nil {
+			for identRows.Next() {
+				var colName string
+				if err := identRows.Scan(&colName); err == nil {
+					identityColumns[strings.ToUpper(colName)] = true
+				}
+			}
+			identRows.Close()
+		}
+	}
+
 	// SQLite需要重建表（不支持ALTER COLUMN）
 	if config.Type == "sqlite" || config.Type == "duckdb" {
 		err = rebuildTableForSQLite(db, tableName, req.Columns)
@@ -2979,6 +2999,10 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			colUpper := strings.ToUpper(col.Name)
 			var alterSQL string
 			if existingColumns[col.Name] {
+				// 达梦不允许修改自增列，跳过
+				if config.Type == "dm" && identityColumns[colUpper] {
+					continue
+				}
 				// 修改现有列
 				switch config.Type {
 				case "postgresql", "timescaledb", "cockroachdb":
