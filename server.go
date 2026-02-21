@@ -4234,7 +4234,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if moduleSet["data-governance"] || moduleSet["ontology"] {
+	if moduleSet["data-governance"] {
+		handleAIGovernanceTask(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
+	if moduleSet["ontology"] {
 		sendSSE(w, "error", map[string]interface{}{
 			"message": "该模块功能正在开发中，敬请期待",
 		})
@@ -4993,6 +4998,164 @@ func isCreateApiRequest(message string) bool {
 		}
 	}
 	return false
+}
+
+// isGovernanceTaskRequest 检测是否是数据治理任务相关请求（创建/生成/修改 定时或交互任务）
+func isGovernanceTaskRequest(message string) bool {
+	keywords := []string{
+		"创建任务", "新建任务", "生成任务", "添加任务", "帮我创建任务", "帮我生成任务",
+		"定时任务", "交互任务", "定时执行", "按计划执行", "上传文件处理", "文件导入",
+		"修改任务", "更新任务", "改一下任务",
+	}
+	lowerMessage := strings.ToLower(message)
+	for _, keyword := range keywords {
+		if strings.Contains(lowerMessage, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+// governanceTaskDraft 供前端确认的数据治理任务草稿（与 GovernanceTask 字段对齐，无 id/created_at 等）
+type governanceTaskDraft struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Description string   `json:"description,omitempty"`
+	JsCode      string   `json:"js_code"`
+	DatabaseID  string   `json:"database_id,omitempty"`
+	CronExpr    string   `json:"cron_expr,omitempty"`
+	InputType   string   `json:"input_type,omitempty"`
+	AcceptExts  []string `json:"accept_exts,omitempty"`
+	IsUpdate    bool     `json:"is_update,omitempty"`
+	TaskID      string   `json:"task_id,omitempty"`
+}
+
+// buildGovernanceTaskPrompt 构建数据治理任务生成的提示词，包含任务约束
+func buildGovernanceTaskPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
+	const constraint = `
+【数据治理任务约束】你必须严格按以下规则生成任务，并只输出一个 JSON 对象（不要用 markdown 代码块包裹），不要其他解释。
+
+1. 任务类型 type 只能是 "scheduled"（定时任务）或 "interactive"（交互任务）。
+2. 定时任务：必须包含 cron_expr，格式为 "分 时 日 月 周"（五段，空格分隔），例如 "0 2 * * *" 表示每天凌晨2点，"30 8 * * 1-5" 表示工作日 8:30。
+3. 交互任务：必须包含 input_type（"file" | "text" | "both"）和 accept_exts（数组，如 [".xlsx", ".csv", ".docx"]）。
+4. js_code 必须是可运行的 JavaScript 代码。运行环境提供：
+   - gov.log(msg)、gov.readExcel(file)、gov.readCSV(csvText)、gov.querySQL(sql)、gov.executeSQL(sql)
+   - INPUT_FILE（File 对象，交互任务文件上传时）、INPUT_TEXT（字符串，交互任务文本输入时）
+   - XLSX、Papa、mammoth 等库。只输出代码，不要用 \`\`\` 包裹。
+5. 输出 JSON 字段：name（必填）、type（必填）、description（可选）、js_code（必填）、database_id（可选，从下面数据库 id 中选）、cron_expr（定时必填）、input_type（交互必填）、accept_exts（交互可选）。
+`
+	prompt := "你是一个数据治理任务设计专家。用户希望根据需求生成或修改数据治理任务（定时任务或交互任务）。\n"
+	prompt += constraint
+	if len(dbSchemas) > 0 {
+		prompt += "\n【可选数据库】当前对话关联的数据库 id 与名称：\n"
+		for _, s := range dbSchemas {
+			id, _ := s["id"].(string)
+			name, _ := s["name"].(string)
+			prompt += fmt.Sprintf("  - id: %q, name: %s\n", id, name)
+		}
+		prompt += "若任务需要写库或查库，请将 database_id 设为上述之一。\n"
+	}
+	prompt += "\n用户需求：\n" + userMessage
+	prompt += "\n\n请只输出一个 JSON 对象，包含 name, type, description, js_code, database_id（如需）, cron_expr（定时任务）, input_type 与 accept_exts（交互任务）。不要 markdown，不要解释。"
+	return prompt
+}
+
+// parseGovernanceTaskDraft 从 AI 回复中解析任务草稿并做约束校验
+func parseGovernanceTaskDraft(aiResponse string, defaultDBID string) (*governanceTaskDraft, string) {
+	// 提取 JSON：去除 markdown 代码块
+	s := strings.TrimSpace(aiResponse)
+	for _, prefix := range []string{"```json", "```javascript", "```js", "```"} {
+		if strings.HasPrefix(s, prefix) {
+			s = s[len(prefix):]
+			break
+		}
+	}
+	if idx := strings.Index(s, "```"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimSpace(s)
+
+	var draft governanceTaskDraft
+	if err := json.Unmarshal([]byte(s), &draft); err != nil {
+		return nil, "JSON 解析失败: " + err.Error()
+	}
+	if draft.Name == "" {
+		return nil, "任务名称 name 不能为空"
+	}
+	if draft.Type != "scheduled" && draft.Type != "interactive" {
+		return nil, "type 必须是 scheduled 或 interactive"
+	}
+	if draft.JsCode == "" {
+		return nil, "js_code 不能为空"
+	}
+	if draft.Type == "scheduled" {
+		parts := strings.Fields(draft.CronExpr)
+		if len(parts) != 5 {
+			return nil, "定时任务 cron_expr 必须为五段：分 时 日 月 周"
+		}
+	}
+	if draft.Type == "interactive" {
+		if draft.InputType != "file" && draft.InputType != "text" && draft.InputType != "both" {
+			draft.InputType = "file"
+		}
+		if draft.AcceptExts == nil {
+			draft.AcceptExts = []string{".xlsx", ".csv"}
+		}
+	}
+	if draft.DatabaseID == "" && defaultDBID != "" {
+		draft.DatabaseID = defaultDBID
+	}
+	return &draft, ""
+}
+
+// handleAIGovernanceTask 处理 @数据治理 时的 AI 生成任务草稿，供用户确认后创建或更新
+func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	if !isGovernanceTaskRequest(queryReq.Message) {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "请说明要创建或修改的数据治理任务需求，例如：创建定时任务每天凌晨导入、或创建一个上传 Excel 的交互任务。",
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在根据您的需求生成数据治理任务草稿（已加入任务约束）...",
+	})
+	flusher.Flush()
+
+	prompt := buildGovernanceTaskPrompt(queryReq.Message, dbSchemas)
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "AI 服务调用失败: " + err.Error(),
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	defaultDBID := ""
+	if len(queryReq.Databases) > 0 {
+		defaultDBID = queryReq.Databases[0]
+	}
+	draft, parseErr := parseGovernanceTaskDraft(aiResponse, defaultDBID)
+	if draft == nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "未能生成有效任务草稿。" + parseErr,
+			"response": aiResponse,
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "governance_task_draft", map[string]interface{}{
+		"message": "已根据您的需求生成任务草稿，请确认或编辑后再创建/更新。",
+		"task":    draft,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
 }
 
 // handleAICreateApi 处理AI创建接口请求

@@ -3667,6 +3667,43 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = configHtml;
             attemptsEl.style.display = 'none';
             break;
+
+        case 'governance_task_draft':
+            statusEl.innerHTML = '';
+            const govDraft = data.task || {};
+            if (!window._aiGovDraftByMessageId) window._aiGovDraftByMessageId = {};
+            window._aiGovDraftByMessageId[messageId] = govDraft;
+            const govCronDisplay = govDraft.cron_expr ? escapeHtml(govDraft.cron_expr) : '—';
+            const govInputTypeDisplay = { file: '文件', text: '文本', both: '文件+文本' }[govDraft.input_type] || '—';
+            const govExtsDisplay = (govDraft.accept_exts && govDraft.accept_exts.length) ? escapeHtml(govDraft.accept_exts.join(', ')) : '—';
+            const govTaskHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview ai-gov-draft-preview" id="gov-draft-${messageId}">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">数据治理任务草稿</span>
+                        <button class="btn btn-sm" onclick="editGovTaskDraftFromAI('${messageId}')">✏️ 编辑</button>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">任务名称:</span> <span class="config-value">${escapeHtml(govDraft.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">类型:</span> <span class="config-value">${govDraft.type === 'scheduled' ? '⏰ 定时' : '📤 交互'}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(govDraft.description || '—')}</span></div>
+                        ${govDraft.type === 'scheduled' ? `<div class="config-item"><span class="config-label">Cron:</span> <span class="config-value">${govCronDisplay}</span></div>` : ''}
+                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">输入方式:</span> <span class="config-value">${govInputTypeDisplay}</span></div>` : ''}
+                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">接受扩展名:</span> <span class="config-value">${govExtsDisplay}</span></div>` : ''}
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">脚本代码:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((govDraft.js_code || '').slice(0, 500))}${(govDraft.js_code || '').length > 500 ? '...' : ''}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateGovTaskFromAI('${messageId}')">✓ 确认创建任务</button>
+                        <button class="btn" onclick="cancelGovTaskDraft('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = govTaskHtml;
+            attemptsEl.style.display = 'none';
+            break;
             
         case 'done':
             // 完成，不需要特别处理
@@ -3949,6 +3986,97 @@ function cancelCreateApiFromAI(messageId) {
             </div>
         `;
     }
+}
+
+// 确认创建 AI 生成的数据治理任务（用户同意后才创建）
+async function confirmCreateGovTaskFromAI(messageId) {
+    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
+    if (!draft) return;
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 正在创建任务...</div>';
+    }
+    const taskData = {
+        name: draft.name,
+        type: draft.type,
+        description: draft.description || '',
+        js_code: draft.js_code,
+        database_id: draft.database_id || '',
+        cron_expr: draft.type === 'scheduled' ? (draft.cron_expr || '0 0 * * *') : '',
+        enabled: draft.type === 'scheduled',
+        input_type: draft.type === 'interactive' ? (draft.input_type || 'file') : '',
+        accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
+    };
+    try {
+        const token = localStorage.getItem('dataOntologyToken');
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(taskData)
+        });
+        const data = await response.json();
+        if (data.success && contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #e6ffed; border-left: 3px solid #52c41a; border-radius: 6px; color: #389e0d; font-size: 13px;">
+                    ✓ 任务已创建。可到「数据治理」页查看。
+                </div>
+            `;
+            loadGovernanceTasks();
+        } else if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
+                    ${escapeHtml(data.message || '创建失败')}
+                </div>
+            `;
+        }
+    } catch (err) {
+        if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
+                    ${escapeHtml('请求失败: ' + err.message)}
+                </div>
+            `;
+        }
+    }
+    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
+}
+
+function cancelGovTaskDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `
+            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
+                ℹ️ 已取消创建任务
+            </div>
+        `;
+    }
+    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
+}
+
+// 编辑草稿：用草稿预填治理任务弹窗，用户修改后点保存即创建
+function editGovTaskDraftFromAI(messageId) {
+    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
+    if (!draft) return;
+    isEditGovMode = false;
+    editingGovTaskId = null;
+    document.getElementById('govModalTitle').textContent = '编辑任务草稿并创建';
+    document.getElementById('govTaskNameInput').value = draft.name || '';
+    document.getElementById('govTaskTypeInput').value = draft.type || 'interactive';
+    document.getElementById('govTaskDescInput').value = draft.description || '';
+    document.getElementById('govCodeInput').value = draft.js_code || '';
+    document.getElementById('govCronInput').value = draft.cron_expr || '';
+    document.getElementById('govEnabledInput').checked = true;
+    document.getElementById('govEnabledLabel').textContent = '已启用';
+    document.getElementById('govInputTypeSelect').value = draft.input_type || 'file';
+    document.getElementById('govAcceptExtsInput').value = (draft.accept_exts || []).join(', ');
+    populateGovDbSelect();
+    document.getElementById('govTaskDbSelect').value = draft.database_id || '';
+    onGovTaskTypeChange();
+    document.getElementById('govFormError').textContent = '';
+    document.getElementById('govFormError').classList.remove('show');
+    document.getElementById('govFormSuccess').textContent = '';
+    document.getElementById('govFormSuccess').classList.remove('show');
+    document.getElementById('govTaskModal').classList.add('show');
 }
 
 // ==================== 表格管理功能 ====================
