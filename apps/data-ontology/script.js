@@ -161,7 +161,14 @@ function initEventListeners() {
     // 接口管理事件
     document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
         e.stopPropagation();
-        document.getElementById('apikeyPopover').classList.toggle('show');
+        const popover = document.getElementById('apikeyPopover');
+        const btn = document.getElementById('apikeyTriggerBtn');
+        popover.classList.toggle('show');
+        if (popover.classList.contains('show')) {
+            var rect = btn.getBoundingClientRect();
+            popover.style.left = rect.left + 'px';
+            popover.style.top = (rect.bottom + 8) + 'px';
+        }
     });
     document.addEventListener('click', function(e) {
         const popover = document.getElementById('apikeyPopover');

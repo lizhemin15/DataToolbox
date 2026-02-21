@@ -2031,6 +2031,19 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 达梦：左侧表列表只显示用户表，隐藏系统表
+		if config.Type == "dm" && len(tables) > 0 {
+			filtered := make([]string, 0, len(tables))
+			for _, t := range tables {
+				if strings.HasPrefix(t, "##") || strings.HasPrefix(t, "AQ$_") || strings.HasPrefix(t, "SYS$") ||
+					strings.HasPrefix(t, "DBMS_") || strings.HasPrefix(t, "REG$") || t == "POLICIES" || strings.HasPrefix(t, "POLICY_") {
+					continue
+				}
+				filtered = append(filtered, t)
+			}
+			tables = filtered
+		}
+
 		if tables == nil {
 			tables = []string{}
 		}
@@ -2876,13 +2889,13 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			WHERE TABLE_NAME = '%s'
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
-	case "dm", "oracle":
-		query = fmt.Sprintf(`
+		case "dm", "oracle":
+			query = fmt.Sprintf(`
 			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
-		`, tableName)
+		`, strings.ToUpper(tableName))
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -2962,6 +2975,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 				nullClause = " NOT NULL"
 			}
 
+			tblUpper := strings.ToUpper(tableName)
+			colUpper := strings.ToUpper(col.Name)
 			var alterSQL string
 			if existingColumns[col.Name] {
 				// 修改现有列
@@ -2975,6 +2990,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 					}
 				case "sqlserver":
 					alterSQL = fmt.Sprintf("ALTER TABLE [%s] ALTER COLUMN [%s] %s%s", tableName, col.Name, colDef, nullClause)
+				case "dm", "oracle":
+					alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s%s", tblUpper, colUpper, colDef, nullClause)
 				default: // MySQL
 					alterSQL = fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` %s%s", tableName, col.Name, colDef, nullClause)
 				}
@@ -2985,6 +3002,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 					alterSQL = fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s%s`, tableName, col.Name, colDef, nullClause)
 				case "sqlserver":
 					alterSQL = fmt.Sprintf("ALTER TABLE [%s] ADD [%s] %s%s", tableName, col.Name, colDef, nullClause)
+				case "dm", "oracle":
+					alterSQL = fmt.Sprintf("ALTER TABLE %s ADD %s %s%s", tblUpper, colUpper, colDef, nullClause)
 				default: // MySQL
 					alterSQL = fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN `%s` %s%s", tableName, col.Name, colDef, nullClause)
 				}
@@ -3001,6 +3020,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 					dropSQL = fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s"`, tableName, colName)
 				case "sqlserver":
 					dropSQL = fmt.Sprintf("ALTER TABLE [%s] DROP COLUMN [%s]", tableName, colName)
+				case "dm", "oracle":
+					dropSQL = fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", strings.ToUpper(tableName), strings.ToUpper(colName))
 				default: // MySQL
 					dropSQL = fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", tableName, colName)
 				}
