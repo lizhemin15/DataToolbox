@@ -4534,9 +4534,17 @@ function createGovHelper(logLines) {
         return data;
     }
 
+    const dbType = (() => {
+        const db = (databases || []).find(d => d.id === (currentGovTask && currentGovTask.database_id));
+        return db ? db.type : '';
+    })();
+
     return {
         log(msg) {
             logLines.push(String(msg));
+        },
+        getDbType() {
+            return dbType;
         },
         getDatabases() {
             return (databases || []).map(d => ({ id: d.id, name: d.name, type: d.type }));
