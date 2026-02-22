@@ -341,28 +341,48 @@ function startTankBattle(opponentId, isHost) {
     // ═══════════════════════════════════════════════════════
     //  合作模式 AI
     // ═══════════════════════════════════════════════════════
+
+    // 在 (preferX, preferY) 附近找一个不在墙内的合法位置
+    function findSafeSpawn(preferX, preferY) {
+        // 先试偏好位置
+        if (!wallCollides(preferX, preferY)) return { x: preferX, y: preferY };
+        // 以偏好格子为中心向外扩圈搜索
+        const col0 = Math.round(preferX / CELL), row0 = Math.round(preferY / CELL);
+        for (let ring = 1; ring <= 8; ring++) {
+            for (let dc = -ring; dc <= ring; dc++) {
+                for (let dr = -ring; dr <= ring; dr++) {
+                    if (Math.abs(dc) !== ring && Math.abs(dr) !== ring) continue;
+                    const x = (col0 + dc) * CELL + CELL / 2;
+                    const y = (row0 + dr) * CELL + CELL / 2;
+                    if (x < CELL || x >= CW - CELL || y < CELL || y >= CH - CELL) continue;
+                    if (!wallCollides(x, y)) return { x, y };
+                }
+            }
+        }
+        // 兜底：地图中心附近
+        return { x: CW / 2, y: CELL * 2.5 };
+    }
+
     function spawnWave(wave) {
         coopWave = wave;
         aiTanks.length = 0;
         const count = Math.min(2 + wave, 6);
-        const spawns = [
-            { x: CELL * 10.5, y: CELL * 1.5 },
-            { x: CELL * 4.5,  y: CELL * 1.5 },
-            { x: CELL * 16.5, y: CELL * 1.5 },
-            { x: CELL * 1.5,  y: CELL * 1.5 },
-            { x: CELL * 18.5, y: CELL * 1.5 },
-            { x: CELL * 7.5,  y: CELL * 1.5 },
-        ];
+        // 候选出生列（从顶部第3行开始，避开边界墙）
+        const cols = [10, 4, 16, 7, 13, 2];
         for (let i = 0; i < count; i++) {
             const type = AI_TYPES[(wave - 1 + i) % AI_TYPES.length];
-            const sp = spawns[i % spawns.length];
+            const col = cols[i % cols.length];
+            // 从第2行向下逐行找第一个合法位置
+            const sp = findSafeSpawn(col * CELL + CELL / 2, CELL * 2.5);
             aiTanks.push({
                 id: aiIdSeq++, x: sp.x, y: sp.y, dir: DOWN,
                 hp: type.hp, speed: type.speed, cd: type.cd,
-                shootTimer: type.cd * Math.random(), moveTimer: 0, type
+                shootTimer: type.cd * Math.random(), moveTimer: 0,
+                stuckTimer: 0,   // 用于检测卡死
+                type
             });
         }
-        aiLeft = count;
+        aiLeft = aiTanks.length;
         sendTk({ type: 'wave', wave, tanks: aiTanks.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir, hp: a.hp, typeIdx: AI_TYPES.indexOf(a.type) })) });
         updateHUD();
     }
@@ -371,7 +391,26 @@ function startTankBattle(opponentId, isHost) {
         if (!isHost || gameMode !== 'coop') return;
         const living = aiTanks.filter(a => a.hp > 0);
         living.forEach(ai => {
-            // Move toward nearest player
+            // 卡死检测：在墙内超过 4 秒直接移除
+            if (wallCollides(ai.x, ai.y)) {
+                ai.stuckTimer = (ai.stuckTimer || 0) + dt;
+                if (ai.stuckTimer > 4) {
+                    ai.hp = 0;
+                    aiLeft = Math.max(0, aiLeft - 1);
+                    sendTk({ type: 'ai_dead', aid: ai.id, killer: 'none' });
+                    updateHUD();
+                    return;
+                }
+                // 尝试随机换一个方向逃出
+                ai.dir = Math.floor(Math.random() * 4);
+                const ex = ai.x + DX[ai.dir] * CELL;
+                const ey = ai.y + DY[ai.dir] * CELL;
+                if (!wallCollides(ex, ey)) { ai.x = ex; ai.y = ey; ai.stuckTimer = 0; }
+                return;
+            }
+            ai.stuckTimer = 0;
+
+            // 移向最近玩家
             ai.moveTimer -= dt;
             if (ai.moveTimer <= 0) {
                 ai.moveTimer = 0.4 + Math.random() * 1.2;
@@ -391,9 +430,18 @@ function startTankBattle(opponentId, isHost) {
             const nx = ai.x + DX[ai.dir] * ai.speed * dt;
             const ny = ai.y + DY[ai.dir] * ai.speed * dt;
             if (!wallCollides(nx, ny)) { ai.x = nx; ai.y = ny; }
-            else { ai.moveTimer = 0; }
+            else {
+                // 撞墙后尝试其他方向
+                ai.moveTimer = 0;
+                for (let tries = 0; tries < 3; tries++) {
+                    const nd = Math.floor(Math.random() * 4);
+                    const tnx = ai.x + DX[nd] * ai.speed * dt * 3;
+                    const tny = ai.y + DY[nd] * ai.speed * dt * 3;
+                    if (!wallCollides(tnx, tny)) { ai.dir = nd; break; }
+                }
+            }
 
-            // Shoot
+            // 射击
             ai.shootTimer -= dt * 1000;
             if (ai.shootTimer <= 0) {
                 ai.shootTimer = ai.cd + Math.random() * 800;
@@ -401,7 +449,7 @@ function startTankBattle(opponentId, isHost) {
                 sendTk({ type: 'ai_fire', aid: ai.id, x: ai.x, y: ai.y, dir: ai.dir });
             }
         });
-        // Sync AI positions every 3 frames
+        // 每 3 帧同步 AI 位置给 Guest
         if (frameN % 3 === 0) {
             sendTk({ type: 'ai_pos', tanks: living.map(a => ({ id: a.id, x: a.x, y: a.y, dir: a.dir })) });
         }
@@ -839,9 +887,11 @@ function startTankBattle(opponentId, isHost) {
             case 'ai_dead':
                 const ai = aiTanks.find(a => a.id === mv.aid);
                 if (ai && ai.hp > 0) {
-                    ai.hp = 0; addExplosion(ai.x, ai.y, true);
+                    ai.hp = 0;
+                    if (mv.killer !== 'none') addExplosion(ai.x, ai.y, true);
                     aiLeft = Math.max(0, aiLeft - 1);
-                    if (mv.killer === 'opp') pvpScore.my++; else pvpScore.opp++;
+                    if (mv.killer === 'opp') pvpScore.my++;
+                    else if (mv.killer === 'my') pvpScore.opp++;
                     updateHUD();
                 }
                 break;
