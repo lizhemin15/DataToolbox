@@ -297,8 +297,14 @@ function startTankBattle(opponentId, isHost) {
         modal.querySelector('#tankReadyBtn').disabled = true;
         modal.querySelector('#rstMe').textContent = `✅ ${myName}`;
         sendTk({ type: 'ready', mapIdx: selMap, mode: gameMode });
-        if (oppReady && isHost) launchGame(selMap, gameMode);
+        if (oppReady && isHost) hostStartGame();
     });
+
+    // Host 负责通知 Guest 开始，然后自己也启动
+    function hostStartGame() {
+        sendTk({ type: 'start', mapIdx: selMap, mode: gameMode });
+        launchGame(selMap, gameMode);
+    }
 
     // ═══════════════════════════════════════════════════════
     //  游戏初始化
@@ -797,7 +803,7 @@ function startTankBattle(opponentId, isHost) {
             case 'ready':
                 oppReady = true;
                 modal.querySelector('#rstOpp').textContent = `✅ ${peerName}`;
-                if (isHost && myReady) launchGame(selMap, gameMode);
+                if (isHost && myReady) hostStartGame();
                 break;
             case 'start':
                 launchGame(mv.mapIdx, mv.mode);
