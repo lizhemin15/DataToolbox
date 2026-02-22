@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网页导航</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+<div class="header-row">
+                <a href="../../index.html" class="back-link">← 返回</a>
+                <h1>网页导航</h1>
+                <div class="header-actions">
+                <button type="button" id="addLinkBtn" class="btn-add" style="display: none;" title="添加链接">+ 添加链接</button>
+                <button type="button" id="editBtn" class="btn-edit" title="编辑导航（需管理员）">编辑</button>
+            </div>
+            </div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="搜索导航...">
+            </div>
+        </header>
+        <main id="appContainer">
+            <div class="app-grid" id="appGrid"></div>
+            <div id="emptyState" class="empty-state" style="display: none;">暂无导航，请使用编辑添加</div>
+        </main>
+    </div>
+
+    <!-- 登录弹窗 -->
+    <div id="loginModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>管理员验证</h3>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="loginUsername" value="admin" placeholder="用户名">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="loginPassword" placeholder="密码">
+                </div>
+                <p id="loginError" class="error-msg"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="loginCancel">取消</button>
+                    <button type="submit" class="btn btn-primary">登录</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 编辑链接弹窗 -->
+    <div id="linkModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3 id="linkModalTitle">添加链接</h3>
+            <form id="linkForm">
+                <input type="hidden" id="linkId">
+                <div class="form-group">
+                    <label>标题</label>
+                    <input type="text" id="linkTitle" placeholder="例如：百度" required>
+                </div>
+                <div class="form-group">
+                    <label>链接地址</label>
+                    <input type="url" id="linkUrl" placeholder="https://..." required>
+                </div>
+                <div class="form-group">
+                    <label>图标（可选，留空则用标题生成）</label>
+                    <input type="text" id="linkIcon" placeholder="🔗 或图片 URL">
+                </div>
+                <p id="linkError" class="error-msg"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="linkCancel">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

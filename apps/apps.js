@@ -232,6 +232,15 @@ const appsData = [
         "tags": ["network"]
     },
     {
+        "id": "web-nav",
+        "name": "网页导航",
+        "icon": "🧭",
+        "description": "自定义网页导航，支持搜索、图标展示，管理员可编辑链接并持久化存储",
+        "keywords": ["导航", "书签", "网页", "链接", "收藏", "联机"],
+        "category": "online",
+        "tags": ["productivity", "web"]
+    },
+    {
         "id": "monitor-dashboard",
         "name": "监控大屏",
         "icon": "📺",

@@ -557,6 +557,26 @@ var (
 	dataOntologyMu        sync.RWMutex
 )
 
+// 网页导航
+var (
+	webNavLinks   []WebNavLink
+	webNavMu      sync.RWMutex
+	webNavAdminToken string // 管理员登录后的 token
+)
+
+// WebNavLink 网页导航项
+type WebNavLink struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Icon  string `json:"icon,omitempty"` // 可选，空则用标题生成图标
+}
+
+// WebNavStore 网页导航持久化结构
+type WebNavStore struct {
+	Links []WebNavLink `json:"links"`
+}
+
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
 	Users     map[string]*User                  `json:"users"`
@@ -673,6 +693,199 @@ func saveDataOntologyStore() error {
 	
 	log.Printf("数据已保存到: %s", storePath)
 	return nil
+}
+
+// 获取网页导航持久化文件路径（存于 app 目录下）
+func getWebNavStorePath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("获取可执行文件路径失败: %v", err)
+		return "apps/web-nav/links-store.json"
+	}
+	rootDir := filepath.Dir(exePath)
+	return filepath.Join(rootDir, "apps", "web-nav", "links-store.json")
+}
+
+func loadWebNavStore() error {
+	storePath := getWebNavStorePath()
+	if _, err := os.Stat(storePath); os.IsNotExist(err) {
+		return nil
+	}
+	data, err := os.ReadFile(storePath)
+	if err != nil {
+		return fmt.Errorf("读取网页导航数据失败: %v", err)
+	}
+	var store WebNavStore
+	if err := json.Unmarshal(data, &store); err != nil {
+		return fmt.Errorf("解析网页导航数据失败: %v", err)
+	}
+	webNavMu.Lock()
+	if store.Links != nil {
+		webNavLinks = store.Links
+	}
+	webNavMu.Unlock()
+	return nil
+}
+
+func saveWebNavStore() error {
+	storePath := getWebNavStorePath()
+	storeDir := filepath.Dir(storePath)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+	webNavMu.RLock()
+	store := WebNavStore{Links: append([]WebNavLink(nil), webNavLinks...)}
+	webNavMu.RUnlock()
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化网页导航数据失败: %v", err)
+	}
+	if err := os.WriteFile(storePath, data, 0644); err != nil {
+		return fmt.Errorf("写入网页导航数据失败: %v", err)
+	}
+	return nil
+}
+
+func initWebNav() {
+	if err := loadWebNavStore(); err != nil {
+		log.Printf("加载网页导航数据失败: %v", err)
+	}
+}
+
+// 网页导航默认管理员 admin / admin1234
+func checkWebNavAdmin(username, password string) bool {
+	return username == "admin" && hashPassword(password) == hashPassword("admin1234")
+}
+
+func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	if !checkWebNavAdmin(req.Username, req.Password) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名或密码错误"})
+		return
+	}
+	token := generateToken()
+	webNavMu.Lock()
+	webNavAdminToken = token
+	webNavMu.Unlock()
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": token})
+}
+
+func checkWebNavAuth(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return false
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(auth, prefix) {
+		return false
+	}
+	token := strings.TrimSpace(auth[len(prefix):])
+	webNavMu.RLock()
+	ok := token != "" && token == webNavAdminToken
+	webNavMu.RUnlock()
+	return ok
+}
+
+func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		webNavMu.RLock()
+		links := append([]WebNavLink(nil), webNavLinks...)
+		webNavMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "links": links})
+		return
+	case http.MethodPost:
+		if !checkWebNavAuth(r) {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+			return
+		}
+		var link WebNavLink
+		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if link.Title == "" || link.URL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			return
+		}
+		link.ID = uuid.New().String()
+		webNavMu.Lock()
+		webNavLinks = append(webNavLinks, link)
+		webNavMu.Unlock()
+		if err := saveWebNavStore(); err != nil {
+			log.Printf("保存网页导航失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+		return
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+		return
+	}
+}
+
+func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
+	w.Header().Set("Content-Type", "application/json")
+	if !checkWebNavAuth(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+		return
+	}
+	webNavMu.Lock()
+	idx := -1
+	for i := range webNavLinks {
+		if webNavLinks[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		webNavMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "链接不存在"})
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var link WebNavLink
+		webNavMu.Unlock()
+		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if link.Title == "" || link.URL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			return
+		}
+		link.ID = id
+		webNavMu.Lock()
+		webNavLinks[idx] = link
+		webNavMu.Unlock()
+		if err := saveWebNavStore(); err != nil {
+			log.Printf("保存网页导航失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+	case http.MethodDelete:
+		webNavLinks = append(webNavLinks[:idx], webNavLinks[idx+1:]...)
+		webNavMu.Unlock()
+		if err := saveWebNavStore(); err != nil {
+			log.Printf("保存网页导航失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		webNavMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+	}
 }
 
 // 初始化默认管理员账号
@@ -5639,6 +5852,8 @@ func main() {
 
 	// 初始化数据本体池
 	initDataOntology()
+	// 初始化网页导航
+	initWebNav()
 
 	// 启动Hub
 	go hub.run()
@@ -5685,6 +5900,18 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
+	
+	// 网页导航 API
+	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
+	mux.HandleFunc("/api/web-nav/links", handleWebNavLinks)
+	mux.HandleFunc("/api/web-nav/links/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/web-nav/links/")
+		if id == "" {
+			http.NotFound(w, r)
+			return
+		}
+		handleWebNavLinkByID(w, r, id)
+	})
 	
 	// 文件服务器
 	fs := http.FileServer(http.Dir(rootDir))
