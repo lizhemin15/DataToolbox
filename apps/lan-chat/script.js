@@ -1379,7 +1379,7 @@ function startGame(gameType, opponentId, isHost) {
             break;
         case 'rps':
             console.log('启动石头剪刀布游戏');
-            startRockPaperScissors(opponentId);
+            startRockPaperScissors(opponentId, isHost);
             break;
         case 'numberbomb':
             console.log('启动数字炸弹游戏');
@@ -1387,7 +1387,7 @@ function startGame(gameType, opponentId, isHost) {
             break;
         case 'reaction':
             console.log('启动反应力测试');
-            startReaction(opponentId);
+            startReaction(opponentId, isHost);
             break;
         case 'drawguess':
             console.log('启动你画我猜游戏');
@@ -1395,7 +1395,7 @@ function startGame(gameType, opponentId, isHost) {
             break;
         case 'memory':
             console.log('启动记忆翻牌游戏');
-            startMemory(opponentId);
+            startMemory(opponentId, isHost);
             break;
         default:
             console.error('未知游戏类型:', gameType);
@@ -1413,16 +1413,24 @@ function receiveGameMove(data) {
     // 根据不同游戏类型分发
     switch (currentGame.type) {
         case 'gomoku':
-        case 'tictactoe':
         case 'weiqi':
         case 'xiangqi':
             handleBoardGameMove(data);
             break;
+        case 'tictactoe':
+            if (typeof window.handleTicTacToeMove === 'function') window.handleTicTacToeMove(data);
+            break;
         case 'rps':
-            handleRPSMove(data);
+            if (typeof window.handleRPSMove === 'function') window.handleRPSMove(data);
             break;
         case 'numberbomb':
-            handleNumberBombMove(data);
+            if (typeof window.handleNumberBombMove === 'function') window.handleNumberBombMove(data);
+            break;
+        case 'reaction':
+            if (typeof window.handleReactionMove === 'function') window.handleReactionMove(data);
+            break;
+        case 'memory':
+            if (typeof window.handleMemoryMove === 'function') window.handleMemoryMove(data);
             break;
     }
 }
@@ -1588,30 +1596,22 @@ function startGomoku(opponentId, isHost) {
         game.querySelector('.gomoku-status').textContent = '对方回合';
         drawBoard();
         
+        // 无论是否获胜都发送落子消息，让对方看到棋子
+        sendWsMessage({
+            type: 'game-move',
+            to: opponentId,
+            gameType: 'gomoku',
+            move: { row, col, color: myColor },
+            timestamp: Date.now()
+        });
+        
         // 检查胜利
         if (checkWin(row, col, myColor)) {
             setTimeout(() => {
                 showToast('你赢了！🎉', 'success');
                 game.querySelector('.gomoku-status').textContent = '你赢了！';
                 currentTurn = false;
-                
-                sendWsMessage({
-                    type: 'game-over',
-                    to: opponentId,
-                    gameType: 'gomoku',
-                    winner: myId,
-                    timestamp: Date.now()
-                });
             }, 100);
-        } else {
-            // 发送移动
-            sendWsMessage({
-                type: 'game-move',
-                to: opponentId,
-                gameType: 'gomoku',
-                move: { row, col, color: myColor },
-                timestamp: Date.now()
-            });
         }
     });
     
@@ -1645,21 +1645,136 @@ function startGomoku(opponentId, isHost) {
 
 // ========== 井字棋游戏 ==========
 function startTicTacToe(opponentId, isHost) {
-    showToast('井字棋游戏即将推出！', 'info');
-    // TODO: 实现井字棋游戏界面
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    const myMark = isHost ? 'X' : 'O';
+    let currentTurn = isHost;
+    const board = Array(9).fill(null);
+
+    const game = document.createElement('div');
+    game.className = 'ttt-game-modal';
+    game.innerHTML = `
+        <div class="ttt-game-content">
+            <div class="ttt-game-header">
+                <span>井字棋 - 对战 ${peerName}</span>
+                <button class="ttt-game-close">×</button>
+            </div>
+            <div class="ttt-game-body">
+                <div class="ttt-info">
+                    <div class="ttt-player-label">${isHost ? myName : peerName} <span class="ttt-mark ttt-x-mark">X</span></div>
+                    <div class="ttt-status">${currentTurn ? '你的回合' : '对方回合'}</div>
+                    <div class="ttt-player-label">${isHost ? peerName : myName} <span class="ttt-mark ttt-o-mark">O</span></div>
+                </div>
+                <div class="ttt-board">
+                    ${Array(9).fill(null).map((_, i) => `<div class="ttt-cell" data-index="${i}"></div>`).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+
+    function checkWin(b) {
+        const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        for (const [a, b2, c] of lines) {
+            if (b[a] && b[a] === b[b2] && b[a] === b[c]) return b[a];
+        }
+        return null;
+    }
+
+    function renderBoard() {
+        game.querySelectorAll('.ttt-cell').forEach((cell, i) => {
+            cell.textContent = board[i] || '';
+            cell.className = 'ttt-cell' + (board[i] === 'X' ? ' ttt-cell-x' : board[i] === 'O' ? ' ttt-cell-o' : '');
+        });
+    }
+
+    game.querySelectorAll('.ttt-cell').forEach(cell => {
+        cell.addEventListener('click', () => {
+            if (!currentTurn) { showToast('还没到你的回合', 'warning'); return; }
+            const idx = parseInt(cell.dataset.index);
+            if (board[idx]) { showToast('这里已有棋子', 'warning'); return; }
+
+            board[idx] = myMark;
+            currentTurn = false;
+            renderBoard();
+
+            sendWsMessage({
+                type: 'game-move',
+                to: opponentId,
+                gameType: 'tictactoe',
+                move: { index: idx, mark: myMark },
+                timestamp: Date.now()
+            });
+
+            const winner = checkWin(board);
+            if (winner) {
+                game.querySelector('.ttt-status').textContent = '你赢了！🎉';
+                showToast('你赢了！', 'success');
+            } else if (board.every(Boolean)) {
+                game.querySelector('.ttt-status').textContent = '平局！';
+                showToast('平局！', 'info');
+            } else {
+                game.querySelector('.ttt-status').textContent = '对方回合';
+            }
+        });
+    });
+
+    window.handleTicTacToeMove = function(data) {
+        if (!data.move) return;
+        const { index, mark } = data.move;
+        board[index] = mark;
+        renderBoard();
+        const winner = checkWin(board);
+        if (winner) {
+            game.querySelector('.ttt-status').textContent = '对方赢了';
+            showToast('对方赢了', 'info');
+            currentTurn = false;
+        } else if (board.every(Boolean)) {
+            game.querySelector('.ttt-status').textContent = '平局！';
+            showToast('平局！', 'info');
+            currentTurn = false;
+        } else {
+            currentTurn = true;
+            game.querySelector('.ttt-status').textContent = '你的回合';
+        }
+    };
+
+    game.querySelector('.ttt-game-close').addEventListener('click', () => {
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
 }
 
 // ========== 石头剪刀布游戏 ==========
-function startRockPaperScissors(opponentId) {
+function startRockPaperScissors(opponentId, isHost) {
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    let myChoice = null;
+    let opponentChoice = null;
+
     const game = document.createElement('div');
     game.className = 'rps-game-modal';
     game.innerHTML = `
         <div class="rps-game-content">
             <div class="rps-game-header">
-                <span>石头剪刀布</span>
+                <span>石头剪刀布 - 对战 ${peerName}</span>
                 <button class="rps-game-close">×</button>
             </div>
             <div class="rps-game-body">
+                <div class="rps-versus">
+                    <div class="rps-vs-side">
+                        <div class="rps-vs-name">${myName}</div>
+                        <div class="rps-vs-icon" id="myRpsIcon">❓</div>
+                    </div>
+                    <div class="rps-vs-sep">VS</div>
+                    <div class="rps-vs-side">
+                        <div class="rps-vs-name">${peerName}</div>
+                        <div class="rps-vs-icon" id="oppRpsIcon">❓</div>
+                    </div>
+                </div>
                 <div class="rps-choices">
                     <button class="rps-choice" data-choice="rock">
                         <span class="rps-icon">🪨</span>
@@ -1675,33 +1790,79 @@ function startRockPaperScissors(opponentId) {
                     </button>
                 </div>
                 <div class="rps-status">请选择你的出招</div>
+                <button class="rps-again-btn" style="display:none">再来一局</button>
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(game);
     setTimeout(() => game.classList.add('show'), 10);
-    
+
+    const rpsIcons = { rock: '🪨', paper: '📄', scissors: '✂️' };
+    const rpsNames = { rock: '石头', paper: '布', scissors: '剪刀' };
+
+    function showRPSResult(my, opp) {
+        game.querySelector('#myRpsIcon').textContent = rpsIcons[my];
+        game.querySelector('#oppRpsIcon').textContent = rpsIcons[opp];
+        let result;
+        if (my === opp) {
+            result = '平局！';
+            showToast('平局！', 'info');
+        } else if ((my === 'rock' && opp === 'scissors') || (my === 'scissors' && opp === 'paper') || (my === 'paper' && opp === 'rock')) {
+            result = '你赢了！🎉';
+            showToast('你赢了！', 'success');
+        } else {
+            result = '对方赢了';
+            showToast('对方赢了', 'info');
+        }
+        game.querySelector('.rps-status').innerHTML = `你出 ${rpsNames[my]}，对方出 ${rpsNames[opp]}<br><b>${result}</b>`;
+        game.querySelector('.rps-again-btn').style.display = '';
+    }
+
     const choices = game.querySelectorAll('.rps-choice');
     choices.forEach(choice => {
         choice.addEventListener('click', () => {
-            const selected = choice.dataset.choice;
-            game.querySelector('.rps-status').textContent = '等待对方出招...';
+            if (myChoice) return;
+            myChoice = choice.dataset.choice;
+            game.querySelector('#myRpsIcon').textContent = '✅';
+            game.querySelector('.rps-status').textContent = opponentChoice ? '揭晓结果...' : '等待对方出招...';
             choices.forEach(c => c.disabled = true);
-            
-            // 发送选择
+
             sendWsMessage({
                 type: 'game-move',
                 to: opponentId,
                 gameType: 'rps',
-                move: selected,
+                move: myChoice,
                 timestamp: Date.now()
             });
-            
-            showToast('已出招，等待对方...', 'info');
+
+            if (opponentChoice) {
+                setTimeout(() => showRPSResult(myChoice, opponentChoice), 300);
+            }
         });
     });
-    
+
+    game.querySelector('.rps-again-btn').addEventListener('click', () => {
+        myChoice = null;
+        opponentChoice = null;
+        choices.forEach(c => c.disabled = false);
+        game.querySelector('#myRpsIcon').textContent = '❓';
+        game.querySelector('#oppRpsIcon').textContent = '❓';
+        game.querySelector('.rps-status').textContent = '请选择你的出招';
+        game.querySelector('.rps-again-btn').style.display = 'none';
+    });
+
+    window.handleRPSMove = function(data) {
+        opponentChoice = data.move;
+        game.querySelector('#oppRpsIcon').textContent = '✅';
+        if (myChoice) {
+            game.querySelector('.rps-status').textContent = '揭晓结果...';
+            setTimeout(() => showRPSResult(myChoice, opponentChoice), 300);
+        } else {
+            game.querySelector('.rps-status').textContent = '对方已出招，请选择你的出招';
+        }
+    };
+
     game.querySelector('.rps-game-close').addEventListener('click', () => {
         game.classList.remove('show');
         setTimeout(() => game.remove(), 300);
@@ -1711,17 +1872,285 @@ function startRockPaperScissors(opponentId) {
 
 // ========== 数字炸弹游戏 ==========
 function startNumberBomb(opponentId, isHost) {
-    showToast('数字炸弹游戏即将推出！', 'info');
-}
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    let secretNumber = null;
+    let minRange = 1;
+    let maxRange = 100;
+    let currentTurn = isHost;
+    let gameOver = false;
+    let guessLog = [];
 
-// 处理数字炸弹移动
-function handleNumberBombMove(data) {
-    console.log('数字炸弹移动:', data);
+    const game = document.createElement('div');
+    game.className = 'bomb-game-modal';
+    game.innerHTML = `
+        <div class="bomb-game-content">
+            <div class="bomb-game-header">
+                <span>💣 数字炸弹 - 对战 ${peerName}</span>
+                <button class="bomb-game-close">×</button>
+            </div>
+            <div class="bomb-game-body">
+                <div class="bomb-range">范围：<span id="bombRange">1 ~ 100</span></div>
+                <div class="bomb-status" id="bombStatus">${isHost ? '你先手，请输入猜测' : '等待对方先猜...'}</div>
+                <div class="bomb-input-row" id="bombInputRow" style="${isHost ? '' : 'display:none'}">
+                    <input type="number" class="bomb-input" id="bombInput" min="1" max="100" placeholder="输入数字">
+                    <button class="bomb-guess-btn" id="bombGuessBtn">猜！</button>
+                </div>
+                <div class="bomb-log" id="bombLog"></div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+
+    function updateUI() {
+        game.querySelector('#bombRange').textContent = `${minRange} ~ ${maxRange}`;
+        game.querySelector('#bombStatus').textContent = gameOver ? '' : (currentTurn ? '你的回合，请猜一个数字' : '等待对方猜...');
+        const inputRow = game.querySelector('#bombInputRow');
+        if (inputRow) inputRow.style.display = (currentTurn && !gameOver) ? '' : 'none';
+        const input = game.querySelector('#bombInput');
+        if (input) { input.min = minRange; input.max = maxRange; input.value = ''; }
+    }
+
+    function addLog(text, type) {
+        guessLog.push({ text, type });
+        const log = game.querySelector('#bombLog');
+        const item = document.createElement('div');
+        item.className = 'bomb-log-item bomb-log-' + (type || 'info');
+        item.textContent = text;
+        log.appendChild(item);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function processGuess(value, isMe) {
+        const guesser = isMe ? '你' : '对方';
+        if (value === secretNumber) {
+            gameOver = true;
+            currentTurn = false;
+            addLog(`💥 ${guesser}猜了 ${value}，炸弹爆炸！`, 'bomb');
+            const result = isMe ? '你踩到炸弹了！你输了！💀' : `对方踩到炸弹！你赢了！🎉`;
+            game.querySelector('#bombStatus').textContent = result;
+            showToast(result.replace('！', ''), isMe ? 'warning' : 'success');
+            game.querySelector('#bombInputRow').style.display = 'none';
+        } else if (value < secretNumber) {
+            minRange = Math.max(minRange, value + 1);
+            addLog(`${guesser}猜了 ${value}，太小了 ↑`, 'low');
+            if (!isMe) { currentTurn = true; }
+            updateUI();
+        } else {
+            maxRange = Math.min(maxRange, value - 1);
+            addLog(`${guesser}猜了 ${value}，太大了 ↓`, 'high');
+            if (!isMe) { currentTurn = true; }
+            updateUI();
+        }
+    }
+
+    game.querySelector('#bombGuessBtn').addEventListener('click', () => {
+        if (!currentTurn || gameOver || secretNumber === null) return;
+        const input = game.querySelector('#bombInput');
+        const value = parseInt(input.value);
+        if (isNaN(value) || value < minRange || value > maxRange) {
+            showToast(`请输入 ${minRange} 到 ${maxRange} 之间的数字`, 'warning');
+            return;
+        }
+        currentTurn = false;
+        updateUI();
+        sendWsMessage({
+            type: 'game-move', to: opponentId, gameType: 'numberbomb',
+            move: { type: 'guess', value }, timestamp: Date.now()
+        });
+        processGuess(value, true);
+    });
+
+    game.querySelector('#bombInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') game.querySelector('#bombGuessBtn').click();
+    });
+
+    if (isHost) {
+        secretNumber = Math.floor(Math.random() * 100) + 1;
+        sendWsMessage({
+            type: 'game-move', to: opponentId, gameType: 'numberbomb',
+            move: { type: 'setup', number: secretNumber }, timestamp: Date.now()
+        });
+    }
+
+    window.handleNumberBombMove = function(data) {
+        if (!data.move) return;
+        const move = data.move;
+        if (move.type === 'setup') {
+            secretNumber = move.number;
+            addLog('游戏开始！对方先猜，等待对方出招...', 'info');
+        } else if (move.type === 'guess') {
+            processGuess(move.value, false);
+        }
+    };
+
+    game.querySelector('.bomb-game-close').addEventListener('click', () => {
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
 }
 
 // ========== 反应力测试游戏 ==========
-function startReaction(opponentId) {
-    showToast('反应力测试即将推出！', 'info');
+function startReaction(opponentId, isHost) {
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    let startTime = null;
+    let myTime = null;
+    let opponentTime = null;
+    let clickTimer = null;
+    let falseStart = false;
+
+    const game = document.createElement('div');
+    game.className = 'reaction-game-modal';
+    game.innerHTML = `
+        <div class="reaction-game-content">
+            <div class="reaction-game-header">
+                <span>⚡ 反应力测试 - 对战 ${peerName}</span>
+                <button class="reaction-game-close">×</button>
+            </div>
+            <div class="reaction-game-body">
+                <div class="reaction-scores">
+                    <div class="reaction-score-item">
+                        <div class="reaction-score-name">${myName}</div>
+                        <div class="reaction-score-val" id="myReactionTime">-</div>
+                    </div>
+                    <div class="reaction-score-sep">VS</div>
+                    <div class="reaction-score-item">
+                        <div class="reaction-score-name">${peerName}</div>
+                        <div class="reaction-score-val" id="oppReactionTime">-</div>
+                    </div>
+                </div>
+                <div class="reaction-area waiting" id="reactionArea">
+                    <div class="reaction-area-text" id="reactionText">等待游戏开始...</div>
+                </div>
+                <div class="reaction-status" id="reactionStatus">${isHost ? '点击下方按钮开始' : '等待对方开始游戏...'}</div>
+                ${isHost ? '<button class="reaction-start-btn" id="reactionStartBtn">开始</button>' : ''}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+
+    function startCountdown(delay) {
+        myTime = null;
+        falseStart = false;
+        const area = game.querySelector('#reactionArea');
+        const text = game.querySelector('#reactionText');
+        area.className = 'reaction-area waiting';
+        text.textContent = '准备...';
+        game.querySelector('#reactionStatus').textContent = '等待信号...';
+        game.querySelector('#myReactionTime').textContent = '-';
+        game.querySelector('#oppReactionTime').textContent = '-';
+
+        clickTimer = setTimeout(() => {
+            startTime = Date.now();
+            area.className = 'reaction-area go';
+            text.textContent = '点击！';
+            game.querySelector('#reactionStatus').textContent = '快点击！';
+        }, delay);
+    }
+
+    function handleClick() {
+        const area = game.querySelector('#reactionArea');
+        if (area.classList.contains('waiting')) {
+            falseStart = true;
+            clearTimeout(clickTimer);
+            area.className = 'reaction-area false-start';
+            game.querySelector('#reactionText').textContent = '抢跑！等待结果...';
+            game.querySelector('#reactionStatus').textContent = '你抢跑了！';
+            sendWsMessage({
+                type: 'game-move', to: opponentId, gameType: 'reaction',
+                move: { type: 'click', time: -1 }, timestamp: Date.now()
+            });
+            myTime = -1;
+            if (opponentTime !== null) showReactionResult();
+        } else if (area.classList.contains('go') && myTime === null) {
+            myTime = Date.now() - startTime;
+            area.className = 'reaction-area done';
+            game.querySelector('#reactionText').textContent = `${myTime}ms`;
+            game.querySelector('#myReactionTime').textContent = `${myTime}ms`;
+            game.querySelector('#reactionStatus').textContent = '等待对方结果...';
+            sendWsMessage({
+                type: 'game-move', to: opponentId, gameType: 'reaction',
+                move: { type: 'click', time: myTime }, timestamp: Date.now()
+            });
+            if (opponentTime !== null) showReactionResult();
+        }
+    }
+
+    function showReactionResult() {
+        const my = myTime;
+        const opp = opponentTime;
+        let result;
+        if (my === -1 && opp === -1) {
+            result = '双方都抢跑，平局！';
+            showToast('双方抢跑，平局！', 'info');
+        } else if (my === -1) {
+            result = '你抢跑了！对方赢！';
+            showToast('你抢跑了！对方赢！', 'info');
+        } else if (opp === -1) {
+            result = '对方抢跑！你赢了！🎉';
+            showToast('对方抢跑，你赢了！', 'success');
+        } else if (my < opp) {
+            result = `你更快！你赢了！🎉 (${my}ms vs ${opp}ms)`;
+            showToast('你赢了！', 'success');
+        } else if (my > opp) {
+            result = `对方更快！对方赢了 (${my}ms vs ${opp}ms)`;
+            showToast('对方赢了', 'info');
+        } else {
+            result = '速度相同，平局！';
+            showToast('平局！', 'info');
+        }
+        game.querySelector('#reactionStatus').textContent = result;
+        if (isHost) {
+            const btn = game.querySelector('#reactionStartBtn');
+            if (btn) btn.style.display = '';
+        }
+    }
+
+    game.querySelector('#reactionArea').addEventListener('click', handleClick);
+
+    if (isHost) {
+        game.querySelector('#reactionStartBtn').addEventListener('click', () => {
+            opponentTime = null;
+            const delay = Math.floor(Math.random() * 3000) + 2000;
+            sendWsMessage({
+                type: 'game-move', to: opponentId, gameType: 'reaction',
+                move: { type: 'setup', delay }, timestamp: Date.now()
+            });
+            game.querySelector('#reactionStartBtn').style.display = 'none';
+            startCountdown(delay);
+        });
+    }
+
+    window.handleReactionMove = function(data) {
+        if (!data.move) return;
+        const move = data.move;
+        if (move.type === 'setup') {
+            opponentTime = null;
+            startCountdown(move.delay);
+        } else if (move.type === 'click') {
+            opponentTime = move.time;
+            if (move.time === -1) {
+                game.querySelector('#oppReactionTime').textContent = '抢跑';
+            } else {
+                game.querySelector('#oppReactionTime').textContent = `${move.time}ms`;
+            }
+            if (myTime !== null) showReactionResult();
+            else game.querySelector('#reactionStatus').textContent = '对方已点击，快点！';
+        }
+    };
+
+    game.querySelector('.reaction-game-close').addEventListener('click', () => {
+        clearTimeout(clickTimer);
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
 }
 
 // ========== 你画我猜游戏 ==========
@@ -1730,8 +2159,167 @@ function startDrawGuess(opponentId, isHost) {
 }
 
 // ========== 记忆翻牌游戏 ==========
-function startMemory(opponentId) {
-    showToast('记忆翻牌游戏即将推出！', 'info');
+function startMemory(opponentId, isHost) {
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+    const symbols = ['🍎','🍊','🍋','🍇','🍓','🍑','🍒','🥝','🍍','🥭','🍌','🫐'];
+    let cards = [];
+    let flipped = [];
+    let matched = [];
+    let currentTurn = isHost;
+    let myScore = 0;
+    let oppScore = 0;
+    let isLocked = false;
+
+    const game = document.createElement('div');
+    game.className = 'memory-game-modal';
+    game.innerHTML = `
+        <div class="memory-game-content">
+            <div class="memory-game-header">
+                <span>🧠 记忆翻牌 - 对战 ${peerName}</span>
+                <button class="memory-game-close">×</button>
+            </div>
+            <div class="memory-game-body">
+                <div class="memory-scores">
+                    <div class="memory-score-item">
+                        <div class="memory-score-name">${myName}</div>
+                        <div class="memory-score-val" id="myMemScore">0</div>
+                    </div>
+                    <div class="memory-score-sep">对</div>
+                    <div class="memory-score-item">
+                        <div class="memory-score-name">${peerName}</div>
+                        <div class="memory-score-val" id="oppMemScore">0</div>
+                    </div>
+                </div>
+                <div class="memory-status" id="memoryStatus">${isHost ? '你先手' : '等待对方翻牌...'}</div>
+                <div class="memory-board" id="memoryBoard"></div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+
+    function initBoard(cardList) {
+        cards = cardList;
+        const board = game.querySelector('#memoryBoard');
+        board.innerHTML = '';
+        cards.forEach((sym, i) => {
+            const card = document.createElement('div');
+            card.className = 'memory-card';
+            card.dataset.index = i;
+            card.innerHTML = `<div class="memory-card-inner"><div class="memory-card-back">?</div><div class="memory-card-front">${sym}</div></div>`;
+            card.addEventListener('click', () => onCardClick(i));
+            board.appendChild(card);
+        });
+    }
+
+    function flipCard(idx, reveal) {
+        const card = game.querySelector(`.memory-card[data-index="${idx}"]`);
+        if (card) card.classList.toggle('flipped', reveal);
+    }
+
+    function onCardClick(idx) {
+        if (!currentTurn || isLocked) return;
+        if (flipped.includes(idx) || matched.includes(idx)) return;
+
+        flipped.push(idx);
+        flipCard(idx, true);
+
+        sendWsMessage({
+            type: 'game-move', to: opponentId, gameType: 'memory',
+            move: { type: 'flip', index: idx }, timestamp: Date.now()
+        });
+
+        if (flipped.length === 2) {
+            isLocked = true;
+            setTimeout(() => checkMatch(true), 800);
+        }
+    }
+
+    function checkMatch(isMe) {
+        const [a, b] = flipped;
+        if (cards[a] === cards[b]) {
+            matched.push(a, b);
+            if (isMe) {
+                myScore++;
+                game.querySelector('#myMemScore').textContent = myScore;
+                game.querySelector('#memoryStatus').textContent = '配对成功！再翻一对';
+            } else {
+                oppScore++;
+                game.querySelector('#oppMemScore').textContent = oppScore;
+                game.querySelector('#memoryStatus').textContent = '对方配对成功！等待对方翻牌';
+            }
+            const matchedCards = game.querySelectorAll(`.memory-card[data-index="${a}"], .memory-card[data-index="${b}"]`);
+            matchedCards.forEach(c => c.classList.add('matched'));
+            flipped = [];
+            isLocked = false;
+
+            if (matched.length === cards.length) {
+                setTimeout(() => {
+                    const result = myScore > oppScore ? `你赢了！🎉 (${myScore}:${oppScore})` : myScore < oppScore ? `对方赢了 (${myScore}:${oppScore})` : `平局！ (${myScore}:${oppScore})`;
+                    game.querySelector('#memoryStatus').textContent = result;
+                    showToast(result, myScore >= oppScore ? 'success' : 'info');
+                }, 300);
+            }
+        } else {
+            setTimeout(() => {
+                flipCard(a, false);
+                flipCard(b, false);
+                flipped = [];
+                isLocked = false;
+                if (isMe) {
+                    currentTurn = false;
+                    game.querySelector('#memoryStatus').textContent = '翻错了，换对方翻';
+                    sendWsMessage({
+                        type: 'game-move', to: opponentId, gameType: 'memory',
+                        move: { type: 'miss', indices: [a, b] }, timestamp: Date.now()
+                    });
+                } else {
+                    currentTurn = true;
+                    game.querySelector('#memoryStatus').textContent = '对方翻错了，轮到你';
+                }
+            }, 800);
+        }
+    }
+
+    window.handleMemoryMove = function(data) {
+        if (!data.move) return;
+        const move = data.move;
+        if (move.type === 'setup') {
+            initBoard(move.cards);
+            game.querySelector('#memoryStatus').textContent = '对方先手，等待翻牌...';
+        } else if (move.type === 'flip') {
+            flipped.push(move.index);
+            flipCard(move.index, true);
+            if (flipped.length === 2) {
+                isLocked = true;
+                setTimeout(() => checkMatch(false), 800);
+            }
+        } else if (move.type === 'miss') {
+            // Already handled in checkMatch
+        }
+    };
+
+    if (isHost) {
+        const pair = symbols.slice(0, 12);
+        const deck = [...pair, ...pair];
+        for (let i = deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+        initBoard(deck);
+        sendWsMessage({
+            type: 'game-move', to: opponentId, gameType: 'memory',
+            move: { type: 'setup', cards: deck }, timestamp: Date.now()
+        });
+    }
+
+    game.querySelector('.memory-game-close').addEventListener('click', () => {
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
 }
 
 // ========== 围棋游戏 ==========

@@ -1495,3 +1495,220 @@ body {
     border-radius: 8px;
     cursor: pointer;
 }
+
+/* 井字棋游戏 */
+.ttt-game-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3000; opacity: 0; transition: opacity 0.3s ease-out;
+}
+.ttt-game-modal.show { opacity: 1; }
+.ttt-game-content {
+    background: #fff; border-radius: 12px; width: 380px; max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2); animation: slide-up 0.3s ease-out;
+}
+.ttt-game-header {
+    padding: 16px 20px; border-bottom: 1px solid #e7e7e7;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.ttt-game-header span { font-size: 16px; font-weight: 500; color: #333; }
+.ttt-game-close {
+    width: 32px; height: 32px; border: none; background: transparent;
+    font-size: 24px; color: #999; cursor: pointer; border-radius: 6px;
+}
+.ttt-game-close:hover { background: #f5f5f5; }
+.ttt-game-body { padding: 20px; }
+.ttt-info {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+}
+.ttt-player-label { font-size: 13px; color: #555; }
+.ttt-mark { font-weight: 700; font-size: 15px; }
+.ttt-x-mark { color: #e74c3c; }
+.ttt-o-mark { color: #3498db; }
+.ttt-status { font-size: 14px; font-weight: 500; color: #333; }
+.ttt-board {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-top: 4px;
+}
+.ttt-cell {
+    aspect-ratio: 1; background: #f5f5f5; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; font-weight: 700; cursor: pointer;
+    transition: background 0.15s;
+}
+.ttt-cell:hover { background: #e8e8e8; }
+.ttt-cell-x { color: #e74c3c; }
+.ttt-cell-o { color: #3498db; }
+
+/* 数字炸弹游戏 */
+.bomb-game-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3000; opacity: 0; transition: opacity 0.3s ease-out;
+}
+.bomb-game-modal.show { opacity: 1; }
+.bomb-game-content {
+    background: #fff; border-radius: 12px; width: 420px; max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2); animation: slide-up 0.3s ease-out;
+}
+.bomb-game-header {
+    padding: 16px 20px; border-bottom: 1px solid #e7e7e7;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.bomb-game-header span { font-size: 16px; font-weight: 500; color: #333; }
+.bomb-game-close {
+    width: 32px; height: 32px; border: none; background: transparent;
+    font-size: 24px; color: #999; cursor: pointer; border-radius: 6px;
+}
+.bomb-game-close:hover { background: #f5f5f5; }
+.bomb-game-body { padding: 20px; }
+.bomb-range { font-size: 20px; font-weight: 600; color: #e67e22; text-align: center; margin-bottom: 10px; }
+.bomb-status { font-size: 14px; color: #555; text-align: center; margin-bottom: 12px; min-height: 20px; }
+.bomb-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.bomb-input {
+    flex: 1; padding: 8px 12px; border: 2px solid #ddd; border-radius: 8px;
+    font-size: 16px; outline: none; transition: border-color 0.2s;
+}
+.bomb-input:focus { border-color: #07c160; }
+.bomb-guess-btn {
+    padding: 8px 16px; background: #07c160; color: #fff; border: none;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.bomb-guess-btn:hover { background: #06ae56; }
+.bomb-log { max-height: 160px; overflow-y: auto; }
+.bomb-log-item { padding: 4px 8px; margin-bottom: 4px; border-radius: 6px; font-size: 13px; }
+.bomb-log-info { background: #f0f0f0; color: #555; }
+.bomb-log-low { background: #e8f5e9; color: #2e7d32; }
+.bomb-log-high { background: #fff3e0; color: #e65100; }
+.bomb-log-bomb { background: #fce4ec; color: #c62828; font-weight: 700; }
+
+/* 反应力测试游戏 */
+.reaction-game-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3000; opacity: 0; transition: opacity 0.3s ease-out;
+}
+.reaction-game-modal.show { opacity: 1; }
+.reaction-game-content {
+    background: #fff; border-radius: 12px; width: 420px; max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2); animation: slide-up 0.3s ease-out;
+}
+.reaction-game-header {
+    padding: 16px 20px; border-bottom: 1px solid #e7e7e7;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.reaction-game-header span { font-size: 16px; font-weight: 500; color: #333; }
+.reaction-game-close {
+    width: 32px; height: 32px; border: none; background: transparent;
+    font-size: 24px; color: #999; cursor: pointer; border-radius: 6px;
+}
+.reaction-game-close:hover { background: #f5f5f5; }
+.reaction-game-body { padding: 20px; }
+.reaction-scores {
+    display: flex; justify-content: space-around; align-items: center;
+    margin-bottom: 16px;
+}
+.reaction-score-item { text-align: center; }
+.reaction-score-name { font-size: 13px; color: #666; }
+.reaction-score-val { font-size: 22px; font-weight: 700; color: #333; }
+.reaction-score-sep { font-size: 18px; font-weight: 700; color: #aaa; }
+.reaction-area {
+    height: 120px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; cursor: pointer;
+    margin-bottom: 12px; transition: background 0.3s;
+}
+.reaction-area.waiting { background: #f5f5f5; }
+.reaction-area.go { background: #4caf50; animation: pulse 0.3s ease; }
+.reaction-area.done { background: #2196f3; }
+.reaction-area.false-start { background: #f44336; }
+.reaction-area-text { font-size: 28px; font-weight: 700; color: #fff; pointer-events: none; }
+.reaction-area.waiting .reaction-area-text { color: #999; }
+.reaction-status { font-size: 13px; color: #555; text-align: center; margin-bottom: 12px; min-height: 18px; }
+.reaction-start-btn {
+    display: block; width: 100%; padding: 10px; background: #07c160;
+    color: #fff; border: none; border-radius: 8px; font-size: 15px;
+    font-weight: 600; cursor: pointer;
+}
+.reaction-start-btn:hover { background: #06ae56; }
+@keyframes pulse { 0% { transform: scale(0.97); } 100% { transform: scale(1); } }
+
+/* 记忆翻牌游戏 */
+.memory-game-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3000; opacity: 0; transition: opacity 0.3s ease-out;
+}
+.memory-game-modal.show { opacity: 1; }
+.memory-game-content {
+    background: #fff; border-radius: 12px; width: 500px; max-width: 95%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2); animation: slide-up 0.3s ease-out;
+}
+.memory-game-header {
+    padding: 16px 20px; border-bottom: 1px solid #e7e7e7;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.memory-game-header span { font-size: 16px; font-weight: 500; color: #333; }
+.memory-game-close {
+    width: 32px; height: 32px; border: none; background: transparent;
+    font-size: 24px; color: #999; cursor: pointer; border-radius: 6px;
+}
+.memory-game-close:hover { background: #f5f5f5; }
+.memory-game-body { padding: 20px; }
+.memory-scores {
+    display: flex; justify-content: space-around; align-items: center;
+    margin-bottom: 12px;
+}
+.memory-score-item { text-align: center; }
+.memory-score-name { font-size: 13px; color: #666; }
+.memory-score-val { font-size: 24px; font-weight: 700; color: #333; }
+.memory-score-sep { font-size: 18px; font-weight: 700; color: #aaa; }
+.memory-status { font-size: 13px; color: #555; text-align: center; margin-bottom: 12px; min-height: 18px; }
+.memory-board {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
+}
+.memory-card {
+    aspect-ratio: 1; perspective: 400px; cursor: pointer;
+}
+.memory-card-inner {
+    width: 100%; height: 100%; position: relative;
+    transform-style: preserve-3d; transition: transform 0.4s;
+    border-radius: 8px;
+}
+.memory-card.flipped .memory-card-inner,
+.memory-card.matched .memory-card-inner { transform: rotateY(180deg); }
+.memory-card-back, .memory-card-front {
+    position: absolute; width: 100%; height: 100%;
+    backface-visibility: hidden; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+}
+.memory-card-back {
+    background: #3498db; color: #fff; font-weight: 700; font-size: 18px;
+}
+.memory-card-front { background: #f9f9f9; border: 2px solid #e0e0e0; transform: rotateY(180deg); }
+.memory-card.matched .memory-card-front { background: #e8f5e9; border-color: #4caf50; }
+
+/* RPS 优化样式 */
+.rps-versus {
+    display: flex; justify-content: space-around; align-items: center;
+    margin-bottom: 16px; padding: 12px; background: #f9f9f9; border-radius: 10px;
+}
+.rps-vs-side { text-align: center; }
+.rps-vs-name { font-size: 13px; color: #666; margin-bottom: 4px; }
+.rps-vs-icon { font-size: 36px; }
+.rps-vs-sep { font-size: 18px; font-weight: 700; color: #aaa; }
+.rps-again-btn {
+    display: block; width: 100%; margin-top: 12px; padding: 10px;
+    background: #07c160; color: #fff; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.rps-again-btn:hover { background: #06ae56; }
