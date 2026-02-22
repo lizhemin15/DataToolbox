@@ -53,7 +53,6 @@ MySQL · PostgreSQL · Oracle · 达梦(DM) · SQL Server · MongoDB · TiDB · 
 | 低代码开发 | 可视化拖拽构建数据处理应用，编译为独立 HTML |
 | 格式万能转换 | 离线图片与文档格式互转（Excel/CSV/JSON/PDF/Word） |
 | 文档编辑器 | 在线编辑 Excel、Word、PPT、思维导图、Visio 图表 |
-| 在线协作文档 | 多人实时协作编辑文档，WebSocket 实时同步 |
 | 数据本体池 | 多数据库连接管理、SQL 执行、接口生成、AI 查询、数据治理 |
 | 待办清单+番茄钟 | 无限层级任务嵌套、拖拽排序、专注计时 |
 | 刷题练习 | 导入 Excel 题库进行随机/顺序刷题 |

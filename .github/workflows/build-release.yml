@@ -221,4 +221,13 @@ jobs:
             3. `sudo systemctl daemon-reload && sudo systemctl enable --now datatoolbox`
             之后关掉终端或重启服务器都会自动运行；查看状态：`sudo systemctl status datatoolbox`，日志：`journalctl -u datatoolbox -f`
             
+            **Linux 更新版本：**
+            1. 停止服务：`sudo systemctl stop datatoolbox`
+            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`（若新包里有更新的 `apps`、`lib` 等也一并覆盖）
+            3. 启动服务：`sudo systemctl start datatoolbox`
+            
+            **Linux 停止服务 / 取消开机自启：**
+            - 仅停止：`sudo systemctl stop datatoolbox`
+            - 取消开机自启并停止：`sudo systemctl disable --now datatoolbox`
+            
             启动后访问: http://localhost:端口号
