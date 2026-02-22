@@ -188,6 +188,7 @@ function startTankBattle(opponentId, isHost) {
     const keys = {};
     let animId = null, lastTs = 0, frameN = 0;
     let pvpScore = { my: 0, opp: 0 };
+    let gameOverResult = null;
 
     // ═══════════════════════════════════════════════════════
     //  构建 UI
@@ -208,16 +209,7 @@ function startTankBattle(opponentId, isHost) {
                     <button class="tank-mode-btn active" data-mode="pvp">⚔️ 对战模式</button>
                     <button class="tank-mode-btn" data-mode="coop">🤝 合作模式</button>
                 </div>
-                <div class="tank-map-area">
-                    <button class="tank-nav-btn" id="tankPrev">‹</button>
-                    <div class="tank-map-box">
-                        <canvas id="tankPreview" width="200" height="160"></canvas>
-                        <div class="tank-map-name" id="tankMapName"></div>
-                        <div class="tank-map-index" id="tankMapIndex"></div>
-                    </div>
-                    <button class="tank-nav-btn" id="tankNext">›</button>
-                </div>
-                <div class="tank-map-dots" id="tankDots"></div>
+                <div class="tank-random-hint">🎲 地图随机选取（共 ${MAP_DEFS.length} 张）</div>
                 <div class="tank-keys-hint">WASD / 方向键 移动 &nbsp;·&nbsp; 空格 / J 射击 &nbsp;·&nbsp; R 重开</div>
                 <div class="tank-ready-area">
                     <div class="tank-ready-status" id="tankReadyStatus">
@@ -252,43 +244,11 @@ function startTankBattle(opponentId, isHost) {
     // ═══════════════════════════════════════════════════════
     //  大厅逻辑
     // ═══════════════════════════════════════════════════════
-    buildDots();
-    renderPreview();
-
     modal.querySelectorAll('.tank-mode-btn').forEach(btn => btn.addEventListener('click', () => {
         modal.querySelectorAll('.tank-mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         gameMode = btn.dataset.mode;
     }));
-    modal.querySelector('#tankPrev').addEventListener('click', () => { selMap = (selMap - 1 + MAP_DEFS.length) % MAP_DEFS.length; renderPreview(); updateDots(); });
-    modal.querySelector('#tankNext').addEventListener('click', () => { selMap = (selMap + 1) % MAP_DEFS.length; renderPreview(); updateDots(); });
-
-    function buildDots() {
-        const el = modal.querySelector('#tankDots');
-        el.innerHTML = MAP_DEFS.map((_, i) => `<span class="tank-dot${i === 0 ? ' active' : ''}" data-i="${i}"></span>`).join('');
-        el.querySelectorAll('.tank-dot').forEach(d => d.addEventListener('click', () => { selMap = +d.dataset.i; renderPreview(); updateDots(); }));
-    }
-    function updateDots() {
-        modal.querySelectorAll('.tank-dot').forEach(d => d.classList.toggle('active', +d.dataset.i === selMap));
-    }
-    function renderPreview() {
-        const cv = modal.querySelector('#tankPreview');
-        const pc = cv.getContext('2d');
-        const grid = parseMap(MAP_DEFS[selMap].rows);
-        const pw = cv.width / COLS, ph = cv.height / ROWS;
-        pc.fillStyle = '#b8a050'; pc.fillRect(0, 0, cv.width, cv.height);
-        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-            const t = grid[r][c];
-            if (!t) continue;
-            pc.fillStyle = [,'#b53','#445','#36b','#283'][t];
-            pc.fillRect(c * pw + 0.5, r * ph + 0.5, pw - 1, ph - 1);
-        }
-        // Draw spawn markers
-        pc.fillStyle = '#4f8'; pc.fillRect(pw, ph * (ROWS - 2), pw * 1.5, ph * 1.5);
-        pc.fillStyle = '#f84'; pc.fillRect(pw * (COLS - 2.5), ph, pw * 1.5, ph * 1.5);
-        modal.querySelector('#tankMapName').textContent = MAP_DEFS[selMap].name;
-        modal.querySelector('#tankMapIndex').textContent = `${selMap + 1} / ${MAP_DEFS.length}`;
-    }
 
     modal.querySelector('#tankReadyBtn').addEventListener('click', () => {
         if (myReady) return;
@@ -296,14 +256,15 @@ function startTankBattle(opponentId, isHost) {
         modal.querySelector('#tankReadyBtn').textContent = '等待对方...';
         modal.querySelector('#tankReadyBtn').disabled = true;
         modal.querySelector('#rstMe').textContent = `✅ ${myName}`;
-        sendTk({ type: 'ready', mapIdx: selMap, mode: gameMode });
+        sendTk({ type: 'ready', mode: gameMode });
         if (oppReady && isHost) hostStartGame();
     });
 
-    // Host 负责通知 Guest 开始，然后自己也启动
+    // Host 随机选地图，通知 Guest 后双方同时启动
     function hostStartGame() {
-        sendTk({ type: 'start', mapIdx: selMap, mode: gameMode });
-        launchGame(selMap, gameMode);
+        const mapIdx = Math.floor(Math.random() * MAP_DEFS.length);
+        sendTk({ type: 'start', mapIdx, mode: gameMode });
+        launchGame(mapIdx, gameMode);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -315,6 +276,7 @@ function startTankBattle(opponentId, isHost) {
         mapGrid = parseMap(MAP_DEFS[mapIdx].rows);
         modal.querySelector('#tankLobby').style.display = 'none';
         modal.querySelector('#tankGame').style.display = '';
+        modal.querySelector('#hudMid').textContent = MAP_DEFS[mapIdx].name;
 
         const spawnH = { x: CELL * 1.5, y: CELL * 14.5, dir: UP };
         const spawnG = { x: CELL * 18.5, y: CELL * 1.5, dir: DOWN };
@@ -327,7 +289,8 @@ function startTankBattle(opponentId, isHost) {
         explosions.length = 0;
         aiTanks.length = 0;
         pvpScore = { my: 0, opp: 0 };
-        coopWave = 0; aiLeft = 0;
+        gameOverResult = null;
+        coopWave = 0; aiLeft = 0; waveClearing = false;
 
         if (mode === 'coop' && isHost) spawnWave(1);
         updateHUD();
@@ -609,11 +572,17 @@ function startTankBattle(opponentId, isHost) {
     function checkCoopOver() {
         if (myTank.lives <= 0 && oppTank.lives <= 0) triggerGameOver('cooplose');
     }
+    let waveClearing = false;  // 防止每帧重复触发波次切换
+
     function checkCoopWin() {
-        if (gameMode !== 'coop' || !isHost) return;
+        if (gameMode !== 'coop' || !isHost || waveClearing) return;
         if (aiLeft <= 0 && aiTanks.every(a => a.hp <= 0)) {
+            waveClearing = true;
             if (coopWave < 3) {
-                setTimeout(() => { if (phase === 'playing') spawnWave(coopWave + 1); }, 2200);
+                setTimeout(() => {
+                    waveClearing = false;
+                    if (phase === 'playing') spawnWave(coopWave + 1);
+                }, 2200);
             } else {
                 triggerGameOver('coopwin');
             }
@@ -623,8 +592,7 @@ function startTankBattle(opponentId, isHost) {
     function triggerGameOver(result) {
         if (phase !== 'playing') return;
         phase = 'over';
-        cancelAnimationFrame(animId);
-        renderGameOver(result);
+        gameOverResult = result;
         sendTk({ type: 'over', result });
     }
 
@@ -826,14 +794,27 @@ function startTankBattle(opponentId, isHost) {
     function loop(ts) {
         const dt = Math.min((ts - lastTs) / 1000, 0.05);
         lastTs = ts; frameN++;
-        updateMyTank(dt);
-        updateBullets(dt);
-        updateAI(dt);
-        updateExplosions(dt);
-        checkCoopWin();
+
+        if (phase === 'playing') {
+            updateMyTank(dt);
+            updateBullets(dt);
+            updateAI(dt);
+            updateExplosions(dt);
+            checkCoopWin();
+        }
 
         const cv = modal.querySelector('#tankCanvas');
-        if (cv) render(cv.getContext('2d'));
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+
+        if (phase === 'playing') {
+            render(ctx);
+        } else if (phase === 'over') {
+            renderGameOver(gameOverResult);
+        } else {
+            return; // lobby 阶段不渲染 canvas，也不调度下一帧
+        }
+
         animId = requestAnimationFrame(loop);
     }
 
