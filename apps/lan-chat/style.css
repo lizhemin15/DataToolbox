@@ -1855,3 +1855,90 @@ body {
     border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .dg-final-close-btn:hover { background: #06ae56; }
+
+/* ══════════════════════════════════════════
+   坦克大战
+══════════════════════════════════════════ */
+.tank-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 3000; opacity: 0; transition: opacity 0.3s;
+}
+.tank-modal.show { opacity: 1; }
+.tank-content {
+    background: #1a1a2e; border-radius: 14px;
+    width: 700px; max-width: 97vw; max-height: 96vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    animation: slide-up 0.3s ease-out;
+}
+.tank-header {
+    padding: 10px 16px; background: #16213e;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #0f3460;
+}
+.tank-title { font-size: 16px; font-weight: 700; color: #e0e0e0; }
+.tank-vs { font-size: 13px; color: #888; }
+.tank-close-btn {
+    width: 30px; height: 30px; border: none;
+    background: rgba(255,255,255,0.08); color: #ccc;
+    font-size: 20px; border-radius: 50%; cursor: pointer; line-height: 1;
+}
+.tank-close-btn:hover { background: rgba(255,255,255,0.18); }
+
+/* 大厅 */
+.tank-lobby {
+    padding: 20px; display: flex; flex-direction: column;
+    align-items: center; gap: 16px; background: #1a1a2e;
+}
+.tank-mode-row { display: flex; gap: 12px; }
+.tank-mode-btn {
+    padding: 10px 24px; border: 2px solid #0f3460;
+    background: transparent; color: #aaa; border-radius: 10px;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.tank-mode-btn.active, .tank-mode-btn:hover {
+    background: #0f3460; color: #fff; border-color: #4a9eda;
+}
+.tank-map-area {
+    display: flex; align-items: center; gap: 12px;
+}
+.tank-nav-btn {
+    width: 36px; height: 36px; border: none; background: #0f3460;
+    color: #fff; border-radius: 50%; font-size: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+}
+.tank-nav-btn:hover { background: #4a9eda; }
+.tank-map-box { text-align: center; }
+#tankPreview { border: 2px solid #0f3460; border-radius: 8px; display: block; }
+.tank-map-name { color: #e0e0e0; font-size: 15px; font-weight: 600; margin-top: 6px; }
+.tank-map-index { color: #666; font-size: 12px; margin-top: 2px; }
+.tank-map-dots { display: flex; gap: 7px; }
+.tank-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #0f3460; cursor: pointer; transition: background 0.15s;
+}
+.tank-dot.active { background: #4a9eda; }
+.tank-keys-hint { font-size: 12px; color: #555; text-align: center; }
+.tank-ready-area { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+.tank-ready-status { font-size: 14px; color: #888; display: flex; gap: 20px; }
+.tank-ready-btn {
+    padding: 11px 36px; background: #07c160; color: #fff; border: none;
+    border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
+    transition: background 0.2s; letter-spacing: 0.5px;
+}
+.tank-ready-btn:hover:not(:disabled) { background: #06ae56; }
+.tank-ready-btn:disabled { background: #555; cursor: not-allowed; }
+
+/* 游戏区 */
+.tank-hud {
+    padding: 6px 16px; background: #16213e;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #0f3460;
+}
+.tank-hud-left, .tank-hud-right { display: flex; align-items: center; gap: 8px; }
+.tank-hud-name { font-size: 12px; color: #aaa; }
+.tank-hud-lives { font-size: 14px; color: #e74c3c; letter-spacing: 2px; }
+.tank-hud-mid { font-size: 13px; color: #e0e0e0; font-weight: 600; }
+#tankCanvas { display: block; cursor: none; }

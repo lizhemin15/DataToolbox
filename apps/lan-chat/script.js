@@ -1195,6 +1195,17 @@ function showGameMenu() {
                         </div>
                     </div>
                 </div>
+
+                <div class="game-category">
+                    <div class="game-category-title">🕹️ 动作游戏</div>
+                    <div class="game-option" onclick="inviteGame('tankbattle')">
+                        <div class="game-icon">🎮</div>
+                        <div class="game-info">
+                            <div class="game-name">坦克大战</div>
+                            <div class="game-desc">联机对战 / 合作打AI</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -1225,7 +1236,8 @@ const gameNames = {
     'numberbomb': '数字炸弹',
     'reaction': '反应力测试',
     'drawguess': '你画我猜',
-    'memory': '记忆翻牌'
+    'memory': '记忆翻牌',
+    'tankbattle': '坦克大战'
 };
 
 // 邀请游戏
@@ -1397,6 +1409,14 @@ function startGame(gameType, opponentId, isHost) {
             console.log('启动记忆翻牌游戏');
             startMemory(opponentId, isHost);
             break;
+        case 'tankbattle':
+            console.log('启动坦克大战');
+            if (typeof startTankBattle === 'function') {
+                startTankBattle(opponentId, isHost);
+            } else {
+                showToast('坦克大战加载失败', 'error');
+            }
+            break;
         default:
             console.error('未知游戏类型:', gameType);
             showToast('游戏开发中...', 'info');
@@ -1434,6 +1454,9 @@ function receiveGameMove(data) {
             break;
         case 'drawguess':
             if (typeof window.handleDrawGuessMove === 'function') window.handleDrawGuessMove(data);
+            break;
+        case 'tankbattle':
+            if (typeof window.handleTankBattleMove === 'function') window.handleTankBattleMove(data);
             break;
     }
 }
