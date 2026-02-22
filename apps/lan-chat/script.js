@@ -1432,6 +1432,9 @@ function receiveGameMove(data) {
         case 'memory':
             if (typeof window.handleMemoryMove === 'function') window.handleMemoryMove(data);
             break;
+        case 'drawguess':
+            if (typeof window.handleDrawGuessMove === 'function') window.handleDrawGuessMove(data);
+            break;
     }
 }
 
@@ -2155,7 +2158,403 @@ function startReaction(opponentId, isHost) {
 
 // ========== 你画我猜游戏 ==========
 function startDrawGuess(opponentId, isHost) {
-    showToast('你画我猜游戏即将推出！', 'info');
+    const peer = peers.get(opponentId);
+    const peerName = peer ? peer.name : '对方';
+
+    const WORDS = [
+        '猫','狗','鱼','鸟','马','兔子','熊猫','大象','老虎','狮子','鸡','鸭','猪','牛','羊','蛇','青蛙',
+        '苹果','香蕉','西瓜','草莓','葡萄','橙子','蛋糕','冰淇淋','汉堡','披萨','面条','寿司','饺子',
+        '汽车','飞机','轮船','火车','自行车','摩托车','直升机','火箭',
+        '房子','学校','医院','超市','城堡','灯塔','金字塔',
+        '书','手机','电脑','电视','冰箱','相机','钟表','雨伞','眼镜','蜡烛',
+        '太阳','月亮','星星','彩虹','雪花','闪电','云朵',
+        '树','花','蘑菇','仙人掌','葵花','玫瑰','竹子',
+        '足球','篮球','网球','乒乓球','钓鱼','滑板','风筝','跳绳',
+        '跑步','游泳','跳舞','唱歌','睡觉','打电话','照相','钓鱼'
+    ];
+
+    const TOTAL_ROUNDS = 4;
+    let roundNum = 0;
+    let myScore = 0;
+    let oppScore = 0;
+    let isDrawer = isHost;
+    let currentWord = null;
+    let roundTimer = null;
+    let timeLeft = 60;
+    let roundEnded = false;
+
+    // Drawing state
+    let isDrawing = false;
+    let lastX = 0, lastY = 0;
+    let drawColor = '#000000';
+    let drawSize = 4;
+    let batchBuffer = [];
+    let batchTimer = null;
+
+    // Receiver drawing state
+    let recvLastX = 0, recvLastY = 0;
+    let recvColor = '#000000', recvSize = 4;
+
+    const game = document.createElement('div');
+    game.className = 'dg-game-modal';
+    game.innerHTML = `
+        <div class="dg-game-content">
+            <div class="dg-game-header">
+                <span>🎨 你画我猜</span>
+                <div class="dg-header-info">
+                    <span class="dg-round-label" id="dgRoundLabel">第 1 / ${TOTAL_ROUNDS} 轮</span>
+                    <span class="dg-timer" id="dgTimer">60</span>
+                </div>
+                <button class="dg-game-close">×</button>
+            </div>
+            <div class="dg-scores-bar">
+                <div class="dg-score-item">
+                    <span class="dg-score-name">${myName}</span>
+                    <span class="dg-score-val" id="dgMyScore">0</span>
+                </div>
+                <div class="dg-score-sep">分</div>
+                <div class="dg-score-item">
+                    <span class="dg-score-name">${peerName}</span>
+                    <span class="dg-score-val" id="dgOppScore">0</span>
+                </div>
+            </div>
+            <div class="dg-status-bar" id="dgStatusBar">等待开始...</div>
+            <div class="dg-game-body">
+                <div class="dg-canvas-wrap">
+                    <div class="dg-tools" id="dgTools" style="display:none">
+                        <div class="dg-colors">
+                            <button class="dg-color active" data-color="#000000" style="background:#000000" title="黑色"></button>
+                            <button class="dg-color" data-color="#e74c3c" style="background:#e74c3c" title="红色"></button>
+                            <button class="dg-color" data-color="#e67e22" style="background:#e67e22" title="橙色"></button>
+                            <button class="dg-color" data-color="#f1c40f" style="background:#f1c40f" title="黄色"></button>
+                            <button class="dg-color" data-color="#2ecc71" style="background:#2ecc71" title="绿色"></button>
+                            <button class="dg-color" data-color="#3498db" style="background:#3498db" title="蓝色"></button>
+                            <button class="dg-color" data-color="#9b59b6" style="background:#9b59b6" title="紫色"></button>
+                            <button class="dg-color" data-color="#ffffff" style="background:#fff; border:2px solid #ccc" title="橡皮"></button>
+                        </div>
+                        <div class="dg-sizes">
+                            <button class="dg-size active" data-size="3">细</button>
+                            <button class="dg-size" data-size="8">中</button>
+                            <button class="dg-size" data-size="18">粗</button>
+                        </div>
+                        <div class="dg-actions">
+                            <button class="dg-action-btn" id="dgClearBtn">🗑 清空</button>
+                            <button class="dg-action-btn dg-skip-btn" id="dgSkipBtn">⏭ 跳过</button>
+                        </div>
+                    </div>
+                    <canvas id="dgCanvas" width="480" height="360"></canvas>
+                </div>
+                <div class="dg-chat-panel">
+                    <div class="dg-chat-log" id="dgChatLog"></div>
+                    <div class="dg-guess-row" id="dgGuessRow" style="display:none">
+                        <input type="text" class="dg-guess-input" id="dgGuessInput" placeholder="输入猜测..." maxlength="20" autocomplete="off">
+                        <button class="dg-guess-btn" id="dgGuessBtn">猜</button>
+                    </div>
+                </div>
+            </div>
+            <div class="dg-overlay" id="dgOverlay" style="display:none">
+                <div class="dg-overlay-box" id="dgOverlayBox"></div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(game);
+    setTimeout(() => game.classList.add('show'), 10);
+
+    const canvas = game.querySelector('#dgCanvas');
+    const ctx = canvas.getContext('2d');
+    clearCanvas();
+
+    // ---- Tools ----
+    game.querySelectorAll('.dg-color').forEach(btn => {
+        btn.addEventListener('click', () => {
+            game.querySelectorAll('.dg-color').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            drawColor = btn.dataset.color;
+        });
+    });
+    game.querySelectorAll('.dg-size').forEach(btn => {
+        btn.addEventListener('click', () => {
+            game.querySelectorAll('.dg-size').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            drawSize = parseInt(btn.dataset.size);
+        });
+    });
+    game.querySelector('#dgClearBtn').addEventListener('click', () => {
+        clearCanvas();
+        sendMove({ type: 'clear' });
+    });
+    game.querySelector('#dgSkipBtn').addEventListener('click', () => {
+        if (!roundEnded && isDrawer) triggerRoundEnd(false);
+    });
+
+    // ---- Canvas ----
+    function clearCanvas() {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / rect.width;
+        const sy = canvas.height / rect.height;
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (cx - rect.left) * sx, y: (cy - rect.top) * sy };
+    }
+
+    function drawSegment(x1, y1, x2, y2, color, size) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+
+    function flushBatch() {
+        batchTimer = null;
+        if (batchBuffer.length > 0) {
+            sendMove({ type: 'path_pts', pts: [...batchBuffer] });
+            batchBuffer = [];
+        }
+    }
+
+    canvas.addEventListener('mousedown', e => {
+        if (!isDrawer) return;
+        isDrawing = true;
+        const p = getPos(e);
+        lastX = p.x; lastY = p.y;
+        sendMove({ type: 'path_start', x: p.x, y: p.y, color: drawColor, size: drawSize });
+    });
+    canvas.addEventListener('mousemove', e => {
+        if (!isDrawer || !isDrawing) return;
+        const p = getPos(e);
+        drawSegment(lastX, lastY, p.x, p.y, drawColor, drawSize);
+        batchBuffer.push({ x: p.x, y: p.y });
+        if (!batchTimer) batchTimer = setTimeout(flushBatch, 30);
+        lastX = p.x; lastY = p.y;
+    });
+    canvas.addEventListener('mouseup', () => { if (isDrawer && isDrawing) { isDrawing = false; flushBatch(); } });
+    canvas.addEventListener('mouseleave', () => { if (isDrawer && isDrawing) { isDrawing = false; flushBatch(); } });
+
+    // Touch
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY })); }, { passive: false });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY })); }, { passive: false });
+    canvas.addEventListener('touchend', e => { e.preventDefault(); canvas.dispatchEvent(new MouseEvent('mouseup')); }, { passive: false });
+
+    // ---- Guess ----
+    game.querySelector('#dgGuessBtn').addEventListener('click', submitGuess);
+    game.querySelector('#dgGuessInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitGuess(); });
+
+    function submitGuess() {
+        const inp = game.querySelector('#dgGuessInput');
+        const text = inp.value.trim();
+        if (!text || roundEnded) return;
+        inp.value = '';
+        addChat(myName, text, false);
+        sendMove({ type: 'guess', text });
+    }
+
+    function addChat(name, text, correct) {
+        const log = game.querySelector('#dgChatLog');
+        const item = document.createElement('div');
+        item.className = 'dg-chat-item' + (correct ? ' dg-chat-correct' : '');
+        item.innerHTML = `<b class="dg-chat-name">${name}</b> ${text}${correct ? ' ✅' : ''}`;
+        log.appendChild(item);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    // ---- Timer ----
+    function startTimer() {
+        timeLeft = 60;
+        updateTimer();
+        clearInterval(roundTimer);
+        roundTimer = setInterval(() => {
+            timeLeft--;
+            updateTimer();
+            if (timeLeft <= 0 && !roundEnded && isDrawer) {
+                clearInterval(roundTimer);
+                triggerRoundEnd(false);
+            }
+        }, 1000);
+    }
+
+    function updateTimer() {
+        const el = game.querySelector('#dgTimer');
+        if (el) {
+            el.textContent = timeLeft;
+            el.className = 'dg-timer' + (timeLeft <= 10 ? ' dg-timer-urgent' : '');
+        }
+    }
+
+    // ---- Overlay ----
+    function showOverlay(html) {
+        const ov = game.querySelector('#dgOverlay');
+        game.querySelector('#dgOverlayBox').innerHTML = html;
+        ov.style.display = 'flex';
+    }
+    function hideOverlay() {
+        game.querySelector('#dgOverlay').style.display = 'none';
+    }
+
+    // ---- Round logic ----
+    function sendMove(move) {
+        sendWsMessage({ type: 'game-move', to: opponentId, gameType: 'drawguess', move, timestamp: Date.now() });
+    }
+
+    function showWordChoice() {
+        const pool = [...WORDS].sort(() => Math.random() - 0.5).slice(0, 4);
+        showOverlay(`
+            <div class="dg-word-choice">
+                <p class="dg-choice-hint">选一个词来画 (${TOTAL_ROUNDS - roundNum} 轮剩余)</p>
+                <div class="dg-word-btns">
+                    ${pool.map(w => `<button class="dg-word-btn" data-word="${w}">${w}</button>`).join('')}
+                </div>
+            </div>
+        `);
+        game.querySelectorAll('.dg-word-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentWord = btn.dataset.word;
+                hideOverlay();
+                beginRound();
+            });
+        });
+    }
+
+    function beginRound() {
+        roundEnded = false;
+        clearCanvas();
+        game.querySelector('#dgChatLog').innerHTML = '';
+
+        if (isDrawer) {
+            game.querySelector('#dgStatusBar').innerHTML = `✏️ 你在画：<b>${currentWord}</b>`;
+            game.querySelector('#dgTools').style.display = '';
+            game.querySelector('#dgGuessRow').style.display = 'none';
+            canvas.style.cursor = 'crosshair';
+            canvas.classList.remove('dg-readonly');
+            sendMove({ type: 'round_start', round: roundNum });
+        } else {
+            game.querySelector('#dgStatusBar').textContent = '👀 对方正在画，快猜！';
+            game.querySelector('#dgTools').style.display = 'none';
+            game.querySelector('#dgGuessRow').style.display = '';
+            canvas.style.cursor = 'default';
+            canvas.classList.add('dg-readonly');
+            game.querySelector('#dgGuessInput').focus();
+        }
+        startTimer();
+    }
+
+    function triggerRoundEnd(correct) {
+        if (roundEnded) return;
+        roundEnded = true;
+        clearInterval(roundTimer);
+
+        if (correct) {
+            if (isDrawer) { oppScore++; game.querySelector('#dgOppScore').textContent = oppScore; }
+            else { myScore++; game.querySelector('#dgMyScore').textContent = myScore; }
+        }
+
+        if (isDrawer) {
+            sendMove({ type: 'round_end', word: currentWord, correct });
+        }
+
+        const word = currentWord || '？';
+        const msg = correct ? `✅ 猜对了！词语是「${word}」` : `⏰ 时间到！词语是「${word}」`;
+
+        roundNum++;
+        game.querySelector('#dgRoundLabel').textContent = `第 ${Math.min(roundNum + 1, TOTAL_ROUNDS)} / ${TOTAL_ROUNDS} 轮`;
+
+        if (roundNum >= TOTAL_ROUNDS) {
+            setTimeout(showFinalResult, 600);
+        } else {
+            showOverlay(`<div class="dg-round-end"><p class="dg-round-msg">${msg}</p><p class="dg-round-next">准备下一轮...</p></div>`);
+            setTimeout(() => {
+                hideOverlay();
+                isDrawer = !isDrawer;
+                currentWord = null;
+                if (isDrawer) showWordChoice(); else beginRound();
+            }, 2500);
+        }
+    }
+
+    function showFinalResult() {
+        clearInterval(roundTimer);
+        let txt;
+        if (myScore > oppScore) txt = '🎉 你赢了！';
+        else if (myScore < oppScore) txt = '😢 对方赢了';
+        else txt = '🤝 平局！';
+        showOverlay(`
+            <div class="dg-final">
+                <div class="dg-final-title">${txt}</div>
+                <div class="dg-final-score">${myName} ${myScore} : ${oppScore} ${peerName}</div>
+                <button class="dg-final-close-btn" id="dgFinalClose">关闭</button>
+            </div>
+        `);
+        game.querySelector('#dgFinalClose').addEventListener('click', () => {
+            game.classList.remove('show');
+            setTimeout(() => game.remove(), 300);
+            currentGame = null;
+        });
+        showToast(txt, myScore >= oppScore ? 'success' : 'info');
+        currentGame = null;
+    }
+
+    // ---- Receive ----
+    window.handleDrawGuessMove = function(data) {
+        if (!data.move) return;
+        const mv = data.move;
+        switch (mv.type) {
+            case 'path_start':
+                recvLastX = mv.x; recvLastY = mv.y;
+                recvColor = mv.color; recvSize = mv.size;
+                break;
+            case 'path_pts':
+                mv.pts.forEach(p => {
+                    drawSegment(recvLastX, recvLastY, p.x, p.y, recvColor, recvSize);
+                    recvLastX = p.x; recvLastY = p.y;
+                });
+                break;
+            case 'clear':
+                clearCanvas();
+                break;
+            case 'round_start':
+                clearCanvas();
+                if (!isDrawer) beginRound();
+                break;
+            case 'guess':
+                addChat(peerName, mv.text, false);
+                if (isDrawer && currentWord && mv.text.trim() === currentWord.trim()) {
+                    addChat('', '✅ 猜对了！', false);
+                    triggerRoundEnd(true);
+                }
+                break;
+            case 'correct':
+                addChat('', `✅ 答对了！词语是「${mv.word}」`, true);
+                showToast(`猜对了！词语是「${mv.word}」`, 'success');
+                if (!roundEnded) triggerRoundEnd(true);
+                break;
+            case 'round_end':
+                if (!roundEnded) {
+                    currentWord = mv.word;
+                    triggerRoundEnd(mv.correct || false);
+                }
+                break;
+        }
+    };
+
+    game.querySelector('.dg-game-close').addEventListener('click', () => {
+        clearInterval(roundTimer);
+        if (batchTimer) clearTimeout(batchTimer);
+        game.classList.remove('show');
+        setTimeout(() => game.remove(), 300);
+        currentGame = null;
+    });
+
+    // Start
+    if (isDrawer) showWordChoice(); else beginRound();
 }
 
 // ========== 记忆翻牌游戏 ==========

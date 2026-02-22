@@ -42,7 +42,7 @@ function startXiangqi(opponentId, isHost) {
                         <span>${isHost ? myName : peerName}</span>
                     </div>
                 </div>
-                <canvas id="xiangqiCanvas" width="450" height="550"></canvas>
+                <canvas id="xiangqiCanvas" width="420" height="465"></canvas>
             </div>
         </div>
     `;
@@ -169,9 +169,11 @@ function startXiangqi(opponentId, isHost) {
         });
         
         ctx.font = '20px SimSun';
-        ctx.fillStyle = '#000';
-        ctx.fillText('楚河', padding + cellSize * 0.5, padding + cellSize * 4.7);
-        ctx.fillText('汉界', padding + cellSize * 6.5, padding + cellSize * 4.7);
+        ctx.fillStyle = '#8b4513';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('楚  河', padding + cellSize * 2, padding + cellSize * 4.5);
+        ctx.fillText('汉  界', padding + cellSize * 6, padding + cellSize * 4.5);
         
         for (let row = 0; row < 10; row++) {
             for (let col = 0; col < 9; col++) {
