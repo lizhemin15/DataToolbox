@@ -1277,16 +1277,17 @@ body {
     display: flex;
     gap: 6px;
     align-items: center;
-}
-
-.apikey-trigger-wrap {
-    position: relative;
+    flex-shrink: 0;
 }
 
 #apikeyTriggerBtn {
     padding: 4px 8px;
     font-size: 14px;
     line-height: 1;
+    width: auto;
+    min-width: 32px;
+    height: 28px;
+    box-sizing: border-box;
 }
 
 .apikey-popover {
@@ -1294,6 +1295,7 @@ body {
     position: fixed;
     z-index: 10000;
     width: 270px;
+    max-width: 270px;
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
