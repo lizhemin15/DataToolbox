@@ -69,6 +69,7 @@
                         <button class="nav-tab" data-tab="governance">数据治理</button>
                         <button class="nav-tab" data-tab="ontology" disabled>本体论抽象</button>
                         <button class="nav-tab" data-tab="api">接口分发</button>
+                        <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
                     </div>
                 </div>
@@ -335,6 +336,13 @@
                         </div>
 
                         <div class="db-info">
+                            <div class="info-item info-item-switch">
+                                <span class="info-label">启用:</span>
+                                <label class="switch-wrap" onclick="event.stopPropagation()">
+                                    <input type="checkbox" id="apiDetailEnabledCheck" onchange="toggleApiEnabledFromDetail()">
+                                    <span class="switch-slider"></span>
+                                </label>
+                            </div>
                             <div class="info-item">
                                 <span class="info-label">接口路径:</span>
                                 <span id="apiPath" class="info-value"></span>
@@ -370,6 +378,72 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="mcpTab" class="tab-content">
+            <div class="mcp-container">
+                <div class="mcp-header">
+                    <h2>🔌 MCP 模块</h2>
+                    <p class="mcp-desc">在 Cursor、Claude Desktop 等客户端中通过 Model Context Protocol 使用数据本体池：查询数据库、调用接口。</p>
+                    <div class="mcp-enabled-row">
+                        <label class="switch-wrap">
+                            <input type="checkbox" id="mcpEnabledCheck" onchange="toggleMcpEnabled()">
+                            <span class="switch-slider"></span>
+                        </label>
+                        <span class="mcp-enabled-label">启用 MCP</span>
+                    </div>
+                </div>
+                <div class="mcp-section">
+                    <h3>连接信息</h3>
+                    <div class="mcp-info-grid">
+                        <div class="mcp-info-item">
+                            <label>服务地址</label>
+                            <div class="mcp-info-value-wrap">
+                                <code id="mcpBaseUrl" class="mcp-code"></code>
+                                <button type="button" class="btn btn-sm" id="mcpCopyBaseUrlBtn">复制</button>
+                            </div>
+                        </div>
+                        <div class="mcp-info-item">
+                            <label>API Key</label>
+                            <div class="mcp-info-value-wrap">
+                                <code id="mcpApiKeyDisplay" class="mcp-code">未生成</code>
+                                <button type="button" class="btn btn-sm" id="mcpCopyKeyBtn" style="display:none;">复制</button>
+                                <button type="button" class="btn btn-sm btn-primary" id="mcpGenerateKeyBtn">生成 API Key</button>
+                            </div>
+                            <small class="mcp-hint">与「接口分发」中的 API Key 共用；在 MCP 客户端中用于认证。</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="mcp-section">
+                    <h3>客户端配置</h3>
+                    <p class="mcp-desc">选择您使用的 MCP 客户端，复制下方配置到对应位置。</p>
+                    <div class="mcp-client-select-wrap">
+                        <label>客户端类型</label>
+                        <select id="mcpClientType" onchange="updateMcpDisplay()">
+                            <option value="cursor">Cursor</option>
+                            <option value="claude">Claude Desktop</option>
+                            <option value="env">环境变量 / 命令行</option>
+                        </select>
+                    </div>
+                    <div class="mcp-config-block">
+                        <pre id="mcpConfigPre" class="mcp-pre"></pre>
+                        <button type="button" class="btn btn-sm" id="mcpCopyConfigBtn">复制配置</button>
+                    </div>
+                    <div class="mcp-steps" id="mcpStepsContent">
+                        <h4>步骤</h4>
+                        <ol id="mcpStepsList"></ol>
+                    </div>
+                </div>
+                <div class="mcp-section">
+                    <h3>可用工具</h3>
+                    <ul class="mcp-tools-list">
+                        <li><code>list_databases</code> — 列出已配置的数据库（不含密码）</li>
+                        <li><code>get_tables</code> — 获取指定数据库的表列表及连接状态</li>
+                        <li><code>list_apis</code> — 列出已配置的接口</li>
+                        <li><code>call_api</code> — 调用已配置的接口，传入接口 ID 和参数执行并返回数据</li>
+                    </ul>
                 </div>
             </div>
         </div>

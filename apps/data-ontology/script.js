@@ -190,6 +190,29 @@ function initEventListeners() {
     document.getElementById('editApiBtn').addEventListener('click', handleEditApi);
     document.getElementById('testApiBtn').addEventListener('click', showTestApiModal);
     document.getElementById('deleteApiBtn').addEventListener('click', handleDeleteApi);
+
+    // MCP 模块事件
+    const mcpCopyBaseUrlBtn = document.getElementById('mcpCopyBaseUrlBtn');
+    if (mcpCopyBaseUrlBtn) mcpCopyBaseUrlBtn.addEventListener('click', function() {
+        const url = (API_BASE || window.location.origin);
+        navigator.clipboard.writeText(url).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+    });
+    const mcpCopyKeyBtn = document.getElementById('mcpCopyKeyBtn');
+    if (mcpCopyKeyBtn) mcpCopyKeyBtn.addEventListener('click', function() {
+        if (!currentApiKey) return;
+        navigator.clipboard.writeText(currentApiKey).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+    });
+    const mcpGenerateKeyBtn = document.getElementById('mcpGenerateKeyBtn');
+    if (mcpGenerateKeyBtn) mcpGenerateKeyBtn.addEventListener('click', async function() {
+        await generateApiKey();
+        loadMcpInfo();
+    });
+    const mcpCopyConfigBtn = document.getElementById('mcpCopyConfigBtn');
+    if (mcpCopyConfigBtn) mcpCopyConfigBtn.addEventListener('click', function() {
+        const pre = document.getElementById('mcpConfigPre');
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.textContent).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制配置'; }, 1500); });
+    });
     
     // 测试接口事件
     document.getElementById('closeTestApiModal').addEventListener('click', hideTestApiModal);
@@ -294,6 +317,8 @@ function switchTab(tabName) {
     if (tabName === 'api') {
         loadApis();
         loadApiKey();
+    } else if (tabName === 'mcp') {
+        loadMcpInfo();
     } else if (tabName === 'ai') {
         loadAiConfig();
         updateAiContextDisplay();
@@ -1756,6 +1781,132 @@ function renderApiKeyUI() {
         copyBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
     }
+    updateMcpDisplay();
+}
+
+// MCP 模块：切换至 MCP 标签时刷新展示
+let mcpConfigEnabled = true;
+async function loadMcpInfo() {
+    await loadApiKey();
+    try {
+        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await r.json();
+        if (data.success) mcpConfigEnabled = data.enabled !== false;
+    } catch (e) { mcpConfigEnabled = true; }
+    const mcpCb = document.getElementById('mcpEnabledCheck');
+    if (mcpCb) mcpCb.checked = mcpConfigEnabled;
+    updateMcpDisplay();
+}
+
+async function toggleMcpEnabled() {
+    const cb = document.getElementById('mcpEnabledCheck');
+    if (!cb) return;
+    const next = cb.checked;
+    try {
+        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled: next })
+        });
+        const data = await r.json();
+        if (data.success) mcpConfigEnabled = next;
+        else cb.checked = !next;
+    } catch (e) {
+        cb.checked = !next;
+    }
+}
+
+function updateMcpDisplay() {
+    const baseUrl = API_BASE || window.location.origin;
+    const baseEl = document.getElementById('mcpBaseUrl');
+    const keyEl = document.getElementById('mcpApiKeyDisplay');
+    const copyKeyBtn = document.getElementById('mcpCopyKeyBtn');
+    const genKeyBtn = document.getElementById('mcpGenerateKeyBtn');
+    const configPre = document.getElementById('mcpConfigPre');
+    const clientSelect = document.getElementById('mcpClientType');
+    const stepsList = document.getElementById('mcpStepsList');
+    if (!baseEl) return;
+
+    baseEl.textContent = baseUrl;
+    if (currentApiKey) {
+        keyEl.textContent = currentApiKey.substring(0, 8) + '••••••••' + currentApiKey.substring(currentApiKey.length - 4);
+        keyEl.title = currentApiKey;
+        if (copyKeyBtn) copyKeyBtn.style.display = '';
+        if (genKeyBtn) genKeyBtn.textContent = '重新生成';
+    } else {
+        keyEl.textContent = '未生成';
+        keyEl.title = '';
+        if (copyKeyBtn) copyKeyBtn.style.display = 'none';
+        if (genKeyBtn) genKeyBtn.textContent = '生成 API Key';
+    }
+
+    const key = currentApiKey || '<请先生成 API Key>';
+    const clientType = (clientSelect && clientSelect.value) || 'cursor';
+    let configText = '';
+    let steps = [];
+    if (clientType === 'cursor') {
+        const config = {
+            'data-ontology': {
+                command: 'datatoolbox-server',
+                args: ['mcp'],
+                env: {
+                    DATA_ONTOLOGY_BASE_URL: baseUrl,
+                    DATA_ONTOLOGY_API_KEY: key
+                }
+            }
+        };
+        configText = JSON.stringify(config, null, 2);
+        steps = [
+            '从 Release 下载与您系统对应的 datatoolbox-server（与运行数据本体池服务端为同一程序）。',
+            '在 Cursor → Settings → MCP 中添加上述配置（或写入 ~/.cursor/mcp.json）。',
+            '将 DATA_ONTOLOGY_BASE_URL 设为您的数据本体池服务地址。',
+            '将 DATA_ONTOLOGY_API_KEY 设为上方生成的 API Key。'
+        ];
+    } else if (clientType === 'claude') {
+        const config = {
+            mcpServers: {
+                'data-ontology': {
+                    command: 'datatoolbox-server',
+                    args: ['mcp'],
+                    env: {
+                        DATA_ONTOLOGY_BASE_URL: baseUrl,
+                        DATA_ONTOLOGY_API_KEY: key
+                    }
+                }
+            }
+        };
+        configText = JSON.stringify(config, null, 2);
+        steps = [
+            '从 Release 下载 datatoolbox-server 到本机。',
+            '在 Claude Desktop 配置目录（如 macOS ~/Library/Application Support/Claude/）的 mcp.json 或 设置中的 MCP 里加入上述 mcpServers 片段。',
+            '设置环境变量 DATA_ONTOLOGY_BASE_URL 与 DATA_ONTOLOGY_API_KEY（或在上方 env 中已包含）。',
+            '重启 Claude Desktop。'
+        ];
+    } else {
+        configText = `# 环境变量（在运行 datatoolbox-server mcp 前设置）
+export DATA_ONTOLOGY_BASE_URL="${baseUrl}"
+export DATA_ONTOLOGY_API_KEY="${key}"
+
+# 命令行（Windows PowerShell 示例）
+# $env:DATA_ONTOLOGY_BASE_URL="${baseUrl}"
+# $env:DATA_ONTOLOGY_API_KEY="${key}"
+# .\\datatoolbox-server.exe mcp
+
+# 命令行（Linux/macOS）
+# ./datatoolbox-server mcp`;
+        steps = [
+            '设置环境变量 DATA_ONTOLOGY_BASE_URL 和 DATA_ONTOLOGY_API_KEY。',
+            '在终端执行：datatoolbox-server mcp（或 ./datatoolbox-server mcp）。',
+            '在支持 stdio MCP 的客户端中配置上述命令即可。'
+        ];
+    }
+    if (configPre) configPre.textContent = configText;
+    if (stepsList) stepsList.innerHTML = steps.map((s, i) => `<li>${s}</li>`).join('');
 }
 
 // 加载接口列表
@@ -1808,13 +1959,19 @@ function renderApiList() {
             'PUT': '#ed8936',
             'DELETE': '#f56565'
         }[api.method] || '#718096';
-        
+        const enabled = api.enabled !== false;
         return `
-            <div class="db-item ${currentApi && currentApi.id === api.id ? 'active' : ''}" onclick="selectApi('${api.id}')">
-                <div class="db-item-name">${api.name}</div>
-                <div class="db-item-info">
-                    <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
+            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${api.id}')">
+                <div class="db-item-main">
+                    <div class="db-item-name">${api.name}</div>
+                    <div class="db-item-info">
+                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
+                    </div>
                 </div>
+                <label class="api-item-switch" onclick="event.stopPropagation(); toggleApiEnabled('${api.id}')" title="${enabled ? '关闭接口' : '开启接口'}">
+                    <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
+                    <span class="switch-slider"></span>
+                </label>
             </div>
         `;
     }).join('');
@@ -1827,6 +1984,41 @@ function selectApi(apiId) {
         renderApiList();
         loadApiDetail(apiId);
     }
+}
+
+// 切换接口启用状态（从列表或详情）。forceEnabled 为 undefined 时取反，否则设为该值
+async function toggleApiEnabled(apiId, forceEnabled) {
+    const api = apis.find(a => a.id === apiId);
+    if (!api) return;
+    const next = forceEnabled !== undefined ? forceEnabled : (api.enabled === false);
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled: next })
+        });
+        const data = await response.json();
+        if (data.success) {
+            api.enabled = next;
+            renderApiList();
+            if (currentApi && currentApi.id === apiId) {
+                const cb = document.getElementById('apiDetailEnabledCheck');
+                if (cb) cb.checked = next;
+            }
+        }
+    } catch (e) {
+        console.error('切换接口状态失败', e);
+    }
+}
+
+function toggleApiEnabledFromDetail() {
+    if (!currentApi) return;
+    const cb = document.getElementById('apiDetailEnabledCheck');
+    if (!cb) return;
+    toggleApiEnabled(currentApi.id, cb.checked);
 }
 
 // 加载接口详情
@@ -1849,6 +2041,8 @@ async function loadApiDetail(apiId) {
             
             const api = data.api;
             document.getElementById('apiName').textContent = api.name;
+            const detailEnabledCb = document.getElementById('apiDetailEnabledCheck');
+            if (detailEnabledCb) detailEnabledCb.checked = api.enabled !== false;
             document.getElementById('apiPath').textContent = api.path;
             document.getElementById('apiMethod').textContent = api.method;
             document.getElementById('apiDatabase').textContent = api.database_name || api.database_id;

@@ -466,6 +466,7 @@ type ApiConfig struct {
 	SQL           string                 `json:"sql"`           // MyBatis风格的SQL语句
 	Description   string                 `json:"description,omitempty"`
 	DefaultParams map[string]interface{} `json:"default_params,omitempty"` // 默认参数值
+	Enabled       *bool                  `json:"enabled,omitempty"`        // 是否启用，nil 视为 true
 }
 
 // ApiInfo 接口信息（包含数据库名称）
@@ -479,6 +480,7 @@ type ApiInfo struct {
 	SQL           string                 `json:"sql"`
 	Description   string                 `json:"description,omitempty"`
 	DefaultParams map[string]interface{} `json:"default_params,omitempty"`
+	Enabled       bool                   `json:"enabled"` // 是否启用，供前端展示与开关
 }
 
 // AIConfig AI配置
@@ -554,6 +556,7 @@ var (
 	dataOntologyAIConfig  *AIConfig
 	governanceTasks       = make(map[string]*GovernanceTask)
 	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
+	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
 	dataOntologyMu        sync.RWMutex
 )
 
@@ -579,12 +582,13 @@ type WebNavStore struct {
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users     map[string]*User                  `json:"users"`
-	Databases map[string]*DatabaseConfig        `json:"databases"`
-	Apis      map[string]*ApiConfig             `json:"apis"`
-	AIConfig  *AIConfig                         `json:"ai_config,omitempty"`
-	Tasks     map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
-	TaskLogs  map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
+	Users      map[string]*User                  `json:"users"`
+	Databases  map[string]*DatabaseConfig        `json:"databases"`
+	Apis       map[string]*ApiConfig             `json:"apis"`
+	AIConfig   *AIConfig                         `json:"ai_config,omitempty"`
+	Tasks      map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
+	TaskLogs   map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
+	MCPEnabled *bool                             `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
 }
 
 // 获取持久化文件路径
@@ -654,7 +658,9 @@ func loadDataOntologyStore() error {
 		governanceTaskLogs = store.TaskLogs
 		log.Printf("已加载治理任务日志")
 	}
-	
+	if store.MCPEnabled != nil {
+		dataOntologyMCPEnabled = store.MCPEnabled
+	}
 	return nil
 }
 
@@ -671,12 +677,13 @@ func saveDataOntologyStore() error {
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
-		Users:     dataOntologyUsers,
-		Databases: dataOntologyDatabases,
-		Apis:      dataOntologyApis,
-		AIConfig:  dataOntologyAIConfig,
-		Tasks:     governanceTasks,
-		TaskLogs:  governanceTaskLogs,
+		Users:      dataOntologyUsers,
+		Databases:  dataOntologyDatabases,
+		Apis:       dataOntologyApis,
+		AIConfig:   dataOntologyAIConfig,
+		Tasks:      governanceTasks,
+		TaskLogs:   governanceTaskLogs,
+		MCPEnabled: dataOntologyMCPEnabled,
 	}
 	dataOntologyMu.RUnlock()
 	
@@ -1535,6 +1542,40 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 		})
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleMCPConfig MCP 总开关：GET 返回当前状态，PUT 更新（需授权）
+func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
+	case http.MethodPut:
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		dataOntologyMu.Lock()
+		dataOntologyMCPEnabled = body.Enabled
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存 MCP 配置失败: %v", err)
+		}
+		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
 	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
 	}
@@ -3363,19 +3404,18 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 
 		apiList := make([]*ApiInfo, 0, len(dataOntologyApis))
 		for _, api := range dataOntologyApis {
+			enabled := api.Enabled == nil || *api.Enabled
 			apiInfo := &ApiInfo{
 				ID:         api.ID,
 				Name:       api.Name,
 				Path:       api.Path,
 				Method:     api.Method,
 				DatabaseID: api.DatabaseID,
+				Enabled:    enabled,
 			}
-
-			// 获取数据库名称
 			if db, exists := dataOntologyDatabases[api.DatabaseID]; exists {
 				apiInfo.DatabaseName = db.Name
 			}
-
 			apiList = append(apiList, apiInfo)
 		}
 
@@ -3482,21 +3522,19 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		apiInfo := &ApiInfo{
-			ID:           api.ID,
-			Name:         api.Name,
-			Path:         api.Path,
-			Method:       api.Method,
-			DatabaseID:   api.DatabaseID,
-			SQL:          api.SQL,
-			Description:  api.Description,
+			ID:            api.ID,
+			Name:          api.Name,
+			Path:          api.Path,
+			Method:        api.Method,
+			DatabaseID:    api.DatabaseID,
+			SQL:           api.SQL,
+			Description:   api.Description,
 			DefaultParams: api.DefaultParams,
+			Enabled:       api.Enabled == nil || *api.Enabled,
 		}
-
-		// 获取数据库名称
 		if db, dbExists := dataOntologyDatabases[api.DatabaseID]; dbExists {
 			apiInfo.DatabaseName = db.Name
 		}
-
 		dataOntologyMu.RUnlock()
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3556,14 +3594,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		api.Description = apiUpdate.Description
 		api.DefaultParams = apiUpdate.DefaultParams
-
+		if apiUpdate.Enabled != nil {
+			api.Enabled = apiUpdate.Enabled
+		}
 		dataOntologyMu.Unlock()
 
-		// 持久化
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存接口配置失败: %v", err)
 		}
-
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"api":     api,
@@ -3628,6 +3666,15 @@ func handleApiDispatch(next http.Handler) http.Handler {
 
 		if matchedApi == nil || matchedDb == nil {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if matchedApi.Enabled != nil && !*matchedApi.Enabled {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "该接口已关闭",
+			})
 			return
 		}
 
@@ -3736,7 +3783,14 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-
+	if api.Enabled != nil && !*api.Enabled {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "该接口已关闭",
+		})
+		return
+	}
 	// 获取数据库配置
 	dbConfig, dbExists := dataOntologyDatabases[api.DatabaseID]
 	if !dbExists {
@@ -5830,6 +5884,12 @@ func cronFieldMatch(field string, value int) bool {
 }
 
 func main() {
+	// 子命令 mcp：以 stdio 运行 MCP 服务，供 Cursor 等连接（需设置 DATA_ONTOLOGY_BASE_URL、DATA_ONTOLOGY_API_KEY）
+	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
+		runMCPServer()
+		return
+	}
+
 	// 命令行参数
 	portFlag := flag.Int("port", 0, "服务器端口")
 	flag.Parse()
@@ -5878,6 +5938,8 @@ func main() {
 		}
 	})
 	
+	// MCP 配置（总开关）
+	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
 	// 接口管理API路由
 	mux.HandleFunc("/api/data-ontology/apis", handleApis)
 	mux.HandleFunc("/api/data-ontology/apis/", func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 module github.com/YOUR_USERNAME/DataToolbox
 
-go 1.21
+go 1.23
 
 require (
 	gitee.com/chunanyong/dm v1.8.14
@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.5.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/lib/pq v1.10.9
+	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/sijms/go-ora/v2 v2.8.0
 	go.mongodb.org/mongo-driver v1.13.1
 )
