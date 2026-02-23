@@ -366,6 +366,7 @@ body {
     display: block;
     height: calc(100vh - 140px);
     overflow: hidden;
+    min-height: 0;
 }
 
 .container {
@@ -375,6 +376,7 @@ body {
     display: flex;
     gap: 30px;
     height: 100%;
+    min-height: 0;
     box-sizing: border-box;
 }
 
@@ -386,6 +388,9 @@ body {
     padding: 20px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     overflow-y: auto;
+    min-height: 0;
+    position: relative;
+    z-index: 1;
 }
 
 .sidebar-header {
@@ -433,6 +438,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .db-item {
@@ -441,6 +449,7 @@ body {
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s;
+    flex-shrink: 0;
 }
 
 .db-item:hover {
@@ -467,6 +476,7 @@ body {
 .main-content {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     background: white;
     border-radius: 12px;
     padding: 30px;
@@ -481,6 +491,13 @@ body {
     justify-content: center;
     padding: 80px 20px;
     text-align: center;
+    min-height: 0;
+    box-sizing: border-box;
+}
+
+.welcome-view h2,
+.welcome-view p {
+    flex-shrink: 0;
 }
 
 .welcome-icon {
