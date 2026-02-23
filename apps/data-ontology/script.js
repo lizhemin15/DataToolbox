@@ -1978,7 +1978,7 @@ function renderApiList() {
                         <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
                     </div>
                 </div>
-                <label class="api-item-switch" onclick="event.stopPropagation(); toggleApiEnabled('${api.id}')" title="${enabled ? '关闭接口' : '开启接口'}">
+                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${api.id}')" title="${enabled ? '关闭接口' : '开启接口'}" style="flex-shrink:0;">
                     <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
                     <span class="switch-slider"></span>
                 </label>

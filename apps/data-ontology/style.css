@@ -990,12 +990,6 @@ body {
     color: #718096;
 }
 
-.api-item-switch {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    cursor: pointer;
-}
 
 .info-item-switch {
     display: flex;
