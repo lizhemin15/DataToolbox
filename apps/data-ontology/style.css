@@ -396,6 +396,19 @@ body {
     z-index: 2;
 }
 
+/* 接口分发：侧栏与列表不被任何元素覆盖 */
+#apiTab .sidebar {
+    isolation: isolate;
+    z-index: 10;
+}
+#apiTab .sidebar .sidebar-header {
+    flex-shrink: 0;
+}
+#apiTab .sidebar #apiList {
+    position: relative;
+    z-index: 1;
+}
+
 .sidebar-header {
     display: flex;
     justify-content: space-between;
@@ -1285,9 +1298,12 @@ body {
     font-size: 14px;
     line-height: 1;
     width: auto;
+    max-width: 36px;
     min-width: 32px;
     height: 28px;
     box-sizing: border-box;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
 .apikey-popover {

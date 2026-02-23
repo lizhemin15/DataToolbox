@@ -167,12 +167,14 @@ function initEventListeners() {
         if (popover.classList.contains('show')) {
             var rect = btn.getBoundingClientRect();
             var popoverW = 270;
-            // 弹层在按钮右侧打开，避免盖住左侧列表导致点击时“两种状态切换”
-            if (rect.right + popoverW <= window.innerWidth) {
-                popover.style.left = rect.right + 'px';
+            var sidebarWidth = 330;
+            // 弹层始终在侧栏右侧打开，绝不覆盖接口列表（left 至少为 sidebarWidth）
+            var targetLeft = Math.max(rect.right, sidebarWidth);
+            if (targetLeft + popoverW <= window.innerWidth) {
+                popover.style.left = targetLeft + 'px';
                 popover.style.right = 'auto';
             } else {
-                popover.style.right = (window.innerWidth - rect.left) + 'px';
+                popover.style.right = '20px';
                 popover.style.left = 'auto';
             }
             popover.style.top = rect.top + 'px';
