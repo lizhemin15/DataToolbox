@@ -166,8 +166,16 @@ function initEventListeners() {
         popover.classList.toggle('show');
         if (popover.classList.contains('show')) {
             var rect = btn.getBoundingClientRect();
-            popover.style.left = rect.left + 'px';
-            popover.style.top = (rect.bottom + 8) + 'px';
+            var popoverW = 270;
+            // 弹层在按钮右侧打开，避免盖住左侧列表导致点击时“两种状态切换”
+            if (rect.right + popoverW <= window.innerWidth) {
+                popover.style.left = rect.right + 'px';
+                popover.style.right = 'auto';
+            } else {
+                popover.style.right = (window.innerWidth - rect.left) + 'px';
+                popover.style.left = 'auto';
+            }
+            popover.style.top = rect.top + 'px';
         }
     });
     document.addEventListener('click', function(e) {
