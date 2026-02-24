@@ -5059,7 +5059,7 @@ async function refreshCodegenTables() {
         if (db.type === 'sqlite') sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
         else if (db.type === 'postgresql') sql = "SELECT table_name as name FROM information_schema.tables WHERE table_schema='public'";
         else if (db.type === 'dm') sql = "SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1";
-        else if (db.type === 'oracle') sql = "SELECT table_name as name FROM user_tables WHERE table_name NOT LIKE '%$' ORDER BY table_name";
+        else if (db.type === 'oracle') sql = "SELECT table_name as name FROM user_tables WHERE table_name NOT LIKE '%$%' AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' ORDER BY table_name";
         else sql = 'SHOW TABLES';
 
         const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
