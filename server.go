@@ -1120,7 +1120,8 @@ func getTablesQuery(dbType string) string {
 	case "sqlserver":
 		return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
 	case "oracle":
-		return "SELECT table_name FROM user_tables"
+		// 只显示用户表，排除数据字典等系统表（名称以 $ 结尾的为 Oracle 内部表）
+		return "SELECT table_name FROM user_tables WHERE table_name NOT LIKE '%$' ORDER BY table_name"
 	case "dm":
 		// 达梦兼容：用 SYSOBJECTS 避免 USER_TABLES 语法解析问题（-2007）
 		return "SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1"
