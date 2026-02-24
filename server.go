@@ -1120,14 +1120,21 @@ func getTablesQuery(dbType string) string {
 	case "sqlserver":
 		return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
 	case "oracle":
-		// 只显示用户表，排除数据字典、Streams/Apply、AWR、LogMiner 等系统表
+		// 只显示用户表，排除 SYS 等 schema 下的 Oracle 系统表（按常见前缀排除）
 		return "SELECT table_name FROM user_tables WHERE table_name NOT LIKE '%$%' " +
-			"AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' " +
+			"AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' " +
+			"AND table_name NOT LIKE 'AQ\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ATP\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'AUDIT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AV\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'BDSQL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CATALOG\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'CLUSTER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CQN\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'DBMS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DEF$%' " +
+			"AND table_name NOT LIKE 'ERROR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FILE\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'HELP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGSTDBY%' " +
+			"AND table_name NOT LIKE 'MVIEW\\_%' ESCAPE '\\' AND table_name NOT LIKE 'OLAP\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'REPCAT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SCHEDULER\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'SYS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'TRACE\\_%' ESCAPE '\\' " +
 			"ORDER BY table_name"
 	case "dm":
 		// 达梦兼容：用 SYSOBJECTS 避免 USER_TABLES 语法解析问题（-2007）
