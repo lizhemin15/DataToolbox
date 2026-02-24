@@ -139,8 +139,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		
 		if r.Method == "OPTIONS" {
@@ -5983,8 +5983,9 @@ func main() {
 	
 	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
-	// 设置 MCP HTTP 模式的回环地址（供 mcp.go 中的工具函数调用内部 API 使用）
+	// 设置 MCP HTTP 模式的回环地址并初始化 MCP HTTP Handler（全局单例）
 	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	initMCPHandlers()
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)

@@ -21,6 +21,28 @@ import (
 // mcpLoopbackAddr 由 server.go 的 main() 在监听前设置，供 HTTP 模式工具调用本服务内部 API 使用
 var mcpLoopbackAddr = "http://127.0.0.1:8080"
 
+type mcpCtxKeyType string
+
+const mcpCtxApiKey mcpCtxKeyType = "mcp_api_key"
+
+// mcpStreamableHandler 和 mcpSSEHandler 在服务启动时初始化一次，整个生命周期复用。
+// 每次新 session 由 callback 调用 buildMCPServer，通过 context 取得该 session 的 API Key。
+var (
+	mcpStreamableHandler http.Handler
+	mcpSSEHandler        http.Handler
+)
+
+func initMCPHandlers() {
+	mcpStreamableHandler = mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+		apiKey, _ := req.Context().Value(mcpCtxApiKey).(string)
+		return buildMCPServer(apiKey)
+	}, nil)
+	mcpSSEHandler = mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
+		apiKey, _ := req.Context().Value(mcpCtxApiKey).(string)
+		return buildMCPServer(apiKey)
+	}, nil)
+}
+
 const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
 
@@ -207,8 +229,11 @@ func buildMCPServer(apiKey string) *mcp.Server {
 	return s
 }
 
-// handleMCPHTTP 是内嵌在 HTTP 服务器中的 MCP 端点（Streamable HTTP Transport）。
-// 客户端直接通过 URL（如 http://server:8080/mcp）连接，无需本地二进制。
+// handleMCPHTTP 是内嵌在 HTTP 服务器中的 MCP 端点。
+// 路由规则：
+//   - /mcp        → Streamable HTTP Transport（Cursor/Claude 首选）
+//   - /mcp/sse    → SSE Transport（Cursor 降级 fallback）
+//   - /mcp/...    → SSE Transport（消息端点等）
 func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RLock()
 	enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
@@ -219,6 +244,11 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"MCP 已关闭，请在数据本体池中开启 MCP 模块"}`))
 		return
 	}
+	// OPTIONS preflight 在 CORS 中间件已处理，这里不需要 auth 检查
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if !verifyToken(r) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -226,10 +256,17 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	handler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
-		return buildMCPServer(apiKey)
-	}, nil)
-	handler.ServeHTTP(w, r)
+	ctx := context.WithValue(r.Context(), mcpCtxApiKey, apiKey)
+	r = r.WithContext(ctx)
+
+	path := r.URL.Path
+	if path == "/mcp" || path == "/mcp/" {
+		// Streamable HTTP Transport：POST 发送消息，GET 接收 SSE 流
+		mcpStreamableHandler.ServeHTTP(w, r)
+	} else {
+		// SSE Transport fallback（/mcp/sse、/mcp/message 等）
+		http.StripPrefix("/mcp", mcpSSEHandler).ServeHTTP(w, r)
+	}
 }
 
 func runMCPServer() {
