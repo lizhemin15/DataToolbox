@@ -1909,6 +1909,27 @@ function updateMcpDisplay() {
             '打开 Cherry Studio → 设置 → MCP 服务器，点击"添加服务器" → "从 JSON 导入"，将上方配置粘贴进去后保存。',
             '在聊天窗口底部开启 MCP 服务即可使用，无需在本机安装额外程序。'
         ];
+    } else if (clientType === 'dify') {
+        const config = {
+            mcpServers: {
+                'data-ontology': {
+                    transport: 'streamable_http',
+                    url: mcpUrl,
+                    headers: {
+                        Authorization: 'Bearer ' + key
+                    },
+                    timeout: 60
+                }
+            }
+        };
+        configText = JSON.stringify(config, null, 2);
+        steps = [
+            '确认数据本体池服务已运行，并在上方开启 MCP 总开关。',
+            '在 Dify 插件市场安装 <code>dify-plugin-tools-mcp_sse</code> 插件（支持 GitHub 安装：<code>junjiem/dify-plugin-tools-mcp_sse</code>）。',
+            '进入插件授权设置，将上方 JSON 粘贴到"MCP Servers config"输入框并保存。',
+            '在需要使用的 Agent 应用中添加该插件工具，即可在对话中调用 data-ontology 工具集。',
+            '注意：若 Dify 部署在 nginx 后且报超时错误，可在 .env 中设置 <code>NGINX_KEEPALIVE_TIMEOUT=650</code>。'
+        ];
     } else {
         configText = `# Stdio 本地模式（客户端需在本机安装 datatoolbox-server 二进制）
 # 从 GitHub Release 下载对应平台的可执行文件
