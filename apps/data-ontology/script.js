@@ -344,7 +344,7 @@ const dbTypeDefaults = {
     mariadb: { port: 3306, requiresDb: true },
     postgresql: { port: 5432, requiresDb: true },
     sqlserver: { port: 1433, requiresDb: true },
-    oracle: { port: 1521, requiresDb: false },
+    oracle: { port: 1521, requiresDb: true },
     dm: { port: 5236, requiresDb: true },
     sqlite: { port: 0, requiresDb: false, isFile: true },
     duckdb: { port: 0, requiresDb: false, isFile: true },
@@ -440,6 +440,9 @@ function handleDbTypeChange() {
             } else if (dbType === 'neo4j') {
                 label.textContent = '数据库名称';
                 input.placeholder = '例如: neo4j';
+            } else if (dbType === 'oracle') {
+                label.textContent = 'SID/服务名';
+                input.placeholder = '例如: ORCL、XE 或服务名';
             } else {
                 label.textContent = '数据库名';
                 input.placeholder = '要连接的数据库';

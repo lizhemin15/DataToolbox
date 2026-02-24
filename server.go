@@ -1042,7 +1042,10 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		return "sqlserver", dsn, nil
 
 	case "oracle":
-		// 使用 go-ora 驱动
+		// 使用 go-ora 驱动，必须提供 SID 或服务名
+		if config.Database == "" {
+			return "", "", fmt.Errorf("Oracle 连接需要填写 SID 或服务名（在「SID/服务名」中填写，例如 ORCL、XE）")
+		}
 		dsn := fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
 			config.User, config.Password, config.Host, config.Port, config.Database)
 		return "oracle", dsn, nil
