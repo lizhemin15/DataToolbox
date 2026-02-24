@@ -5983,9 +5983,8 @@ func main() {
 	
 	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
-	// 设置 MCP HTTP 模式的回环地址并初始化 MCP HTTP Handler（全局单例）
+	// 设置 MCP HTTP 模式的回环地址
 	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
-	initMCPHandlers()
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)
