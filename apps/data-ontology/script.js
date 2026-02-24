@@ -1857,62 +1857,76 @@ function updateMcpDisplay() {
 
     const key = currentApiKey || '<请先生成 API Key>';
     const clientType = (clientSelect && clientSelect.value) || 'cursor';
+    const mcpUrl = baseUrl + '/mcp';
     let configText = '';
     let steps = [];
     if (clientType === 'cursor') {
         const config = {
             'data-ontology': {
-                command: 'datatoolbox-server',
-                args: ['mcp'],
-                env: {
-                    DATA_ONTOLOGY_BASE_URL: baseUrl,
-                    DATA_ONTOLOGY_API_KEY: key
+                url: mcpUrl,
+                headers: {
+                    Authorization: 'Bearer ' + key
                 }
             }
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '从 Release 下载与您系统对应的 datatoolbox-server（与运行数据本体池服务端为同一程序）。',
-            '在 Cursor → Settings → MCP 中添加上述配置（或写入 ~/.cursor/mcp.json）。',
-            '将 DATA_ONTOLOGY_BASE_URL 设为您的数据本体池服务地址。',
-            '将 DATA_ONTOLOGY_API_KEY 设为上方生成的 API Key。'
+            '确认数据本体池服务已运行，并在上方开启 MCP 总开关。',
+            '打开 Cursor → Settings → MCP，点击"Add new MCP server"，粘贴上方配置；或写入 <code>~/.cursor/mcp.json</code>（Windows: <code>%USERPROFILE%\\.cursor\\mcp.json</code>）。',
+            '保存后 Cursor 会自动连接，无需在本机安装任何额外程序。'
         ];
     } else if (clientType === 'claude') {
         const config = {
             mcpServers: {
                 'data-ontology': {
-                    command: 'datatoolbox-server',
-                    args: ['mcp'],
-                    env: {
-                        DATA_ONTOLOGY_BASE_URL: baseUrl,
-                        DATA_ONTOLOGY_API_KEY: key
+                    url: mcpUrl,
+                    headers: {
+                        Authorization: 'Bearer ' + key
                     }
                 }
             }
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '从 Release 下载 datatoolbox-server 到本机。',
-            '在 Claude Desktop 配置目录（如 macOS ~/Library/Application Support/Claude/）的 mcp.json 或 设置中的 MCP 里加入上述 mcpServers 片段。',
-            '设置环境变量 DATA_ONTOLOGY_BASE_URL 与 DATA_ONTOLOGY_API_KEY（或在上方 env 中已包含）。',
-            '重启 Claude Desktop。'
+            '确认数据本体池服务已运行，并在上方开启 MCP 总开关。',
+            '在 Claude Desktop 配置文件（macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>，Windows: <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>）中加入上述 mcpServers 片段。',
+            '重启 Claude Desktop 即可，无需在本机安装额外程序。'
+        ];
+    } else if (clientType === 'cherry') {
+        const config = {
+            mcpServers: {
+                'data-ontology': {
+                    url: mcpUrl,
+                    headers: {
+                        Authorization: 'Bearer ' + key
+                    }
+                }
+            }
+        };
+        configText = JSON.stringify(config, null, 2);
+        steps = [
+            '确认数据本体池服务已运行，并在上方开启 MCP 总开关。',
+            '打开 Cherry Studio → 设置 → MCP 服务器，点击"添加服务器" → "从 JSON 导入"，将上方配置粘贴进去后保存。',
+            '在聊天窗口底部开启 MCP 服务即可使用，无需在本机安装额外程序。'
         ];
     } else {
-        configText = `# 环境变量（在运行 datatoolbox-server mcp 前设置）
+        configText = `# Stdio 本地模式（客户端需在本机安装 datatoolbox-server 二进制）
+# 从 GitHub Release 下载对应平台的可执行文件
+
+# 环境变量
 export DATA_ONTOLOGY_BASE_URL="${baseUrl}"
 export DATA_ONTOLOGY_API_KEY="${key}"
 
-# 命令行（Windows PowerShell 示例）
-# $env:DATA_ONTOLOGY_BASE_URL="${baseUrl}"
-# $env:DATA_ONTOLOGY_API_KEY="${key}"
-# .\\datatoolbox-server.exe mcp
-
-# 命令行（Linux/macOS）
-# ./datatoolbox-server mcp`;
+# 运行命令
+# Linux/macOS: ./datatoolbox-server mcp
+# Windows PowerShell:
+#   $env:DATA_ONTOLOGY_BASE_URL="${baseUrl}"
+#   $env:DATA_ONTOLOGY_API_KEY="${key}"
+#   .\\datatoolbox-server.exe mcp`;
         steps = [
-            '设置环境变量 DATA_ONTOLOGY_BASE_URL 和 DATA_ONTOLOGY_API_KEY。',
-            '在终端执行：datatoolbox-server mcp（或 ./datatoolbox-server mcp）。',
-            '在支持 stdio MCP 的客户端中配置上述命令即可。'
+            '从 GitHub Release 下载与系统对应的 datatoolbox-server 可执行文件到<strong>客户端本机</strong>。',
+            '在支持 stdio MCP 的客户端中配置：命令 <code>datatoolbox-server</code>，参数 <code>mcp</code>，并设置上方两个环境变量。',
+            '推荐优先使用 HTTP 模式（无需本地安装）。'
         ];
     }
     if (configPre) configPre.textContent = configText;

@@ -329,6 +329,13 @@
                         <div class="detail-header">
                             <h2 id="apiName">接口名称</h2>
                             <div class="detail-actions">
+                                <label class="detail-enabled-wrap" onclick="event.stopPropagation()" title="启用/关闭接口">
+                                    <span class="detail-enabled-label">启用</span>
+                                    <div class="switch-wrap">
+                                        <input type="checkbox" id="apiDetailEnabledCheck" onchange="toggleApiEnabledFromDetail()">
+                                        <span class="switch-slider"></span>
+                                    </div>
+                                </label>
                                 <button id="editApiBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="testApiBtn" class="btn btn-sm btn-primary">🧪 测试</button>
                                 <button id="deleteApiBtn" class="btn btn-sm btn-danger">删除</button>
@@ -336,13 +343,6 @@
                         </div>
 
                         <div class="db-info">
-                            <div class="info-item info-item-switch">
-                                <span class="info-label">启用:</span>
-                                <label class="switch-wrap" onclick="event.stopPropagation()">
-                                    <input type="checkbox" id="apiDetailEnabledCheck" onchange="toggleApiEnabledFromDetail()">
-                                    <span class="switch-slider"></span>
-                                </label>
-                            </div>
                             <div class="info-item">
                                 <span class="info-label">接口路径:</span>
                                 <span id="apiPath" class="info-value"></span>
@@ -424,7 +424,8 @@
                         <select id="mcpClientType" onchange="updateMcpDisplay()">
                             <option value="cursor">Cursor</option>
                             <option value="claude">Claude Desktop</option>
-                            <option value="env">环境变量 / 命令行</option>
+                            <option value="cherry">Cherry Studio</option>
+                            <option value="stdio">Stdio 本地模式（高级）</option>
                         </select>
                     </div>
                     <div class="mcp-config-block">

@@ -991,10 +991,22 @@ body {
 }
 
 
-.info-item-switch {
-    display: flex;
+.detail-enabled-wrap {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f7fafc;
+    user-select: none;
+}
+
+.detail-enabled-label {
+    font-size: 13px;
+    color: #4a5568;
+    font-weight: 500;
 }
 
 .mcp-desc {
@@ -1064,6 +1076,24 @@ body {
     color: #718096;
     font-size: 12px;
     margin-top: 6px;
+}
+
+.mcp-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    color: #2d3748;
+    background: #f7fafc;
+    outline: none;
+    min-width: 0;
+}
+
+.mcp-input:focus {
+    border-color: #667eea;
+    background: #fff;
 }
 
 .mcp-config-block {

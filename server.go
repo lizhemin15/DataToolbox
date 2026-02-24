@@ -5940,6 +5940,8 @@ func main() {
 	
 	// MCP 配置（总开关）
 	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
+	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
+	mux.Handle("/mcp/", http.HandlerFunc(handleMCPHTTP))
 	// 接口管理API路由
 	mux.HandleFunc("/api/data-ontology/apis", handleApis)
 	mux.HandleFunc("/api/data-ontology/apis/", func(w http.ResponseWriter, r *http.Request) {
@@ -5980,6 +5982,9 @@ func main() {
 	mux.Handle("/", fs)
 	
 	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
+
+	// 设置 MCP HTTP 模式的回环地址（供 mcp.go 中的工具函数调用内部 API 使用）
+	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)

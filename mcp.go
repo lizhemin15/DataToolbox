@@ -1,5 +1,6 @@
-// MCP 模块：通过 stdio 暴露数据本体池能力，供 Cursor 等客户端调用。
-// 使用方式：DATA_ONTOLOGY_BASE_URL=http://... DATA_ONTOLOGY_API_KEY=dok_xxx ./datatoolbox-server mcp
+// MCP 模块：
+//   HTTP 模式（推荐）：MCP 服务以 HTTP 端点内嵌在服务器中，客户端通过 URL 直接连接，无需本地二进制。
+//   Stdio 模式（备用）：DATA_ONTOLOGY_BASE_URL=http://... DATA_ONTOLOGY_API_KEY=dok_xxx ./datatoolbox-server mcp
 
 package main
 
@@ -16,6 +17,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// mcpLoopbackAddr 由 server.go 的 main() 在监听前设置，供 HTTP 模式工具调用本服务内部 API 使用
+var mcpLoopbackAddr = "http://127.0.0.1:8080"
 
 const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
@@ -145,6 +149,87 @@ func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*m
 		return nil, mcpOutput{}, err
 	}
 	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+// buildMCPServer 创建一个 MCP 服务实例，工具函数通过 apiKey 回调本服务内部 API。
+// 每个 HTTP 会话独立一个实例，apiKey 通过闭包绑定，不共享状态。
+func buildMCPServer(apiKey string) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, nil)
+	cli := &mcpClient{
+		baseURL: mcpLoopbackAddr,
+		apiKey:  apiKey,
+		client:  &http.Client{Timeout: 30 * time.Second},
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_databases",
+		Description: "列出数据本体池中已配置的数据库（不含密码）",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
+		data, err := cli.do(http.MethodGet, "/api/data-ontology/databases", nil)
+		if err != nil {
+			return nil, mcpOutput{}, err
+		}
+		return nil, mcpOutput{Result: string(data)}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_tables",
+		Description: "获取指定数据库的表列表及连接状态",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
+		data, err := cli.do(http.MethodGet, "/api/data-ontology/databases/"+in.DatabaseID, nil)
+		if err != nil {
+			return nil, mcpOutput{}, err
+		}
+		return nil, mcpOutput{Result: string(data)}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_apis",
+		Description: "列出数据本体池中已配置的接口（path、method、关联数据库）",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, mcpOutput, error) {
+		data, err := cli.do(http.MethodGet, "/api/data-ontology/apis", nil)
+		if err != nil {
+			return nil, mcpOutput{}, err
+		}
+		return nil, mcpOutput{Result: string(data)}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "call_api",
+		Description: "调用已配置的接口，传入接口 ID 和 params 执行并返回数据",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+		body, _ := json.Marshal(map[string]interface{}{"params": in.Params})
+		if body == nil {
+			body = []byte(`{"params":{}}`)
+		}
+		data, err := cli.do(http.MethodPost, "/api/data-ontology/apis/"+in.ApiID+"/test", body)
+		if err != nil {
+			return nil, mcpOutput{}, err
+		}
+		return nil, mcpOutput{Result: string(data)}, nil
+	})
+	return s
+}
+
+// handleMCPHTTP 是内嵌在 HTTP 服务器中的 MCP 端点（Streamable HTTP Transport）。
+// 客户端直接通过 URL（如 http://server:8080/mcp）连接，无需本地二进制。
+func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
+	dataOntologyMu.RLock()
+	enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+	dataOntologyMu.RUnlock()
+	if !enabled {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"MCP 已关闭，请在数据本体池中开启 MCP 模块"}`))
+		return
+	}
+	if !verifyToken(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"未授权，请在 Authorization 头中提供有效的 API Key"}`))
+		return
+	}
+	apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	handler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+		return buildMCPServer(apiKey)
+	}, nil)
+	handler.ServeHTTP(w, r)
 }
 
 func runMCPServer() {
