@@ -135,10 +135,46 @@ func mcpToolsList() []interface{} {
 			},
 		},
 		map[string]interface{}{
+			"name":        "describe_table",
+			"description": "获取指定数据库中某张表的列结构（字段名、类型、是否可空、默认值、键信息等）",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
+					"table_name":  map[string]interface{}{"type": "string", "description": "表名"},
+				},
+				"required": []string{"database_id", "table_name"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "execute_sql",
+			"description": "在指定数据库上执行 SQL 语句。SELECT/SHOW/DESCRIBE/EXPLAIN 返回查询结果；INSERT/UPDATE/DELETE/CREATE/DROP 等返回影响行数。请谨慎使用写操作。",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
+					"sql":         map[string]interface{}{"type": "string", "description": "要执行的 SQL 语句"},
+					"params":      map[string]interface{}{"type": "array", "description": "SQL 占位符参数（可选）", "items": map[string]interface{}{"type": "string"}},
+				},
+				"required": []string{"database_id", "sql"},
+			},
+		},
+		map[string]interface{}{
 			"name":        "list_apis",
 			"description": "列出数据本体池中已配置的接口（path、method、关联数据库）",
 			"inputSchema": map[string]interface{}{
 				"type": "object", "properties": map[string]interface{}{},
+			},
+		},
+		map[string]interface{}{
+			"name":        "get_api_detail",
+			"description": "获取指定接口的完整详情，包括 SQL 语句、参数定义、描述、关联数据库等",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"api_id": map[string]interface{}{"type": "string", "description": "接口 ID"},
+				},
+				"required": []string{"api_id"},
 			},
 		},
 		map[string]interface{}{
@@ -169,6 +205,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			return nil, err
 		}
 		return textResult(data), nil
+
 	case "get_tables":
 		var args struct {
 			DatabaseID string `json:"database_id"`
@@ -182,12 +219,68 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			return nil, err
 		}
 		return textResult(data), nil
+
+	case "describe_table":
+		var args struct {
+			DatabaseID string `json:"database_id"`
+			TableName  string `json:"table_name"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.DatabaseID == "" || args.TableName == "" {
+			return nil, fmt.Errorf("database_id 和 table_name 不能为空")
+		}
+		body, _ := json.Marshal(map[string]interface{}{
+			"database_id": args.DatabaseID,
+			"sql":         "DESCRIBE `" + args.TableName + "`",
+		})
+		data, err := cli.do(http.MethodPost, "/api/data-ontology/governance/execute-sql", body)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
+	case "execute_sql":
+		var args struct {
+			DatabaseID string        `json:"database_id"`
+			SQL        string        `json:"sql"`
+			Params     []interface{} `json:"params"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.DatabaseID == "" || args.SQL == "" {
+			return nil, fmt.Errorf("database_id 和 sql 不能为空")
+		}
+		body, _ := json.Marshal(map[string]interface{}{
+			"database_id": args.DatabaseID,
+			"sql":         args.SQL,
+			"params":      args.Params,
+		})
+		data, err := cli.do(http.MethodPost, "/api/data-ontology/governance/execute-sql", body)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
 	case "list_apis":
 		data, err := cli.do(http.MethodGet, "/api/data-ontology/apis", nil)
 		if err != nil {
 			return nil, err
 		}
 		return textResult(data), nil
+
+	case "get_api_detail":
+		var args struct {
+			ApiID string `json:"api_id"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.ApiID == "" {
+			return nil, fmt.Errorf("api_id 不能为空")
+		}
+		data, err := cli.do(http.MethodGet, "/api/data-ontology/apis/"+args.ApiID, nil)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
 	case "call_api":
 		var args struct {
 			ApiID  string                 `json:"api_id"`
@@ -203,6 +296,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			return nil, err
 		}
 		return textResult(data), nil
+
 	default:
 		return nil, fmt.Errorf("未知工具: %s", name)
 	}

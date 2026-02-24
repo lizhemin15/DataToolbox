@@ -442,7 +442,10 @@
                     <ul class="mcp-tools-list">
                         <li><code>list_databases</code> — 列出已配置的数据库（不含密码）</li>
                         <li><code>get_tables</code> — 获取指定数据库的表列表及连接状态</li>
+                        <li><code>describe_table</code> — 获取表的列结构（字段名、类型、键信息等）</li>
+                        <li><code>execute_sql</code> — 在指定数据库上执行任意 SQL（SELECT 返回数据，写操作返回影响行数）</li>
                         <li><code>list_apis</code> — 列出已配置的接口</li>
+                        <li><code>get_api_detail</code> — 获取接口完整详情（含 SQL、参数定义、描述）</li>
                         <li><code>call_api</code> — 调用已配置的接口，传入接口 ID 和参数执行并返回数据</li>
                     </ul>
                 </div>
