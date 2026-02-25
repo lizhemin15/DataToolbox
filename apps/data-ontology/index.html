@@ -304,7 +304,16 @@
                             <span class="onto-brand-text">本体论知识图谱</span>
                         </span>
                         <div class="onto-toolbar-sep"></div>
-                        <select id="ontoDbSelect" class="onto-db-select" multiple title="选择要分析的数据库（可多选）"></select>
+                        <div class="onto-db-picker" id="ontoDbPicker">
+                            <button class="onto-db-btn" id="ontoDbBtn" onclick="toggleDbPicker(event)" type="button">
+                                <span class="onto-db-btn-icon">🗄️</span>
+                                <span class="onto-db-btn-text" id="ontoDbBtnText">选择数据库</span>
+                                <span class="onto-db-btn-arrow" id="ontoDbBtnArrow">▾</span>
+                            </button>
+                            <div class="onto-db-dropdown" id="ontoDbDropdown">
+                                <div class="onto-db-dropdown-empty" id="ontoDbDropdownEmpty">暂无数据库</div>
+                            </div>
+                        </div>
                         <button id="ontoExtractBtn" class="onto-btn onto-btn-ai" onclick="startOntologyExtract()">
                             <span>✨</span> AI 智能提取
                         </button>

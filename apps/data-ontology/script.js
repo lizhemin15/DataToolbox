@@ -5595,6 +5595,7 @@ function renderGovApiDocs(query) {
 let ontoData = null;
 let ontoSimulation = null;
 let ontoInsightExpanded = true;
+let ontoSelectedDbId = null;
 
 // ---- 颜色与配置 ----
 const ONTO_COLORS = {
@@ -5998,33 +5999,14 @@ function loadOntologyDemo() {
 
 // ---- AI 提取 ----
 function startOntologyExtract() {
-    const sel = document.getElementById('ontoDbSelect');
-    const dbIds = Array.from(sel.selectedOptions).map(o => o.value);
-    if (dbIds.length === 0) {
+    if (!ontoSelectedDbId) {
         showOntoToast('⚠️ 请先选择要分析的数据库', true);
         return;
     }
+    const dbIds = [ontoSelectedDbId];
     showOntologyLoading('AI 正在分析数据库结构...');
     const token = localStorage.getItem('dataOntologyToken');
 
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-        progress = Math.min(progress + 2, 88);
-        document.getElementById('ontoAiProgressBar').style.width = progress + '%';
-    }, 300);
-
-    const evtSource = new EventSource('/api/data-ontology/ontology/extract?' + new URLSearchParams({token}));
-    fetch('/api/data-ontology/ontology/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({ databases: dbIds }),
-    }).then(res => {
-        // 不走 EventSource，直接用 fetch+ReadableStream
-    }).catch(() => {});
-
-    // 改用 fetch + SSE 手动读取
-    evtSource.close();
-    clearInterval(progressInterval);
     let progress2 = 0;
     const pi2 = setInterval(() => {
         progress2 = Math.min(progress2 + 2, 88);
@@ -6188,21 +6170,98 @@ function showOntoToast(msg, isError) {
     ontoToastTimer = setTimeout(() => el.remove(), 3500);
 }
 
+// ---- 数据库类型图标 ----
+const DB_TYPE_ICONS = {
+    mysql: '🐬', postgresql: '🐘', oracle: '🔴', mssql: '🪟', mongodb: '🍃',
+    dm: '🇨🇳', sqlite: '📁', duckdb: '🦆', clickhouse: '⚡', neo4j: '🕸️',
+};
+
+function getDbIcon(type) {
+    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '🗄️';
+}
+
+// ---- 自定义下拉：开关 ----
+function toggleDbPicker(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('ontoDbDropdown');
+    const btn = document.getElementById('ontoDbBtn');
+    const isOpen = dd.classList.contains('open');
+    dd.classList.toggle('open', !isOpen);
+    btn.classList.toggle('active', !isOpen);
+}
+
+// ---- 自定义下拉：选择某个数据库 ----
+function selectOntologyDb(dbId, dbName, dbType) {
+    ontoSelectedDbId = dbId;
+    const textEl = document.getElementById('ontoDbBtnText');
+    textEl.textContent = `${getDbIcon(dbType)} ${dbName}`;
+    textEl.classList.remove('placeholder');
+    // 更新选中状态
+    document.querySelectorAll('.onto-db-option').forEach(el => {
+        const isSelected = el.dataset.dbId === dbId;
+        el.classList.toggle('selected', isSelected);
+        const check = el.querySelector('.onto-db-option-check');
+        if (check) check.style.display = isSelected ? '' : 'none';
+    });
+    // 关闭下拉
+    document.getElementById('ontoDbDropdown').classList.remove('open');
+    document.getElementById('ontoDbBtn').classList.remove('active');
+}
+
+// 点击外部关闭下拉
+document.addEventListener('click', () => {
+    const dd = document.getElementById('ontoDbDropdown');
+    const btn = document.getElementById('ontoDbBtn');
+    if (dd) dd.classList.remove('open');
+    if (btn) btn.classList.remove('active');
+});
+
 // ---- 初始化：本体论 tab 激活时同步数据库列表 ----
 function initOntologyTab() {
-    const sel = document.getElementById('ontoDbSelect');
-    if (!sel) return;
-    sel.innerHTML = '';
-    databases.forEach(db => {
-        const opt = document.createElement('option');
-        opt.value = db.id;
-        opt.textContent = `${db.name} (${db.type})`;
-        sel.appendChild(opt);
-    });
-    // resize 时重绘
-    window.addEventListener('resize', () => {
-        if (ontoData) renderOntologyGraph(ontoData, false);
-    });
+    const dropdown = document.getElementById('ontoDbDropdown');
+    const emptyEl  = document.getElementById('ontoDbDropdownEmpty');
+    if (!dropdown) return;
+
+    // 清空旧选项
+    dropdown.querySelectorAll('.onto-db-option').forEach(el => el.remove());
+
+    if (databases.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+    } else {
+        if (emptyEl) emptyEl.style.display = 'none';
+        databases.forEach(db => {
+            const item = document.createElement('div');
+            item.className = 'onto-db-option';
+            item.dataset.dbId = db.id;
+            const isSelected = db.id === ontoSelectedDbId;
+            if (isSelected) item.classList.add('selected');
+            item.innerHTML = `
+                <span class="onto-db-option-icon">${getDbIcon(db.type)}</span>
+                <span class="onto-db-option-info">
+                    <span class="onto-db-option-name">${db.name}</span>
+                    <span class="onto-db-option-type">${db.type || 'unknown'}</span>
+                </span>
+                <span class="onto-db-option-check" style="display:${isSelected ? '' : 'none'}">✓</span>`;
+            item.onclick = (e) => {
+                e.stopPropagation();
+                selectOntologyDb(db.id, db.name, db.type);
+            };
+            dropdown.appendChild(item);
+        });
+        // 若之前已选，文本保持
+        if (!ontoSelectedDbId) {
+            const textEl = document.getElementById('ontoDbBtnText');
+            if (textEl) { textEl.textContent = '选择数据库'; textEl.classList.add('placeholder'); }
+        }
+    }
+
+    // resize 时重绘（只注册一次）
+    if (!window._ontoResizeRegistered) {
+        window._ontoResizeRegistered = true;
+        window.addEventListener('resize', () => {
+            if (ontoData) renderOntologyGraph(ontoData, false);
+        });
+    }
 }
 
 document.addEventListener('keydown', e => {
