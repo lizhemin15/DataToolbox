@@ -993,7 +993,8 @@ async function loadStructureAndRenderTable(addOneRow) {
         });
         const structureData = await structureResponse.json();
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
-            previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">无法获取表结构，请稍后重试</div>';
+            const msg = (structureData.message && structureData.message.trim()) ? structureData.message : '无法获取表结构，请稍后重试';
+            previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">' + escapeHtml(msg) + '</div>';
             return;
         }
         const columns = structureData.columns.map(col => col.name);

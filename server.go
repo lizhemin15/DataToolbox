@@ -2749,6 +2749,13 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 	}
 
 	rows, err := db.Query(query)
+	// Oracle：无 ALL_TAB_COLUMNS 权限或 owner.table 查不到时，回退到 USER_TAB_COLUMNS（仅表名部分）
+	if err != nil && config.Type == "oracle" && strings.Contains(tableName, ".") {
+		tblPart := tableName[strings.Index(tableName, ".")+1:]
+		tblEsc := strings.ReplaceAll(strings.ToUpper(tblPart), "'", "''")
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		rows, err = db.Query(fallbackQuery)
+	}
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2805,6 +2812,30 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 					"type":     colType,
 					"nullable": notnull == 0,
 				})
+			}
+		}
+	}
+
+	// Oracle：若 ALL_TAB_COLUMNS 返回 0 行（无权限或非当前 schema），用 USER_TAB_COLUMNS 再试
+	if config.Type == "oracle" && len(columns) == 0 && strings.Contains(tableName, ".") {
+		rows.Close()
+		tblPart := tableName[strings.Index(tableName, ".")+1:]
+		tblEsc := strings.ReplaceAll(strings.ToUpper(tblPart), "'", "''")
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		rows2, err2 := db.Query(fallbackQuery)
+		if err2 == nil {
+			defer rows2.Close()
+			for rows2.Next() {
+				var colName, colType string
+				var nullableStr string
+				var defaultVal interface{}
+				if err := rows2.Scan(&colName, &colType, &nullableStr, &defaultVal); err == nil {
+					columns = append(columns, map[string]interface{}{
+						"name":     colName,
+						"type":     colType,
+						"nullable": nullableStr == "Y",
+					})
+				}
 			}
 		}
 	}
