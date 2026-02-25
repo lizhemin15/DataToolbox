@@ -334,6 +334,8 @@ function switchTab(tabName) {
         updateAiContextDisplay();
     } else if (tabName === 'governance') {
         loadGovernanceTasks();
+    } else if (tabName === 'ontology') {
+        initOntologyTab();
     }
 }
 
@@ -5583,6 +5585,624 @@ function renderGovApiDocs(query) {
     }
     if (!html) html = '<div style="color:#888;padding:24px;text-align:center;">未找到匹配的 API</div>';
     body.innerHTML = html;
+}
+
+// ============================================================
+// 本体论抽象模块 - 知识图谱可视化
+// ============================================================
+
+// ---- 状态 ----
+let ontoData = null;
+let ontoSimulation = null;
+let ontoInsightExpanded = true;
+
+// ---- 颜色与配置 ----
+const ONTO_COLORS = {
+    entity:    { fill: '#4ECDC4', dark: '#2aa59e', emoji: '📦' },
+    event:     { fill: '#FF6B6B', dark: '#cc4444', emoji: '⚡' },
+    concept:   { fill: '#A29BFE', dark: '#7c73e6', emoji: '💡' },
+    rule:      { fill: '#55EFC4', dark: '#2ecc97', emoji: '📋' },
+    conflict:  { fill: '#E17055', dark: '#b5503a', emoji: '⚠️' },
+    attribute: { fill: '#FDCB6E', dark: '#d4a224', emoji: '🏷️' },
+};
+
+const ONTO_CATEGORY_LABELS = {
+    entity: '实体', event: '事件', concept: '概念',
+    rule: '规则', conflict: '冲突', attribute: '属性',
+};
+
+// ---- 演示数据 — 企业电商平台场景 ----
+const DEMO_ONTOLOGY = {
+    concepts: [
+        { id: 'customer', label: '客户', category: 'entity', importance: 0.95,
+          description: '代表系统中的终端消费者或企业采购方，是所有业务关系的核心主体。对应数据库 users 表和 customers 表（存在命名冲突）。',
+          tables: ['users', 'customers'],
+          attributes: ['id','name','email','phone','address','created_at'],
+          governance_issues: ['users表与customers表语义重叠', '个人信息字段缺少脱敏标注'] },
+        { id: 'order', label: '订单', category: 'entity', importance: 0.90,
+          description: '记录客户购买行为的核心交易实体，承载商品、价格、状态等关键业务数据。是支付和物流的触发器。',
+          tables: ['orders','order_items'], attributes: ['order_id','total_amount','status','created_at'], governance_issues: [] },
+        { id: 'product', label: '商品', category: 'entity', importance: 0.85,
+          description: '系统销售的商品实体，包含价格、库存关联、分类等属性。价格字段在多处存储，存在一致性风险。',
+          tables: ['products','product_variants'], attributes: ['product_id','name','price','sku','status'],
+          governance_issues: ['价格字段类型不一致（decimal vs float）', '商品信息分散在多表'] },
+        { id: 'inventory', label: '库存', category: 'entity', importance: 0.75,
+          description: '实时追踪商品库存数量和仓库位置，是供应链管理的关键数据资产。',
+          tables: ['inventory','warehouse_stock'], attributes: ['sku','quantity','warehouse_id','updated_at'], governance_issues: [] },
+        { id: 'payment', label: '支付', category: 'entity', importance: 0.80,
+          description: '记录订单支付信息的实体，包含支付渠道、金额、状态等敏感财务数据。需满足金融监管合规要求。',
+          tables: ['payments','payment_logs'], attributes: ['payment_id','amount','channel','status','transaction_id'],
+          governance_issues: ['支付敏感信息需加密存储', '缺少支付流水审计日志'] },
+        { id: 'logistics', label: '物流', category: 'entity', importance: 0.70,
+          description: '追踪订单配送状态和路径的实体，连接仓储与终端客户，是售后服务的数据基础。',
+          tables: ['shipments','tracking_events'], attributes: ['tracking_no','carrier','status','estimated_delivery'], governance_issues: [] },
+        { id: 'cart', label: '购物车', category: 'event', importance: 0.60,
+          description: '记录客户加购意向的临时状态实体，是订单生成前的前置业务事件，反映用户购买意图。',
+          tables: ['shopping_carts','cart_items'], attributes: ['cart_id','customer_id','items','total'], governance_issues: [] },
+        { id: 'review', label: '商品评价', category: 'event', importance: 0.50,
+          description: '客户对购买商品的反馈事件，包含评分和文字描述，直接影响商品排序权重和选品决策。',
+          tables: ['reviews','review_images'], attributes: ['review_id','rating','content','created_at'], governance_issues: [] },
+        { id: 'coupon', label: '优惠券', category: 'concept', importance: 0.55,
+          description: '营销促销工具，定义折扣规则和使用条件，影响订单最终价格计算逻辑，与财务对账强关联。',
+          tables: ['coupons','coupon_usage'], attributes: ['code','discount_type','value','conditions'], governance_issues: [] },
+        { id: 'category', label: '商品分类', category: 'concept', importance: 0.60,
+          description: '商品的层级分类体系，支持多级嵌套，是商品检索、推荐算法和运营管理的基础数据结构。',
+          tables: ['categories'], attributes: ['category_id','name','parent_id','path'], governance_issues: [] },
+        { id: 'loyalty', label: '会员等级', category: 'rule', importance: 0.50,
+          description: '定义客户等级晋升阈值和权益体系的业务规则实体，决定差异化服务策略和折扣体系。',
+          tables: ['membership_rules','customer_loyalty'], attributes: ['level','threshold','benefits','discount_rate'], governance_issues: [] },
+        { id: 'risk_naming', label: '命名冲突', category: 'conflict', importance: 0.90,
+          description: '⚠️ 严重治理问题：users 表与 customers 表在业务语义上均代表"客户"，命名不一致导致跨系统数据整合困难，增加开发维护成本，建议统一命名规范。',
+          tables: ['users','customers'], attributes: [], governance_issues: ['需要数据模型标准化', '影响跨域数据集成'] },
+    ],
+    relations: [
+        { source: 'customer', target: 'order', label: '下单', type: 'has-many', description: '一个客户可以创建多个订单，体现购买行为的主要业务路径。' },
+        { source: 'order', target: 'product', label: '包含', type: 'many-to-many', description: '订单通过订单明细关联商品，支持一单多品。' },
+        { source: 'order', target: 'payment', label: '触发支付', type: 'has-one', description: '每个订单对应一次主要支付记录，支付成功后订单状态更新。' },
+        { source: 'order', target: 'logistics', label: '生成物流', type: 'has-one', description: '支付完成后自动生成物流配送单，触发仓库发货流程。' },
+        { source: 'customer', target: 'cart', label: '创建', type: 'has-many', description: '客户可以有多个购物车（多设备场景），体现购买意图。' },
+        { source: 'cart', target: 'product', label: '加入', type: 'many-to-many', description: '购物车中可加入多种商品，记录用户选品偏好。' },
+        { source: 'product', target: 'inventory', label: '关联库存', type: 'has-one', description: '每个SKU对应唯一库存记录，下单后自动扣减库存。' },
+        { source: 'product', target: 'category', label: '属于', type: 'many-to-one', description: '商品归属于特定分类层级，支持多级分类结构。' },
+        { source: 'customer', target: 'review', label: '提交评价', type: 'has-many', description: '客户可对购买的商品提交评价，影响商品声誉评分。' },
+        { source: 'review', target: 'product', label: '针对', type: 'many-to-one', description: '每条评价与特定商品绑定。' },
+        { source: 'customer', target: 'coupon', label: '持有', type: 'has-many', description: '营销活动向符合条件的客户发放优惠券。' },
+        { source: 'order', target: 'coupon', label: '使用', type: 'many-to-one', description: '订单结算时可核销一张优惠券，影响最终支付金额。' },
+        { source: 'customer', target: 'loyalty', label: '适用规则', type: 'has-one', description: '客户等级由会员积分规则动态决定，影响服务差异化。' },
+        { source: 'risk_naming', target: 'customer', label: '影响', type: 'conflict', description: '命名冲突直接影响客户实体的数据一致性和可信度。' },
+    ],
+    insights: [
+        { type: 'conflict', title: '实体命名冲突', severity: 'high', affectedConcepts: ['customer','risk_naming'],
+          description: 'users 表与 customers 表语义重叠，跨系统整合困难，建议统一为 customer 概念，制定命名规范。' },
+        { type: 'quality', title: '价格字段类型不一致', severity: 'high', affectedConcepts: ['product','order'],
+          description: 'products.price 使用 float，order_items.unit_price 使用 decimal，可能导致精度丢失和财务计算错误。' },
+        { type: 'governance', title: '个人信息缺少脱敏标注', severity: 'medium', affectedConcepts: ['customer'],
+          description: '客户实体包含手机号、邮箱等敏感信息，字段未标注脱敏级别，存在个人隐私合规风险（GDPR/个人信息保护法）。' },
+        { type: 'missing', title: '物流与商品未直接关联', severity: 'medium', affectedConcepts: ['logistics','product'],
+          description: '物流信息无法直接追溯到具体商品，退换货场景下的链路追溯存在断点，建议增加关联关系。' },
+        { type: 'governance', title: '支付审计日志缺失', severity: 'medium', affectedConcepts: ['payment'],
+          description: '支付实体缺少操作变更记录，无法满足金融监管对支付流水完整性的审计要求。' },
+        { type: 'quality', title: '识别12个核心业务概念', severity: 'info', affectedConcepts: [],
+          description: 'AI从数据库结构中识别出客户、订单、商品等12个核心业务实体，共14条语义关联关系，构建了完整的电商领域知识图谱。' },
+    ],
+};
+
+// ---- 节点半径 ----
+function ontoNodeRadius(d) {
+    return 18 + (d.importance || 0.5) * 16;
+}
+
+// ---- 初始化/渲染知识图谱 ----
+function renderOntologyGraph(data, animate) {
+    if (!data) return;
+    ontoData = data;
+
+    const svgEl = document.getElementById('ontoSvg');
+    if (!svgEl) return;
+
+    // 隐藏欢迎界面
+    document.getElementById('ontoWelcome').style.display = 'none';
+
+    const W = svgEl.parentElement.clientWidth;
+    const H = svgEl.parentElement.clientHeight;
+
+    // 清空旧内容
+    const svg = d3.select('#ontoSvg').attr('width', W).attr('height', H);
+    svg.selectAll('*').remove();
+
+    const defs = svg.append('defs');
+
+    // 发光滤镜
+    const fGlow = defs.append('filter').attr('id', 'onto-glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
+    fGlow.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '4').attr('result', 'blur');
+    const fMerge = fGlow.append('feMerge');
+    fMerge.append('feMergeNode').attr('in', 'blur');
+    fMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // 强发光 (选中节点)
+    const fGlow2 = defs.append('filter').attr('id', 'onto-glow-strong').attr('x', '-80%').attr('y', '-80%').attr('width', '260%').attr('height', '260%');
+    fGlow2.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '8').attr('result', 'blur');
+    const fMerge2 = fGlow2.append('feMerge');
+    fMerge2.append('feMergeNode').attr('in', 'blur');
+    fMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
+
+    // 箭头
+    ['default','conflict'].forEach(t => {
+        const m = defs.append('marker').attr('id', `onto-arrow-${t}`)
+            .attr('viewBox','0 -5 10 10').attr('refX', 22).attr('refY', 0)
+            .attr('markerWidth', 7).attr('markerHeight', 7).attr('orient', 'auto');
+        m.append('path').attr('d','M0,-5L10,0L0,5')
+            .attr('fill', t === 'conflict' ? '#E17055' : 'rgba(160,160,220,0.6)');
+    });
+
+    // 放射渐变
+    Object.entries(ONTO_COLORS).forEach(([cat, cfg]) => {
+        const g = defs.append('radialGradient').attr('id', `onto-grad-${cat}`).attr('cx','35%').attr('cy','35%');
+        g.append('stop').attr('offset','0%').attr('stop-color','#fff').attr('stop-opacity', 0.7);
+        g.append('stop').attr('offset','100%').attr('stop-color', cfg.fill).attr('stop-opacity', 1);
+    });
+
+    // 主 group（支持 zoom/pan）
+    const mainG = svg.append('g').attr('class','onto-main');
+    const zoom = d3.zoom().scaleExtent([0.25, 4]).on('zoom', e => mainG.attr('transform', e.transform));
+    svg.call(zoom).on('dblclick.zoom', null);
+
+    // 数据准备
+    const nodes = data.concepts.map(c => ({ ...c, x: W/2 + (Math.random()-0.5)*400, y: H/2 + (Math.random()-0.5)*300 }));
+    const nodeById = {};
+    nodes.forEach(n => nodeById[n.id] = n);
+    const links = (data.relations || []).filter(r => nodeById[r.source] && nodeById[r.target])
+        .map(r => ({ ...r, source: nodeById[r.source], target: nodeById[r.target] }));
+
+    // 力模拟
+    if (ontoSimulation) ontoSimulation.stop();
+    ontoSimulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'conflict' ? 100 : 130))
+        .force('charge', d3.forceManyBody().strength(d => -250 - (d.importance||0.5)*200))
+        .force('center', d3.forceCenter(W/2, H/2))
+        .force('collision', d3.forceCollide().radius(d => ontoNodeRadius(d) + 22));
+
+    // 绘制连线
+    const linkG = mainG.append('g');
+    const linkSel = linkG.selectAll('.onto-link-g').data(links).enter().append('g');
+    const linkLine = linkSel.append('line')
+        .attr('stroke', d => d.type === 'conflict' ? '#E17055' : 'rgba(160,160,230,0.3)')
+        .attr('stroke-width', d => d.type === 'conflict' ? 2.5 : 1.5)
+        .attr('stroke-dasharray', d => d.type === 'conflict' ? '8,4' : 'none')
+        .attr('marker-end', d => `url(#onto-arrow-${d.type==='conflict'?'conflict':'default'})`);
+    const linkLabel = linkSel.append('text').attr('class','onto-link-label')
+        .attr('text-anchor','middle').attr('fill','rgba(180,180,220,0.55)').attr('font-size','10px')
+        .text(d => d.label);
+
+    // 绘制节点
+    const nodeG = mainG.append('g');
+    const nodeSel = nodeG.selectAll('.onto-node').data(nodes).enter().append('g').attr('class','onto-node')
+        .attr('opacity', animate ? 0 : 1)
+        .style('cursor','pointer')
+        .call(d3.drag()
+            .on('start', (e,d) => { if(!e.active) ontoSimulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+            .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+            .on('end',   (e,d) => { if(!e.active) ontoSimulation.alphaTarget(0); d.fx=null; d.fy=null; })
+        )
+        .on('click', (e,d) => { e.stopPropagation(); showNodeDetail(d, nodes, links); });
+
+    // 外光晕
+    nodeSel.append('circle').attr('class','onto-node-glow')
+        .attr('r', d => ontoNodeRadius(d)+10)
+        .attr('fill', d => ONTO_COLORS[d.category]?.fill || '#4ECDC4')
+        .attr('opacity', 0.12).attr('filter','url(#onto-glow)');
+
+    // 主圆
+    nodeSel.append('circle').attr('class','onto-node-circle')
+        .attr('r', d => ontoNodeRadius(d))
+        .attr('fill', d => `url(#onto-grad-${d.category})`)
+        .attr('stroke', d => ONTO_COLORS[d.category]?.fill || '#4ECDC4')
+        .attr('stroke-width', 2).attr('filter','url(#onto-glow)');
+
+    // emoji 图标
+    nodeSel.append('text').attr('text-anchor','middle').attr('dominant-baseline','central')
+        .attr('font-size', d => Math.round(ontoNodeRadius(d)*0.75)+'px')
+        .attr('pointer-events','none').text(d => ONTO_COLORS[d.category]?.emoji || '📦');
+
+    // 标签
+    nodeSel.append('text').attr('class','onto-node-label').attr('text-anchor','middle')
+        .attr('dy', d => ontoNodeRadius(d)+16+'px')
+        .attr('fill','#e2e8f0').attr('font-size','12px').attr('font-weight','600')
+        .attr('pointer-events','none').text(d => d.label);
+
+    // 入场动画
+    if (animate) {
+        nodeSel.each(function(d, i) {
+            d3.select(this).transition().delay(i * 80).duration(500)
+                .attr('opacity', 1).ease(d3.easeBackOut.overshoot(1.4));
+        });
+    }
+
+    // tick
+    ontoSimulation.on('tick', () => {
+        linkLine.attr('x1', d=>d.source.x).attr('y1', d=>d.source.y)
+                .attr('x2', d=>d.target.x).attr('y2', d=>d.target.y);
+        linkLabel.attr('x', d=>(d.source.x+d.target.x)/2).attr('y', d=>(d.source.y+d.target.y)/2-4);
+        nodeSel.attr('transform', d=>`translate(${d.x},${d.y})`);
+    });
+
+    // 点击空白取消选中
+    svg.on('click', () => closeNodeDetail());
+
+    // 显示查询栏 & 更新统计
+    document.getElementById('ontoQueryBar').style.display = '';
+    document.getElementById('ontoClearBtn').style.display = '';
+    updateOntoStats(data);
+    renderInsights(data.insights || []);
+}
+
+// ---- 更新统计数字 ----
+function updateOntoStats(data) {
+    const risks = (data.insights || []).filter(i => i.severity === 'high' || i.severity === 'medium').length;
+    animateCounter('ontoStatConcepts', (data.concepts || []).length);
+    animateCounter('ontoStatRelations', (data.relations || []).length);
+    animateCounter('ontoStatRisks', risks);
+}
+
+function animateCounter(elId, target) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    let cur = 0;
+    const step = Math.ceil(target / 20);
+    const t = setInterval(() => {
+        cur = Math.min(cur + step, target);
+        el.textContent = cur;
+        if (cur >= target) clearInterval(t);
+    }, 40);
+}
+
+// ---- 渲染洞察面板 ----
+function renderInsights(insights) {
+    const body = document.getElementById('ontoInsightBody');
+    if (!insights || insights.length === 0) {
+        body.innerHTML = '<div class="onto-insight-placeholder"><span>💡</span><p>暂无洞察</p></div>';
+        return;
+    }
+    const iconMap = { conflict: '🔴', quality: '🟡', governance: '🔵', missing: '🟠', performance: '⚡', info: '✅' };
+    body.innerHTML = insights.map((ins, i) => `
+        <div class="onto-insight-card ${ins.severity}" style="animation-delay:${i*0.08}s" onclick="highlightInsight(${i})">
+            <div class="onto-insight-title">
+                ${iconMap[ins.type]||'💡'} ${ins.title}
+                <span class="onto-insight-badge ${ins.severity}">${ins.severity === 'high' ? '严重' : ins.severity === 'medium' ? '中' : ins.severity === 'low' ? '低' : '信息'}</span>
+            </div>
+            <div class="onto-insight-desc">${ins.description}</div>
+        </div>`).join('');
+}
+
+// ---- 高亮洞察相关节点 ----
+function highlightInsight(idx) {
+    if (!ontoData || !ontoData.insights[idx]) return;
+    const ins = ontoData.insights[idx];
+    const affected = new Set(ins.affectedConcepts || []);
+    if (affected.size === 0) return;
+    d3.selectAll('.onto-node').each(function(d) {
+        const active = affected.has(d.id);
+        d3.select(this).select('.onto-node-circle')
+            .transition().duration(300)
+            .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
+            .attr('stroke-width', active ? 3.5 : 2)
+            .attr('opacity', active ? 1 : 0.45);
+        d3.select(this).select('.onto-node-glow')
+            .transition().duration(300).attr('opacity', active ? 0.35 : 0.1);
+    });
+    setTimeout(() => {
+        d3.selectAll('.onto-node .onto-node-circle')
+            .transition().duration(400).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+        d3.selectAll('.onto-node .onto-node-glow').transition().duration(400).attr('opacity', 0.12);
+    }, 2500);
+}
+
+// ---- 节点详情 ----
+function showNodeDetail(d, nodes, links) {
+    const popup = document.getElementById('ontoNodePopup');
+    const badge = document.getElementById('ontoPopupBadge');
+    const title = document.getElementById('ontoPopupTitle');
+    const body  = document.getElementById('ontoPopupBody');
+
+    const cfg = ONTO_COLORS[d.category] || ONTO_COLORS.entity;
+    badge.textContent = ONTO_CATEGORY_LABELS[d.category] || d.category;
+    badge.style.cssText = `background:${cfg.fill}22;color:${cfg.fill};border:1px solid ${cfg.fill}66`;
+    title.textContent = d.label;
+
+    // 计算连接的节点
+    const connected = [];
+    if (links) {
+        links.forEach(l => {
+            const src = l.source.id || l.source;
+            const tgt = l.target.id || l.target;
+            if (src === d.id) connected.push({ label: l.label, direction: '→', name: (l.target.label || l.target) });
+            else if (tgt === d.id) connected.push({ label: l.label, direction: '←', name: (l.source.label || l.source) });
+        });
+    }
+
+    let html = '';
+    if (d.description) {
+        html += `<div class="onto-popup-section">
+            <div class="onto-popup-section-label">语义描述</div>
+            <div class="onto-popup-desc">${d.description}</div>
+        </div>`;
+    }
+    if (d.tables && d.tables.length) {
+        html += `<div class="onto-popup-section">
+            <div class="onto-popup-section-label">关联数据表</div>
+            <div class="onto-popup-tags">${d.tables.map(t=>`<span class="onto-tag">${t}</span>`).join('')}</div>
+        </div>`;
+    }
+    if (d.attributes && d.attributes.length) {
+        html += `<div class="onto-popup-section">
+            <div class="onto-popup-section-label">核心字段</div>
+            <div class="onto-popup-tags">${d.attributes.map(a=>`<span class="onto-tag">${a}</span>`).join('')}</div>
+        </div>`;
+    }
+    if (connected.length) {
+        html += `<div class="onto-popup-section">
+            <div class="onto-popup-section-label">关联关系 (${connected.length})</div>
+            <div class="onto-popup-tags">${connected.map(c=>`<span class="onto-tag">${c.direction} ${c.label} ${c.name}</span>`).join('')}</div>
+        </div>`;
+    }
+    if (d.governance_issues && d.governance_issues.length) {
+        html += `<div class="onto-popup-section">
+            <div class="onto-popup-section-label">⚠️ 治理问题</div>
+            <div class="onto-popup-tags">${d.governance_issues.map(g=>`<span class="onto-tag issue">${g}</span>`).join('')}</div>
+        </div>`;
+    }
+    body.innerHTML = html || '<div class="onto-popup-desc" style="color:#6e7681">暂无详细信息</div>';
+
+    popup.style.display = '';
+
+    // 高亮当前节点
+    d3.selectAll('.onto-node').each(function(nd) {
+        const active = nd.id === d.id;
+        d3.select(this).select('.onto-node-circle')
+            .transition().duration(200)
+            .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
+            .attr('stroke-width', active ? 4 : 2)
+            .attr('opacity', active ? 1 : 0.55);
+    });
+}
+
+function closeNodeDetail() {
+    document.getElementById('ontoNodePopup').style.display = 'none';
+    d3.selectAll('.onto-node .onto-node-circle')
+        .transition().duration(200).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+}
+
+// ---- 加载演示数据 ----
+function loadOntologyDemo() {
+    showOntologyLoading('加载演示场景...');
+    let progress = 0;
+    const steps = ['构建实体本体...', '分析语义关系...', '识别治理风险...', '生成知识图谱...'];
+    let si = 0;
+    const t = setInterval(() => {
+        progress = Math.min(progress + 5, 95);
+        document.getElementById('ontoAiProgressBar').style.width = progress + '%';
+        if (si < steps.length && progress >= (si + 1) * 20) {
+            document.getElementById('ontoAiText').textContent = steps[si++];
+        }
+    }, 60);
+    setTimeout(() => {
+        clearInterval(t);
+        document.getElementById('ontoAiProgressBar').style.width = '100%';
+        setTimeout(() => {
+            hideOntologyLoading();
+            renderOntologyGraph(DEMO_ONTOLOGY, true);
+            showOntoToast('✅ 演示场景已加载：电商平台业务本体图谱（12个概念 · 14条关系 · 5个治理洞察）');
+        }, 300);
+    }, 1800);
+}
+
+// ---- AI 提取 ----
+function startOntologyExtract() {
+    const sel = document.getElementById('ontoDbSelect');
+    const dbIds = Array.from(sel.selectedOptions).map(o => o.value);
+    if (dbIds.length === 0) {
+        showOntoToast('⚠️ 请先选择要分析的数据库', true);
+        return;
+    }
+    showOntologyLoading('AI 正在分析数据库结构...');
+    const token = localStorage.getItem('dataOntologyToken');
+
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+        progress = Math.min(progress + 2, 88);
+        document.getElementById('ontoAiProgressBar').style.width = progress + '%';
+    }, 300);
+
+    const evtSource = new EventSource('/api/data-ontology/ontology/extract?' + new URLSearchParams({token}));
+    fetch('/api/data-ontology/ontology/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ databases: dbIds }),
+    }).then(res => {
+        // 不走 EventSource，直接用 fetch+ReadableStream
+    }).catch(() => {});
+
+    // 改用 fetch + SSE 手动读取
+    evtSource.close();
+    clearInterval(progressInterval);
+    let progress2 = 0;
+    const pi2 = setInterval(() => {
+        progress2 = Math.min(progress2 + 2, 88);
+        document.getElementById('ontoAiProgressBar').style.width = progress2 + '%';
+    }, 300);
+
+    fetch('/api/data-ontology/ontology/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ databases: dbIds }),
+    }).then(async res => {
+        clearInterval(pi2);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const parts = buf.split('\n\n');
+            buf = parts.pop();
+            for (const part of parts) {
+                const lines = part.split('\n');
+                let evType = '', evData = '';
+                for (const line of lines) {
+                    if (line.startsWith('event:')) evType = line.slice(6).trim();
+                    if (line.startsWith('data:')) evData = line.slice(5).trim();
+                }
+                if (!evType || !evData) continue;
+                try { const d = JSON.parse(evData); ontoHandleSSE(evType, d); } catch {}
+            }
+        }
+        hideOntologyLoading();
+    }).catch(err => {
+        clearInterval(pi2);
+        hideOntologyLoading();
+        showOntoToast('❌ 连接失败：' + err.message, true);
+    });
+}
+
+function ontoHandleSSE(type, data) {
+    switch (type) {
+        case 'onto-start':
+        case 'onto-thinking':
+            document.getElementById('ontoAiText').textContent = data.message || 'AI 思考中...';
+            break;
+        case 'onto-result':
+            document.getElementById('ontoAiProgressBar').style.width = '100%';
+            setTimeout(() => {
+                hideOntologyLoading();
+                renderOntologyGraph(data, true);
+                showOntoToast(`✅ 提取完成：${(data.concepts||[]).length}个概念 · ${(data.relations||[]).length}条关系`);
+            }, 400);
+            break;
+        case 'onto-error':
+            hideOntologyLoading();
+            showOntoToast('❌ ' + (data.message || '提取失败'), true);
+            break;
+        case 'onto-done':
+            hideOntologyLoading();
+            break;
+    }
+}
+
+// ---- 清空图谱 ----
+function clearOntology() {
+    if (ontoSimulation) { ontoSimulation.stop(); ontoSimulation = null; }
+    ontoData = null;
+    d3.select('#ontoSvg').selectAll('*').remove();
+    document.getElementById('ontoWelcome').style.display = '';
+    document.getElementById('ontoQueryBar').style.display = 'none';
+    document.getElementById('ontoClearBtn').style.display = 'none';
+    document.getElementById('ontoNodePopup').style.display = 'none';
+    document.getElementById('ontoQueryResult').style.display = 'none';
+    document.getElementById('ontoInsightBody').innerHTML = '<div class="onto-insight-placeholder"><span>💡</span><p>提取本体后，AI将自动生成数据治理洞察</p></div>';
+    ['ontoStatConcepts','ontoStatRelations','ontoStatRisks'].forEach(id => { document.getElementById(id).textContent='0'; });
+}
+
+// ---- 语义查询 ----
+async function doOntologyQuery() {
+    const input = document.getElementById('ontoQueryInput');
+    const query = input.value.trim();
+    if (!query) return;
+    if (!ontoData) { showOntoToast('⚠️ 请先加载或提取本体图谱', true); return; }
+
+    const btn = document.getElementById('ontoQueryBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> 分析中...';
+
+    const resultEl = document.getElementById('ontoQueryResult');
+    resultEl.style.display = '';
+    resultEl.innerHTML = '<span style="color:#A29BFE;animation:onto-brain-pulse 1s infinite">🧠 AI正在进行语义推理...</span>';
+
+    const token = localStorage.getItem('dataOntologyToken');
+    try {
+        const res = await fetch('/api/data-ontology/ontology/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ query, ontology: ontoData }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            // 高亮相关节点
+            if (data.highlighted && data.highlighted.length) {
+                const set = new Set(data.highlighted);
+                d3.selectAll('.onto-node').each(function(d) {
+                    const active = set.has(d.id);
+                    d3.select(this).select('.onto-node-circle')
+                        .transition().duration(300)
+                        .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
+                        .attr('stroke-width', active ? 4 : 2).attr('opacity', active ? 1 : 0.4);
+                });
+                setTimeout(() => {
+                    d3.selectAll('.onto-node .onto-node-circle')
+                        .transition().duration(400).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+                }, 4000);
+            }
+            // 格式化回答
+            let answer = data.answer || '';
+            answer = answer.replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
+            resultEl.innerHTML = answer;
+        } else {
+            resultEl.innerHTML = `<span style="color:#E17055">❌ ${data.message}</span>`;
+        }
+    } catch (e) {
+        resultEl.innerHTML = `<span style="color:#E17055">❌ 请求失败：${e.message}</span>`;
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<span>🔍</span> 语义分析';
+}
+
+// ---- 收起/展开洞察面板 ----
+function toggleInsightPanel() {
+    ontoInsightExpanded = !ontoInsightExpanded;
+    document.getElementById('ontoInsightPanel').classList.toggle('collapsed', !ontoInsightExpanded);
+}
+
+// ---- Loading 遮罩 ----
+function showOntologyLoading(text) {
+    const ov = document.getElementById('ontoAiOverlay');
+    document.getElementById('ontoAiText').textContent = text || 'AI 正在分析...';
+    document.getElementById('ontoAiProgressBar').style.width = '0%';
+    ov.style.display = 'flex';
+}
+
+function hideOntologyLoading() {
+    document.getElementById('ontoAiOverlay').style.display = 'none';
+}
+
+// ---- Toast ----
+let ontoToastTimer = null;
+function showOntoToast(msg, isError) {
+    if (ontoToastTimer) clearTimeout(ontoToastTimer);
+    const old = document.querySelector('.onto-toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'onto-toast';
+    el.style.cssText = isError ? 'border-color:rgba(225,112,85,.5);color:#E17055' : '';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    ontoToastTimer = setTimeout(() => el.remove(), 3500);
+}
+
+// ---- 初始化：本体论 tab 激活时同步数据库列表 ----
+function initOntologyTab() {
+    const sel = document.getElementById('ontoDbSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    databases.forEach(db => {
+        const opt = document.createElement('option');
+        opt.value = db.id;
+        opt.textContent = `${db.name} (${db.type})`;
+        sel.appendChild(opt);
+    });
+    // resize 时重绘
+    window.addEventListener('resize', () => {
+        if (ontoData) renderOntologyGraph(ontoData, false);
+    });
 }
 
 document.addEventListener('keydown', e => {

@@ -4348,9 +4348,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if moduleSet["ontology"] {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "该模块功能正在开发中，敬请期待",
-		})
+		handleAIOntologyQuery(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
 	}
 
@@ -5059,6 +5057,284 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 // AICompletionRequest 通用 AI 文本补全请求（与 AI 助手共用 url/api_key/model）
 type AICompletionRequest struct {
 	Prompt string `json:"prompt"`
+}
+
+// OntologyExtractRequest 本体论提取请求
+type OntologyExtractRequest struct {
+	Databases []string `json:"databases"`
+}
+
+// OntologyQueryRequest 本体论语义查询请求
+type OntologyQueryRequest struct {
+	Query    string                 `json:"query"`
+	Ontology map[string]interface{} `json:"ontology"`
+}
+
+// handleOntologyExtract 从数据库结构中AI提取本体论知识图谱（SSE流式）
+func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if !verifyToken(r) {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "只支持POST"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "不支持流式传输"})
+		return
+	}
+
+	var req OntologyExtractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "请求格式错误"})
+		return
+	}
+
+	sendSSE(w, "onto-start", map[string]interface{}{"message": "开始分析数据库结构..."})
+	flusher.Flush()
+
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "请先在AI助手中配置AI设置"})
+		return
+	}
+
+	// 收集数据库 schema
+	sendSSE(w, "onto-thinking", map[string]interface{}{"message": "正在读取数据库表结构..."})
+	flusher.Flush()
+
+	dataOntologyMu.RLock()
+	var dbSchemas []map[string]interface{}
+	for _, dbID := range req.Databases {
+		dbConfig, exists := dataOntologyDatabases[dbID]
+		if !exists {
+			continue
+		}
+		tables, err := getTablesList(dbConfig)
+		if err != nil {
+			continue
+		}
+		var tablesWithCols []map[string]interface{}
+		maxTables := 20
+		if len(tables) > maxTables {
+			tables = tables[:maxTables]
+		}
+		for _, tName := range tables {
+			cols, err := getTableColumns(dbConfig, tName)
+			if err != nil {
+				cols = []map[string]interface{}{}
+			}
+			tablesWithCols = append(tablesWithCols, map[string]interface{}{"name": tName, "columns": cols})
+		}
+		dbSchemas = append(dbSchemas, map[string]interface{}{
+			"id": dbID, "name": dbConfig.Name, "type": dbConfig.Type, "tables": tablesWithCols,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	if len(dbSchemas) == 0 {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "未找到有效的数据库或无法获取表结构"})
+		return
+	}
+
+	sendSSE(w, "onto-thinking", map[string]interface{}{"message": "AI正在理解业务语义，构建本体论图谱..."})
+	flusher.Flush()
+
+	prompt := buildOntologyExtractionPrompt(dbSchemas)
+	aiResp, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "AI调用失败: " + err.Error()})
+		return
+	}
+
+	// 解析 JSON
+	cleaned := strings.TrimSpace(aiResp)
+	for _, prefix := range []string{"```json", "```"} {
+		if strings.HasPrefix(cleaned, prefix) {
+			cleaned = cleaned[len(prefix):]
+			break
+		}
+	}
+	if idx := strings.Index(cleaned, "```"); idx >= 0 {
+		cleaned = cleaned[:idx]
+	}
+	cleaned = strings.TrimSpace(cleaned)
+
+	var ontology map[string]interface{}
+	if err := json.Unmarshal([]byte(cleaned), &ontology); err != nil {
+		sendSSE(w, "onto-error", map[string]interface{}{"message": "AI返回格式解析失败，请重试"})
+		return
+	}
+
+	// 流式推送节点（带微小延迟营造动画效果）
+	sendSSE(w, "onto-thinking", map[string]interface{}{"message": "正在构建知识图谱..."})
+	flusher.Flush()
+
+	sendSSE(w, "onto-result", ontology)
+	flusher.Flush()
+
+	sendSSE(w, "onto-done", map[string]interface{}{"message": "本体论提取完成"})
+	flusher.Flush()
+}
+
+// buildOntologyExtractionPrompt 构建本体论提取的AI提示词
+func buildOntologyExtractionPrompt(dbSchemas []map[string]interface{}) string {
+	schemaJSON, _ := json.MarshalIndent(dbSchemas, "", "  ")
+	prompt := `你是一位数据本体论（Ontology）专家，擅长从数据库结构中提取业务语义知识图谱。
+
+请分析以下数据库表结构，识别业务实体、概念、事件、规则，及其语义关系，同时发现数据治理问题。
+
+要求：
+1. 输出一个严格的 JSON 对象（不要 markdown 代码块包裹，不要任何解释）
+2. JSON 结构如下：
+{
+  "concepts": [
+    {
+      "id": "英文小写下划线唯一标识",
+      "label": "中文业务名称",
+      "category": "entity|event|concept|rule|conflict",
+      "description": "业务含义描述（2-3句话）",
+      "tables": ["对应的数据库表名"],
+      "importance": 0.0到1.0的重要性权重,
+      "attributes": ["核心字段名"],
+      "governance_issues": ["存在的数据治理问题（若无则为空数组）"]
+    }
+  ],
+  "relations": [
+    {
+      "source": "源概念id",
+      "target": "目标概念id",
+      "label": "关系中文名称",
+      "type": "has-one|has-many|many-to-many|many-to-one|conflict|inherits",
+      "description": "关系说明"
+    }
+  ],
+  "insights": [
+    {
+      "type": "conflict|missing|quality|governance|performance",
+      "title": "洞察标题",
+      "description": "详细说明",
+      "severity": "high|medium|low|info",
+      "affectedConcepts": ["相关概念id"]
+    }
+  ]
+}
+
+重要规则：
+- concepts 数量控制在 8-15 个，聚焦核心业务概念
+- relations 覆盖所有主要业务关联
+- insights 必须包含至少1个命名/冲突类问题（若存在）和1个治理建议
+- conflict 类 concept 专门描述发现的问题实体
+
+数据库结构：
+` + string(schemaJSON)
+	return prompt
+}
+
+// handleAIOntologyQuery 处理AI助手中的本体论语义查询
+func handleAIOntologyQuery(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	sendSSE(w, "thinking", map[string]interface{}{"message": "正在进行语义分析..."})
+	flusher.Flush()
+
+	schemaJSON, _ := json.MarshalIndent(dbSchemas, "", "  ")
+	prompt := fmt.Sprintf(`你是一位数据本体论专家。用户正在询问关于数据库数据的语义问题。
+请基于以下数据库结构，从本体论角度分析并回答用户的问题。
+关注业务语义、实体关系、数据治理角度给出深度分析。
+
+数据库结构：
+%s
+
+用户问题：%s
+
+请用中文给出详细的语义分析和治理建议。`, string(schemaJSON), queryReq.Message)
+
+	aiResp, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "AI调用失败: " + err.Error()})
+		return
+	}
+	sendSSE(w, "answer", map[string]interface{}{"text": aiResp})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
+// handleOntologySemanticQuery 本体论自然语言语义查询
+func handleOntologySemanticQuery(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	var req OntologyQueryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	if req.Query == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "查询内容不能为空"})
+		return
+	}
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请先配置AI设置"})
+		return
+	}
+
+	ontologyJSON, _ := json.MarshalIndent(req.Ontology, "", "  ")
+	prompt := fmt.Sprintf(`你是一位数据本体论专家。用户正在查询一个业务知识图谱。
+
+当前知识图谱：
+%s
+
+用户问题：%s
+
+请用中文回答，要求：
+1. 直接回答问题，基于知识图谱中的实际数据
+2. 指出相关的核心概念（用【概念名】标注）
+3. 如有治理风险，重点说明
+4. 回答简洁有深度，100-200字
+
+最后输出一行，格式为：HIGHLIGHT:concept_id1,concept_id2（列出回答中涉及的概念id，逗号分隔）`, string(ontologyJSON), req.Query)
+
+	content, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "AI调用失败: " + err.Error()})
+		return
+	}
+
+	// 解析 HIGHLIGHT 行
+	answer := content
+	var highlighted []string
+	if idx := strings.LastIndex(content, "HIGHLIGHT:"); idx >= 0 {
+		answer = strings.TrimSpace(content[:idx])
+		ids := strings.TrimSpace(content[idx+10:])
+		for _, id := range strings.Split(ids, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				highlighted = append(highlighted, id)
+			}
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"answer":      answer,
+		"highlighted": highlighted,
+	})
 }
 
 // handleAICompletion 通用 AI 补全，供治理任务等调用（使用与 AI 助手相同的配置）
@@ -6087,6 +6363,10 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
 	
+	// 本体论API路由
+	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
+	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
+
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)

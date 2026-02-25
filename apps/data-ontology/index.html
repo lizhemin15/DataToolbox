@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -67,7 +68,7 @@
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
-                        <button class="nav-tab" data-tab="ontology" disabled>本体论抽象</button>
+                        <button class="nav-tab" data-tab="ontology">本体论抽象</button>
                         <button class="nav-tab" data-tab="api">接口分发</button>
                         <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
@@ -292,11 +293,152 @@
             </div>
         </div>
 
+        <!-- 本体论抽象标签页 -->
         <div id="ontologyTab" class="tab-content">
-            <div class="coming-soon">
-                <div class="coming-soon-icon">🚧</div>
-                <h2>本体论抽象</h2>
-                <p>功能开发中...</p>
+            <div class="onto-workspace">
+                <!-- 顶部工具栏 -->
+                <div class="onto-toolbar">
+                    <div class="onto-toolbar-left">
+                        <span class="onto-brand">
+                            <span class="onto-brand-icon">🧠</span>
+                            <span class="onto-brand-text">本体论知识图谱</span>
+                        </span>
+                        <div class="onto-toolbar-sep"></div>
+                        <select id="ontoDbSelect" class="onto-db-select" multiple title="选择要分析的数据库（可多选）"></select>
+                        <button id="ontoExtractBtn" class="onto-btn onto-btn-ai" onclick="startOntologyExtract()">
+                            <span>✨</span> AI 智能提取
+                        </button>
+                        <button id="ontoDemoBtn" class="onto-btn onto-btn-demo" onclick="loadOntologyDemo()">
+                            <span>🎯</span> 演示场景
+                        </button>
+                        <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
+                            <span>🗑️</span> 清空
+                        </button>
+                    </div>
+                    <div class="onto-toolbar-right">
+                        <div class="onto-stats" id="ontoStats">
+                            <div class="onto-stat-item">
+                                <span class="onto-stat-val" id="ontoStatConcepts">0</span>
+                                <span class="onto-stat-lbl">概念</span>
+                            </div>
+                            <div class="onto-stat-sep"></div>
+                            <div class="onto-stat-item">
+                                <span class="onto-stat-val" id="ontoStatRelations">0</span>
+                                <span class="onto-stat-lbl">关系</span>
+                            </div>
+                            <div class="onto-stat-sep"></div>
+                            <div class="onto-stat-item">
+                                <span class="onto-stat-val onto-risk-val" id="ontoStatRisks">0</span>
+                                <span class="onto-stat-lbl">风险</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 图谱主画布 -->
+                <div class="onto-canvas" id="ontoCanvas">
+                    <!-- 欢迎界面 -->
+                    <div class="onto-welcome" id="ontoWelcome">
+                        <div class="onto-welcome-orbs">
+                            <div class="onto-orb onto-orb-a"></div>
+                            <div class="onto-orb onto-orb-b"></div>
+                            <div class="onto-orb onto-orb-c"></div>
+                        </div>
+                        <div class="onto-welcome-body">
+                            <div class="onto-welcome-icon">🧠</div>
+                            <h2 class="onto-welcome-title">本体论抽象模块</h2>
+                            <p class="onto-welcome-desc">将数据库结构升华为业务语义知识图谱<br>AI深度理解数据本质，发现隐藏的治理价值</p>
+                            <div class="onto-feature-grid">
+                                <div class="onto-feature-card">
+                                    <div class="onto-feature-icon">🔍</div>
+                                    <div class="onto-feature-title">自动概念发现</div>
+                                    <div class="onto-feature-desc">AI从表结构中识别业务实体与事件</div>
+                                </div>
+                                <div class="onto-feature-card">
+                                    <div class="onto-feature-icon">🔗</div>
+                                    <div class="onto-feature-title">语义关系图谱</div>
+                                    <div class="onto-feature-desc">构建实体间的语义关联网络</div>
+                                </div>
+                                <div class="onto-feature-card">
+                                    <div class="onto-feature-icon">⚠️</div>
+                                    <div class="onto-feature-title">治理风险识别</div>
+                                    <div class="onto-feature-desc">主动发现命名冲突、质量隐患</div>
+                                </div>
+                                <div class="onto-feature-card">
+                                    <div class="onto-feature-icon">💬</div>
+                                    <div class="onto-feature-title">自然语言查询</div>
+                                    <div class="onto-feature-desc">用日常语言探索数据语义关系</div>
+                                </div>
+                            </div>
+                            <button class="onto-btn onto-btn-ai onto-btn-lg" onclick="loadOntologyDemo()">
+                                <span>🎯</span> 立即体验演示场景
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- D3 知识图谱 SVG -->
+                    <svg id="ontoSvg" class="onto-svg"></svg>
+
+                    <!-- AI 处理动画层 -->
+                    <div class="onto-ai-overlay" id="ontoAiOverlay" style="display:none">
+                        <div class="onto-ai-ring"></div>
+                        <div class="onto-ai-ring onto-ai-ring-2"></div>
+                        <div class="onto-ai-core">🧠</div>
+                        <div class="onto-ai-text" id="ontoAiText">AI 正在分析...</div>
+                        <div class="onto-ai-progress">
+                            <div class="onto-ai-progress-bar" id="ontoAiProgressBar"></div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧浮动洞察面板 -->
+                    <div class="onto-insight-panel" id="ontoInsightPanel">
+                        <div class="onto-panel-hd">
+                            <span class="onto-panel-hd-icon">🤖</span>
+                            <span class="onto-panel-hd-title">AI 治理洞察</span>
+                            <button class="onto-panel-collapse" id="ontoInsightToggle" onclick="toggleInsightPanel()" title="收起/展开">‹</button>
+                        </div>
+                        <div class="onto-panel-bd" id="ontoInsightBody">
+                            <div class="onto-insight-placeholder">
+                                <span>💡</span>
+                                <p>提取本体后，AI将自动生成数据治理洞察</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 节点详情浮窗 -->
+                    <div class="onto-node-popup" id="ontoNodePopup" style="display:none">
+                        <div class="onto-popup-hd">
+                            <span class="onto-popup-category-badge" id="ontoPopupBadge"></span>
+                            <span class="onto-popup-title" id="ontoPopupTitle"></span>
+                            <button class="onto-popup-close" onclick="closeNodeDetail()">×</button>
+                        </div>
+                        <div class="onto-popup-bd" id="ontoPopupBody"></div>
+                    </div>
+
+                    <!-- 左下角图例 -->
+                    <div class="onto-legend">
+                        <div class="onto-legend-hd">图例</div>
+                        <div class="onto-legend-item"><span class="onto-legend-dot" style="background:#4ECDC4;box-shadow:0 0 6px #4ECDC4"></span>实体</div>
+                        <div class="onto-legend-item"><span class="onto-legend-dot" style="background:#FF6B6B;box-shadow:0 0 6px #FF6B6B"></span>事件</div>
+                        <div class="onto-legend-item"><span class="onto-legend-dot" style="background:#A29BFE;box-shadow:0 0 6px #A29BFE"></span>概念</div>
+                        <div class="onto-legend-item"><span class="onto-legend-dot" style="background:#55EFC4;box-shadow:0 0 6px #55EFC4"></span>规则</div>
+                        <div class="onto-legend-item"><span class="onto-legend-dot" style="background:#E17055;box-shadow:0 0 6px #E17055"></span>冲突</div>
+                    </div>
+                </div>
+
+                <!-- 底部语义查询栏 -->
+                <div class="onto-query-bar" id="ontoQueryBar" style="display:none">
+                    <div class="onto-query-row">
+                        <span class="onto-query-icon">💬</span>
+                        <input type="text" class="onto-query-input" id="ontoQueryInput"
+                            placeholder="语义查询：例如"客户和订单有什么关系？"  "数据有哪些质量风险？"  "哪些实体涉及隐私数据？""
+                            onkeypress="if(event.key==='Enter') doOntologyQuery()">
+                        <button class="onto-btn onto-btn-ai" id="ontoQueryBtn" onclick="doOntologyQuery()">
+                            <span>🔍</span> 语义分析
+                        </button>
+                    </div>
+                    <div class="onto-query-result" id="ontoQueryResult" style="display:none"></div>
+                </div>
             </div>
         </div>
 
