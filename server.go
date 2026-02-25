@@ -2368,6 +2368,24 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		return quoteChar + name + quoteChar
 	}
 
+	// Oracle 使用 :1, :2, ... 占位符，其他数据库用 ?
+	oraclize := func(query string) string {
+		if config.Type != "oracle" {
+			return query
+		}
+		i := 0
+		var buf strings.Builder
+		for _, ch := range query {
+			if ch == '?' {
+				i++
+				buf.WriteString(fmt.Sprintf(":%d", i))
+			} else {
+				buf.WriteRune(ch)
+			}
+		}
+		return buf.String()
+	}
+
 	updated := 0
 	inserted := 0
 	deleted := 0
@@ -2409,8 +2427,9 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
 			}
 			
-			log.Printf("执行删除SQL: %s", deleteQuery)
-			result, err := db.Exec(deleteQuery, whereValues...)
+		deleteQuery = oraclize(deleteQuery)
+		log.Printf("执行删除SQL: %s", deleteQuery)
+		result, err := db.Exec(deleteQuery, whereValues...)
 			if err != nil {
 				log.Printf("删除失败: %v", err)
 				continue
@@ -2462,6 +2481,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		}
 		
 		allValues := append(setValues, whereValues...)
+		updateQuery = oraclize(updateQuery)
 		log.Printf("执行更新SQL: %s", updateQuery)
 		result, err := db.Exec(updateQuery, allValues...)
 		if err != nil {
@@ -2525,6 +2545,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		} else {
 			insertQuery = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 				quoteIdentifier(tableName), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+			insertQuery = oraclize(insertQuery)
 			log.Printf("执行插入SQL: %s", insertQuery)
 			result, err = db.Exec(insertQuery, values...)
 		}
