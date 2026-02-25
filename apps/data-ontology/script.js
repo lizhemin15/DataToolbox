@@ -197,6 +197,9 @@ function initEventListeners() {
         }
     });
     document.getElementById('addApiForm').addEventListener('submit', handleAddApi);
+    document.querySelectorAll('input[name="apiType"]').forEach(radio => {
+        radio.addEventListener('change', () => switchApiTypeFields(radio.value));
+    });
     document.getElementById('editApiBtn').addEventListener('click', handleEditApi);
     document.getElementById('testApiBtn').addEventListener('click', showTestApiModal);
     document.getElementById('deleteApiBtn').addEventListener('click', handleDeleteApi);
@@ -2169,11 +2172,27 @@ async function loadApiDetail(apiId) {
             if (detailEnabledCb) detailEnabledCb.checked = api.enabled !== false;
             document.getElementById('apiPath').textContent = api.path;
             document.getElementById('apiMethod').textContent = api.method;
-            document.getElementById('apiDatabase').textContent = api.database_name || api.database_id;
-            document.getElementById('apiSqlDisplay').textContent = api.sql;
+
+            const apiType = api.type || 'query';
+            document.getElementById('apiTypeDisplay').textContent = apiType === 'forward' ? 'HTTP转发' : '数据库查询';
+
+            if (apiType === 'forward') {
+                document.getElementById('apiDatabaseRow').style.display = 'none';
+                document.getElementById('apiForwardUrlRow').style.display = '';
+                document.getElementById('apiForwardUrlDisplay').textContent = api.forward_url || '';
+                document.getElementById('apiSqlSection').style.display = 'none';
+                document.getElementById('apiParamsSection').style.display = 'none';
+            } else {
+                document.getElementById('apiDatabaseRow').style.display = '';
+                document.getElementById('apiForwardUrlRow').style.display = 'none';
+                document.getElementById('apiSqlSection').style.display = '';
+                document.getElementById('apiParamsSection').style.display = '';
+                document.getElementById('apiDatabase').textContent = api.database_name || api.database_id;
+                document.getElementById('apiSqlDisplay').textContent = api.sql;
+            }
             
-            // 解析并显示参数
-            const params = parseMyBatisParams(api.sql);
+            // 解析并显示参数（仅 query 类型）
+            const params = apiType === 'forward' ? [] : parseMyBatisParams(api.sql || '');
             renderApiParams(params);
             
             // 渲染调用示例
@@ -2284,16 +2303,21 @@ function renderApiParams(params) {
 // ==================== 调用示例代码生成 ====================
 
 function getCodeExampleContext(api) {
-    const params = parseMyBatisParams(api.sql);
-    const exampleParams = {};
-    params.forEach(p => {
-        if (api.default_params && api.default_params[p.name] !== undefined) {
-            exampleParams[p.name] = api.default_params[p.name];
-        } else {
-            exampleParams[p.name] = '';
-        }
-    });
-    const hasParams = params.length > 0;
+    const apiType = api.type || 'query';
+    let exampleParams = {};
+    if (apiType === 'forward') {
+        exampleParams = api.default_params ? { ...api.default_params } : {};
+    } else {
+        const params = parseMyBatisParams(api.sql || '');
+        params.forEach(p => {
+            if (api.default_params && api.default_params[p.name] !== undefined) {
+                exampleParams[p.name] = api.default_params[p.name];
+            } else {
+                exampleParams[p.name] = '';
+            }
+        });
+    }
+    const hasParams = Object.keys(exampleParams).length > 0;
     const method = (api.method || 'GET').toUpperCase();
     const isBodyMethod = method === 'POST' || method === 'PUT' || method === 'PATCH';
     const baseUrl = `${window.location.origin}${api.path}`;
@@ -2658,6 +2682,28 @@ async function quickFixSql() {
     }
 }
 
+// 切换接口类型显示/隐藏字段
+function switchApiTypeFields(type) {
+    const queryFields = document.getElementById('apiQueryFields');
+    const forwardFields = document.getElementById('apiForwardFields');
+    const dbSelect = document.getElementById('apiDbSelect');
+    const sqlInput = document.getElementById('apiSqlInput');
+    const forwardUrlInput = document.getElementById('apiForwardUrlInput');
+    if (type === 'forward') {
+        queryFields.style.display = 'none';
+        forwardFields.style.display = '';
+        dbSelect.required = false;
+        sqlInput.required = false;
+        forwardUrlInput.required = true;
+    } else {
+        queryFields.style.display = '';
+        forwardFields.style.display = 'none';
+        dbSelect.required = true;
+        sqlInput.required = true;
+        forwardUrlInput.required = false;
+    }
+}
+
 // 显示添加接口弹窗
 async function showAddApiModal() {
     isEditApiMode = false;
@@ -2667,7 +2713,9 @@ async function showAddApiModal() {
     document.getElementById('addApiForm').reset();
     document.getElementById('apiFormError').classList.remove('show');
     document.getElementById('apiFormSuccess').classList.remove('show');
-    
+    // 重置为 query 类型
+    document.getElementById('apiTypeQuery').checked = true;
+    switchApiTypeFields('query');
     // 加载数据库列表
     await loadDatabasesForSelect();
 }
@@ -2721,14 +2769,26 @@ function hideAddApiModal() {
 async function handleAddApi(e) {
     e.preventDefault();
 
+    const apiType = document.querySelector('input[name="apiType"]:checked')?.value || 'query';
+
     const apiData = {
         name: document.getElementById('apiNameInput').value,
         path: document.getElementById('apiPathInput').value,
         method: document.getElementById('apiMethodInput').value,
-        database_id: document.getElementById('apiDbSelect').value,
-        sql: document.getElementById('apiSqlInput').value,
+        type: apiType,
         description: document.getElementById('apiDescInput').value
     };
+
+    if (apiType === 'forward') {
+        apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
+        if (!apiData.forward_url) {
+            showApiFormError('请填写转发目标URL');
+            return;
+        }
+    } else {
+        apiData.database_id = document.getElementById('apiDbSelect').value;
+        apiData.sql = document.getElementById('apiSqlInput').value;
+    }
 
     // 处理默认参数
     const defaultParamsText = document.getElementById('apiDefaultParamsInput').value.trim();
@@ -2747,21 +2807,21 @@ async function handleAddApi(e) {
         return;
     }
 
-    // 验证SQL语法
-    const sqlWarnings = validateSqlSyntax(apiData.sql);
-    if (sqlWarnings.length > 0) {
-        const errors = sqlWarnings.filter(w => w.type === 'error');
-        if (errors.length > 0) {
-            showApiFormError(errors[0].message);
-            return;
-        }
-        
-        // 如果只有警告，询问用户是否继续
-        const warnings = sqlWarnings.filter(w => w.type === 'warning');
-        if (warnings.length > 0) {
-            const warningMsg = warnings.map(w => w.message).join('\n\n');
-            if (!confirm('⚠️ SQL语法警告：\n\n' + warningMsg + '\n\n是否继续保存？')) {
+    // query类型才验证SQL语法
+    if (apiType !== 'forward') {
+        const sqlWarnings = validateSqlSyntax(apiData.sql);
+        if (sqlWarnings.length > 0) {
+            const errors = sqlWarnings.filter(w => w.type === 'error');
+            if (errors.length > 0) {
+                showApiFormError(errors[0].message);
                 return;
+            }
+            const warnings = sqlWarnings.filter(w => w.type === 'warning');
+            if (warnings.length > 0) {
+                const warningMsg = warnings.map(w => w.message).join('\n\n');
+                if (!confirm('⚠️ SQL语法警告：\n\n' + warningMsg + '\n\n是否继续保存？')) {
+                    return;
+                }
             }
         }
     }
@@ -2887,8 +2947,18 @@ async function handleEditApi() {
     document.getElementById('apiNameInput').value = currentApi.name;
     document.getElementById('apiPathInput').value = currentApi.path;
     document.getElementById('apiMethodInput').value = currentApi.method;
-    document.getElementById('apiSqlInput').value = currentApi.sql;
     document.getElementById('apiDescInput').value = currentApi.description || '';
+    
+    // 预填充接口类型
+    const editType = currentApi.type || 'query';
+    document.getElementById(editType === 'forward' ? 'apiTypeForward' : 'apiTypeQuery').checked = true;
+    switchApiTypeFields(editType);
+    
+    if (editType === 'forward') {
+        document.getElementById('apiForwardUrlInput').value = currentApi.forward_url || '';
+    } else {
+        document.getElementById('apiSqlInput').value = currentApi.sql || '';
+    }
     
     // 预填充默认参数
     if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
@@ -2947,19 +3017,29 @@ function showTestApiModal() {
     document.getElementById('testApiError').classList.remove('show');
     document.getElementById('testApiResultGroup').style.display = 'none';
     
-    // 预填充参数（优先使用默认参数）
-    const params = parseMyBatisParams(currentApi.sql);
-    if (params.length > 0) {
-        const exampleParams = {};
-        params.forEach(param => {
-            // 如果有默认参数，使用默认值；否则使用空字符串
-            if (currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
-                exampleParams[param.name] = currentApi.default_params[param.name];
-            } else {
-                exampleParams[param.name] = '';
-            }
-        });
-        document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
+    // 预填充参数
+    const apiType = currentApi.type || 'query';
+    if (apiType === 'forward') {
+        // 转发类型：预填充默认参数（如有）
+        if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
+        }
+    } else {
+        // query类型：从 SQL 解析参数
+        const params = parseMyBatisParams(currentApi.sql);
+        if (params.length > 0) {
+            const exampleParams = {};
+            params.forEach(param => {
+                if (currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
+                    exampleParams[param.name] = currentApi.default_params[param.name];
+                } else {
+                    exampleParams[param.name] = '';
+                }
+            });
+            document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
+        } else if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
+        }
     }
 }
 
@@ -4190,7 +4270,9 @@ function editApiConfigFromAI(messageId, config) {
     document.getElementById('apiModalTitle').textContent = '编辑接口配置';
     document.getElementById('addApiModal').classList.add('show');
     
-    // 预填充配置
+    // 预填充配置（AI生成的接口固定为 query 类型）
+    document.getElementById('apiTypeQuery').checked = true;
+    switchApiTypeFields('query');
     document.getElementById('apiNameInput').value = config.name || '';
     document.getElementById('apiPathInput').value = config.path || '';
     document.getElementById('apiMethodInput').value = config.method || 'GET';
@@ -4234,6 +4316,7 @@ async function confirmCreateApiFromAI(config, messageId) {
         name: config.name,
         path: config.path,
         method: config.method,
+        type: 'query',
         database_id: config.database_id || aiSessionContext.databases[0]?.id,
         sql: config.sql,
         description: config.description || ''

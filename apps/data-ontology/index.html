@@ -502,20 +502,28 @@
                                 <span class="info-label">请求方法:</span>
                                 <span id="apiMethod" class="info-value"></span>
                             </div>
-                            <div class="info-item">
+                            <div class="info-item" id="apiTypeRow">
+                                <span class="info-label">接口类型:</span>
+                                <span id="apiTypeDisplay" class="info-value"></span>
+                            </div>
+                            <div class="info-item" id="apiDatabaseRow">
                                 <span class="info-label">数据库:</span>
                                 <span id="apiDatabase" class="info-value"></span>
                             </div>
+                            <div class="info-item" id="apiForwardUrlRow" style="display:none;">
+                                <span class="info-label">转发URL:</span>
+                                <span id="apiForwardUrlDisplay" class="info-value" style="word-break:break-all;"></span>
+                            </div>
                         </div>
 
-                        <div class="tables-section">
+                        <div class="tables-section" id="apiSqlSection">
                             <h3>SQL语句</h3>
                             <div class="sql-display">
                                 <pre id="apiSqlDisplay"></pre>
                             </div>
                         </div>
 
-                        <div class="tables-section">
+                        <div class="tables-section" id="apiParamsSection">
                             <h3>参数说明</h3>
                             <div id="apiParamsDisplay" class="params-display">
                                 <!-- 参数列表将动态生成 -->
@@ -780,21 +788,40 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="apiDbSelect">选择数据库</label>
-                    <select id="apiDbSelect" required>
-                        <option value="">请选择数据库</option>
-                        <!-- 将动态填充数据库列表 -->
-                    </select>
+                    <label>接口类型</label>
+                    <div style="display:flex;gap:20px;margin-top:6px;">
+                        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer;">
+                            <input type="radio" name="apiType" id="apiTypeQuery" value="query" checked> 数据库查询
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer;">
+                            <input type="radio" name="apiType" id="apiTypeForward" value="forward"> HTTP转发
+                        </label>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="apiSqlInput">SQL语句 (MyBatis语法)</label>
-                    <textarea id="apiSqlInput" rows="8" placeholder="支持MyBatis语法，例如:&#10;SELECT * FROM users WHERE id = #{id} AND status = #{status}&#10;&#10;参数格式:&#10;#{paramName} - 预编译参数(推荐)&#10;${paramName} - 直接替换(谨慎使用)" required></textarea>
-                    <small>
-                        <strong>参数语法：</strong><br>
-                        • #{参数名} - 预编译参数（推荐，用于数据查询，防止SQL注入）<br>
-                        • ${参数名} - 直接替换（用于表名、列名等）<br>
-                        <strong style="color:#e53e3e;">⚠️ DDL语句（CREATE/DROP/ALTER）必须使用 ${} 而不是 #{}</strong>
-                    </small>
+                <div id="apiQueryFields">
+                    <div class="form-group">
+                        <label for="apiDbSelect">选择数据库</label>
+                        <select id="apiDbSelect">
+                            <option value="">请选择数据库</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="apiSqlInput">SQL语句 (MyBatis语法)</label>
+                        <textarea id="apiSqlInput" rows="8" placeholder="支持MyBatis语法，例如:&#10;SELECT * FROM users WHERE id = #{id} AND status = #{status}&#10;&#10;参数格式:&#10;#{paramName} - 预编译参数(推荐)&#10;${paramName} - 直接替换(谨慎使用)"></textarea>
+                        <small>
+                            <strong>参数语法：</strong><br>
+                            • #{参数名} - 预编译参数（推荐，用于数据查询，防止SQL注入）<br>
+                            • ${参数名} - 直接替换（用于表名、列名等）<br>
+                            <strong style="color:#e53e3e;">⚠️ DDL语句（CREATE/DROP/ALTER）必须使用 ${} 而不是 #{}</strong>
+                        </small>
+                    </div>
+                </div>
+                <div id="apiForwardFields" style="display:none;">
+                    <div class="form-group">
+                        <label for="apiForwardUrlInput">转发目标URL</label>
+                        <input type="text" id="apiForwardUrlInput" placeholder="例如: https://example.com/api/data">
+                        <small>请求将被原样转发到该URL，query参数和请求体会一并透传</small>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="apiDefaultParamsInput">默认参数值 (JSON格式)</label>

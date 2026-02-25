@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -461,9 +462,11 @@ type ApiConfig struct {
 	ID            string                 `json:"id"`
 	Name          string                 `json:"name"`
 	Path          string                 `json:"path"`
-	Method        string                 `json:"method"`        // GET, POST, PUT, DELETE
-	DatabaseID    string                 `json:"database_id"`   // 关联的数据库ID
-	SQL           string                 `json:"sql"`           // MyBatis风格的SQL语句
+	Method        string                 `json:"method"`               // GET, POST, PUT, DELETE
+	Type          string                 `json:"type,omitempty"`       // "query"(默认) | "forward"
+	DatabaseID    string                 `json:"database_id,omitempty"` // query类型：关联的数据库ID
+	SQL           string                 `json:"sql,omitempty"`         // query类型：MyBatis风格的SQL语句
+	ForwardURL    string                 `json:"forward_url,omitempty"` // forward类型：转发目标URL
 	Description   string                 `json:"description,omitempty"`
 	DefaultParams map[string]interface{} `json:"default_params,omitempty"` // 默认参数值
 	Enabled       *bool                  `json:"enabled,omitempty"`        // 是否启用，nil 视为 true
@@ -475,9 +478,11 @@ type ApiInfo struct {
 	Name          string                 `json:"name"`
 	Path          string                 `json:"path"`
 	Method        string                 `json:"method"`
-	DatabaseID    string                 `json:"database_id"`
+	Type          string                 `json:"type"`
+	DatabaseID    string                 `json:"database_id,omitempty"`
 	DatabaseName  string                 `json:"database_name,omitempty"`
-	SQL           string                 `json:"sql"`
+	SQL           string                 `json:"sql,omitempty"`
+	ForwardURL    string                 `json:"forward_url,omitempty"`
 	Description   string                 `json:"description,omitempty"`
 	DefaultParams map[string]interface{} `json:"default_params,omitempty"`
 	Enabled       bool                   `json:"enabled"` // 是否启用，供前端展示与开关
@@ -3532,12 +3537,18 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 		apiList := make([]*ApiInfo, 0, len(dataOntologyApis))
 		for _, api := range dataOntologyApis {
 			enabled := api.Enabled == nil || *api.Enabled
+			apiType := api.Type
+			if apiType == "" {
+				apiType = "query"
+			}
 			apiInfo := &ApiInfo{
 				ID:         api.ID,
 				Name:       api.Name,
 				Path:       api.Path,
 				Method:     api.Method,
+				Type:       apiType,
 				DatabaseID: api.DatabaseID,
+				ForwardURL: api.ForwardURL,
 				Enabled:    enabled,
 			}
 			if db, exists := dataOntologyDatabases[api.DatabaseID]; exists {
@@ -3562,27 +3573,46 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// 标准化接口类型
+		if apiConfig.Type == "" {
+			apiConfig.Type = "query"
+		}
+
 		// 验证必填字段
-		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" ||
-			apiConfig.DatabaseID == "" || apiConfig.SQL == "" {
+		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
 				"message": "缺少必填字段",
 			})
 			return
 		}
-
-		// 验证数据库是否存在
-		dataOntologyMu.RLock()
-		_, dbExists := dataOntologyDatabases[apiConfig.DatabaseID]
-		dataOntologyMu.RUnlock()
-
-		if !dbExists {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "数据库不存在",
-			})
-			return
+		if apiConfig.Type == "forward" {
+			if apiConfig.ForwardURL == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "转发类型接口必须填写转发URL",
+				})
+				return
+			}
+		} else {
+			if apiConfig.DatabaseID == "" || apiConfig.SQL == "" {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "缺少必填字段",
+				})
+				return
+			}
+			// 验证数据库是否存在
+			dataOntologyMu.RLock()
+			_, dbExists := dataOntologyDatabases[apiConfig.DatabaseID]
+			dataOntologyMu.RUnlock()
+			if !dbExists {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "数据库不存在",
+				})
+				return
+			}
 		}
 
 		// 生成ID
@@ -3648,13 +3678,19 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		apiType := api.Type
+		if apiType == "" {
+			apiType = "query"
+		}
 		apiInfo := &ApiInfo{
 			ID:            api.ID,
 			Name:          api.Name,
 			Path:          api.Path,
 			Method:        api.Method,
+			Type:          apiType,
 			DatabaseID:    api.DatabaseID,
 			SQL:           api.SQL,
+			ForwardURL:    api.ForwardURL,
 			Description:   api.Description,
 			DefaultParams: api.DefaultParams,
 			Enabled:       api.Enabled == nil || *api.Enabled,
@@ -3691,8 +3727,17 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 验证数据库是否存在
-		if apiUpdate.DatabaseID != "" {
+		// 标准化接口类型
+		updateType := apiUpdate.Type
+		if updateType == "" {
+			updateType = api.Type
+		}
+		if updateType == "" {
+			updateType = "query"
+		}
+
+		// query类型才需要验证数据库
+		if updateType == "query" && apiUpdate.DatabaseID != "" {
 			if _, dbExists := dataOntologyDatabases[apiUpdate.DatabaseID]; !dbExists {
 				dataOntologyMu.Unlock()
 				json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3713,11 +3758,19 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		if apiUpdate.Method != "" {
 			api.Method = apiUpdate.Method
 		}
-		if apiUpdate.DatabaseID != "" {
-			api.DatabaseID = apiUpdate.DatabaseID
-		}
-		if apiUpdate.SQL != "" {
-			api.SQL = apiUpdate.SQL
+		api.Type = updateType
+		if updateType == "query" {
+			if apiUpdate.DatabaseID != "" {
+				api.DatabaseID = apiUpdate.DatabaseID
+			}
+			if apiUpdate.SQL != "" {
+				api.SQL = apiUpdate.SQL
+			}
+			api.ForwardURL = ""
+		} else {
+			api.ForwardURL = apiUpdate.ForwardURL
+			api.DatabaseID = ""
+			api.SQL = ""
 		}
 		api.Description = apiUpdate.Description
 		api.DefaultParams = apiUpdate.DefaultParams
@@ -3783,18 +3836,36 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		for _, api := range dataOntologyApis {
 			if api.Path == reqPath && strings.EqualFold(api.Method, reqMethod) {
 				matchedApi = api
-				if db, ok := dataOntologyDatabases[api.DatabaseID]; ok {
-					matchedDb = db
+				apiType := api.Type
+				if apiType == "" {
+					apiType = "query"
+				}
+				if apiType == "query" {
+					if db, ok := dataOntologyDatabases[api.DatabaseID]; ok {
+						matchedDb = db
+					}
 				}
 				break
 			}
 		}
 		dataOntologyMu.RUnlock()
 
-		if matchedApi == nil || matchedDb == nil {
+		if matchedApi == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		apiType := matchedApi.Type
+		if apiType == "" {
+			apiType = "query"
+		}
+
+		// query类型需要数据库
+		if apiType == "query" && matchedDb == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if matchedApi.Enabled != nil && !*matchedApi.Enabled {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -3805,9 +3876,8 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-
 		if !verifyToken(r) {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -3815,6 +3885,14 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			})
 			return
 		}
+
+		if apiType == "forward" {
+			executeForwardRequest(w, r, matchedApi.ForwardURL)
+			return
+		}
+
+		// query类型：执行SQL查询
+		w.Header().Set("Content-Type", "application/json")
 
 		params := make(map[string]interface{})
 		isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
@@ -3854,6 +3932,60 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			"data":    result,
 		})
 	})
+}
+
+// executeForwardRequest 将请求原样转发到目标URL并回写响应
+func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
+	var bodyBytes []byte
+	if r.Body != nil {
+		bodyBytes, _ = io.ReadAll(r.Body)
+	}
+
+	proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "构建转发请求失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 透传 query string
+	proxyReq.URL.RawQuery = r.URL.RawQuery
+
+	// 透传请求头（排除 Authorization，避免将内部 Token 泄露给目标服务）
+	for key, vals := range r.Header {
+		if strings.EqualFold(key, "Authorization") {
+			continue
+		}
+		for _, v := range vals {
+			proxyReq.Header.Add(key, v)
+		}
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "转发请求失败: " + err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	// 回写响应头和状态码
+	for key, vals := range resp.Header {
+		for _, v := range vals {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // handleApiTest 处理接口测试请求
@@ -3918,7 +4050,96 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// 获取数据库配置
+	apiType := api.Type
+	if apiType == "" {
+		apiType = "query"
+	}
+
+	if apiType == "forward" {
+		forwardURL := api.ForwardURL
+		apiMethod := api.Method
+		dataOntologyMu.RUnlock()
+
+		// 构建转发URL，将测试参数作为 query string 或 body 传递
+		targetURL := forwardURL
+		if apiMethod == http.MethodGet || apiMethod == http.MethodDelete {
+			// GET/DELETE 将参数拼到 query string
+			if len(testReq.Params) > 0 {
+				q := url.Values{}
+				for k, v := range testReq.Params {
+					q.Set(k, fmt.Sprintf("%v", v))
+				}
+				if strings.Contains(targetURL, "?") {
+					targetURL += "&" + q.Encode()
+				} else {
+					targetURL += "?" + q.Encode()
+				}
+			}
+			proxyReq, err := http.NewRequest(apiMethod, targetURL, nil)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "构建转发请求失败: " + err.Error(),
+				})
+				return
+			}
+			client := &http.Client{Timeout: 30 * time.Second}
+			resp, err := client.Do(proxyReq)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "转发请求失败: " + err.Error(),
+				})
+				return
+			}
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(resp.Body)
+			var respData interface{}
+			if err := json.Unmarshal(respBody, &respData); err != nil {
+				respData = string(respBody)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":     true,
+				"status_code": resp.StatusCode,
+				"data":        respData,
+			})
+		} else {
+			// POST/PUT/PATCH 将参数作为 JSON body 传递
+			bodyBytes, _ := json.Marshal(testReq.Params)
+			proxyReq, err := http.NewRequest(apiMethod, targetURL, bytes.NewReader(bodyBytes))
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "构建转发请求失败: " + err.Error(),
+				})
+				return
+			}
+			proxyReq.Header.Set("Content-Type", "application/json")
+			client := &http.Client{Timeout: 30 * time.Second}
+			resp, err := client.Do(proxyReq)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "转发请求失败: " + err.Error(),
+				})
+				return
+			}
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(resp.Body)
+			var respData interface{}
+			if err := json.Unmarshal(respBody, &respData); err != nil {
+				respData = string(respBody)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":     true,
+				"status_code": resp.StatusCode,
+				"data":        respData,
+			})
+		}
+		return
+	}
+
+	// query类型：获取数据库配置
 	dbConfig, dbExists := dataOntologyDatabases[api.DatabaseID]
 	if !dbExists {
 		dataOntologyMu.RUnlock()
