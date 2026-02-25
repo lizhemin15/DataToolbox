@@ -2495,7 +2495,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	}
 
 	// 3. 处理插入
-	// 对于达梦数据库，需要先查询自增列并排除
+	// 对于达梦/Oracle 数据库，需要先查询自增列并排除
 	identityColumns := make(map[string]bool)
 	if config.Type == "dm" {
 		identQuery := fmt.Sprintf(`
@@ -2515,6 +2515,25 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			}
 		}
 	}
+	if config.Type == "oracle" {
+		tbl := tableName
+		if idx := strings.Index(tbl, "."); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
+		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", tblEsc)
+		identRows, err := db.Query(identQuery)
+		if err == nil {
+			defer identRows.Close()
+			for identRows.Next() {
+				var colName string
+				if err := identRows.Scan(&colName); err == nil {
+					identityColumns[colName] = true
+					log.Printf("发现Oracle自增列: %s", colName)
+				}
+			}
+		}
+	}
 	
 	for _, insertData := range req.Inserts {
 		cols := make([]string, 0)
@@ -2522,8 +2541,8 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		values := make([]interface{}, 0)
 
 		for col, val := range insertData {
-			// 达梦数据库：跳过自增列
-			if config.Type == "dm" && identityColumns[col] {
+			// 达梦/Oracle：跳过自增列
+			if (config.Type == "dm" || config.Type == "oracle") && identityColumns[col] {
 				log.Printf("跳过自增列 %s", col)
 				continue
 			}
