@@ -981,11 +981,16 @@ async function previewTable(tableName, keepEditMode = false) {
     }
 }
 
+// 防止表结构重复请求（避免频繁刷新）
+let structureLoadingLock = false;
+
 // 当表结构未加载时（空表）：重新拉取表结构并渲染表格，可选是否直接添加一行
 async function loadStructureAndRenderTable(addOneRow) {
     if (!currentDb || !currentPreviewTable) return;
+    if (structureLoadingLock) return;
     const previewContent = document.getElementById('previewContent');
     if (!previewContent) return;
+    structureLoadingLock = true;
     previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载表结构...</div>';
     try {
         const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
@@ -995,6 +1000,7 @@ async function loadStructureAndRenderTable(addOneRow) {
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
             const msg = (structureData.message && structureData.message.trim()) ? structureData.message : '无法获取表结构，请稍后重试';
             previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">' + escapeHtml(msg) + '</div>';
+            structureLoadingLock = false;
             return;
         }
         const columns = structureData.columns.map(col => col.name);
@@ -1019,15 +1025,19 @@ async function loadStructureAndRenderTable(addOneRow) {
         `;
         previewContent.innerHTML = tableHtml;
         const table = document.getElementById('dataTable');
-        if (!table) return;
+        if (!table) {
+            structureLoadingLock = false;
+            return;
+        }
         if (isTableEditMode) {
             table.classList.add('editing-mode');
             enableTableEditing();
         }
         if (addOneRow) addTableRow();
     } catch (e) {
-        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">加载失败：' + e.message + '</div>';
+        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">加载失败：' + escapeHtml(e.message) + '</div>';
     }
+    structureLoadingLock = false;
 }
 
 // 更新预览头部按钮

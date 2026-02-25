@@ -1339,7 +1339,13 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	case "sqlite", "duckdb":
 		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	case "oracle":
-		query = oracleTableColumnsSQL(tableName, true)
+		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
+		tbl := tableName
+		if idx := strings.Index(tbl, "."); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		tableEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
 	case "dm":
 		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
 	case "clickhouse":
@@ -2743,17 +2749,28 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 			ORDER BY COLUMN_ID
 		`, tableName)
 	case "oracle":
-		query = oracleTableColumnsSQL(tableName, true)
+		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
+		// owner.table 时只用表名部分查 USER_TAB_COLUMNS（避免需要 ALL_TAB_COLUMNS 权限）
+		if idx := strings.Index(tableName, "."); idx >= 0 {
+			tblPart := strings.ReplaceAll(strings.ToUpper(tableName[idx+1:]), "'", "''")
+			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblPart)
+		} else {
+			tableEsc := strings.ReplaceAll(strings.ToUpper(tableName), "'", "''")
+			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
+		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
 
 	rows, err := db.Query(query)
-	// Oracle：无 ALL_TAB_COLUMNS 权限或 owner.table 查不到时，回退到 USER_TAB_COLUMNS（仅表名部分）
-	if err != nil && config.Type == "oracle" && strings.Contains(tableName, ".") {
-		tblPart := tableName[strings.Index(tableName, ".")+1:]
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tblPart), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+	// Oracle：查询失败时回退（不含 DATA_DEFAULT，避免 LONG 类型 Scan 问题）
+	if err != nil && config.Type == "oracle" {
+		tbl := tableName
+		if idx := strings.Index(tbl, "."); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
 		rows, err = db.Query(fallbackQuery)
 	}
 	if err != nil {
@@ -2791,11 +2808,21 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 					"nullable": nullable != "NO",
 				})
 			}
-		case "dm", "oracle":
+		case "dm":
 			// COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
 			var nullableStr string
 			var defaultVal interface{}
 			if err := rows.Scan(&colName, &colType, &nullableStr, &defaultVal); err == nil {
+				columns = append(columns, map[string]interface{}{
+					"name":     colName,
+					"type":     colType,
+					"nullable": nullableStr == "Y",
+				})
+			}
+		case "oracle":
+			// Oracle DATA_DEFAULT 是 LONG 类型无法 Scan，只扫 3 列
+			var nullableStr string
+			if err := rows.Scan(&colName, &colType, &nullableStr); err == nil {
 				columns = append(columns, map[string]interface{}{
 					"name":     colName,
 					"type":     colType,
@@ -2816,20 +2843,22 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		}
 	}
 
-	// Oracle：若 ALL_TAB_COLUMNS 返回 0 行（无权限或非当前 schema），用 USER_TAB_COLUMNS 再试
-	if config.Type == "oracle" && len(columns) == 0 && strings.Contains(tableName, ".") {
+	// Oracle：若初次查询返回 0 行，用 USER_TAB_COLUMNS 再试（不含 LONG 类型 DATA_DEFAULT）
+	if config.Type == "oracle" && len(columns) == 0 {
 		rows.Close()
-		tblPart := tableName[strings.Index(tableName, ".")+1:]
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tblPart), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		tbl := tableName
+		if idx := strings.Index(tbl, "."); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
 		rows2, err2 := db.Query(fallbackQuery)
 		if err2 == nil {
 			defer rows2.Close()
 			for rows2.Next() {
 				var colName, colType string
 				var nullableStr string
-				var defaultVal interface{}
-				if err := rows2.Scan(&colName, &colType, &nullableStr, &defaultVal); err == nil {
+				if err := rows2.Scan(&colName, &colType, &nullableStr); err == nil {
 					columns = append(columns, map[string]interface{}{
 						"name":     colName,
 						"type":     colType,
