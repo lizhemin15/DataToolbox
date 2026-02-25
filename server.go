@@ -1120,9 +1120,9 @@ func getTablesQuery(config *DatabaseConfig) string {
 	case "sqlserver":
 		return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
 	case "oracle":
-		// 从 ALL_TABLES 查并排除系统 schema，从源头不查系统表，避免黑名单不全且驱动可能只返回前 N 行
+		// 排除系统 schema，但始终包含当前连接用户的 schema（OR owner = USER），这样新建的表能立即出现在列表中
 		systemOwners := "'SYS','SYSTEM','OUTLN','DBSNMP','WMSYS','MDSYS','CTXSYS','XDB','EXFSYS','ORDSYS','OLAPSYS','ORACLE_OCM','OJVMSYS','LBACSYS','ANONYMOUS','APEX_PUBLIC_USER','FLOWS_FILES','OWBSYS','DIP','APPQOSSYS','DBSFWUSER','DVSYS','DVF','GSMADMIN_INTERNAL','GSMUSER','GSMROOTUSER','REMOTE_SCHEDULER_AGENT','SI_INFORMTN_SCHEMA'"
-		return "SELECT owner||'.'||table_name FROM all_tables WHERE owner NOT IN (" + systemOwners + ") " +
+		return "SELECT owner||'.'||table_name FROM all_tables WHERE (owner NOT IN (" + systemOwners + ") OR owner = USER) " +
 			"AND table_name NOT LIKE '%$%' ORDER BY owner, table_name"
 	case "dm":
 		// 达梦兼容：用 SYSOBJECTS 避免 USER_TABLES 语法解析问题（-2007）
