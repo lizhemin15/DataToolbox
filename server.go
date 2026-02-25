@@ -1110,9 +1110,9 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 	}
 }
 
-// 获取表列表的SQL
-func getTablesQuery(dbType string) string {
-	switch dbType {
+// 获取表列表的SQL（Oracle 使用 ALL_TABLES 排除 SYS/SYSTEM，从源头不查系统 schema，避免黑名单永远不全且驱动可能只返回部分行）
+func getTablesQuery(config *DatabaseConfig) string {
+	switch config.Type {
 	case "mysql", "mariadb", "tidb":
 		return "SHOW TABLES"
 	case "postgresql", "timescaledb", "cockroachdb":
@@ -1120,22 +1120,10 @@ func getTablesQuery(dbType string) string {
 	case "sqlserver":
 		return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
 	case "oracle":
-		// 只显示用户表，排除 SYS 等 schema 下的 Oracle 系统表（按常见前缀排除）
-		return "SELECT table_name FROM user_tables WHERE table_name NOT LIKE '%$%' " +
-			"AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' " +
-			"AND table_name NOT LIKE 'AQ\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ATP\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'AUDIT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AV\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'BDSQL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CATALOG\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'CLUSTER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CQN\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'DBMS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DEF$%' " +
-			"AND table_name NOT LIKE 'ERROR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FILE\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'HELP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGSTDBY%' " +
-			"AND table_name NOT LIKE 'MVIEW\\_%' ESCAPE '\\' AND table_name NOT LIKE 'OLAP\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'REPCAT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SCHEDULER\\_%' ESCAPE '\\' " +
-			"AND table_name NOT LIKE 'SYS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'TRACE\\_%' ESCAPE '\\' " +
-			"ORDER BY table_name"
+		// 从 ALL_TABLES 查并排除系统 schema，从源头不查系统表，避免黑名单不全且驱动可能只返回前 N 行
+		systemOwners := "'SYS','SYSTEM','OUTLN','DBSNMP','WMSYS','MDSYS','CTXSYS','XDB','EXFSYS','ORDSYS','OLAPSYS','ORACLE_OCM','OJVMSYS','LBACSYS','ANONYMOUS','APEX_PUBLIC_USER','FLOWS_FILES','OWBSYS','DIP','APPQOSSYS','DBSFWUSER','DVSYS','DVF','GSMADMIN_INTERNAL','GSMUSER','GSMROOTUSER','REMOTE_SCHEDULER_AGENT','SI_INFORMTN_SCHEMA'"
+		return "SELECT owner||'.'||table_name FROM all_tables WHERE owner NOT IN (" + systemOwners + ") " +
+			"AND table_name NOT LIKE '%$%' ORDER BY owner, table_name"
 	case "dm":
 		// 达梦兼容：用 SYSOBJECTS 避免 USER_TABLES 语法解析问题（-2007）
 		return "SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1"
@@ -1224,20 +1212,26 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	}
 
 	// 获取表列表
-	query := getTablesQuery(config.Type)
+	query := getTablesQuery(config)
 	rows, err := db.Query(query)
+	if err != nil && config.Type == "oracle" {
+		// 无 ALL_TABLES 权限时回退到 USER_TABLES（仅当前 schema，加表名过滤）
+		fallback := "SELECT table_name FROM user_tables WHERE table_name NOT LIKE '%$%' " +
+			"AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' " +
+			"AND table_name NOT LIKE 'AQ\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBMS\\_%' ESCAPE '\\' " +
+			"AND table_name <> 'DUAL' ORDER BY table_name"
+		rows, err = db.Query(fallback)
+	}
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err == nil {
 			tables = append(tables, tableName)
 		}
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -1260,6 +1254,22 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	}
 
 	return tables, nil
+}
+
+// oracleTableColumnsSQL 返回 Oracle 查询表列的 SQL，支持 owner.table 形式
+func oracleTableColumnsSQL(tableName string, withDefault bool) string {
+	tbl := strings.ToUpper(tableName)
+	sel := "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE"
+	if withDefault {
+		sel = "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT"
+	}
+	if idx := strings.Index(tbl, "."); idx >= 0 {
+		owner := strings.ReplaceAll(tbl[:idx], "'", "''")
+		tblPart := strings.ReplaceAll(tbl[idx+1:], "'", "''")
+		return fmt.Sprintf("%s FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, owner, tblPart)
+	}
+	tableEsc := strings.ReplaceAll(tableName, "'", "''")
+	return fmt.Sprintf("%s FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, tableEsc)
 }
 
 // getTableColumns 获取表的字段信息
@@ -1329,7 +1339,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	case "sqlite", "duckdb":
 		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	case "oracle":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
+		query = oracleTableColumnsSQL(tableName, true)
 	case "dm":
 		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
 	case "clickhouse":
@@ -1994,7 +2004,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 					if err := db.Ping(); err == nil {
 						connected = true
 						// 获取表列表
-						query := getTablesQuery(config.Type)
+						query := getTablesQuery(config)
 						log.Printf("执行查询表列表: %s", query)
 						rows, err := db.Query(query)
 						if err != nil {
@@ -2733,12 +2743,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 			ORDER BY COLUMN_ID
 		`, tableName)
 	case "oracle":
-		query = fmt.Sprintf(`
-			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
-			FROM USER_TAB_COLUMNS
-			WHERE TABLE_NAME = '%s'
-			ORDER BY COLUMN_ID
-		`, tableName)
+		query = oracleTableColumnsSQL(tableName, true)
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -2881,12 +2886,16 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
 		case "dm", "oracle":
-			query = fmt.Sprintf(`
+			if config.Type == "oracle" {
+				query = oracleTableColumnsSQL(tableName, false)
+			} else {
+				query = fmt.Sprintf(`
 			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
 		`, strings.ToUpper(tableName))
+			}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
