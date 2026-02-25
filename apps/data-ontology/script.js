@@ -5829,8 +5829,8 @@ function renderOntologyGraph(data, animate) {
     // 点击空白取消选中
     svg.on('click', () => closeNodeDetail());
 
-    // 显示查询栏 & 更新统计
-    document.getElementById('ontoQueryBar').style.display = '';
+    // 启用查询栏 & 更新统计
+    document.getElementById('ontoQueryBar').classList.remove('onto-query-disabled');
     document.getElementById('ontoClearBtn').style.display = '';
     updateOntoStats(data);
     renderInsights(data.insights || []);
@@ -6095,7 +6095,7 @@ function clearOntology() {
     ontoData = null;
     d3.select('#ontoSvg').selectAll('*').remove();
     document.getElementById('ontoWelcome').style.display = '';
-    document.getElementById('ontoQueryBar').style.display = 'none';
+    document.getElementById('ontoQueryBar').classList.add('onto-query-disabled');
     document.getElementById('ontoClearBtn').style.display = 'none';
     document.getElementById('ontoNodePopup').style.display = 'none';
     document.getElementById('ontoQueryResult').style.display = 'none';
@@ -6116,7 +6116,7 @@ async function doOntologyQuery() {
 
     const resultEl = document.getElementById('ontoQueryResult');
     resultEl.style.display = '';
-    resultEl.innerHTML = '<span style="color:#A29BFE;animation:onto-brain-pulse 1s infinite">🧠 AI正在进行语义推理...</span>';
+    resultEl.innerHTML = '<span style="color:#667eea">🧠 AI正在进行语义推理...</span>';
 
     const token = localStorage.getItem('dataOntologyToken');
     try {
@@ -6182,7 +6182,7 @@ function showOntoToast(msg, isError) {
     if (old) old.remove();
     const el = document.createElement('div');
     el.className = 'onto-toast';
-    el.style.cssText = isError ? 'border-color:rgba(225,112,85,.5);color:#E17055' : '';
+    el.style.cssText = isError ? 'border-color:#fed7d7;color:#c53030' : '';
     el.textContent = msg;
     document.body.appendChild(el);
     ontoToastTimer = setTimeout(() => el.remove(), 3500);
