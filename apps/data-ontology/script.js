@@ -900,13 +900,23 @@ async function previewTable(tableName, keepEditMode = false) {
             } else if (data.data && data.data.length > 0) {
                 columns = Object.keys(data.data[0]);
             } else {
-                // 如果既没有结构信息又没有数据，尝试通过DESCRIBE获取
-                // 显示提示信息
+                // 无结构且无数据时重试一次拉取表结构（新创建的空表可能首次未返回）
+                const retryResp = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+                });
+                const retryData = await retryResp.json();
+                if (retryData.success && retryData.columns && retryData.columns.length > 0) {
+                    columns = retryData.columns.map(col => col.name);
+                }
+            }
+            if (columns.length === 0) {
+                // 仍无列信息时显示提示，并允许“添加行”时再试加载结构
                 previewContent.innerHTML = `
                     <div style="text-align:center;padding:40px;">
                         <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">📋</div>
                         <div style="color:#718096;font-size:16px;margin-bottom:12px;">表结构为空或无法获取</div>
-                        <div style="color:#a0aec0;font-size:14px;">此表可能是新创建的空表</div>
+                        <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">此表可能是新创建的空表</div>
+                        <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">重新加载表结构</button>
                     </div>
                 `;
                 return;
@@ -968,6 +978,54 @@ async function previewTable(tableName, keepEditMode = false) {
         console.error('预览表数据失败：', error);
         const previewContent = document.getElementById('previewContent');
         previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + error.message + '</div>';
+    }
+}
+
+// 当表结构未加载时（空表）：重新拉取表结构并渲染表格，可选是否直接添加一行
+async function loadStructureAndRenderTable(addOneRow) {
+    if (!currentDb || !currentPreviewTable) return;
+    const previewContent = document.getElementById('previewContent');
+    if (!previewContent) return;
+    previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载表结构...</div>';
+    try {
+        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const structureData = await structureResponse.json();
+        if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
+            previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">无法获取表结构，请稍后重试</div>';
+            return;
+        }
+        const columns = structureData.columns.map(col => col.name);
+        const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
+        const emptyRowHtml = `
+            <tr class="empty-row">
+                <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
+                    表中暂无数据，点击上方"+ 添加行"按钮添加数据
+                </td>
+            </tr>
+        `;
+        const tableHtml = `
+            <table class="preview-table" id="dataTable">
+                <thead>
+                    <tr>
+                        ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                        ${actionColumnHtml}
+                    </tr>
+                </thead>
+                <tbody>${emptyRowHtml}</tbody>
+            </table>
+        `;
+        previewContent.innerHTML = tableHtml;
+        const table = document.getElementById('dataTable');
+        if (!table) return;
+        if (isTableEditMode) {
+            table.classList.add('editing-mode');
+            enableTableEditing();
+        }
+        if (addOneRow) addTableRow();
+    } catch (e) {
+        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">加载失败：' + e.message + '</div>';
     }
 }
 
@@ -1166,6 +1224,11 @@ function cancelTableEdit() {
 // 添加表格行
 function addTableRow() {
     const table = document.getElementById('dataTable');
+    if (!table) {
+        // 表未渲染（如空表结构未加载），先拉取结构并渲染再添加一行
+        loadStructureAndRenderTable(true);
+        return;
+    }
     const tbody = table.querySelector('tbody');
     const headers = Array.from(table.querySelectorAll('thead th'))
         .slice(0, -1) // 排除操作列
