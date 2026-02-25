@@ -5425,3 +5425,168 @@ async function executeGovTaskInBrowser(code, file, inputText) {
         console.error('保存日志失败:', e);
     }
 }
+
+// ==================== gov API 帮助 ====================
+
+const GOV_API_DOCS = [
+    {
+        category: 'gov 对象',
+        items: [
+            {
+                name: 'gov.log',
+                signature: 'gov.log(msg)',
+                desc: '向执行日志面板输出一条消息。',
+                example: 'gov.log(\'处理完成，共 \' + n + \' 行\');'
+            },
+            {
+                name: 'gov.getDbType',
+                signature: 'gov.getDbType() → string',
+                desc: '返回关联数据库的类型字符串，如 "mysql"、"oracle"、"postgresql"、"dm" 等。未关联时返回空字符串。',
+                example: 'const t = gov.getDbType();\nif (t === \'mysql\') { /* ... */ }'
+            },
+            {
+                name: 'gov.getDatabases',
+                signature: 'gov.getDatabases() → [{id, name, type}]',
+                desc: '返回平台中所有已配置数据库的列表，可用于多库写入。',
+                example: 'const dbs = gov.getDatabases();\nfor (const db of dbs) {\n  gov.log(db.name + \' - \' + db.type);\n}'
+            },
+            {
+                name: 'gov.readExcel',
+                signature: 'await gov.readExcel(file) → workbook',
+                desc: '读取上传的 Excel 文件（.xlsx/.xls），返回 SheetJS workbook 对象。配合 XLSX.utils.sheet_to_json 解析数据。',
+                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\nconst rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });\ngov.log(\'共 \' + rows.length + \' 行\');'
+            },
+            {
+                name: 'gov.readCSV',
+                signature: 'await gov.readCSV(text) → string[][]',
+                desc: '解析 CSV 文本，返回二维字符串数组（行×列）。',
+                example: 'const rows = await gov.readCSV(INPUT_TEXT);\nfor (const row of rows) {\n  gov.log(row.join(\' | \'));\n}'
+            },
+            {
+                name: 'gov.readWord',
+                signature: 'await gov.readWord(file) → {value: string, messages: [...]}',
+                desc: '读取上传的 Word 文件（.docx），提取纯文本内容。返回 mammoth 的结果对象，value 为正文文本。',
+                example: 'const result = await gov.readWord(INPUT_FILE);\nconst text = result.value;\ngov.log(\'字数: \' + text.length);'
+            },
+            {
+                name: 'gov.querySQL',
+                signature: 'await gov.querySQL(sql, params?) → [{...}]',
+                desc: '对任务关联的数据库执行 SELECT 查询，返回行对象数组。params 为可选参数数组（? 占位符对应）。未关联数据库时抛出错误。',
+                example: 'const rows = await gov.querySQL(\'SELECT * FROM users WHERE age > ?\', [18]);\nfor (const row of rows) gov.log(row.name);'
+            },
+            {
+                name: 'gov.executeSQL',
+                signature: 'await gov.executeSQL(sql, params?) → number',
+                desc: '对任务关联的数据库执行 INSERT/UPDATE/DELETE，返回影响行数。params 为可选参数数组。未关联数据库时抛出错误。',
+                example: 'const n = await gov.executeSQL(\n  \'INSERT INTO logs (msg, ts) VALUES (?, ?)\',\n  [\'done\', new Date().toISOString()]\n);\ngov.log(\'写入 \' + n + \' 行\');'
+            },
+            {
+                name: 'gov.querySQLForDb',
+                signature: 'await gov.querySQLForDb(databaseId, sql, params?) → [{...}]',
+                desc: '对指定数据库（by id）执行 SELECT 查询，可查询任意已配置的数据库，用于跨库操作。',
+                example: 'const dbs = gov.getDatabases();\nconst rows = await gov.querySQLForDb(dbs[0].id, \'SELECT count(*) as c FROM orders\');\ngov.log(\'订单数: \' + rows[0].c);'
+            },
+            {
+                name: 'gov.executeSQLForDb',
+                signature: 'await gov.executeSQLForDb(databaseId, sql, params?) → number',
+                desc: '对指定数据库执行 INSERT/UPDATE/DELETE，可将同一份数据写入多个数据库。',
+                example: 'const dbs = gov.getDatabases();\nfor (const db of dbs) {\n  await gov.executeSQLForDb(db.id,\n    \'INSERT INTO sync_log (ts) VALUES (?)\',\n    [Date.now()]\n  );\n}'
+            },
+            {
+                name: 'gov.callAI',
+                signature: 'await gov.callAI(prompt) → string',
+                desc: '调用 AI 助手（共用 AI 设置中配置的 API URL/Key/模型），发送 prompt 并返回 AI 回复的文本字符串。',
+                example: 'const reply = await gov.callAI(\'请将以下内容翻译为英文：\' + text);\ngov.log(reply);'
+            }
+        ]
+    },
+    {
+        category: '全局变量',
+        items: [
+            {
+                name: 'INPUT_FILE',
+                signature: 'INPUT_FILE : File | null',
+                desc: '交互任务中用户上传的文件对象（File）。仅当任务输入方式含"文件上传"时有效，否则为 null。',
+                example: 'if (INPUT_FILE) {\n  const wb = await gov.readExcel(INPUT_FILE);\n  // ...\n}'
+            },
+            {
+                name: 'INPUT_TEXT',
+                signature: 'INPUT_TEXT : string | ""',
+                desc: '交互任务中用户输入的文本字符串。仅当任务输入方式含"文本输入"时有效，否则为空字符串。',
+                example: 'if (INPUT_TEXT) {\n  const rows = await gov.readCSV(INPUT_TEXT);\n  // ...\n}'
+            }
+        ]
+    },
+    {
+        category: '内置库',
+        items: [
+            {
+                name: 'XLSX',
+                signature: 'XLSX (SheetJS)',
+                desc: '完整的 SheetJS 库，用于 Excel 文件读写。常用：XLSX.utils.sheet_to_json、XLSX.utils.json_to_sheet、XLSX.writeFile。',
+                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\n// 带表头的对象数组\nconst data = XLSX.utils.sheet_to_json(sheet);\n// 原始二维数组\nconst raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });'
+            },
+            {
+                name: 'Papa',
+                signature: 'Papa (PapaParse)',
+                desc: 'CSV 解析库。Papa.parse(text, options) 解析 CSV 文本，返回 { data, errors, meta }。',
+                example: '// 带表头，返回对象数组\nconst result = Papa.parse(INPUT_TEXT, { header: true });\nfor (const row of result.data) gov.log(row.name);\n\n// 不带表头，返回二维数组\nconst raw = Papa.parse(INPUT_TEXT, { header: false }).data;'
+            },
+            {
+                name: 'mammoth',
+                signature: 'mammoth',
+                desc: 'Word 文档处理库。mammoth.extractRawText({ arrayBuffer }) 提取 .docx 纯文本，convertToHtml 转为 HTML。gov.readWord 已封装常用用法。',
+                example: '// gov.readWord 已封装，直接使用：\nconst result = await gov.readWord(INPUT_FILE);\ngov.log(result.value); // 纯文本'
+            }
+        ]
+    }
+];
+
+function openGovApiHelp() {
+    const modal = document.getElementById('govApiHelpModal');
+    modal.style.display = 'flex';
+    document.getElementById('govApiSearchInput').value = '';
+    renderGovApiDocs('');
+    setTimeout(() => document.getElementById('govApiSearchInput').focus(), 100);
+}
+
+function closeGovApiHelp() {
+    document.getElementById('govApiHelpModal').style.display = 'none';
+}
+
+function filterGovApiHelp(query) {
+    renderGovApiDocs(query.trim().toLowerCase());
+}
+
+function renderGovApiDocs(query) {
+    const body = document.getElementById('govApiBody');
+    let html = '';
+    for (const cat of GOV_API_DOCS) {
+        const items = cat.items.filter(item =>
+            !query ||
+            item.name.toLowerCase().includes(query) ||
+            item.signature.toLowerCase().includes(query) ||
+            item.desc.toLowerCase().includes(query) ||
+            item.example.toLowerCase().includes(query)
+        );
+        if (!items.length) continue;
+        html += `<div class="gov-api-category"><h3>${escapeHtml(cat.category)}</h3>`;
+        for (const item of items) {
+            html += `
+            <div class="gov-api-item">
+                <div class="gov-api-sig"><code>${escapeHtml(item.signature)}</code></div>
+                <div class="gov-api-desc">${escapeHtml(item.desc)}</div>
+                <pre class="gov-api-example">${escapeHtml(item.example)}</pre>
+            </div>`;
+        }
+        html += '</div>';
+    }
+    if (!html) html = '<div style="color:#888;padding:24px;text-align:center;">未找到匹配的 API</div>';
+    body.innerHTML = html;
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('govApiHelpModal')?.style.display !== 'none') {
+        closeGovApiHelp();
+    }
+});

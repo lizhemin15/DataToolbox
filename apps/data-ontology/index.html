@@ -916,7 +916,10 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="govCodeInput">任务代码 (JavaScript)</label>
+                    <label for="govCodeInput" style="display:flex;align-items:center;justify-content:space-between;">
+                        <span>任务代码 (JavaScript)</span>
+                        <button type="button" class="btn btn-sm" onclick="openGovApiHelp()" style="font-size:12px;">📖 API 参考</button>
+                    </label>
                     <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth
 // gov.log(msg)                      - 输出日志
 // gov.getDatabases()                - 返回 [{id,name,type},...] 可入多个库
@@ -947,6 +950,22 @@
                 <div id="govFormError" class="error-message"></div>
                 <div id="govFormSuccess" class="success-message"></div>
             </form>
+        </div>
+    </div>
+
+    <!-- gov API 帮助模态框 -->
+    <div id="govApiHelpModal" class="modal" style="display:none;" onclick="if(event.target===this)closeGovApiHelp()">
+        <div class="modal-content modal-large gov-api-modal">
+            <div class="modal-header">
+                <h2>📖 数据治理 API 参考</h2>
+                <button class="modal-close" onclick="closeGovApiHelp()">&times;</button>
+            </div>
+            <div class="gov-api-search-bar">
+                <input type="text" id="govApiSearchInput" placeholder="搜索 API、关键词..." oninput="filterGovApiHelp(this.value)" autocomplete="off">
+            </div>
+            <div class="modal-body gov-api-body" id="govApiBody">
+                <!-- 动态渲染 -->
+            </div>
         </div>
     </div>
 
