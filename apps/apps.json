@@ -4,7 +4,7 @@
         "name": "运维工具箱",
         "icon": "🔧",
         "description": "集成SSH终端、SFTP文件管理和网络诊断工具，支持Ping、DNS查询、HTTP测试、端口检测、IP查询等",
-        "keywords": ["运维", "SSH", "SFTP", "网络测试", "Ping", "DNS", "端口", "HTTP", "IP查询", "Whois", "SSL"]
+        "keywords": ["运维", "SSH", "SFTP", "网络测试", "Ping", "DNS", "端口", "HTTP", "IP查询", "Whois", "SSL", "联机"]
     },
     {
         "id": "field-matcher",
@@ -12,13 +12,6 @@
         "icon": "🔀",
         "description": "智能匹配和映射数据字段",
         "keywords": ["字段", "匹配", "映射", "对应"]
-    },
-    {
-        "id": "ai-structurer",
-        "name": "AI结构化",
-        "icon": "🤖",
-        "description": "使用AI将非结构化文本转换为JSON格式",
-        "keywords": ["AI", "结构化", "JSON", "转换", "大模型"]
     },
     {
         "id": "sql-learn",
@@ -117,20 +110,6 @@
         "icon": "📝",
         "description": "支持多题型的刷题练习工具，可导入Excel题库进行随机或顺序刷题",
         "keywords": ["刷题", "练习", "题库", "考试", "测验", "学习"]
-    },
-    {
-        "id": "format-converter",
-        "name": "格式万能转换",
-        "icon": "🔄",
-        "description": "完全离线的文件格式转换工具，支持图片格式转换、文档格式互转（Excel/CSV/JSON/TXT/PDF/Word）",
-        "keywords": ["格式转换", "图片", "文档", "Excel", "CSV", "JSON", "PNG", "JPG", "PDF", "Word", "离线"]
-    },
-    {
-        "id": "doc-editor",
-        "name": "文档编辑器",
-        "icon": "📄",
-        "description": "在线编辑各类办公文档，支持Excel、Word、PPT、思维导图（JSMind/KityMinder）和Visio图表",
-        "keywords": ["文档", "编辑器", "Excel", "Word", "PPT", "思维导图", "Visio", "办公", "表格", "文字处理", "演示文稿", "图表"]
     },
     {
         "id": "data-ontology",

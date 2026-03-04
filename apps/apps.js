@@ -29,8 +29,8 @@ const appsData = [
         "name": "运维工具箱",
         "icon": "🔧",
         "description": "集成SSH终端、SFTP文件管理和网络诊断工具，支持Ping、DNS查询、HTTP测试、端口检测、IP查询等",
-        "keywords": ["运维", "SSH", "SFTP", "网络测试", "Ping", "DNS", "端口", "HTTP", "IP查询", "Whois", "SSL"],
-        "category": "tool",
+        "keywords": ["运维", "SSH", "SFTP", "网络测试", "Ping", "DNS", "端口", "HTTP", "IP查询", "Whois", "SSL", "联机"],
+        "category": "online",
         "tags": ["devops", "network"]
     },
     {
@@ -41,15 +41,6 @@ const appsData = [
         "keywords": ["字段", "匹配", "映射", "对应"],
         "category": "tool",
         "tags": ["data", "automation"]
-    },
-    {
-        "id": "ai-structurer",
-        "name": "AI结构化",
-        "icon": "🤖",
-        "description": "使用AI将非结构化文本转换为JSON格式",
-        "keywords": ["AI", "结构化", "JSON", "转换", "大模型"],
-        "category": "tool",
-        "tags": ["ai", "data", "automation"]
     },
     {
         "id": "sql-learn",
@@ -170,7 +161,7 @@ const appsData = [
     },
     {
         "id": "lowcode-dev",
-        "name": "低代码开发（开发完善中）",
+        "name": "低代码开发",
         "icon": "🧩",
         "description": "可视化拖拽构建数据处理应用，支持Excel/Word/数据操作模块，编译为独立HTML应用",
         "keywords": ["低代码", "可视化", "拖拽", "编辑器", "编译", "应用开发"],
@@ -203,24 +194,6 @@ const appsData = [
         "keywords": ["笔记", "大纲", "嵌套", "WorkFlowy", "outliner", "导入", "导出", "JSON"],
         "category": "tool",
         "tags": ["productivity"]
-    },
-    {
-        "id": "format-converter",
-        "name": "格式万能转换",
-        "icon": "🔄",
-        "description": "完全离线的文件格式转换工具，支持图片格式转换、文档格式互转（Excel/CSV/JSON/TXT/PDF/Word）",
-        "keywords": ["格式转换", "图片", "文档", "Excel", "CSV", "JSON", "PNG", "JPG", "PDF", "Word", "离线", "转换"],
-        "category": "tool",
-        "tags": ["file", "data", "office"]
-    },
-    {
-        "id": "doc-editor",
-        "name": "文档编辑器",
-        "icon": "📄",
-        "description": "在线编辑各类办公文档，支持Excel、Word、PPT、思维导图（JSMind/KityMinder）和Visio图表",
-        "keywords": ["文档", "编辑器", "Excel", "Word", "PPT", "思维导图", "Visio", "办公", "表格", "文字处理", "演示文稿", "图表"],
-        "category": "tool",
-        "tags": ["office", "file", "productivity"]
     },
     {
         "id": "lan-chat",
