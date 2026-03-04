@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>运维工具箱</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 </head>
 <body>
     <div class="container">
@@ -25,13 +28,13 @@
             <!-- SSH终端 -->
             <div class="tab-panel active" id="ssh-panel">
                 <div class="panel-header">
-                    <h2>SSH终端连接</h2>
+                    <h2>SSH 终端</h2>
                 </div>
-                
-                <div class="connection-form">
+
+                <div class="connection-form" id="ssh-connect-form">
                     <div class="form-group">
                         <label>主机地址:</label>
-                        <input type="text" id="ssh-host" placeholder="192.168.1.100 或 example.com" value="localhost">
+                        <input type="text" id="ssh-host" placeholder="192.168.1.100 或 example.com">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -47,37 +50,34 @@
                         <label>密码:</label>
                         <input type="password" id="ssh-password" placeholder="输入密码">
                     </div>
-                    <button class="btn btn-primary" id="ssh-connect">连接</button>
-                    <button class="btn btn-danger" id="ssh-disconnect" style="display:none;">断开连接</button>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="ssh-connect">连接</button>
+                        <span id="ssh-connect-status" class="connect-status"></span>
+                    </div>
                 </div>
 
                 <div class="terminal-container" id="terminal-container" style="display:none;">
                     <div class="terminal-header">
-                        <span id="terminal-status">已连接</span>
-                        <button class="btn-small" id="clear-terminal">清空</button>
+                        <span id="terminal-status" class="status-connected">● 已连接</span>
+                        <div class="terminal-header-actions">
+                            <button class="btn-small" id="clear-terminal">清空</button>
+                            <button class="btn btn-danger btn-small-pad" id="ssh-disconnect">断开</button>
+                        </div>
                     </div>
-                    <div class="terminal" id="terminal-output"></div>
-                    <div class="terminal-input-container">
-                        <span class="terminal-prompt">$ </span>
-                        <input type="text" id="terminal-input" class="terminal-input" placeholder="输入命令...">
-                    </div>
-                </div>
-
-                <div class="info-box">
-                    <strong>注意:</strong> SSH连接需要后端WebSocket代理支持。请确保配置了SSH代理服务器。
+                    <div id="xterm-container"></div>
                 </div>
             </div>
 
             <!-- SFTP文件管理 -->
             <div class="tab-panel" id="sftp-panel">
                 <div class="panel-header">
-                    <h2>SFTP文件管理</h2>
+                    <h2>SFTP 文件管理</h2>
                 </div>
 
-                <div class="connection-form">
+                <div class="connection-form" id="sftp-connect-form">
                     <div class="form-group">
                         <label>主机地址:</label>
-                        <input type="text" id="sftp-host" placeholder="192.168.1.100 或 example.com" value="localhost">
+                        <input type="text" id="sftp-host" placeholder="192.168.1.100 或 example.com">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -93,8 +93,11 @@
                         <label>密码:</label>
                         <input type="password" id="sftp-password" placeholder="输入密码">
                     </div>
-                    <button class="btn btn-primary" id="sftp-connect">连接</button>
-                    <button class="btn btn-danger" id="sftp-disconnect" style="display:none;">断开连接</button>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="sftp-connect">连接</button>
+                        <button class="btn btn-danger" id="sftp-disconnect" style="display:none;">断开连接</button>
+                        <span id="sftp-connect-status" class="connect-status"></span>
+                    </div>
                 </div>
 
                 <div class="sftp-container" id="sftp-container" style="display:none;">
@@ -102,30 +105,38 @@
                         <div class="sftp-panel-left">
                             <div class="sftp-panel-header">
                                 <h3>本地文件</h3>
-                                <button class="btn-small" id="upload-file">上传文件</button>
+                                <button class="btn-small" id="upload-file">⬆ 上传到远程</button>
                             </div>
                             <div class="file-browser" id="local-files">
                                 <input type="file" id="local-file-input" style="display:none;" multiple>
-                                <div class="file-list" id="local-file-list"></div>
+                                <div class="file-list" id="local-file-list">
+                                    <div class="file-empty">点击"上传到远程"选择本地文件</div>
+                                </div>
                             </div>
                         </div>
                         <div class="sftp-panel-right">
                             <div class="sftp-panel-header">
                                 <h3>远程文件</h3>
-                                <div class="path-bar">
-                                    <input type="text" id="remote-path" value="/" readonly>
-                                    <button class="btn-small" id="refresh-remote">刷新</button>
+                                <div class="sftp-toolbar">
+                                    <div class="path-bar">
+                                        <input type="text" id="remote-path" value="/" title="可输入路径后按 Enter 跳转">
+                                        <button class="btn-small" id="refresh-remote">刷新</button>
+                                    </div>
+                                    <div class="sftp-actions">
+                                        <button class="btn-small" id="sftp-mkdir">新建文件夹</button>
+                                        <button class="btn-small" id="sftp-rename-btn">重命名</button>
+                                    </div>
                                 </div>
+                            </div>
+                            <div id="sftp-upload-progress" style="display:none;" class="upload-progress">
+                                <span id="sftp-progress-text">上传中...</span>
+                                <div class="progress-bar"><div class="progress-fill" id="sftp-progress-fill"></div></div>
                             </div>
                             <div class="file-browser" id="remote-files">
                                 <div class="file-list" id="remote-file-list"></div>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <div class="info-box">
-                    <strong>注意:</strong> SFTP连接需要后端服务支持。请确保配置了SFTP代理服务器。
                 </div>
             </div>
 

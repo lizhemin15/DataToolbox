@@ -27,11 +27,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
+	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
 	_ "gitee.com/chunanyong/dm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // 条件编译：仅在支持CGO时导入这些驱动
@@ -6507,6 +6509,470 @@ func cronFieldMatch(field string, value int) bool {
 	return false
 }
 
+// ===== SSH/SFTP 运维支持 =====
+
+// SFTPSession 保存一个 SFTP 会话的 SSH+SFTP 客户端
+type SFTPSession struct {
+	ID         string
+	SSHClient  *gossh.Client
+	SFTPClient *sftp.Client
+	LastUsed   time.Time
+}
+
+var (
+	sftpSessionsMu  sync.RWMutex
+	sftpSessionsMap = make(map[string]*SFTPSession)
+)
+
+// getSFTPSession 线程安全地获取并刷新会话最后使用时间
+func getSFTPSession(id string) *SFTPSession {
+	sftpSessionsMu.Lock()
+	defer sftpSessionsMu.Unlock()
+	s := sftpSessionsMap[id]
+	if s != nil {
+		s.LastUsed = time.Now()
+	}
+	return s
+}
+
+// startSFTPSessionCleaner 定期清理 30 分钟未使用的 SFTP 会话
+func startSFTPSessionCleaner() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			sftpSessionsMu.Lock()
+			for id, s := range sftpSessionsMap {
+				if time.Since(s.LastUsed) > 30*time.Minute {
+					s.SFTPClient.Close()
+					s.SSHClient.Close()
+					delete(sftpSessionsMap, id)
+				}
+			}
+			sftpSessionsMu.Unlock()
+		}
+	}()
+}
+
+// opsSSHWriter 将 io.Write 调用转发到回调函数（用于 SSH stdout/stderr → WebSocket）
+type opsSSHWriter struct {
+	fn func([]byte)
+}
+
+func (w *opsSSHWriter) Write(p []byte) (n int, err error) {
+	b := make([]byte, len(p))
+	copy(b, p)
+	w.fn(b)
+	return len(p), nil
+}
+
+// handleSSHWebSocket 通过 WebSocket 代理 SSH 终端
+// 连接参数通过 URL Query 传入：host, port, user, password
+func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	host := q.Get("host")
+	portStr := q.Get("port")
+	user := q.Get("user")
+	password := q.Get("password")
+
+	if host == "" || user == "" {
+		http.Error(w, "missing host or user", http.StatusBadRequest)
+		return
+	}
+	if portStr == "" {
+		portStr = "22"
+	}
+
+	wsConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer wsConn.Close()
+
+	var wsMu sync.Mutex
+	writeWS := func(data []byte) {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		wsConn.WriteMessage(websocket.BinaryMessage, data)
+	}
+	writeWSText := func(text string) {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		wsConn.WriteMessage(websocket.TextMessage, []byte(text))
+	}
+
+	sshConfig := &gossh.ClientConfig{
+		User:            user,
+		Auth:            []gossh.AuthMethod{gossh.Password(password)},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+
+	sshClient, err := gossh.Dial("tcp", host+":"+portStr, sshConfig)
+	if err != nil {
+		writeWSText("\r\n\x1b[31m[连接失败] " + err.Error() + "\x1b[0m\r\n")
+		return
+	}
+	defer sshClient.Close()
+
+	session, err := sshClient.NewSession()
+	if err != nil {
+		writeWSText("\r\n\x1b[31m[会话创建失败] " + err.Error() + "\x1b[0m\r\n")
+		return
+	}
+	defer session.Close()
+
+	stdinPipe, err := session.StdinPipe()
+	if err != nil {
+		writeWSText("\r\n\x1b[31m[stdin 管道失败] " + err.Error() + "\x1b[0m\r\n")
+		return
+	}
+
+	session.Stdout = &opsSSHWriter{fn: writeWS}
+	session.Stderr = &opsSSHWriter{fn: writeWS}
+
+	modes := gossh.TerminalModes{
+		gossh.ECHO:          1,
+		gossh.TTY_OP_ISPEED: 38400,
+		gossh.TTY_OP_OSPEED: 38400,
+	}
+	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
+		writeWSText("\r\n\x1b[31m[PTY 请求失败] " + err.Error() + "\x1b[0m\r\n")
+		return
+	}
+	if err := session.Shell(); err != nil {
+		writeWSText("\r\n\x1b[31m[Shell 启动失败] " + err.Error() + "\x1b[0m\r\n")
+		return
+	}
+
+	// 读取浏览器键盘输入，转发到 SSH stdin
+	go func() {
+		for {
+			_, msg, err := wsConn.ReadMessage()
+			if err != nil {
+				session.Close()
+				return
+			}
+			// 处理终端尺寸调整消息 {"type":"resize","cols":80,"rows":24}
+			if len(msg) > 1 && msg[0] == '{' {
+				var rm struct {
+					Type string `json:"type"`
+					Cols int    `json:"cols"`
+					Rows int    `json:"rows"`
+				}
+				if json.Unmarshal(msg, &rm) == nil && rm.Type == "resize" {
+					session.WindowChange(rm.Rows, rm.Cols)
+					continue
+				}
+			}
+			stdinPipe.Write(msg)
+		}
+	}()
+
+	session.Wait()
+	writeWSText("\r\n\x1b[33m[会话已结束]\x1b[0m\r\n")
+}
+
+// handleSFTPConnect POST /api/ops/sftp/connect
+func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		return
+	}
+	var req struct {
+		Host     string `json:"host"`
+		Port     string `json:"port"`
+		User     string `json:"user"`
+		Password string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Host == "" || req.User == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "host 和 user 不能为空"})
+		return
+	}
+	if req.Port == "" {
+		req.Port = "22"
+	}
+
+	sshConfig := &gossh.ClientConfig{
+		User:            req.User,
+		Auth:            []gossh.AuthMethod{gossh.Password(req.Password)},
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	sshClient, err := gossh.Dial("tcp", req.Host+":"+req.Port, sshConfig)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SSH 连接失败: " + err.Error()})
+		return
+	}
+	sftpClient, err := sftp.NewClient(sshClient)
+	if err != nil {
+		sshClient.Close()
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SFTP 初始化失败: " + err.Error()})
+		return
+	}
+
+	sessionID := uuid.New().String()
+	sftpSessionsMu.Lock()
+	sftpSessionsMap[sessionID] = &SFTPSession{
+		ID:         sessionID,
+		SSHClient:  sshClient,
+		SFTPClient: sftpClient,
+		LastUsed:   time.Now(),
+	}
+	sftpSessionsMu.Unlock()
+
+	homePath := "/"
+	if wd, err := sftpClient.Getwd(); err == nil {
+		homePath = wd
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"sessionId":   sessionID,
+		"currentPath": homePath,
+	})
+}
+
+// handleSFTPList GET /api/ops/sftp/list?session=xxx&path=/
+func handleSFTPList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	sessionID := r.URL.Query().Get("session")
+	remotePath := r.URL.Query().Get("path")
+	if remotePath == "" {
+		remotePath = "/"
+	}
+	s := getSFTPSession(sessionID)
+	if s == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期，请重新连接"})
+		return
+	}
+	entries, err := s.SFTPClient.ReadDir(remotePath)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取目录失败: " + err.Error()})
+		return
+	}
+	files := make([]map[string]interface{}, 0, len(entries)+1)
+	if remotePath != "/" {
+		files = append(files, map[string]interface{}{
+			"name": "..", "size": int64(0), "isDir": true, "modTime": "", "permissions": "drwxr-xr-x",
+		})
+	}
+	for _, e := range entries {
+		files = append(files, map[string]interface{}{
+			"name":        e.Name(),
+			"size":        e.Size(),
+			"isDir":       e.IsDir(),
+			"modTime":     e.ModTime().Format("2006-01-02 15:04"),
+			"permissions": e.Mode().String(),
+		})
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": remotePath, "files": files})
+}
+
+// handleSFTPUpload POST /api/ops/sftp/upload?session=xxx&path=/remote/dir
+func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		return
+	}
+	sessionID := r.URL.Query().Get("session")
+	remotePath := r.URL.Query().Get("path")
+	s := getSFTPSession(sessionID)
+	if s == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		return
+	}
+	r.ParseMultipartForm(200 << 20) // 200MB
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取上传文件失败: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	// 使用正斜杠拼接远程路径
+	remoteFilePath := strings.TrimRight(remotePath, "/") + "/" + header.Filename
+	dst, err := s.SFTPClient.Create(remoteFilePath)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建远程文件失败: " + err.Error()})
+		return
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "写入文件失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": remoteFilePath})
+}
+
+// handleSFTPDownload GET /api/ops/sftp/download?session=xxx&path=/file
+func handleSFTPDownload(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session")
+	remotePath := r.URL.Query().Get("path")
+	s := getSFTPSession(sessionID)
+	if s == nil {
+		http.Error(w, "会话不存在或已过期", http.StatusBadRequest)
+		return
+	}
+	src, err := s.SFTPClient.Open(remotePath)
+	if err != nil {
+		http.Error(w, "打开远程文件失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer src.Close()
+	if stat, err := src.Stat(); err == nil {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+	}
+	// 提取文件名（远程路径使用正斜杠）
+	parts := strings.Split(strings.TrimRight(remotePath, "/"), "/")
+	filename := parts[len(parts)-1]
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	io.Copy(w, src)
+}
+
+// handleSFTPDisconnect POST /api/ops/sftp/disconnect
+func handleSFTPDisconnect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var sessionID string
+	sessionID = r.URL.Query().Get("session")
+	if sessionID == "" {
+		var req struct {
+			Session string `json:"session"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		sessionID = req.Session
+	}
+	sftpSessionsMu.Lock()
+	if s, ok := sftpSessionsMap[sessionID]; ok {
+		s.SFTPClient.Close()
+		s.SSHClient.Close()
+		delete(sftpSessionsMap, sessionID)
+	}
+	sftpSessionsMu.Unlock()
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleSFTPMkdir POST /api/ops/sftp/mkdir  body: {session, path}
+func handleSFTPMkdir(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Session string `json:"session"`
+		Path    string `json:"path"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	s := getSFTPSession(req.Session)
+	if s == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		return
+	}
+	if err := sftpMkdirAll(s.SFTPClient, req.Path); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建目录失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleSFTPDelete POST /api/ops/sftp/delete  body: {session, path}
+func handleSFTPDelete(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Session string `json:"session"`
+		Path    string `json:"path"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	s := getSFTPSession(req.Session)
+	if s == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		return
+	}
+	if err := sftpRemoveAll(s.SFTPClient, req.Path); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "删除失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleSFTPRename POST /api/ops/sftp/rename  body: {session, oldPath, newPath}
+func handleSFTPRename(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Session string `json:"session"`
+		OldPath string `json:"oldPath"`
+		NewPath string `json:"newPath"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	s := getSFTPSession(req.Session)
+	if s == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		return
+	}
+	if err := s.SFTPClient.Rename(req.OldPath, req.NewPath); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "重命名失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// sftpMkdirAll 递归创建远程目录（POSIX 路径）
+func sftpMkdirAll(client *sftp.Client, remotePath string) error {
+	if _, err := client.Stat(remotePath); err == nil {
+		return nil
+	}
+	// 计算父目录（手动处理正斜杠）
+	clean := strings.TrimRight(remotePath, "/")
+	lastSlash := strings.LastIndex(clean, "/")
+	if lastSlash > 0 {
+		parent := clean[:lastSlash]
+		if err := sftpMkdirAll(client, parent); err != nil {
+			return err
+		}
+	}
+	return client.Mkdir(remotePath)
+}
+
+// sftpRemoveAll 递归删除远程文件或目录
+func sftpRemoveAll(client *sftp.Client, remotePath string) error {
+	stat, err := client.Stat(remotePath)
+	if err != nil {
+		return err
+	}
+	if !stat.IsDir() {
+		return client.Remove(remotePath)
+	}
+	entries, err := client.ReadDir(remotePath)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		child := strings.TrimRight(remotePath, "/") + "/" + e.Name()
+		if err := sftpRemoveAll(client, child); err != nil {
+			return err
+		}
+	}
+	return client.RemoveDirectory(remotePath)
+}
+
 func main() {
 	// 子命令 mcp：以 stdio 运行 MCP 服务，供 Cursor 等连接（需设置 DATA_ONTOLOGY_BASE_URL、DATA_ONTOLOGY_API_KEY）
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
@@ -6542,11 +7008,25 @@ func main() {
 	// 启动Hub
 	go hub.run()
 
+	// 启动 SFTP 会话定期清理
+	startSFTPSessionCleaner()
+
 	// 创建路由
 	mux := http.NewServeMux()
-	
+
 	// WebSocket路由
 	mux.HandleFunc("/ws/chat", handleWebSocket)
+	mux.HandleFunc("/ws/ops/ssh", handleSSHWebSocket)
+
+	// SSH/SFTP 运维 API 路由
+	mux.HandleFunc("/api/ops/sftp/connect", handleSFTPConnect)
+	mux.HandleFunc("/api/ops/sftp/list", handleSFTPList)
+	mux.HandleFunc("/api/ops/sftp/upload", handleSFTPUpload)
+	mux.HandleFunc("/api/ops/sftp/download", handleSFTPDownload)
+	mux.HandleFunc("/api/ops/sftp/disconnect", handleSFTPDisconnect)
+	mux.HandleFunc("/api/ops/sftp/mkdir", handleSFTPMkdir)
+	mux.HandleFunc("/api/ops/sftp/delete", handleSFTPDelete)
+	mux.HandleFunc("/api/ops/sftp/rename", handleSFTPRename)
 	
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)

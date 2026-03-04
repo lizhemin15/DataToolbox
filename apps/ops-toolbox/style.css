@@ -616,6 +616,174 @@ body {
     gap: 10px;
 }
 
+/* ===== SSH/SFTP 增强样式 ===== */
+
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.connect-status {
+    font-size: 13px;
+    color: #888;
+}
+
+.connect-status.error { color: #e74c3c; }
+.connect-status.success { color: #27ae60; }
+
+/* xterm 容器 */
+#xterm-container {
+    background: #1a1a2e;
+    padding: 4px 0;
+    min-height: 420px;
+}
+#xterm-container .xterm {
+    padding: 8px;
+}
+
+/* 终端头部 */
+.terminal-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.btn-small-pad {
+    padding: 4px 10px;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.btn-small-pad:hover { background: #c0392b; }
+
+.status-connected { color: #2ecc71; }
+.status-disconnected { color: #e74c3c; }
+
+/* SFTP 工具栏 */
+.sftp-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+}
+
+.sftp-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.sftp-panel-header {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* 上传进度条 */
+.upload-progress {
+    padding: 8px 15px;
+    background: #f0f7ff;
+    border-bottom: 1px solid #d0e8ff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 6px;
+    background: #ddd;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.2s;
+}
+
+/* 文件空状态 */
+.file-empty {
+    padding: 30px;
+    text-align: center;
+    color: #bbb;
+    font-size: 13px;
+}
+
+/* 文件操作按钮 */
+.file-item {
+    justify-content: space-between;
+}
+
+.file-item-main {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.file-item-main .file-info {
+    min-width: 0;
+}
+
+.file-item-main .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.file-item:hover .file-actions {
+    opacity: 1;
+}
+
+.file-action-btn {
+    padding: 3px 8px;
+    border: none;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    background: #667eea;
+    color: white;
+}
+
+.file-action-btn:hover { background: #5568d3; }
+
+.file-action-btn.danger {
+    background: #e74c3c;
+}
+.file-action-btn.danger:hover { background: #c0392b; }
+
+.file-item.selected {
+    background: #eef2ff;
+}
+
+/* 主机卡片连接按钮 */
+.btn-connect {
+    padding: 6px 14px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.btn-connect:hover { background: #5568d3; }
+
 @media (max-width: 768px) {
     .network-tools {
         grid-template-columns: 1fr;

@@ -13,223 +13,456 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     });
 });
 
-// ===== SSH终端功能 =====
+// ===== SSH终端功能（真实 WebSocket 后端代理）=====
+let sshWs = null;
+let sshTerm = null;
+let sshFitAddon = null;
 let sshConnected = false;
-let commandHistory = [];
-let historyIndex = -1;
+
+function sshSetStatus(msg, cls) {
+    const el = document.getElementById('ssh-connect-status');
+    el.textContent = msg;
+    el.className = 'connect-status' + (cls ? ' ' + cls : '');
+}
+
+function initXterm() {
+    if (sshTerm) { sshTerm.dispose(); sshTerm = null; }
+    const container = document.getElementById('xterm-container');
+    container.innerHTML = '';
+    sshTerm = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
+        theme: { background: '#1a1a2e', foreground: '#e8e8f0', cursor: '#a0a0ff' },
+        scrollback: 5000,
+        allowTransparency: false,
+    });
+    sshFitAddon = new FitAddon.FitAddon();
+    sshTerm.loadAddon(sshFitAddon);
+    sshTerm.open(container);
+    setTimeout(() => { sshFitAddon.fit(); }, 50);
+
+    sshTerm.onData(data => {
+        if (sshWs && sshWs.readyState === WebSocket.OPEN) {
+            sshWs.send(data);
+        }
+    });
+    sshTerm.onResize(({ cols, rows }) => {
+        if (sshWs && sshWs.readyState === WebSocket.OPEN) {
+            sshWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+        }
+    });
+
+    // 窗口 resize 时自动调整终端尺寸
+    const resizeObserver = new ResizeObserver(() => {
+        if (sshFitAddon) sshFitAddon.fit();
+    });
+    resizeObserver.observe(container);
+}
 
 document.getElementById('ssh-connect').addEventListener('click', () => {
-    const host = document.getElementById('ssh-host').value;
-    const port = document.getElementById('ssh-port').value;
-    const user = document.getElementById('ssh-user').value;
+    const host = document.getElementById('ssh-host').value.trim();
+    const port = document.getElementById('ssh-port').value.trim() || '22';
+    const user = document.getElementById('ssh-user').value.trim();
     const password = document.getElementById('ssh-password').value;
 
-    if (!host || !user || !password) {
-        alert('请填写完整的连接信息');
+    if (!host || !user) {
+        sshSetStatus('请填写主机地址和用户名', 'error');
         return;
     }
 
-    // 模拟连接
-    const terminalOutput = document.getElementById('terminal-output');
-    terminalOutput.innerHTML = `<div class="terminal-line result-info">正在连接到 ${user}@${host}:${port}...</div>`;
-    
-    setTimeout(() => {
+    sshSetStatus('连接中...', '');
+    document.getElementById('ssh-connect').disabled = true;
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${proto}//${location.host}/ws/ops/ssh?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&user=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}`;
+
+    document.getElementById('terminal-container').style.display = 'block';
+    initXterm();
+    sshTerm.writeln(`\x1b[33m正在连接 ${user}@${host}:${port} ...\x1b[0m`);
+
+    sshWs = new WebSocket(wsUrl);
+    sshWs.binaryType = 'arraybuffer';
+
+    sshWs.onopen = () => {
         sshConnected = true;
-        document.getElementById('terminal-container').style.display = 'block';
         document.getElementById('ssh-connect').style.display = 'none';
+        document.getElementById('ssh-connect').disabled = false;
         document.getElementById('ssh-disconnect').style.display = 'inline-block';
-        
-        terminalOutput.innerHTML += `<div class="terminal-line result-success">连接成功！</div>`;
-        terminalOutput.innerHTML += `<div class="terminal-line">欢迎使用SSH终端（演示模式）</div>`;
-        terminalOutput.innerHTML += `<div class="terminal-line result-info">注意：这是前端演示模式，实际SSH功能需要后端WebSocket支持</div>`;
-        
-        document.getElementById('terminal-input').focus();
-    }, 1000);
+        document.getElementById('terminal-status').textContent = `● ${user}@${host}`;
+        document.getElementById('terminal-status').className = 'status-connected';
+        sshSetStatus('', '');
+        // 发送初始终端尺寸
+        const dims = sshFitAddon.proposeDimensions();
+        if (dims) sshWs.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        sshTerm.focus();
+    };
+
+    sshWs.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+            sshTerm.write(new Uint8Array(event.data));
+        } else {
+            sshTerm.write(event.data);
+        }
+    };
+
+    sshWs.onclose = () => {
+        sshConnected = false;
+        document.getElementById('ssh-connect').style.display = 'inline-block';
+        document.getElementById('ssh-connect').disabled = false;
+        document.getElementById('ssh-disconnect').style.display = 'none';
+        document.getElementById('terminal-status').textContent = '● 已断开';
+        document.getElementById('terminal-status').className = 'status-disconnected';
+        if (sshTerm) sshTerm.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m');
+    };
+
+    sshWs.onerror = () => {
+        sshSetStatus('连接失败', 'error');
+        document.getElementById('ssh-connect').disabled = false;
+        if (sshTerm) sshTerm.writeln('\r\n\x1b[31m[连接出错，请检查地址和凭据]\x1b[0m');
+    };
 });
 
 document.getElementById('ssh-disconnect').addEventListener('click', () => {
-    sshConnected = false;
-    document.getElementById('terminal-container').style.display = 'none';
-    document.getElementById('ssh-connect').style.display = 'inline-block';
-    document.getElementById('ssh-disconnect').style.display = 'none';
-    document.getElementById('terminal-output').innerHTML = '';
+    if (sshWs) { sshWs.close(); sshWs = null; }
 });
 
 document.getElementById('clear-terminal').addEventListener('click', () => {
-    document.getElementById('terminal-output').innerHTML = '';
+    if (sshTerm) sshTerm.clear();
 });
 
-document.getElementById('terminal-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        const input = e.target.value.trim();
-        if (input) {
-            executeCommand(input);
-            commandHistory.unshift(input);
-            historyIndex = -1;
-            e.target.value = '';
-        }
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (historyIndex < commandHistory.length - 1) {
-            historyIndex++;
-            e.target.value = commandHistory[historyIndex];
-        }
-    } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (historyIndex > 0) {
-            historyIndex--;
-            e.target.value = commandHistory[historyIndex];
-        } else if (historyIndex === 0) {
-            historyIndex = -1;
-            e.target.value = '';
-        }
-    }
-});
+// ===== SFTP文件管理功能（真实后端 REST API）=====
+let sftpConnected = false;
+let sftpSessionId = null;
+let sftpCurrentPath = '/';
+let sftpSelectedFile = null; // 用于重命名
 
-function executeCommand(cmd) {
-    const output = document.getElementById('terminal-output');
-    output.innerHTML += `<div class="terminal-line">$ ${cmd}</div>`;
-    
-    // 模拟命令执行
-    const responses = {
-        'ls': 'Documents  Downloads  Pictures  Videos  Music',
-        'pwd': '/home/user',
-        'date': new Date().toString(),
-        'whoami': 'user',
-        'help': '可用命令: ls, pwd, date, whoami, help, clear\n注意：这是演示模式，实际功能需要后端支持',
-        'clear': ''
-    };
-    
-    if (cmd === 'clear') {
-        output.innerHTML = '';
-    } else {
-        const response = responses[cmd] || `命令 '${cmd}' 未找到（演示模式）`;
-        output.innerHTML += `<div class="terminal-line">${response}</div>`;
-    }
-    
-    output.scrollTop = output.scrollHeight;
+function sftpSetStatus(msg, cls) {
+    const el = document.getElementById('sftp-connect-status');
+    el.textContent = msg;
+    el.className = 'connect-status' + (cls ? ' ' + cls : '');
 }
 
-// ===== SFTP文件管理功能 =====
-let sftpConnected = false;
-
-document.getElementById('sftp-connect').addEventListener('click', () => {
-    const host = document.getElementById('sftp-host').value;
-    const port = document.getElementById('sftp-port').value;
-    const user = document.getElementById('sftp-user').value;
+document.getElementById('sftp-connect').addEventListener('click', async () => {
+    const host = document.getElementById('sftp-host').value.trim();
+    const port = document.getElementById('sftp-port').value.trim() || '22';
+    const user = document.getElementById('sftp-user').value.trim();
     const password = document.getElementById('sftp-password').value;
 
-    if (!host || !user || !password) {
-        alert('请填写完整的连接信息');
+    if (!host || !user) {
+        sftpSetStatus('请填写主机地址和用户名', 'error');
         return;
     }
 
-    // 模拟连接
-    setTimeout(() => {
+    const btn = document.getElementById('sftp-connect');
+    btn.disabled = true;
+    sftpSetStatus('连接中...', '');
+
+    try {
+        const res = await fetch('/api/ops/sftp/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ host, port, user, password })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+
+        sftpSessionId = data.sessionId;
+        sftpCurrentPath = data.currentPath || '/';
         sftpConnected = true;
+
+        document.getElementById('sftp-connect-form').style.display = 'none';
         document.getElementById('sftp-container').style.display = 'block';
-        document.getElementById('sftp-connect').style.display = 'none';
         document.getElementById('sftp-disconnect').style.display = 'inline-block';
-        
+        sftpSetStatus(`已连接 ${user}@${host}`, 'success');
+
+        loadRemoteFiles(sftpCurrentPath);
         loadLocalFiles();
-        loadRemoteFiles();
-    }, 1000);
+    } catch (err) {
+        sftpSetStatus('连接失败: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 });
 
-document.getElementById('sftp-disconnect').addEventListener('click', () => {
+document.getElementById('sftp-disconnect').addEventListener('click', async () => {
+    if (sftpSessionId) {
+        await fetch('/api/ops/sftp/disconnect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sftpSessionId })
+        }).catch(() => {});
+        sftpSessionId = null;
+    }
     sftpConnected = false;
+    sftpCurrentPath = '/';
+    document.getElementById('sftp-connect-form').style.display = 'block';
     document.getElementById('sftp-container').style.display = 'none';
-    document.getElementById('sftp-connect').style.display = 'inline-block';
     document.getElementById('sftp-disconnect').style.display = 'none';
+    sftpSetStatus('', '');
+    document.getElementById('sftp-connect').style.display = 'inline-block';
 });
 
+// 路径输入框按 Enter 跳转
+document.getElementById('remote-path').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        loadRemoteFiles(e.target.value.trim() || '/');
+    }
+});
+
+document.getElementById('refresh-remote').addEventListener('click', () => {
+    if (sftpConnected) loadRemoteFiles(sftpCurrentPath);
+});
+
+// 新建文件夹
+document.getElementById('sftp-mkdir').addEventListener('click', async () => {
+    const name = prompt('请输入新文件夹名称:');
+    if (!name || !name.trim()) return;
+    const newPath = sftpCurrentPath.replace(/\/$/, '') + '/' + name.trim();
+    try {
+        const res = await fetch('/api/ops/sftp/mkdir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sftpSessionId, path: newPath })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+        loadRemoteFiles(sftpCurrentPath);
+    } catch (err) {
+        alert('创建文件夹失败: ' + err.message);
+    }
+});
+
+// 重命名（需先在列表中点选文件）
+document.getElementById('sftp-rename-btn').addEventListener('click', async () => {
+    if (!sftpSelectedFile) { alert('请先在文件列表中点击选中要重命名的文件'); return; }
+    const newName = prompt('请输入新名称:', sftpSelectedFile);
+    if (!newName || !newName.trim() || newName.trim() === sftpSelectedFile) return;
+    const dir = sftpCurrentPath.replace(/\/$/, '');
+    try {
+        const res = await fetch('/api/ops/sftp/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session: sftpSessionId,
+                oldPath: dir + '/' + sftpSelectedFile,
+                newPath: dir + '/' + newName.trim()
+            })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+        sftpSelectedFile = null;
+        loadRemoteFiles(sftpCurrentPath);
+    } catch (err) {
+        alert('重命名失败: ' + err.message);
+    }
+});
+
+async function loadRemoteFiles(remotePath) {
+    if (!sftpSessionId) return;
+    sftpCurrentPath = remotePath;
+    document.getElementById('remote-path').value = remotePath;
+
+    const list = document.getElementById('remote-file-list');
+    list.innerHTML = '<div class="file-empty">加载中...</div>';
+
+    try {
+        const res = await fetch(`/api/ops/sftp/list?session=${sftpSessionId}&path=${encodeURIComponent(remotePath)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+
+        sftpCurrentPath = data.path;
+        document.getElementById('remote-path').value = sftpCurrentPath;
+        list.innerHTML = '';
+
+        if (data.files.length === 0) {
+            list.innerHTML = '<div class="file-empty">空目录</div>';
+            return;
+        }
+
+        data.files.forEach(file => {
+            const item = createRemoteFileItem(file);
+            list.appendChild(item);
+        });
+    } catch (err) {
+        list.innerHTML = `<div class="file-empty" style="color:#e74c3c">加载失败: ${escHtml(err.message)}</div>`;
+    }
+}
+
+function createRemoteFileItem(file) {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+
+    const main = document.createElement('div');
+    main.className = 'file-item-main';
+    main.innerHTML = `
+        <div class="file-icon">${file.isDir ? '📁' : getFileIcon(file.name)}</div>
+        <div class="file-info">
+            <div class="file-name" title="${escHtml(file.name)}">${escHtml(file.name)}</div>
+            <div class="file-size">${file.isDir ? '' : fmtSize(file.size)}${file.modTime ? (file.isDir ? '' : ' · ') + file.modTime : ''}</div>
+        </div>`;
+
+    main.addEventListener('click', () => {
+        if (file.isDir) {
+            let newPath;
+            if (file.name === '..') {
+                const parts = sftpCurrentPath.replace(/\/$/, '').split('/');
+                parts.pop();
+                newPath = parts.join('/') || '/';
+            } else {
+                newPath = sftpCurrentPath.replace(/\/$/, '') + '/' + file.name;
+            }
+            loadRemoteFiles(newPath);
+        } else {
+            // 点击文件 = 选中（用于重命名等操作）
+            document.querySelectorAll('#remote-file-list .file-item').forEach(el => el.classList.remove('selected'));
+            item.classList.add('selected');
+            sftpSelectedFile = file.name;
+        }
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'file-actions';
+
+    if (!file.isDir && file.name !== '..') {
+        const dlBtn = document.createElement('button');
+        dlBtn.className = 'file-action-btn';
+        dlBtn.textContent = '下载';
+        dlBtn.onclick = (e) => { e.stopPropagation(); downloadRemoteFile(file.name); };
+        actions.appendChild(dlBtn);
+    }
+
+    if (file.name !== '..') {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'file-action-btn danger';
+        delBtn.textContent = '删除';
+        delBtn.onclick = (e) => { e.stopPropagation(); deleteRemoteFile(file.name, file.isDir); };
+        actions.appendChild(delBtn);
+    }
+
+    item.appendChild(main);
+    item.appendChild(actions);
+    return item;
+}
+
+function downloadRemoteFile(filename) {
+    const path = sftpCurrentPath.replace(/\/$/, '') + '/' + filename;
+    window.location.href = `/api/ops/sftp/download?session=${sftpSessionId}&path=${encodeURIComponent(path)}`;
+}
+
+async function deleteRemoteFile(filename, isDir) {
+    const label = isDir ? `目录 "${filename}" 及其所有内容` : `文件 "${filename}"`;
+    if (!confirm(`确定要删除 ${label} 吗？`)) return;
+    const path = sftpCurrentPath.replace(/\/$/, '') + '/' + filename;
+    try {
+        const res = await fetch('/api/ops/sftp/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: sftpSessionId, path })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message);
+        if (sftpSelectedFile === filename) sftpSelectedFile = null;
+        loadRemoteFiles(sftpCurrentPath);
+    } catch (err) {
+        alert('删除失败: ' + err.message);
+    }
+}
+
+// 本地文件选择 & 上传
 document.getElementById('upload-file').addEventListener('click', () => {
     document.getElementById('local-file-input').click();
 });
 
-document.getElementById('local-file-input').addEventListener('change', (e) => {
-    loadLocalFiles(e.target.files);
+document.getElementById('local-file-input').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    loadLocalFiles(files);
+    if (!sftpConnected || !sftpSessionId) return;
+    await uploadFiles(files);
+    e.target.value = '';
 });
 
 function loadLocalFiles(files = null) {
     const list = document.getElementById('local-file-list');
-    list.innerHTML = '';
-    
-    if (files && files.length > 0) {
-        Array.from(files).forEach(file => {
-            const item = createFileItem(file.name, formatFileSize(file.size), '📄');
-            item.addEventListener('click', () => uploadFile(file));
-            list.appendChild(item);
-        });
-    } else {
-        list.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">点击"上传文件"选择本地文件</div>';
+    if (!files || !files.length) {
+        list.innerHTML = '<div class="file-empty">点击"上传到远程"选择本地文件</div>';
+        return;
     }
-}
-
-function loadRemoteFiles() {
-    const list = document.getElementById('remote-file-list');
     list.innerHTML = '';
-    
-    // 模拟远程文件列表
-    const mockFiles = [
-        { name: '..', size: 0, isDir: true },
-        { name: 'config', size: 0, isDir: true },
-        { name: 'logs', size: 0, isDir: true },
-        { name: 'data', size: 0, isDir: true },
-        { name: 'nginx.conf', size: 2048, isDir: false },
-        { name: 'app.log', size: 51200, isDir: false },
-        { name: 'README.md', size: 1024, isDir: false }
-    ];
-    
-    mockFiles.forEach(file => {
-        const icon = file.isDir ? '📁' : '📄';
-        const size = file.isDir ? '' : formatFileSize(file.size);
-        const item = createFileItem(file.name, size, icon);
-        item.addEventListener('click', () => {
-            if (file.isDir && file.name !== '..') {
-                alert('目录浏览功能需要后端支持');
-            } else if (!file.isDir) {
-                downloadFile(file.name);
-            }
-        });
+    files.forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'file-item';
+        item.innerHTML = `
+            <div class="file-item-main">
+                <div class="file-icon">${getFileIcon(file.name)}</div>
+                <div class="file-info">
+                    <div class="file-name" title="${escHtml(file.name)}">${escHtml(file.name)}</div>
+                    <div class="file-size">${fmtSize(file.size)}</div>
+                </div>
+            </div>`;
         list.appendChild(item);
     });
 }
 
-function createFileItem(name, size, icon) {
-    const item = document.createElement('div');
-    item.className = 'file-item';
-    item.innerHTML = `
-        <div class="file-icon">${icon}</div>
-        <div class="file-info">
-            <div class="file-name">${name}</div>
-            ${size ? `<div class="file-size">${size}</div>` : ''}
-        </div>
-    `;
-    return item;
-}
+async function uploadFiles(files) {
+    const progress = document.getElementById('sftp-upload-progress');
+    const progressText = document.getElementById('sftp-progress-text');
+    const progressFill = document.getElementById('sftp-progress-fill');
+    progress.style.display = 'flex';
 
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-}
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        progressText.textContent = `上传 ${file.name} (${i + 1}/${files.length})`;
+        progressFill.style.width = ((i / files.length) * 100) + '%';
 
-function uploadFile(file) {
-    alert(`上传文件 "${file.name}" 需要后端SFTP服务支持`);
-}
-
-function downloadFile(filename) {
-    alert(`下载文件 "${filename}" 需要后端SFTP服务支持`);
-}
-
-document.getElementById('refresh-remote').addEventListener('click', () => {
-    if (sftpConnected) {
-        loadRemoteFiles();
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch(`/api/ops/sftp/upload?session=${sftpSessionId}&path=${encodeURIComponent(sftpCurrentPath)}`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            if (!data.success) alert(`上传 "${file.name}" 失败: ${data.message}`);
+        } catch (err) {
+            alert(`上传 "${file.name}" 失败: ${err.message}`);
+        }
     }
-});
+
+    progressFill.style.width = '100%';
+    setTimeout(() => { progress.style.display = 'none'; }, 600);
+    loadRemoteFiles(sftpCurrentPath);
+}
+
+// 工具函数
+function fmtSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (bytes / Math.pow(k, i)).toFixed(1).replace(/\.0$/, '') + ' ' + sizes[i];
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function getFileIcon(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const icons = {
+        jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
+        mp4: '🎬', mov: '🎬', avi: '🎬', mkv: '🎬',
+        mp3: '🎵', wav: '🎵', flac: '🎵',
+        pdf: '📕', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊', ppt: '📊', pptx: '📊',
+        zip: '📦', tar: '📦', gz: '📦', rar: '📦', '7z': '📦',
+        sh: '⚙️', bash: '⚙️', py: '🐍', js: '📜', ts: '📜', go: '📜',
+        json: '📋', yaml: '📋', yml: '📋', xml: '📋', toml: '📋',
+        conf: '⚙️', config: '⚙️', env: '⚙️', ini: '⚙️',
+        log: '📄', txt: '📄', md: '📄',
+    };
+    return icons[ext] || '📄';
+}
 
 // ===== 网络测试工具 =====
 
@@ -927,19 +1160,13 @@ function renderHosts() {
 
 function connectHost(index) {
     const host = hosts[index];
-    
-    // 填充SSH连接信息
     document.getElementById('ssh-host').value = host.address;
     document.getElementById('ssh-port').value = host.port;
     document.getElementById('ssh-user').value = host.user;
-    if (host.password) {
-        document.getElementById('ssh-password').value = host.password;
-    }
-    
-    // 切换到SSH标签
+    if (host.password) document.getElementById('ssh-password').value = host.password;
+    // 切换到 SSH 标签页并自动触发连接
     document.querySelector('[data-tab="ssh"]').click();
-    
-    alert(`将连接到: ${host.name} (${host.address})`);
+    document.getElementById('ssh-connect').click();
 }
 
 function editHost(index) {
