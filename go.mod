@@ -14,6 +14,7 @@ require (
 	github.com/sijms/go-ora/v2 v2.8.0
 	go.mongodb.org/mongo-driver v1.13.1
 	golang.org/x/crypto v0.17.0
+	modernc.org/sqlite v1.29.1
 )
 
 require (

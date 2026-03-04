@@ -31,6 +31,7 @@ import (
 	_ "github.com/sijms/go-ora/v2"
 	_ "gitee.com/chunanyong/dm"
 	"go.mongodb.org/mongo-driver/bson"
+	_ "modernc.org/sqlite"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	gossh "golang.org/x/crypto/ssh"
@@ -610,6 +611,142 @@ func getDataOntologyStorePath() string {
 	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
 }
 
+// 获取数据本体池演示 SQLite 数据库路径（与 data-store 同目录）
+func getDataOntologyDemoDBPath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return filepath.Join("apps", "data-ontology", "demo.db")
+	}
+	rootDir := filepath.Dir(exePath)
+	return filepath.Join(rootDir, "apps", "data-ontology", "demo.db")
+}
+
+// 数据本体池演示库固定 ID，用于初始化时判断是否已存在
+const dataOntologyDemoDBID = "data-ontology-demo"
+
+// initDemoSQLiteDB 创建并初始化演示用 SQLite：电商订单场景，覆盖数据库管理、数据治理、本体论、接口分发、MCP、AI 助手等演示
+func initDemoSQLiteDB(dbPath string) error {
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return fmt.Errorf("打开演示库失败: %w", err)
+	}
+	defer db.Close()
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("连接演示库失败: %w", err)
+	}
+
+	// 场景：电商订单。用户 -> 订单 -> 产品，治理日志、接口日志、本体实体表
+	schema := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			display_name TEXT,
+			role TEXT DEFAULT 'user',
+			created_at TEXT DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS products (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			category TEXT NOT NULL,
+			price REAL NOT NULL,
+			stock INTEGER DEFAULT 0,
+			created_at TEXT DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			product_id INTEGER NOT NULL,
+			quantity INTEGER NOT NULL,
+			amount REAL NOT NULL,
+			status TEXT DEFAULT 'pending',
+			created_at TEXT DEFAULT (datetime('now','localtime')),
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (product_id) REFERENCES products(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS governance_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_name TEXT NOT NULL,
+			action TEXT,
+			record_count INTEGER,
+			message TEXT,
+			created_at TEXT DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS api_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			path TEXT NOT NULL,
+			method TEXT NOT NULL,
+			created_at TEXT DEFAULT (datetime('now','localtime'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS ontology_entities (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			entity_type TEXT NOT NULL,
+			description TEXT,
+			table_name TEXT,
+			created_at TEXT DEFAULT (datetime('now','localtime'))
+		)`,
+	}
+	for _, s := range schema {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("执行建表语句失败: %w", err)
+		}
+	}
+
+	var userCount int
+	_ = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+	if userCount == 0 {
+		inserts := []string{
+			`INSERT INTO users (username, display_name, role) VALUES 
+				('admin', '管理员', 'admin'),
+				('zhangsan', '张三', 'user'),
+				('lisi', '李四', 'user'),
+				('wangwu', '王五', 'user'),
+				('zhaoliu', '赵六', 'operator')`,
+			`INSERT INTO products (name, category, price, stock) VALUES 
+				('无线鼠标', '电子', 89.00, 120),
+				('机械键盘', '电子', 299.00, 80),
+				('USB-C 扩展坞', '电子', 199.00, 50),
+				('数据分析入门', '图书', 59.00, 200),
+				('SQL 必知必会', '图书', 49.00, 150),
+				('保温杯', '日用', 79.00, 300),
+				('笔记本支架', '日用', 129.00, 100)`,
+			`INSERT INTO orders (user_id, product_id, quantity, amount, status) VALUES 
+				(2, 1, 2, 178.00, 'completed'),
+				(2, 4, 1, 59.00, 'completed'),
+				(3, 2, 1, 299.00, 'completed'),
+				(3, 6, 3, 237.00, 'pending'),
+				(4, 3, 1, 199.00, 'completed'),
+				(4, 5, 2, 98.00, 'cancelled'),
+				(5, 1, 5, 445.00, 'completed'),
+				(5, 7, 1, 129.00, 'pending')`,
+			`INSERT INTO governance_log (task_name, action, record_count, message) VALUES 
+				('表行数统计', 'schedule', 5, 'users=5, products=7, orders=8'),
+				('Excel产品导入', 'interactive', 7, '从 products.xlsx 导入 7 条')`,
+			`INSERT INTO api_logs (path, method) VALUES 
+				('/api/demo/products', 'GET'),
+				('/api/demo/orders', 'GET'),
+				('/api/demo/users/2/orders', 'GET')`,
+			`INSERT INTO ontology_entities (name, entity_type, description, table_name) VALUES 
+				('用户', 'entity', '系统用户，含角色', 'users'),
+				('产品', 'entity', '商品目录，含分类与库存', 'products'),
+				('订单', 'entity', '用户购买记录，关联用户与产品', 'orders'),
+				('订单-用户', 'relation', '订单属于某用户', NULL),
+				('订单-产品', 'relation', '订单包含某产品', NULL)`,
+		}
+		for _, s := range inserts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("插入示例数据失败: %w", err)
+			}
+		}
+		log.Printf("演示库已初始化（电商订单场景）: %s", dbPath)
+	}
+	return nil
+}
+
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePath()
@@ -908,6 +1045,30 @@ func initDataOntology() {
 	if err := loadDataOntologyStore(); err != nil {
 		log.Printf("加载持久化数据失败: %v", err)
 	}
+
+	// 演示用 SQLite 数据库：创建文件并初始化表结构+示例数据，供数据治理、本体论、接口、MCP、AI 助手等模块演示
+	demoPath := getDataOntologyDemoDBPath()
+	if err := initDemoSQLiteDB(demoPath); err != nil {
+		log.Printf("初始化演示库失败: %v", err)
+	} else {
+		dataOntologyMu.Lock()
+		if dataOntologyDatabases[dataOntologyDemoDBID] == nil {
+			dataOntologyDatabases[dataOntologyDemoDBID] = &DatabaseConfig{
+				ID:   dataOntologyDemoDBID,
+				Type: "sqlite",
+				Name: "演示库",
+				Path: demoPath,
+			}
+			dataOntologyMu.Unlock()
+			if err := saveDataOntologyStore(); err != nil {
+				log.Printf("保存演示库配置失败: %v", err)
+			} else {
+				log.Printf("已自动加载演示库到数据本体池: %s", demoPath)
+			}
+			dataOntologyMu.Lock()
+		}
+		dataOntologyMu.Unlock()
+	}
 	
 	// 如果没有用户，创建默认管理员账号
 	dataOntologyMu.Lock()
@@ -1089,8 +1250,11 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		return "dm", dsn, nil
 
 	case "sqlite":
-		// SQLite 需要CGO支持，在某些构建环境中可能不可用
-		return "", "", fmt.Errorf("SQLite 支持需要CGO编译，当前构建版本不支持。请使用支持CGO的版本")
+		if config.Path == "" {
+			return "", "", fmt.Errorf("SQLite 需要填写数据库文件路径")
+		}
+		// 使用纯 Go 驱动 modernc.org/sqlite，无需 CGO
+		return "sqlite", config.Path, nil
 
 	case "duckdb":
 		// DuckDB 需要CGO支持

@@ -1,2 +1,6 @@
 # 数据本体池持久化存储文件
 data-store.json
+# 演示用 SQLite 数据库（可本地重新初始化）
+demo.db
+demo.db-wal
+demo.db-shm
