@@ -28,16 +28,18 @@ jobs:
             output: datatoolbox-server.exe
             package: datatoolbox-windows-arm64.zip
           
-          # Linux
+          # Linux (CGO enabled for SQLite)
           - goos: linux
             goarch: amd64
             output: datatoolbox-server
             package: datatoolbox-linux-amd64.tar.gz
+            cgo: true
           
           - goos: linux
             goarch: arm64
             output: datatoolbox-server
             package: datatoolbox-linux-arm64.tar.gz
+            cgo: true
           
           # macOS
           - goos: darwin
@@ -64,6 +66,11 @@ jobs:
           go mod tidy
           go mod download
 
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu  # for linux/arm64 CGO
+          
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
