@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
 	_ "gitee.com/chunanyong/dm"
@@ -1089,8 +1090,14 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		return "dm", dsn, nil
 
 	case "sqlite":
-		// SQLite 需要CGO支持，在某些构建环境中可能不可用
-		return "", "", fmt.Errorf("SQLite 支持需要CGO编译，当前构建版本不支持。请使用支持CGO的版本")
+		path := strings.TrimSpace(config.Path)
+		if path == "" {
+			path = strings.TrimSpace(config.Database)
+		}
+		if path == "" {
+			return "", "", fmt.Errorf("SQLite 需要配置数据库文件路径（path 或 database）")
+		}
+		return "sqlite3", path, nil
 
 	case "duckdb":
 		// DuckDB 需要CGO支持
