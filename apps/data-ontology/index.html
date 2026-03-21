@@ -6,6 +6,8 @@
     <title>数据本体池</title>
     <link rel="stylesheet" href="style.css">
     <script src="/lib/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -323,6 +325,11 @@
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
                             <span>🗑️</span> 清空
                         </button>
+                        <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
+                        <div class="onto-view-toggle" id="ontoViewToggle" style="display:none" title="图谱视图">
+                            <button type="button" id="ontoView2dBtn" class="onto-btn onto-view-btn active" onclick="setOntologyGraphView('2d')">2D</button>
+                            <button type="button" id="ontoView3dBtn" class="onto-btn onto-view-btn" onclick="setOntologyGraphView('3d')">3D</button>
+                        </div>
                     </div>
                     <div class="onto-toolbar-right">
                         <div class="onto-stats" id="ontoStats">
@@ -387,6 +394,9 @@
 
                     <!-- D3 知识图谱 SVG -->
                     <svg id="ontoSvg" class="onto-svg"></svg>
+
+                    <!-- Three.js 3D 力导向图 -->
+                    <div id="ontoGraph3d" class="onto-graph-3d" aria-hidden="true"></div>
 
                     <!-- AI 处理动画层 -->
                     <div class="onto-ai-overlay" id="ontoAiOverlay" style="display:none">

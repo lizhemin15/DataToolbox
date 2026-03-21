@@ -3895,6 +3895,58 @@ textarea#testApiParams {
     height: 100%;
 }
 
+/* Three.js 3D 图谱容器 */
+.onto-graph-3d {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: none;
+    overflow: hidden;
+    pointer-events: auto;
+    background: radial-gradient(ellipse 120% 100% at 50% 20%, rgba(102, 126, 234, 0.08) 0%, transparent 55%),
+        linear-gradient(160deg, #1a1f35 0%, #0f1525 60%, #0d1020 100%);
+}
+
+.onto-graph-3d canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.onto-view-toggle {
+    display: inline-flex;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.onto-view-btn {
+    border-radius: 0 !important;
+    border: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: #718096 !important;
+    background: #f7fafc !important;
+}
+
+.onto-view-btn:hover {
+    background: #edf2f7 !important;
+    color: #2d3748 !important;
+}
+
+.onto-view-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: #fff !important;
+}
+
+.onto-view-toggle-sep {
+    margin-left: 2px;
+}
+
 /* 欢迎界面 */
 .onto-welcome {
     position: absolute;

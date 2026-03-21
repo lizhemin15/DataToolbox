@@ -5679,6 +5679,8 @@ let ontoData = null;
 let ontoSimulation = null;
 let ontoInsightExpanded = true;
 let ontoSelectedDbId = null;
+let ontoGraphViewMode = '2d';
+let ontoThreeState = null;
 
 // ---- 颜色与配置 ----
 const ONTO_COLORS = {
@@ -5776,6 +5778,411 @@ function ontoNodeRadius(d) {
     return 18 + (d.importance || 0.5) * 16;
 }
 
+function ontoNodeRadius3D(d) {
+    return (ontoNodeRadius(d) / 14) * 0.85;
+}
+
+function syncOntologyViewToggleUI() {
+    const b2 = document.getElementById('ontoView2dBtn');
+    const b3 = document.getElementById('ontoView3dBtn');
+    if (b2) b2.classList.toggle('active', ontoGraphViewMode === '2d');
+    if (b3) b3.classList.toggle('active', ontoGraphViewMode === '3d');
+}
+
+function setOntologyGraphView(mode) {
+    ontoGraphViewMode = mode === '3d' ? '3d' : '2d';
+    syncOntologyViewToggleUI();
+    if (ontoData) renderOntologyGraph(ontoData, false);
+}
+
+function disposeOntologyGraph3D() {
+    if (!ontoThreeState) return;
+    const st = ontoThreeState;
+    if (st.raf) cancelAnimationFrame(st.raf);
+    if (st.onResize) window.removeEventListener('resize', st.onResize);
+    const domEl = st.renderer && st.renderer.domElement;
+    if (domEl && st._pickDown) domEl.removeEventListener('mousedown', st._pickDown);
+    if (domEl && st._pickUp) domEl.removeEventListener('mouseup', st._pickUp);
+    if (st.controls) {
+        if (typeof st.controls.dispose === 'function') st.controls.dispose();
+    }
+    if (st.sharedSphereGeom) st.sharedSphereGeom.dispose();
+    if (st.meshes) {
+        st.meshes.forEach(({ mesh }) => {
+            if (mesh.material) mesh.material.dispose();
+        });
+    }
+    if (st.lineBundles) {
+        st.lineBundles.forEach(b => {
+            if (b.glowGeo) b.glowGeo.dispose();
+            if (b.dashGeo) b.dashGeo.dispose();
+            if (b.glowMat) b.glowMat.dispose();
+            if (b.dashMat) b.dashMat.dispose();
+        });
+    }
+    if (st.renderer) {
+        st.renderer.dispose();
+        if (st.renderer.domElement && st.renderer.domElement.parentNode) {
+            st.renderer.domElement.parentNode.removeChild(st.renderer.domElement);
+        }
+    }
+    ontoThreeState = null;
+}
+
+/** 简单 3D 力导向一步：斥力 + 弹簧边 + 质心引力 + 阻尼 */
+function ontoForceLayout3DStep(nodes, links, opts) {
+    const repulsion = opts.repulsion ?? 1200;
+    const attraction = opts.attraction ?? 0.06;
+    const centerGrav = opts.centerGrav ?? 0.018;
+    const damping = opts.damping ?? 0.88;
+    const dt = opts.dt ?? 0.45;
+    const n = nodes.length;
+    for (let i = 0; i < n; i++) {
+        nodes[i].ax = 0;
+        nodes[i].ay = 0;
+        nodes[i].az = 0;
+    }
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            let dx = nodes[j].x - nodes[i].x;
+            let dy = nodes[j].y - nodes[i].y;
+            let dz = nodes[j].z - nodes[i].z;
+            let distSq = dx * dx + dy * dy + dz * dz;
+            const dist = Math.sqrt(distSq) || 0.01;
+            const f = repulsion / distSq;
+            dx /= dist;
+            dy /= dist;
+            dz /= dist;
+            nodes[i].ax -= f * dx;
+            nodes[i].ay -= f * dy;
+            nodes[i].az -= f * dz;
+            nodes[j].ax += f * dx;
+            nodes[j].ay += f * dy;
+            nodes[j].az += f * dz;
+        }
+    }
+    for (let li = 0; li < links.length; li++) {
+        const l = links[li];
+        const a = l.source;
+        const b = l.target;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dz = b.z - a.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.01;
+        dx /= dist;
+        dy /= dist;
+        dz /= dist;
+        const ideal = l.idealLength ?? 7;
+        const f = (dist - ideal) * attraction;
+        a.ax += f * dx;
+        a.ay += f * dy;
+        a.az += f * dz;
+        b.ax -= f * dx;
+        b.ay -= f * dy;
+        b.az -= f * dz;
+    }
+    for (let i = 0; i < n; i++) {
+        const p = nodes[i];
+        p.ax -= p.x * centerGrav;
+        p.ay -= p.y * centerGrav;
+        p.az -= p.z * centerGrav;
+        p.vx = (p.vx + p.ax * dt) * damping;
+        p.vy = (p.vy + p.ay * dt) * damping;
+        p.vz = (p.vz + p.az * dt) * damping;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+    }
+}
+
+function createOntoOrbitControls(camera, domElement) {
+    if (typeof THREE === 'undefined') return null;
+    const OC = THREE.OrbitControls || (typeof OrbitControls !== 'undefined' ? OrbitControls : null);
+    if (OC) {
+        const c = new OC(camera, domElement);
+        c.enableDamping = true;
+        c.dampingFactor = 0.06;
+        c.minDistance = 8;
+        c.maxDistance = 120;
+        return c;
+    }
+    const target = new THREE.Vector3(0, 0, 0);
+    let radius = 42;
+    let phi = Math.acos(0.45);
+    let theta = 0.55;
+    function updateCam() {
+        const sp = Math.sin(phi);
+        camera.position.set(
+            target.x + radius * sp * Math.cos(theta),
+            target.y + radius * Math.cos(phi),
+            target.z + radius * sp * Math.sin(theta)
+        );
+        camera.lookAt(target);
+    }
+    updateCam();
+    let down = false;
+    let lx = 0;
+    let ly = 0;
+    const onDown = e => { down = true; lx = e.clientX; ly = e.clientY; };
+    const onMove = e => {
+        if (!down) return;
+        theta += (e.clientX - lx) * 0.01;
+        phi += (e.clientY - ly) * 0.01;
+        phi = Math.max(0.12, Math.min(Math.PI - 0.12, phi));
+        lx = e.clientX;
+        ly = e.clientY;
+        updateCam();
+    };
+    const onUp = () => { down = false; };
+    const onWheel = e => {
+        e.preventDefault();
+        radius *= 1 + e.deltaY * 0.0012;
+        radius = Math.max(8, Math.min(140, radius));
+        updateCam();
+    };
+    domElement.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    domElement.addEventListener('wheel', onWheel, { passive: false });
+    return {
+        target,
+        update: () => {},
+        dispose: () => {
+            domElement.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            domElement.removeEventListener('wheel', onWheel);
+        },
+    };
+}
+
+/**
+ * Three.js 3D 力导向知识图谱（复用 ontoData / ONTO_COLORS）
+ */
+function renderOntologyGraph3D(data, animate) {
+    if (typeof THREE === 'undefined') return;
+    disposeOntologyGraph3D();
+
+    const container = document.getElementById('ontoGraph3d');
+    if (!container) return;
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 600;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0d1020, 0.012);
+
+    const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
+    camera.position.set(0, 6, 38);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(W, H);
+    renderer.setClearColor(0x0d1020, 1);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0x6a7ba8, 0.35));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.55);
+    dir.position.set(12, 24, 20);
+    scene.add(dir);
+    const pt = new THREE.PointLight(0x8899ff, 0.4, 80);
+    pt.position.set(-10, 10, 10);
+    scene.add(pt);
+
+    const nodes = (data.concepts || []).map(c => ({
+        ...c,
+        x: (Math.random() - 0.5) * 22,
+        y: (Math.random() - 0.5) * 18,
+        z: (Math.random() - 0.5) * 22,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+    }));
+    const nodeById = {};
+    nodes.forEach(n => { nodeById[n.id] = n; });
+    const links = (data.relations || [])
+        .filter(r => nodeById[r.source] && nodeById[r.target])
+        .map(r => ({
+            ...r,
+            source: nodeById[r.source],
+            target: nodeById[r.target],
+            idealLength: r.type === 'conflict' ? 5.5 : 8.2,
+        }));
+
+    for (let s = 0; s < 140; s++) {
+        ontoForceLayout3DStep(nodes, links, { repulsion: 1400, attraction: 0.07, damping: 0.9, dt: 0.38 });
+    }
+
+    const meshes = [];
+    const sphereGeomShared = new THREE.SphereGeometry(1, 28, 28);
+    nodes.forEach((d, idx) => {
+        const cfg = ONTO_COLORS[d.category] || ONTO_COLORS.entity;
+        const col = new THREE.Color(cfg.fill);
+        const mat = new THREE.MeshStandardMaterial({
+            color: col,
+            emissive: col,
+            emissiveIntensity: 0.32,
+            metalness: 0.25,
+            roughness: 0.42,
+        });
+        const mesh = new THREE.Mesh(sphereGeomShared, mat);
+        const r = ontoNodeRadius3D(d);
+        mesh.scale.setScalar(r);
+        mesh.position.set(d.x, d.y, d.z);
+        mesh.userData.ontoId = d.id;
+        mesh.userData.phase = idx * 0.73;
+        scene.add(mesh);
+        meshes.push({ mesh, data: d, baseR: r });
+    });
+
+    const lineBundles = [];
+    links.forEach(l => {
+        const isConflict = l.type === 'conflict';
+        const cGlow = new THREE.Color(isConflict ? 0xe17055 : 0x8899ff);
+        const glowGeo = new THREE.BufferGeometry();
+        const glowPos = new Float32Array(6);
+        glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
+        const glowMat = new THREE.LineBasicMaterial({
+            color: cGlow,
+            transparent: true,
+            opacity: isConflict ? 0.55 : 0.38,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+        const glowLine = new THREE.Line(glowGeo, glowMat);
+        scene.add(glowLine);
+
+        const dashGeo = new THREE.BufferGeometry();
+        const dashPos = new Float32Array(6);
+        dashGeo.setAttribute('position', new THREE.BufferAttribute(dashPos, 3));
+        const dashMat = new THREE.LineDashedMaterial({
+            color: isConflict ? 0xff8a70 : 0xb4c4ff,
+            dashSize: 0.55,
+            gapSize: 0.38,
+            transparent: true,
+            opacity: 0.92,
+        });
+        const dashLine = new THREE.Line(dashGeo, dashMat);
+        scene.add(dashLine);
+
+        lineBundles.push({ l, glowGeo, dashGeo, glowMat, dashMat, glowLine, dashLine });
+    });
+
+    const controls = createOntoOrbitControls(camera, renderer.domElement);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let pickDownX = 0;
+    let pickDownY = 0;
+
+    const st = {
+        raf: null,
+        renderer,
+        scene,
+        camera,
+        controls,
+        meshes,
+        lineBundles,
+        nodes,
+        links,
+        selectedId: null,
+        clock: new THREE.Clock(),
+        timeEnter: performance.now(),
+        sharedSphereGeom: sphereGeomShared,
+        didAnimateEnter: !!animate,
+    };
+    ontoThreeState = st;
+
+    const onResize = () => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w < 2 || h < 2) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    };
+    st.onResize = onResize;
+    window.addEventListener('resize', onResize);
+
+    st._pickDown = e => { pickDownX = e.clientX; pickDownY = e.clientY; };
+    st._pickUp = e => {
+        if (Math.hypot(e.clientX - pickDownX, e.clientY - pickDownY) > 10) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const objs = meshes.map(m => m.mesh);
+        const hits = raycaster.intersectObjects(objs, false);
+        if (hits.length) {
+            const d = hits[0].object.userData.ontoNodeRef || nodes.find(n => n.id === hits[0].object.userData.ontoId);
+            if (d) showNodeDetail(d, nodes, links);
+        } else {
+            closeNodeDetail();
+        }
+    };
+    renderer.domElement.addEventListener('mousedown', st._pickDown);
+    renderer.domElement.addEventListener('mouseup', st._pickUp);
+
+    // 供 raycast 与详情面板使用完整节点、边（与 D3 一致的对象引用）
+    meshes.forEach(({ mesh, data }) => {
+        mesh.userData.ontoNodeRef = data;
+    });
+
+    function animate() {
+        st.raf = requestAnimationFrame(animate);
+        const t = st.clock.getElapsedTime();
+        let enterScale = 1;
+        if (st.didAnimateEnter) {
+            const u = Math.min(1, (performance.now() - st.timeEnter) / 880);
+            enterScale = 0.04 + (1 - 0.04) * (1 - Math.pow(1 - u, 3));
+            if (u >= 1) st.didAnimateEnter = false;
+        }
+
+        ontoForceLayout3DStep(nodes, links, { repulsion: 320, attraction: 0.035, damping: 0.92, dt: 0.28 });
+
+        meshes.forEach(({ mesh, data, baseR }) => {
+            const phase = mesh.userData.phase || 0;
+            const hover = Math.sin(t * 1.6 + phase) * 0.22;
+            mesh.position.set(data.x, data.y + hover, data.z);
+            const sel = st.selectedId && data.id === st.selectedId;
+            mesh.material.emissiveIntensity = sel ? 0.72 : 0.3 + Math.sin(t * 2.2 + phase) * 0.06;
+            const pulse = sel ? 1.14 : 1 + Math.sin(t * 1.9 + phase) * 0.04;
+            mesh.scale.setScalar(baseR * pulse * enterScale);
+        });
+
+        lineBundles.forEach(b => {
+            const a = b.l.source;
+            const bnode = b.l.target;
+            const tA = meshes.find(m => m.data.id === a.id);
+            const tB = meshes.find(m => m.data.id === bnode.id);
+            if (!tA || !tB) return;
+            const ax = tA.mesh.position.x;
+            const ay = tA.mesh.position.y;
+            const az = tA.mesh.position.z;
+            const bx = tB.mesh.position.x;
+            const by = tB.mesh.position.y;
+            const bz = tB.mesh.position.z;
+            const arrG = b.glowGeo.attributes.position.array;
+            arrG[0] = ax;
+            arrG[1] = ay;
+            arrG[2] = az;
+            arrG[3] = bx;
+            arrG[4] = by;
+            arrG[5] = bz;
+            b.glowGeo.attributes.position.needsUpdate = true;
+            const arrD = b.dashGeo.attributes.position.array;
+            arrD.set(arrG);
+            b.dashGeo.attributes.position.needsUpdate = true;
+            b.dashLine.computeLineDistances();
+            b.dashMat.dashOffset -= 0.045;
+        });
+
+        if (controls && controls.update) controls.update();
+        renderer.render(scene, camera);
+    }
+
+    animate();
+}
+
 // ---- 初始化/渲染知识图谱 ----
 function renderOntologyGraph(data, animate) {
     if (!data) return;
@@ -5786,6 +6193,39 @@ function renderOntologyGraph(data, animate) {
 
     // 隐藏欢迎界面
     document.getElementById('ontoWelcome').style.display = 'none';
+
+    const viewToggle = document.getElementById('ontoViewToggle');
+    const viewSep = document.getElementById('ontoViewToggleSep');
+    if (viewToggle) viewToggle.style.display = 'inline-flex';
+    if (viewSep) viewSep.style.display = '';
+
+    if (ontoGraphViewMode === '3d') {
+        if (typeof THREE === 'undefined') {
+            showOntoToast('⚠️ Three.js 未加载，已切回 2D 视图', true);
+            ontoGraphViewMode = '2d';
+            syncOntologyViewToggleUI();
+        } else {
+            if (ontoSimulation) {
+                ontoSimulation.stop();
+                ontoSimulation = null;
+            }
+            d3.select('#ontoSvg').selectAll('*').remove();
+            svgEl.style.display = 'none';
+            const g3 = document.getElementById('ontoGraph3d');
+            if (g3) g3.style.display = 'block';
+            renderOntologyGraph3D(data, animate);
+            document.getElementById('ontoQueryBar').classList.remove('onto-query-disabled');
+            document.getElementById('ontoClearBtn').style.display = '';
+            updateOntoStats(data);
+            renderInsights(data.insights || []);
+            return;
+        }
+    }
+
+    disposeOntologyGraph3D();
+    svgEl.style.display = '';
+    const g3el = document.getElementById('ontoGraph3d');
+    if (g3el) g3el.style.display = 'none';
 
     const W = svgEl.parentElement.clientWidth;
     const H = svgEl.parentElement.clientHeight;
@@ -5983,6 +6423,8 @@ function highlightInsight(idx) {
 
 // ---- 节点详情 ----
 function showNodeDetail(d, nodes, links) {
+    if (ontoGraphViewMode === '3d' && ontoThreeState) ontoThreeState.selectedId = d.id;
+
     const popup = document.getElementById('ontoNodePopup');
     const badge = document.getElementById('ontoPopupBadge');
     const title = document.getElementById('ontoPopupTitle');
@@ -6039,21 +6481,26 @@ function showNodeDetail(d, nodes, links) {
 
     popup.style.display = '';
 
-    // 高亮当前节点
-    d3.selectAll('.onto-node').each(function(nd) {
-        const active = nd.id === d.id;
-        d3.select(this).select('.onto-node-circle')
-            .transition().duration(200)
-            .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
-            .attr('stroke-width', active ? 4 : 2)
-            .attr('opacity', active ? 1 : 0.55);
-    });
+    // 高亮当前节点（仅 2D SVG）
+    if (ontoGraphViewMode === '2d' && document.querySelector('.onto-node')) {
+        d3.selectAll('.onto-node').each(function(nd) {
+            const active = nd.id === d.id;
+            d3.select(this).select('.onto-node-circle')
+                .transition().duration(200)
+                .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
+                .attr('stroke-width', active ? 4 : 2)
+                .attr('opacity', active ? 1 : 0.55);
+        });
+    }
 }
 
 function closeNodeDetail() {
     document.getElementById('ontoNodePopup').style.display = 'none';
-    d3.selectAll('.onto-node .onto-node-circle')
-        .transition().duration(200).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+    if (ontoThreeState) ontoThreeState.selectedId = null;
+    if (ontoGraphViewMode === '2d' && document.querySelector('.onto-node')) {
+        d3.selectAll('.onto-node .onto-node-circle')
+            .transition().duration(200).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+    }
 }
 
 // ---- 加载演示数据 ----
@@ -6157,8 +6604,17 @@ function ontoHandleSSE(type, data) {
 // ---- 清空图谱 ----
 function clearOntology() {
     if (ontoSimulation) { ontoSimulation.stop(); ontoSimulation = null; }
+    disposeOntologyGraph3D();
     ontoData = null;
     d3.select('#ontoSvg').selectAll('*').remove();
+    const svgEl = document.getElementById('ontoSvg');
+    if (svgEl) svgEl.style.display = '';
+    const g3 = document.getElementById('ontoGraph3d');
+    if (g3) g3.style.display = 'none';
+    const viewToggle = document.getElementById('ontoViewToggle');
+    const viewSep = document.getElementById('ontoViewToggleSep');
+    if (viewToggle) viewToggle.style.display = 'none';
+    if (viewSep) viewSep.style.display = 'none';
     document.getElementById('ontoWelcome').style.display = '';
     document.getElementById('ontoQueryBar').classList.add('onto-query-disabled');
     document.getElementById('ontoClearBtn').style.display = 'none';
