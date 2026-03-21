@@ -34,6 +34,219 @@ let aiSessionContext = {
 // API基础URL
 const API_BASE = window.location.origin;
 
+// ---- 演示库（前端模拟 SQLite 内存库；后端未持久化该 ID）----
+const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
+
+const DEMO_ONTOLOGY_TABLES = {
+    customers: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'name', type: 'TEXT', nullable: false },
+            { name: 'email', type: 'TEXT', nullable: true }
+        ],
+        rows: [
+            { id: 1, name: '张三', email: 'zhang@example.com' },
+            { id: 2, name: '李四', email: 'li@example.com' }
+        ]
+    },
+    products: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'name', type: 'TEXT', nullable: false },
+            { name: 'price', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 101, name: '笔记本', price: 5999 },
+            { id: 102, name: '鼠标', price: 99 }
+        ]
+    },
+    orders: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'customer_id', type: 'INTEGER', nullable: false },
+            { name: 'order_date', type: 'TEXT', nullable: false },
+            { name: 'total', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 1001, customer_id: 1, order_date: '2025-03-01', total: 6098 },
+            { id: 1002, customer_id: 2, order_date: '2025-03-02', total: 99 }
+        ]
+    },
+    order_items: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'order_id', type: 'INTEGER', nullable: false },
+            { name: 'product_id', type: 'INTEGER', nullable: false },
+            { name: 'qty', type: 'INTEGER', nullable: false },
+            { name: 'unit_price', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 1, order_id: 1001, product_id: 101, qty: 1, unit_price: 5999 },
+            { id: 2, order_id: 1001, product_id: 102, qty: 1, unit_price: 99 },
+            { id: 3, order_id: 1002, product_id: 102, qty: 1, unit_price: 99 }
+        ]
+    },
+    payments: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'order_id', type: 'INTEGER', nullable: false },
+            { name: 'amount', type: 'REAL', nullable: false },
+            { name: 'paid_at', type: 'TEXT', nullable: true }
+        ],
+        rows: [
+            { id: 1, order_id: 1001, amount: 6098, paid_at: '2025-03-01T10:00:00' },
+            { id: 2, order_id: 1002, amount: 99, paid_at: '2025-03-02T15:00:00' }
+        ]
+    },
+    report_sales: {
+        columns: [
+            { name: 'period', type: 'TEXT', nullable: false },
+            { name: 'sku', type: 'TEXT', nullable: false },
+            { name: 'qty_sold', type: 'INTEGER', nullable: false },
+            { name: 'revenue', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { period: '2025-03', sku: '笔记本', qty_sold: 1, revenue: 5999 },
+            { period: '2025-03', sku: '鼠标', qty_sold: 2, revenue: 198 }
+        ]
+    }
+};
+
+/** 外键 + ETL：kind==='etl' 表示 from 聚合到 to（与 FK 箭头方向相反） */
+const DEMO_ONTOLOGY_LINEAGE_EDGES = [
+    { fromTable: 'orders', fromColumn: 'customer_id', toTable: 'customers', toColumn: 'id' },
+    { fromTable: 'order_items', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
+    { fromTable: 'order_items', fromColumn: 'product_id', toTable: 'products', toColumn: 'id' },
+    { fromTable: 'payments', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
+    { fromTable: 'orders', fromColumn: '(聚合)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' },
+    { fromTable: 'order_items', fromColumn: '(聚合)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' }
+];
+
+function getDemoDatabaseListEntry() {
+    return {
+        id: DEMO_ONTOLOGY_DB_ID,
+        type: 'sqlite',
+        name: '演示库（内存模拟）',
+        host: '',
+        port: 0,
+        path: ':memory:',
+        user: '',
+        database: 'demo_shop'
+    };
+}
+
+function mergeDemoDatabaseIntoList() {
+    if (databases.some(d => d.id === DEMO_ONTOLOGY_DB_ID)) return;
+    databases.push(getDemoDatabaseListEntry());
+}
+
+function demoOntologyJsonResponse(obj, status) {
+    const s = status === undefined ? 200 : status;
+    return Promise.resolve(new Response(JSON.stringify(obj), {
+        status: s,
+        headers: { 'Content-Type': 'application/json' }
+    }));
+}
+
+function parseDemoOntologyApiPath(pathname) {
+    const prefix = '/api/data-ontology/databases/' + DEMO_ONTOLOGY_DB_ID;
+    if (!pathname.startsWith(prefix)) return null;
+    const rest = pathname.slice(prefix.length);
+    if (!rest || rest === '/') return { kind: 'detail' };
+    if (rest === '/lineage') return { kind: 'lineage' };
+    const m = rest.match(/^\/tables\/([^/]+)(\/structure|\/data|\/rename)?$/);
+    if (m) {
+        return {
+            kind: 'table',
+            table: decodeURIComponent(m[1]),
+            sub: m[2] || ''
+        };
+    }
+    return { kind: 'unknown' };
+}
+
+function handleDemoOntologyFetch(url, init) {
+    let pathname;
+    try {
+        pathname = new URL(url, API_BASE).pathname;
+    } catch (e) {
+        return null;
+    }
+    const parsed = parseDemoOntologyApiPath(pathname);
+    if (!parsed) return null;
+    const method = (init && init.method) ? init.method.toUpperCase() : 'GET';
+
+    if (parsed.kind === 'detail') {
+        if (method === 'GET') {
+            const tableNames = Object.keys(DEMO_ONTOLOGY_TABLES);
+            return demoOntologyJsonResponse({
+                success: true,
+                database: {
+                    id: DEMO_ONTOLOGY_DB_ID,
+                    type: 'sqlite',
+                    name: getDemoDatabaseListEntry().name,
+                    host: '',
+                    port: 0,
+                    path: ':memory:',
+                    database: 'demo_shop',
+                    connected: true,
+                    tables: tableNames
+                }
+            });
+        }
+        if (method === 'DELETE') {
+            const i = databases.findIndex(d => d.id === DEMO_ONTOLOGY_DB_ID);
+            if (i >= 0) databases.splice(i, 1);
+            return demoOntologyJsonResponse({ success: true });
+        }
+        return demoOntologyJsonResponse({ success: false, message: '演示库不支持此操作' }, 400);
+    }
+
+    if (parsed.kind === 'lineage' && method === 'GET') {
+        const tables = Object.keys(DEMO_ONTOLOGY_TABLES);
+        return demoOntologyJsonResponse({
+            success: true,
+            dbType: 'sqlite',
+            tables,
+            edges: DEMO_ONTOLOGY_LINEAGE_EDGES,
+            edgeCount: DEMO_ONTOLOGY_LINEAGE_EDGES.length,
+            message: '演示数据：外键血缘 + ETL（report_sales）'
+        });
+    }
+
+    if (parsed.kind === 'table') {
+        const tdef = DEMO_ONTOLOGY_TABLES[parsed.table];
+        if (!tdef) {
+            return demoOntologyJsonResponse({ success: false, message: '表不存在' }, 404);
+        }
+        if (parsed.sub === '/structure' && method === 'GET') {
+            return demoOntologyJsonResponse({ success: true, columns: tdef.columns });
+        }
+        if (parsed.sub === '' && method === 'GET') {
+            return demoOntologyJsonResponse({ success: true, data: tdef.rows });
+        }
+        return demoOntologyJsonResponse({ success: false, message: '演示库为只读' }, 400);
+    }
+
+    return demoOntologyJsonResponse({ success: false, message: '无效的演示库请求' }, 404);
+}
+
+(function installDemoOntologyFetchInterceptor() {
+    const origFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url);
+        if (typeof url === 'string' && url.indexOf('/api/data-ontology/databases/' + DEMO_ONTOLOGY_DB_ID) !== -1) {
+            const r = handleDemoOntologyFetch(url, init);
+            if (r) return r;
+        }
+        return origFetch(input, init);
+    };
+})();
+
+function initDemoData() {
+    mergeDemoDatabaseIntoList();
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async function() {
     // 检测是否通过服务端运行
@@ -341,6 +554,16 @@ function switchTab(tabName) {
         initOntologyTab();
     } else if (tabName === 'lineage') {
         initLineageTab();
+        if (!window._lineageDemoAutoLoaded) {
+            window._lineageDemoAutoLoaded = true;
+            const demo = databases.find(d => d.id === DEMO_ONTOLOGY_DB_ID);
+            if (demo && !lineageSelectedDbId) {
+                selectLineageDb(demo.id, demo.name, demo.type);
+            }
+            if (lineageSelectedDbId) {
+                loadLineageGraph();
+            }
+        }
     }
 }
 
@@ -664,6 +887,7 @@ async function loadDatabases() {
 
         if (data.success) {
             databases = data.databases || [];
+            initDemoData();
             renderDatabaseList();
             
             // 如果当前选中的数据库被更新，同步更新currentDb
@@ -6812,6 +7036,7 @@ function initOntologyTab() {
 // ---- 数据血缘 ----
 let lineageSelectedDbId = null;
 let lineageSimulation = null;
+let lineageFocusTableId = null;
 
 function lineageShortTableName(full) {
     if (!full) return '';
@@ -6889,11 +7114,96 @@ function initLineageTab() {
     }
 }
 
+function lineageDirectedLinksFromEdges(edges) {
+    return (edges || []).map(e => {
+        if (e.kind === 'etl') {
+            return { s: e.fromTable, t: e.toTable, kind: 'etl', fromColumn: e.fromColumn, toColumn: e.toColumn };
+        }
+        return { s: e.toTable, t: e.fromTable, kind: 'fk', fromColumn: e.fromColumn, toColumn: e.toColumn };
+    });
+}
+
+function lineageNeighborsUp(tableId, dlinks) {
+    const out = new Set();
+    dlinks.forEach(l => {
+        if (l.t === tableId) out.add(l.s);
+    });
+    return out;
+}
+
+function lineageNeighborsDown(tableId, dlinks) {
+    const out = new Set();
+    dlinks.forEach(l => {
+        if (l.s === tableId) out.add(l.t);
+    });
+    return out;
+}
+
+function lineageExpandedUpstreamIds(focusId, dlinks) {
+    const up = lineageNeighborsUp(focusId, dlinks);
+    const down = lineageNeighborsDown(focusId, dlinks);
+    const expanded = new Set(up);
+    down.forEach(c => {
+        lineageNeighborsUp(c, dlinks).forEach(p => {
+            if (p !== focusId) expanded.add(p);
+        });
+    });
+    return expanded;
+}
+
+function lineageDownstreamBfsIds(focusId, dlinks) {
+    const seen = new Set();
+    const q = [focusId];
+    seen.add(focusId);
+    while (q.length) {
+        const n = q.shift();
+        dlinks.forEach(l => {
+            if (l.s === n && !seen.has(l.t)) {
+                seen.add(l.t);
+                q.push(l.t);
+            }
+        });
+    }
+    seen.delete(focusId);
+    return seen;
+}
+
+function applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount) {
+    const dlinks = lineageDirectedLinksFromEdges(edges);
+    const base = `${tables.length} 张表 · ${edgeCount} 条依赖`;
+    if (!statsEl) return;
+    if (!lineageFocusTableId) {
+        statsEl.textContent = `${base} · 单击表节点查看上下游，双击空白处取消`;
+        nodeSel.selectAll('circle').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', '#81e6d9');
+        linkLines.attr('opacity', 1);
+        return;
+    }
+    const focus = lineageFocusTableId;
+    const up = lineageExpandedUpstreamIds(focus, dlinks);
+    const down = lineageDownstreamBfsIds(focus, dlinks);
+    const keep = new Set([focus, ...up, ...down]);
+    const upStr = [...up].sort().join(', ') || '—';
+    const downStr = [...down].sort().join(', ') || '—';
+    statsEl.innerHTML = `${escapeHtml(base)} · 选中 <code style="color:#81e6d9">${escapeHtml(focus)}</code> · 上游: ${escapeHtml(upStr)} · 下游: ${escapeHtml(downStr)}`;
+
+    nodeSel.selectAll('circle')
+        .attr('opacity', d => (keep.has(d.id) ? 1 : 0.15))
+        .attr('stroke-width', d => (d.id === focus ? 3.5 : 2))
+        .attr('stroke', d => (d.id === focus ? '#f6ad55' : '#81e6d9'));
+
+    linkLines.attr('opacity', d => {
+        const sid = d.source.id;
+        const tid = d.target.id;
+        return keep.has(sid) && keep.has(tid) ? 1 : 0.1;
+    });
+}
+
 async function loadLineageGraph() {
     if (!lineageSelectedDbId) {
         showOntoToast('请先选择数据库', true);
         return;
     }
+    lineageFocusTableId = null;
     const token = localStorage.getItem('dataOntologyToken');
     try {
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`, {
@@ -6923,10 +7233,6 @@ function renderLineageGraph(data) {
     const edges = data.edges || [];
     const edgeCount = data.edgeCount != null ? data.edgeCount : edges.length;
 
-    if (statsEl) {
-        statsEl.textContent = `${tables.length} 张表 · ${edgeCount} 条外键依赖`;
-    }
-
     if (listEl) {
         if (edges.length === 0) {
             listEl.innerHTML = '<div style="color:#a0aec0;padding:12px">未检测到外键约束</div>';
@@ -6936,7 +7242,8 @@ function renderLineageGraph(data) {
                 const fc = escapeHtml(e.fromColumn || '');
                 const tt = escapeHtml(e.toTable || '');
                 const tc = escapeHtml(e.toColumn || '');
-                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> → <code>${tt}</code>.<code>${tc}</code></div>`;
+                const tag = e.kind === 'etl' ? ' <span style="color:#f6ad55;font-size:11px">ETL</span>' : '';
+                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> → <code>${tt}</code>.<code>${tc}</code>${tag}</div>`;
             }).join('');
         }
     }
@@ -6948,12 +7255,24 @@ function renderLineageGraph(data) {
         if (!nodeById.has(e.toTable)) nodeById.set(e.toTable, { id: e.toTable, label: lineageShortTableName(e.toTable), full: e.toTable });
     });
     const nodes = Array.from(nodeById.values());
-    const links = edges.map(e => ({
-        source: e.toTable,
-        target: e.fromTable,
-        fromColumn: e.fromColumn,
-        toColumn: e.toColumn
-    }));
+    const links = edges.map(e => {
+        if (e.kind === 'etl') {
+            return {
+                source: e.fromTable,
+                target: e.toTable,
+                fromColumn: e.fromColumn,
+                toColumn: e.toColumn,
+                kind: 'etl'
+            };
+        }
+        return {
+            source: e.toTable,
+            target: e.fromTable,
+            fromColumn: e.fromColumn,
+            toColumn: e.toColumn,
+            kind: 'fk'
+        };
+    });
 
     if (nodes.length === 0) {
         if (ph) ph.style.display = '';
@@ -6986,21 +7305,23 @@ function renderLineageGraph(data) {
         source: nodeMap[l.source],
         target: nodeMap[l.target],
         fromColumn: l.fromColumn,
-        toColumn: l.toColumn
+        toColumn: l.toColumn,
+        kind: l.kind || 'fk'
     }));
 
     if (lineageSimulation) lineageSimulation.stop();
     const R = 14;
     lineageSimulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(linkData).id(d => d.id).distance(90))
+        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 100 : 90)))
         .force('charge', d3.forceManyBody().strength(-220))
         .force('center', d3.forceCenter(W / 2, H / 2))
         .force('collision', d3.forceCollide().radius(R + 28));
 
     const linkG = mainG.append('g');
     const linkLines = linkG.selectAll('line').data(linkData).enter().append('line')
-        .attr('stroke', 'rgba(129, 230, 217, 0.35)')
-        .attr('stroke-width', 1.5)
+        .attr('stroke', d => (d.kind === 'etl' ? 'rgba(246, 173, 85, 0.55)' : 'rgba(129, 230, 217, 0.35)'))
+        .attr('stroke-width', d => (d.kind === 'etl' ? 2 : 1.5))
+        .attr('stroke-dasharray', d => (d.kind === 'etl' ? '5,4' : 'none'))
         .attr('marker-end', 'url(#lineage-arrow)');
 
     const nodeG = mainG.append('g');
@@ -7032,6 +7353,21 @@ function renderLineageGraph(data) {
         });
 
     nodeSel.append('title').text(d => d.full || d.id);
+
+    nodeSel.on('click', (ev, d) => {
+        ev.stopPropagation();
+        lineageFocusTableId = d.id;
+        applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
+    });
+
+    svg.on('dblclick', (ev) => {
+        if (ev.target && ev.target.id === 'lineageSvg') {
+            lineageFocusTableId = null;
+            applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
+        }
+    });
+
+    applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
 
     lineageSimulation.on('tick', () => {
         linkLines
