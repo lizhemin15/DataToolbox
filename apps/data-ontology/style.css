@@ -4743,15 +4743,13 @@ textarea#testApiParams {
     pointer-events: all;
 }
 .lineage-svg .lineage-node-inner {
-    transform-origin: center;
-    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.35s ease;
+    transition: filter 0.35s ease;
 }
 .lineage-svg .lineage-node:hover .lineage-node-inner {
-    transform: scale(1.1);
     filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(167, 139, 250, 0.45));
 }
 .lineage-svg .lineage-node:active .lineage-node-inner {
-    transform: scale(1.05);
+    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 22px rgba(167, 139, 250, 0.38));
 }
 
 .lineage-svg .lineage-node-shape {

@@ -7495,6 +7495,18 @@ function renderLineageGraph(data) {
         );
 
     const inner = nodeSel.append('g').attr('class', 'lineage-node-inner');
+    const hitPad = 10;
+    inner.append('rect')
+        .attr('class', 'lineage-node-hit')
+        .attr('x', d => -d._nw / 2 - hitPad)
+        .attr('y', d => -d._nh / 2 - hitPad)
+        .attr('width', d => d._nw + hitPad * 2)
+        .attr('height', d => d._nh + hitPad * 2)
+        .attr('rx', 12)
+        .attr('ry', 12)
+        .attr('fill', 'transparent')
+        .attr('stroke', 'none')
+        .attr('pointer-events', 'all');
     inner.append('rect')
         .attr('class', 'lineage-node-shape')
         .attr('x', d => -d._nw / 2)
