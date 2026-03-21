@@ -4526,7 +4526,7 @@ textarea#testApiParams {
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #f7fafc;
+    background: linear-gradient(180deg, #f0f4ff 0%, #f7fafc 100%);
     overflow: hidden;
 }
 .lineage-toolbar {
@@ -4534,9 +4534,10 @@ textarea#testApiParams {
     align-items: center;
     gap: 12px;
     padding: 8px 20px;
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
+    background: linear-gradient(90deg, #ffffff 0%, #f8fafc 100%);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
     flex-shrink: 0;
+    box-shadow: 0 1px 0 rgba(34, 211, 238, 0.06);
 }
 .lineage-brand {
     display: flex;
@@ -4544,13 +4545,13 @@ textarea#testApiParams {
     gap: 6px;
     font-weight: 700;
     font-size: 14px;
-    color: #2d3748;
+    color: #1e1b4b;
     white-space: nowrap;
 }
 .lineage-toolbar-sep {
     width: 1px;
     height: 22px;
-    background: #e2e8f0;
+    background: linear-gradient(180deg, transparent, rgba(99, 102, 241, 0.25), transparent);
 }
 .lineage-db-picker { position: relative; }
 .lineage-db-btn {
@@ -4558,14 +4559,19 @@ textarea#testApiParams {
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    border: 1px solid #cbd5e0;
+    border: 1px solid rgba(99, 102, 241, 0.2);
     border-radius: 8px;
     background: #fff;
     cursor: pointer;
     font-size: 13px;
-    color: #2d3748;
+    color: #312e81;
+    transition: border-color 0.2s, box-shadow 0.2s;
 }
-.lineage-db-btn.active { border-color: #4299e1; box-shadow: 0 0 0 1px #4299e1; }
+.lineage-db-btn:hover {
+    border-color: rgba(34, 211, 238, 0.45);
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.08);
+}
+.lineage-db-btn.active { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
 .lineage-db-btn-text.placeholder { color: #a0aec0; }
 .lineage-db-dropdown {
     display: none;
@@ -4579,7 +4585,7 @@ textarea#testApiParams {
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
     z-index: 50;
 }
 .lineage-db-dropdown.open { display: block; }
@@ -4593,9 +4599,9 @@ textarea#testApiParams {
     font-size: 13px;
     border-bottom: 1px solid #f1f5f9;
 }
-.lineage-db-option:hover { background: #f7fafc; }
-.lineage-db-option.selected { background: #ebf8ff; }
-.lineage-stats { margin-left: auto; font-size: 12px; color: #718096; }
+.lineage-db-option:hover { background: #f5f3ff; }
+.lineage-db-option.selected { background: #eef2ff; }
+.lineage-stats { margin-left: auto; font-size: 12px; color: #64748b; }
 .lineage-main {
     flex: 1;
     display: flex;
@@ -4605,12 +4611,31 @@ textarea#testApiParams {
     flex: 1;
     position: relative;
     min-width: 0;
-    background: #1a202c;
+    background:
+        radial-gradient(ellipse 90% 70% at 15% 25%, rgba(34, 211, 238, 0.14) 0%, transparent 52%),
+        radial-gradient(ellipse 80% 60% at 88% 75%, rgba(167, 139, 250, 0.12) 0%, transparent 48%),
+        radial-gradient(ellipse 50% 45% at 50% 100%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
+        linear-gradient(155deg, #070b14 0%, #0c1224 38%, #120a1f 72%, #0a1628 100%);
+    overflow: hidden;
+}
+.lineage-chart-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.35;
+    background-image:
+        linear-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    z-index: 0;
 }
 .lineage-svg {
     width: 100%;
     height: 100%;
     display: block;
+    position: relative;
+    z-index: 1;
 }
 .lineage-placeholder {
     position: absolute;
@@ -4619,13 +4644,14 @@ textarea#testApiParams {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #a0aec0;
+    color: #94a3b8;
     font-size: 14px;
     pointer-events: none;
     text-align: center;
     padding: 24px;
+    z-index: 2;
 }
-.lineage-hint { font-size: 12px; color: #718096; margin-top: 8px; max-width: 360px; }
+.lineage-hint { font-size: 12px; color: #64748b; margin-top: 8px; max-width: 360px; }
 .lineage-side {
     width: 300px;
     flex-shrink: 0;
@@ -4664,16 +4690,80 @@ textarea#testApiParams {
     border-radius: 3px;
 }
 
-/* 血缘图谱：圆角矩形节点 + 框内多行标签（与 script 中 rect/text 对应） */
+/* 血缘图谱：力导向曲线边、流动描边、粒子、渐变节点 */
+.lineage-svg .lineage-link-base {
+    pointer-events: stroke;
+    stroke-linecap: round;
+    transition: opacity 0.25s ease;
+}
+.lineage-svg .lineage-link-kind-fk {
+    stroke: rgba(34, 211, 238, 0.38);
+    stroke-width: 2.2;
+}
+.lineage-svg .lineage-link-kind-etl {
+    stroke: rgba(251, 191, 36, 0.42);
+    stroke-width: 2.2;
+    stroke-dasharray: 7 5;
+}
+.lineage-svg .lineage-link-flow {
+    stroke-linecap: round;
+    fill: none;
+    pointer-events: none;
+    stroke-width: 2.8;
+    stroke-dasharray: 10 42;
+    animation: lineage-link-flow-move 2.4s linear infinite;
+    opacity: 0.85;
+}
+.lineage-svg .lineage-link-flow-fk {
+    stroke: #67e8f9;
+    filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+}
+.lineage-svg .lineage-link-flow-etl {
+    stroke: rgba(253, 224, 71, 0.75);
+    filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.5));
+}
+@keyframes lineage-link-flow-move {
+    to {
+        stroke-dashoffset: -52;
+    }
+}
+
+.lineage-svg .lineage-particle {
+    fill: #e0f2fe;
+    filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.9));
+    opacity: 0.95;
+    transition: opacity 0.25s ease;
+}
+.lineage-svg .lineage-link-item-etl .lineage-particle {
+    fill: #fef9c3;
+    filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.85));
+}
+
+.lineage-svg .lineage-node {
+    pointer-events: all;
+}
+.lineage-svg .lineage-node-inner {
+    transform-origin: center;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.35s ease;
+}
+.lineage-svg .lineage-node:hover .lineage-node-inner {
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(167, 139, 250, 0.45));
+}
+.lineage-svg .lineage-node:active .lineage-node-inner {
+    transform: scale(1.05);
+}
+
 .lineage-svg .lineage-node-shape {
-    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+    filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.45));
+    transition: filter 0.3s ease;
 }
 
 .lineage-svg .lineage-node-label {
     font-size: 12px;
     font-weight: 600;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    fill: #f7fafc;
+    fill: #f1f5f9;
     paint-order: stroke fill;
 }
 

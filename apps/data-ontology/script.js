@@ -7037,6 +7037,22 @@ function initOntologyTab() {
 let lineageSelectedDbId = null;
 let lineageSimulation = null;
 let lineageFocusTableId = null;
+let lineageParticleRafId = null;
+
+function lineageStopParticleLoop() {
+    if (lineageParticleRafId != null) {
+        cancelAnimationFrame(lineageParticleRafId);
+        lineageParticleRafId = null;
+    }
+}
+
+function lineageQuadBezierPoint(p0, p1, p2, t) {
+    const u = 1 - t;
+    return {
+        x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+        y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y
+    };
+}
 
 function lineageShortTableName(full) {
     if (!full) return '';
@@ -7231,14 +7247,37 @@ function lineageLineEndpoints(sx, sy, tx, ty, offS, offT) {
     };
 }
 
-function applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount) {
+function lineageLinkCurveGeom(d, bias) {
+    const offS = Math.hypot(d.source.lw, d.source.lh) + 4;
+    const offT = Math.hypot(d.target.lw, d.target.lh) + 4;
+    const { x1, y1, x2, y2 } = lineageLineEndpoints(
+        d.source.x, d.source.y, d.target.x, d.target.y, offS, offT
+    );
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len;
+    const py = dx / len;
+    const curve = 0.24 * len + (bias || 0);
+    const cx = mx + px * curve;
+    const cy = my + py * curve;
+    return {
+        x1, y1, cx, cy, x2, y2,
+        dPath: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
+    };
+}
+
+function applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount) {
     const dlinks = lineageDirectedLinksFromEdges(edges);
     const base = `${tables.length} 张表 · ${edgeCount} 条依赖`;
     if (!statsEl) return;
     if (!lineageFocusTableId) {
         statsEl.textContent = `${base} · 单击表节点查看上下游，双击空白处取消`;
-        nodeSel.selectAll('.lineage-node-shape').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', '#81e6d9');
-        linkLines.attr('opacity', 1);
+        nodeSel.selectAll('.lineage-node-shape').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', 'url(#lineage-node-stroke-grad)');
+        linkItems.selectAll('path').attr('opacity', 1);
+        linkItems.selectAll('.lineage-particle').attr('opacity', 1);
         return;
     }
     const focus = lineageFocusTableId;
@@ -7247,18 +7286,20 @@ function applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, t
     const keep = new Set([focus, ...up, ...down]);
     const upStr = [...up].sort().join(', ') || '—';
     const downStr = [...down].sort().join(', ') || '—';
-    statsEl.innerHTML = `${escapeHtml(base)} · 选中 <code style="color:#81e6d9">${escapeHtml(focus)}</code> · 上游: ${escapeHtml(upStr)} · 下游: ${escapeHtml(downStr)}`;
+    statsEl.innerHTML = `${escapeHtml(base)} · 选中 <code style="color:#67e8f9">${escapeHtml(focus)}</code> · 上游: ${escapeHtml(upStr)} · 下游: ${escapeHtml(downStr)}`;
 
     nodeSel.selectAll('.lineage-node-shape')
         .attr('opacity', d => (keep.has(d.id) ? 1 : 0.15))
         .attr('stroke-width', d => (d.id === focus ? 3.5 : 2))
-        .attr('stroke', d => (d.id === focus ? '#f6ad55' : '#81e6d9'));
+        .attr('stroke', d => (d.id === focus ? '#fbbf24' : 'url(#lineage-node-stroke-grad)'));
 
-    linkLines.attr('opacity', d => {
+    const linkOp = d => {
         const sid = d.source.id;
         const tid = d.target.id;
-        return keep.has(sid) && keep.has(tid) ? 1 : 0.1;
-    });
+        return keep.has(sid) && keep.has(tid) ? 1 : 0.12;
+    };
+    linkItems.selectAll('path').attr('opacity', linkOp);
+    linkItems.selectAll('.lineage-particle').attr('opacity', linkOp);
 }
 
 async function loadLineageGraph() {
@@ -7338,6 +7379,7 @@ function renderLineageGraph(data) {
     });
 
     if (nodes.length === 0) {
+        lineageStopParticleLoop();
         if (ph) ph.style.display = '';
         d3.select('#lineageSvg').selectAll('*').remove();
         if (lineageSimulation) { lineageSimulation.stop(); lineageSimulation = null; }
@@ -7349,14 +7391,39 @@ function renderLineageGraph(data) {
     const W = (wrap && wrap.clientWidth) || svgEl.parentElement.clientWidth || 600;
     const H = (wrap && wrap.clientHeight) || svgEl.parentElement.clientHeight || 400;
 
+    lineageStopParticleLoop();
     const svg = d3.select('#lineageSvg').attr('width', W).attr('height', H);
     svg.selectAll('*').remove();
 
     const defs = svg.append('defs');
-    const m = defs.append('marker').attr('id', 'lineage-arrow')
-        .attr('viewBox', '0 -5 10 10').attr('refX', 12).attr('refY', 0)
-        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto');
-    m.append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'rgba(129, 230, 217, 0.65)');
+    const nodeFillGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-node-fill-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+    nodeFillGrad.append('stop').attr('offset', '0%').attr('stop-color', '#1e3a5f');
+    nodeFillGrad.append('stop').attr('offset', '55%').attr('stop-color', '#312e81');
+    nodeFillGrad.append('stop').attr('offset', '100%').attr('stop-color', '#4c1d95');
+
+    const nodeStrokeGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-node-stroke-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+    nodeStrokeGrad.append('stop').attr('offset', '0%').attr('stop-color', '#22d3ee');
+    nodeStrokeGrad.append('stop').attr('offset', '100%').attr('stop-color', '#a78bfa');
+
+    const arrowGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-arrow-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '0%');
+    arrowGrad.append('stop').attr('offset', '0%').attr('stop-color', '#67e8f9');
+    arrowGrad.append('stop').attr('offset', '100%').attr('stop-color', '#c4b5fd');
+
+    const m = defs.append('marker')
+        .attr('id', 'lineage-arrow')
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 9)
+        .attr('refY', 0)
+        .attr('markerWidth', 7)
+        .attr('markerHeight', 7)
+        .attr('orient', 'auto');
+    m.append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'url(#lineage-arrow-grad)');
 
     const mainG = svg.append('g').attr('class', 'lineage-main-g');
     const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', ev => mainG.attr('transform', ev.transform));
@@ -7372,24 +7439,54 @@ function renderLineageGraph(data) {
         kind: l.kind || 'fk'
     }));
 
+    const pairCount = new Map();
+    linkData.forEach(d => {
+        const key = `${d.source.id}\0${d.target.id}`;
+        const n = pairCount.get(key) || 0;
+        pairCount.set(key, n + 1);
+        d._curveBias = (n % 2 === 0 ? 1 : -1) * (Math.floor(n / 2) + 1) * 14;
+    });
+
     lineageMeasureNodeBoxes(svg, nodes);
 
     if (lineageSimulation) lineageSimulation.stop();
     lineageSimulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 140 : 120)))
-        .force('charge', d3.forceManyBody().strength(-380))
+        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 150 : 125)))
+        .force('charge', d3.forceManyBody().strength(-420))
         .force('center', d3.forceCenter(W / 2, H / 2))
-        .force('collision', d3.forceCollide().radius(d => Math.hypot(d.lw, d.lh) + 18));
+        .force('collision', d3.forceCollide().radius(d => Math.hypot(d.lw, d.lh) + 22));
 
-    const linkG = mainG.append('g');
-    const linkLines = linkG.selectAll('line').data(linkData).enter().append('line')
-        .attr('stroke', d => (d.kind === 'etl' ? 'rgba(246, 173, 85, 0.55)' : 'rgba(129, 230, 217, 0.35)'))
-        .attr('stroke-width', d => (d.kind === 'etl' ? 2 : 1.5))
-        .attr('stroke-dasharray', d => (d.kind === 'etl' ? '5,4' : 'none'))
-        .attr('marker-end', 'url(#lineage-arrow)');
+    const linkG = mainG.append('g').attr('class', 'lineage-links-layer');
+    const linkItems = linkG.selectAll('g.lineage-link-item')
+        .data(linkData)
+        .enter()
+        .append('g')
+        .attr('class', d => `lineage-link-item ${d.kind === 'etl' ? 'lineage-link-item-etl' : 'lineage-link-item-fk'}`);
 
-    const nodeG = mainG.append('g');
-    const nodeSel = nodeG.selectAll('g').data(nodes).enter().append('g')
+    linkItems.each(function (d) {
+        const g = d3.select(this);
+        const baseKind = d.kind === 'etl' ? 'lineage-link-kind-etl' : 'lineage-link-kind-fk';
+        g.append('path')
+            .attr('class', `lineage-link-base lineage-link-path ${baseKind}`)
+            .attr('fill', 'none')
+            .attr('marker-end', 'url(#lineage-arrow)');
+        const flowClass = d.kind === 'etl' ? 'lineage-link-flow lineage-link-flow-etl' : 'lineage-link-flow lineage-link-flow-fk';
+        g.append('path')
+            .attr('class', flowClass)
+            .attr('fill', 'none')
+            .attr('pointer-events', 'none');
+        const radii = [3.4, 2.6, 2.2];
+        radii.forEach((r, i) => {
+            g.append('circle')
+                .attr('class', `lineage-particle lineage-particle-${i}`)
+                .attr('r', r)
+                .attr('pointer-events', 'none');
+        });
+    });
+
+    const nodeG = mainG.append('g').attr('class', 'lineage-nodes-layer');
+    const nodeSel = nodeG.selectAll('g.lineage-node').data(nodes).enter().append('g')
+        .attr('class', 'lineage-node')
         .style('cursor', 'grab')
         .call(d3.drag()
             .on('start', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0.35).restart(); d.fx = d.x; d.fy = d.y; })
@@ -7397,19 +7494,20 @@ function renderLineageGraph(data) {
             .on('end', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0); d.fx = null; d.fy = null; })
         );
 
-    nodeSel.append('rect')
+    const inner = nodeSel.append('g').attr('class', 'lineage-node-inner');
+    inner.append('rect')
         .attr('class', 'lineage-node-shape')
         .attr('x', d => -d._nw / 2)
         .attr('y', d => -d._nh / 2)
         .attr('width', d => d._nw)
         .attr('height', d => d._nh)
-        .attr('rx', 8)
-        .attr('ry', 8)
-        .attr('fill', '#2c5282')
-        .attr('stroke', '#81e6d9')
+        .attr('rx', 10)
+        .attr('ry', 10)
+        .attr('fill', 'url(#lineage-node-fill-grad)')
+        .attr('stroke', 'url(#lineage-node-stroke-grad)')
         .attr('stroke-width', 2);
 
-    nodeSel.append('text')
+    inner.append('text')
         .attr('class', 'lineage-node-label')
         .attr('text-anchor', 'middle')
         .attr('pointer-events', 'none')
@@ -7430,29 +7528,46 @@ function renderLineageGraph(data) {
     nodeSel.on('click', (ev, d) => {
         ev.stopPropagation();
         lineageFocusTableId = d.id;
-        applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
+        applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
     });
 
     svg.on('dblclick', (ev) => {
         if (ev.target && ev.target.id === 'lineageSvg') {
             lineageFocusTableId = null;
-            applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
+            applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
         }
     });
 
-    applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
+    applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
 
     lineageSimulation.on('tick', () => {
-        linkLines.each(function (d) {
-            const offS = Math.hypot(d.source.lw, d.source.lh) + 4;
-            const offT = Math.hypot(d.target.lw, d.target.lh) + 4;
-            const { x1, y1, x2, y2 } = lineageLineEndpoints(
-                d.source.x, d.source.y, d.target.x, d.target.y, offS, offT
-            );
-            d3.select(this).attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2);
+        linkItems.each(function (d) {
+            const geom = lineageLinkCurveGeom(d, d._curveBias || 0);
+            d._curve = geom;
+            d3.select(this).selectAll('path').attr('d', geom.dPath);
         });
         nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
     });
+
+    const phases = [0, 0.33, 0.66];
+    const stepParticles = () => {
+        const tBase = (performance.now() / 2200) % 1;
+        linkItems.each(function (d) {
+            const c = d._curve;
+            if (!c) return;
+            const p0 = { x: c.x1, y: c.y1 };
+            const p1 = { x: c.cx, y: c.cy };
+            const p2 = { x: c.x2, y: c.y2 };
+            const g = d3.select(this);
+            g.selectAll('.lineage-particle').each(function (_, i) {
+                const t = (tBase + phases[i % phases.length]) % 1;
+                const pt = lineageQuadBezierPoint(p0, p1, p2, t);
+                d3.select(this).attr('cx', pt.x).attr('cy', pt.y);
+            });
+        });
+        lineageParticleRafId = requestAnimationFrame(stepParticles);
+    };
+    lineageParticleRafId = requestAnimationFrame(stepParticles);
 }
 
 document.addEventListener('keydown', e => {
