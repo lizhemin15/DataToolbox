@@ -43,7 +43,7 @@
                 <div class="login-header">
                     <div class="login-icon">🗄️</div>
                     <h1>数据本体池</h1>
-                    <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象</p>
+                    <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象 · 数据血缘</p>
                 </div>
                 <form id="loginForm" class="login-form">
                     <div class="form-group">
@@ -71,6 +71,7 @@
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
                         <button class="nav-tab" data-tab="ontology">本体论抽象</button>
+                        <button class="nav-tab" data-tab="lineage">数据血缘</button>
                         <button class="nav-tab" data-tab="api">接口分发</button>
                         <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
@@ -457,6 +458,40 @@
                         </button>
                     </div>
                     <div class="onto-query-result" id="ontoQueryResult" style="display:none"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="lineageTab" class="tab-content">
+            <div class="lineage-workspace">
+                <div class="lineage-toolbar">
+                    <span class="lineage-brand"><span class="lineage-brand-icon">🔗</span> 数据血缘分析</span>
+                    <div class="lineage-toolbar-sep"></div>
+                    <div class="lineage-db-picker" id="lineageDbPicker">
+                        <button class="lineage-db-btn" id="lineageDbBtn" type="button" onclick="toggleLineageDbPicker(event)">
+                            <span class="lineage-db-btn-icon">🗄️</span>
+                            <span class="lineage-db-btn-text placeholder" id="lineageDbBtnText">选择数据库</span>
+                            <span class="lineage-db-btn-arrow">▾</span>
+                        </button>
+                        <div class="lineage-db-dropdown" id="lineageDbDropdown">
+                            <div class="lineage-db-dropdown-empty" id="lineageDbDropdownEmpty">暂无数据库</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="lineageRefreshBtn" onclick="loadLineageGraph()">分析 / 刷新</button>
+                    <div class="lineage-stats" id="lineageStats"></div>
+                </div>
+                <div class="lineage-main">
+                    <div class="lineage-chart-wrap" id="lineageChartWrap">
+                        <svg id="lineageSvg" class="lineage-svg"></svg>
+                        <div class="lineage-placeholder" id="lineagePlaceholder">
+                            <p>选择数据库后点击「分析 / 刷新」</p>
+                            <p class="lineage-hint">基于外键约束：箭头从被引用表指向引用表（数据流向）</p>
+                        </div>
+                    </div>
+                    <aside class="lineage-side">
+                        <h4>外键明细</h4>
+                        <div class="lineage-edge-list" id="lineageEdgeList"></div>
+                    </aside>
                 </div>
             </div>
         </div>

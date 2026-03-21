@@ -339,6 +339,8 @@ function switchTab(tabName) {
         loadGovernanceTasks();
     } else if (tabName === 'ontology') {
         initOntologyTab();
+    } else if (tabName === 'lineage') {
+        initLineageTab();
     }
 }
 
@@ -6753,6 +6755,10 @@ document.addEventListener('click', () => {
     const btn = document.getElementById('ontoDbBtn');
     if (dd) dd.classList.remove('open');
     if (btn) btn.classList.remove('active');
+    const ldd = document.getElementById('lineageDbDropdown');
+    const lbtn = document.getElementById('lineageDbBtn');
+    if (ldd) ldd.classList.remove('open');
+    if (lbtn) lbtn.classList.remove('active');
 });
 
 // ---- 初始化：本体论 tab 激活时同步数据库列表 ----
@@ -6801,6 +6807,240 @@ function initOntologyTab() {
             if (ontoData) renderOntologyGraph(ontoData, false);
         });
     }
+}
+
+// ---- 数据血缘 ----
+let lineageSelectedDbId = null;
+let lineageSimulation = null;
+
+function lineageShortTableName(full) {
+    if (!full) return '';
+    const s = String(full);
+    const i = s.lastIndexOf('.');
+    return i >= 0 ? s.slice(i + 1) : s;
+}
+
+function toggleLineageDbPicker(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('lineageDbDropdown');
+    const btn = document.getElementById('lineageDbBtn');
+    if (!dd || !btn) return;
+    const isOpen = dd.classList.contains('open');
+    dd.classList.toggle('open', !isOpen);
+    btn.classList.toggle('active', !isOpen);
+}
+
+function selectLineageDb(dbId, dbName, dbType) {
+    lineageSelectedDbId = dbId;
+    const textEl = document.getElementById('lineageDbBtnText');
+    if (textEl) {
+        textEl.textContent = `${getDbIcon(dbType)} ${dbName}`;
+        textEl.classList.remove('placeholder');
+    }
+    document.querySelectorAll('.lineage-db-option').forEach(el => {
+        const sel = el.dataset.dbId === dbId;
+        el.classList.toggle('selected', sel);
+        const c = el.querySelector('.lineage-db-option-check');
+        if (c) c.style.display = sel ? '' : 'none';
+    });
+    const dd = document.getElementById('lineageDbDropdown');
+    const btn = document.getElementById('lineageDbBtn');
+    if (dd) dd.classList.remove('open');
+    if (btn) btn.classList.remove('active');
+}
+
+function initLineageTab() {
+    const dropdown = document.getElementById('lineageDbDropdown');
+    const emptyEl = document.getElementById('lineageDbDropdownEmpty');
+    if (!dropdown) return;
+    dropdown.querySelectorAll('.lineage-db-option').forEach(el => el.remove());
+    if (databases.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+    } else {
+        if (emptyEl) emptyEl.style.display = 'none';
+        databases.forEach(db => {
+            const item = document.createElement('div');
+            item.className = 'lineage-db-option';
+            item.dataset.dbId = db.id;
+            const isSelected = db.id === lineageSelectedDbId;
+            if (isSelected) item.classList.add('selected');
+            item.innerHTML = `
+                <span>${getDbIcon(db.type)}</span>
+                <span style="flex:1;min-width:0"><strong>${escapeHtml(db.name)}</strong><br><span style="color:#a0aec0;font-size:11px">${escapeHtml(db.type || '')}</span></span>
+                <span class="lineage-db-option-check" style="display:${isSelected ? '' : 'none'}">✓</span>`;
+            item.onclick = (ev) => {
+                ev.stopPropagation();
+                selectLineageDb(db.id, db.name, db.type);
+            };
+            dropdown.appendChild(item);
+        });
+        if (!lineageSelectedDbId) {
+            const te = document.getElementById('lineageDbBtnText');
+            if (te) { te.textContent = '选择数据库'; te.classList.add('placeholder'); }
+        }
+    }
+    if (!window._lineageResizeRegistered) {
+        window._lineageResizeRegistered = true;
+        window.addEventListener('resize', () => {
+            if (lineageSelectedDbId && window.lineageLastPayload) {
+                renderLineageGraph(window.lineageLastPayload);
+            }
+        });
+    }
+}
+
+async function loadLineageGraph() {
+    if (!lineageSelectedDbId) {
+        showOntoToast('请先选择数据库', true);
+        return;
+    }
+    const token = localStorage.getItem('dataOntologyToken');
+    try {
+        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showOntoToast(data.message || '血缘分析失败', true);
+            return;
+        }
+        window.lineageLastPayload = data;
+        renderLineageGraph(data);
+        if (data.message) showOntoToast(data.message);
+    } catch (err) {
+        showOntoToast('请求失败: ' + (err.message || String(err)), true);
+    }
+}
+
+function renderLineageGraph(data) {
+    const svgEl = document.getElementById('lineageSvg');
+    const ph = document.getElementById('lineagePlaceholder');
+    const statsEl = document.getElementById('lineageStats');
+    const listEl = document.getElementById('lineageEdgeList');
+    if (!svgEl || !data) return;
+
+    const tables = data.tables || [];
+    const edges = data.edges || [];
+    const edgeCount = data.edgeCount != null ? data.edgeCount : edges.length;
+
+    if (statsEl) {
+        statsEl.textContent = `${tables.length} 张表 · ${edgeCount} 条外键依赖`;
+    }
+
+    if (listEl) {
+        if (edges.length === 0) {
+            listEl.innerHTML = '<div style="color:#a0aec0;padding:12px">未检测到外键约束</div>';
+        } else {
+            listEl.innerHTML = edges.map(e => {
+                const ft = escapeHtml(e.fromTable || '');
+                const fc = escapeHtml(e.fromColumn || '');
+                const tt = escapeHtml(e.toTable || '');
+                const tc = escapeHtml(e.toColumn || '');
+                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> → <code>${tt}</code>.<code>${tc}</code></div>`;
+            }).join('');
+        }
+    }
+
+    const nodeById = new Map();
+    tables.forEach(t => nodeById.set(t, { id: t, label: lineageShortTableName(t), full: t }));
+    edges.forEach(e => {
+        if (!nodeById.has(e.fromTable)) nodeById.set(e.fromTable, { id: e.fromTable, label: lineageShortTableName(e.fromTable), full: e.fromTable });
+        if (!nodeById.has(e.toTable)) nodeById.set(e.toTable, { id: e.toTable, label: lineageShortTableName(e.toTable), full: e.toTable });
+    });
+    const nodes = Array.from(nodeById.values());
+    const links = edges.map(e => ({
+        source: e.toTable,
+        target: e.fromTable,
+        fromColumn: e.fromColumn,
+        toColumn: e.toColumn
+    }));
+
+    if (nodes.length === 0) {
+        if (ph) ph.style.display = '';
+        d3.select('#lineageSvg').selectAll('*').remove();
+        if (lineageSimulation) { lineageSimulation.stop(); lineageSimulation = null; }
+        return;
+    }
+    if (ph) ph.style.display = 'none';
+
+    const wrap = document.getElementById('lineageChartWrap');
+    const W = (wrap && wrap.clientWidth) || svgEl.parentElement.clientWidth || 600;
+    const H = (wrap && wrap.clientHeight) || svgEl.parentElement.clientHeight || 400;
+
+    const svg = d3.select('#lineageSvg').attr('width', W).attr('height', H);
+    svg.selectAll('*').remove();
+
+    const defs = svg.append('defs');
+    const m = defs.append('marker').attr('id', 'lineage-arrow')
+        .attr('viewBox', '0 -5 10 10').attr('refX', 18).attr('refY', 0)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto');
+    m.append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'rgba(129, 230, 217, 0.65)');
+
+    const mainG = svg.append('g').attr('class', 'lineage-main-g');
+    const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', ev => mainG.attr('transform', ev.transform));
+    svg.call(zoom).on('dblclick.zoom', null);
+
+    const nodeMap = {};
+    nodes.forEach(n => { n.x = W / 2 + (Math.random() - 0.5) * 200; n.y = H / 2 + (Math.random() - 0.5) * 200; nodeMap[n.id] = n; });
+    const linkData = links.filter(l => nodeMap[l.source] && nodeMap[l.target]).map(l => ({
+        source: nodeMap[l.source],
+        target: nodeMap[l.target],
+        fromColumn: l.fromColumn,
+        toColumn: l.toColumn
+    }));
+
+    if (lineageSimulation) lineageSimulation.stop();
+    const R = 14;
+    lineageSimulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(linkData).id(d => d.id).distance(90))
+        .force('charge', d3.forceManyBody().strength(-220))
+        .force('center', d3.forceCenter(W / 2, H / 2))
+        .force('collision', d3.forceCollide().radius(R + 28));
+
+    const linkG = mainG.append('g');
+    const linkLines = linkG.selectAll('line').data(linkData).enter().append('line')
+        .attr('stroke', 'rgba(129, 230, 217, 0.35)')
+        .attr('stroke-width', 1.5)
+        .attr('marker-end', 'url(#lineage-arrow)');
+
+    const nodeG = mainG.append('g');
+    const nodeSel = nodeG.selectAll('g').data(nodes).enter().append('g')
+        .style('cursor', 'grab')
+        .call(d3.drag()
+            .on('start', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0.35).restart(); d.fx = d.x; d.fy = d.y; })
+            .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+            .on('end', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0); d.fx = null; d.fy = null; })
+        );
+
+    nodeSel.append('circle')
+        .attr('r', R)
+        .attr('fill', '#2c5282')
+        .attr('stroke', '#81e6d9')
+        .attr('stroke-width', 2);
+
+    nodeSel.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('fill', '#e2e8f0')
+        .attr('font-size', '10px')
+        .attr('pointer-events', 'none')
+        .each(function (d) {
+            const text = d.label || d.id;
+            const maxLen = 10;
+            const shown = text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
+            d3.select(this).text(shown);
+        });
+
+    nodeSel.append('title').text(d => d.full || d.id);
+
+    lineageSimulation.on('tick', () => {
+        linkLines
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
 }
 
 document.addEventListener('keydown', e => {

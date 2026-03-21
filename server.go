@@ -2129,6 +2129,273 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// LineageEdge 外键血缘边：from 表的外键列引用 to 表的主键/唯一列（数据从 to 流向 from）
+type LineageEdge struct {
+	FromTable   string `json:"fromTable"`
+	FromColumn  string `json:"fromColumn"`
+	ToTable     string `json:"toTable"`
+	ToColumn    string `json:"toColumn"`
+	Constraint  string `json:"constraint,omitempty"`
+}
+
+func dedupeLineageEdges(edges []LineageEdge) []LineageEdge {
+	seen := make(map[string]struct{}, len(edges))
+	out := make([]LineageEdge, 0, len(edges))
+	for _, e := range edges {
+		k := e.FromTable + "\x00" + e.FromColumn + "\x00" + e.ToTable + "\x00" + e.ToColumn
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, e)
+	}
+	return out
+}
+
+func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+	path := strings.Trim(r.URL.Path, "/")
+	parts := strings.Split(path, "/")
+	// api / data-ontology / databases / {id} / lineage
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "data-ontology" || parts[2] != "databases" || parts[4] != "lineage" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := parts[3]
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	if config.Type == "mongodb" || config.Type == "redis" || config.Type == "neo4j" ||
+		config.Type == "elasticsearch" || config.Type == "influxdb" || config.Type == "memcached" ||
+		config.Type == "cassandra" || config.Type == "hbase" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"tables":  []string{},
+			"edges":   []LineageEdge{},
+			"message": "当前数据库类型不支持基于外键的血缘分析",
+		})
+		return
+	}
+
+	tables, err := getTablesList(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取表列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+	defer db.Close()
+
+	edges, warn := queryForeignKeyLineage(db, config, tables)
+	edges = dedupeLineageEdges(edges)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"dbType":    config.Type,
+		"tables":    tables,
+		"edges":     edges,
+		"edgeCount": len(edges),
+		"message":   warn,
+	})
+}
+
+func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string) ([]LineageEdge, string) {
+	var edges []LineageEdge
+	var warn string
+
+	switch config.Type {
+	case "mysql", "mariadb", "tidb":
+		q := `SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, CONSTRAINT_NAME
+			FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`
+		rows, err := db.Query(q, config.Database)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "postgresql", "timescaledb", "cockroachdb":
+		q := `
+			SELECT con.conname::text,
+			       nsp.nspname || '.' || rel.relname,
+			       att.attname::text,
+			       fnsp.nspname || '.' || frel.relname,
+			       fatt.attname::text
+			FROM pg_catalog.pg_constraint con
+			INNER JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+			INNER JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
+			INNER JOIN pg_catalog.pg_class frel ON frel.oid = con.confrelid
+			INNER JOIN pg_catalog.pg_namespace fnsp ON fnsp.oid = frel.relnamespace
+			CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS u(attnum, refattnum)
+			INNER JOIN pg_catalog.pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum AND NOT att.attisdropped
+			INNER JOIN pg_catalog.pg_attribute fatt ON fatt.attrelid = con.confrelid AND fatt.attnum = u.refattnum AND NOT fatt.attisdropped
+			WHERE con.contype = 'f'
+			  AND nsp.nspname NOT IN ('pg_catalog', 'information_schema')`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cname, fromT, fromC, toT, toC string
+			if err := rows.Scan(&cname, &fromT, &fromC, &toT, &toC); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "sqlserver":
+		q := `
+			SELECT OBJECT_SCHEMA_NAME(fkc.parent_object_id) + '.' + OBJECT_NAME(fkc.parent_object_id),
+			       col1.name,
+			       OBJECT_SCHEMA_NAME(fkc.referenced_object_id) + '.' + OBJECT_NAME(fkc.referenced_object_id),
+			       col2.name,
+			       fk.name
+			FROM sys.foreign_key_columns fkc
+			INNER JOIN sys.foreign_keys fk ON fkc.constraint_object_id = fk.object_id
+			INNER JOIN sys.columns col1 ON fkc.parent_object_id = col1.object_id AND fkc.parent_column_id = col1.column_id
+			INNER JOIN sys.columns col2 ON fkc.referenced_object_id = col2.object_id AND fkc.referenced_column_id = col2.column_id`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "oracle":
+		q := `SELECT a.owner || '.' || a.table_name, a.column_name,
+		         b.owner || '.' || b.table_name, b.column_name,
+		         c.constraint_name
+		      FROM all_cons_columns a
+		      JOIN all_constraints c ON a.owner = c.owner AND a.constraint_name = c.constraint_name
+		      JOIN all_constraints c_pk ON c.r_owner = c_pk.owner AND c.r_constraint_name = c_pk.constraint_name
+		      JOIN all_cons_columns b ON c_pk.owner = b.owner AND c_pk.constraint_name = b.constraint_name
+		        AND a.position = b.position
+		      WHERE c.constraint_type = 'R'
+		        AND a.owner NOT IN ('SYS','SYSTEM','OUTLN','DBSNMP','MDSYS','CTXSYS','XDB')`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "dm":
+		q := `SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, CONSTRAINT_NAME
+			FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`
+		rows, err := db.Query(q, config.Database)
+		if err != nil {
+			// 达梦部分版本元数据字段不同，返回空边并提示
+			warn = "达梦库未返回标准 information_schema 外键信息: " + err.Error()
+			return []LineageEdge{}, warn
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "sqlite":
+		sqliteQuote := func(name string) string {
+			return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+		}
+		for _, t := range tables {
+			prag := fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteQuote(t))
+			rows, err := db.Query(prag)
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var id, seq int
+				var refTable, fromCol, toCol string
+				var onUpdate, onDelete, match string
+				if err := rows.Scan(&id, &seq, &refTable, &fromCol, &toCol, &onUpdate, &onDelete, &match); err != nil {
+					continue
+				}
+				if toCol == "" {
+					toCol = fromCol
+				}
+				edges = append(edges, LineageEdge{
+					FromTable: t, FromColumn: fromCol, ToTable: refTable, ToColumn: toCol,
+					Constraint: fmt.Sprintf("fk_%d", id),
+				})
+			}
+			rows.Close()
+		}
+
+	case "duckdb":
+		warn = "DuckDB 在当前环境可能不可用；若已连接，暂不支持自动外键血缘"
+		return []LineageEdge{}, warn
+
+	default:
+		warn = "该数据库类型未实现外键血缘采集"
+	}
+
+	return edges, warn
+}
+
 // 获取表数据
 func handleTableData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -7034,6 +7301,12 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
+		trimPath := strings.Trim(r.URL.Path, "/")
+		parts := strings.Split(trimPath, "/")
+		if len(parts) == 5 && parts[2] == "databases" && parts[4] == "lineage" {
+			handleDatabaseLineage(w, r)
+			return
+		}
 		path := r.URL.Path
 		if strings.Contains(path, "/tables/") || strings.HasSuffix(path, "/tables") {
 			handleTableData(w, r)
