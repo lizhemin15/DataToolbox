@@ -522,6 +522,26 @@ function toggleRightPanel() {
     }
 }
 
+// 显示番茄钟面板（从任务详情切换过来）
+function showPomodoroPanel() {
+    // 确保面板可见
+    const appContainer = document.querySelector('.app-container');
+    appContainer.classList.remove('panel-hidden');
+    document.getElementById('togglePanelIcon').textContent = '🍅';
+    
+    // 如果在任务详情视图，切回番茄钟视图
+    if (document.getElementById('taskDetailView').style.display !== 'none') {
+        document.getElementById('taskDetailView').style.display = 'none';
+        document.getElementById('pomodoroView').style.display = 'block';
+        document.getElementById('panelTitle').textContent = '番茄钟';
+    }
+    
+    // 移动端：显示面板
+    if (window.innerWidth <= 768) {
+        document.getElementById('rightPanel').classList.add('show');
+    }
+}
+
 // 关闭右侧面板
 function closeRightPanel() {
     // 如果在任务详情视图，先切回番茄钟视图
@@ -557,7 +577,9 @@ function startFocusFromTask(taskId) {
     timerState.currentTaskId = taskId;
     document.getElementById('pomodoroTaskName').textContent = task.title;
     
-    closeRightPanel();
+    // 不关闭右侧面板，让用户能看到番茄钟
+    // 如果当前是任务详情，切换到番茄钟面板
+    showPomodoroPanel();
     showToast('已选择任务：' + task.title);
 }
 
