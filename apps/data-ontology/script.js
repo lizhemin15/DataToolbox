@@ -7168,13 +7168,76 @@ function lineageDownstreamBfsIds(focusId, dlinks) {
     return seen;
 }
 
+/** 血缘节点标签拆行：优先 schema.table 两行，否则按长度折行 */
+function lineageTableLabelLines(full) {
+    const s = String(full || '');
+    if (!s) return [''];
+    const max1 = 26;
+    if (s.length <= max1) return [s];
+    const dot = s.lastIndexOf('.');
+    if (dot > 0) {
+        const schema = s.slice(0, dot + 1);
+        const table = s.slice(dot + 1);
+        if (schema.length <= max1 && table.length <= max1) return [schema, table];
+    }
+    const lines = [];
+    for (let i = 0; i < s.length; i += max1) lines.push(s.slice(i, i + max1));
+    return lines;
+}
+
+function lineageMeasureNodeBoxes(svg, nodes) {
+    const tmp = svg.append('text')
+        .attr('class', 'lineage-node-label lineage-node-label-measure')
+        .attr('visibility', 'hidden')
+        .attr('x', -9999)
+        .attr('y', -9999);
+    const lineHeight = 14;
+    const padX = 12;
+    const padY = 8;
+    const maxLabelWidth = 320;
+    const minW = 80;
+    nodes.forEach(d => {
+        d._lines = lineageTableLabelLines(d.full || d.id);
+        let maxW = 0;
+        d._lines.forEach(line => {
+            tmp.text(line);
+            try {
+                const bb = tmp.node().getBBox();
+                maxW = Math.max(maxW, bb.width);
+            } catch (e) {
+                maxW = Math.max(maxW, line.length * 7);
+            }
+        });
+        d._nw = Math.min(maxLabelWidth, Math.max(minW, maxW + padX * 2));
+        d._nh = d._lines.length * lineHeight + padY * 2;
+        d.lw = d._nw / 2;
+        d.lh = d._nh / 2;
+    });
+    tmp.remove();
+}
+
+function lineageLineEndpoints(sx, sy, tx, ty, offS, offT) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) return { x1: sx, y1: sy, x2: tx, y2: ty };
+    const ux = dx / len;
+    const uy = dy / len;
+    return {
+        x1: sx + ux * offS,
+        y1: sy + uy * offS,
+        x2: tx - ux * offT,
+        y2: ty - uy * offT
+    };
+}
+
 function applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount) {
     const dlinks = lineageDirectedLinksFromEdges(edges);
     const base = `${tables.length} 张表 · ${edgeCount} 条依赖`;
     if (!statsEl) return;
     if (!lineageFocusTableId) {
         statsEl.textContent = `${base} · 单击表节点查看上下游，双击空白处取消`;
-        nodeSel.selectAll('circle').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', '#81e6d9');
+        nodeSel.selectAll('.lineage-node-shape').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', '#81e6d9');
         linkLines.attr('opacity', 1);
         return;
     }
@@ -7186,7 +7249,7 @@ function applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, t
     const downStr = [...down].sort().join(', ') || '—';
     statsEl.innerHTML = `${escapeHtml(base)} · 选中 <code style="color:#81e6d9">${escapeHtml(focus)}</code> · 上游: ${escapeHtml(upStr)} · 下游: ${escapeHtml(downStr)}`;
 
-    nodeSel.selectAll('circle')
+    nodeSel.selectAll('.lineage-node-shape')
         .attr('opacity', d => (keep.has(d.id) ? 1 : 0.15))
         .attr('stroke-width', d => (d.id === focus ? 3.5 : 2))
         .attr('stroke', d => (d.id === focus ? '#f6ad55' : '#81e6d9'));
@@ -7291,7 +7354,7 @@ function renderLineageGraph(data) {
 
     const defs = svg.append('defs');
     const m = defs.append('marker').attr('id', 'lineage-arrow')
-        .attr('viewBox', '0 -5 10 10').attr('refX', 18).attr('refY', 0)
+        .attr('viewBox', '0 -5 10 10').attr('refX', 12).attr('refY', 0)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto');
     m.append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'rgba(129, 230, 217, 0.65)');
 
@@ -7309,13 +7372,14 @@ function renderLineageGraph(data) {
         kind: l.kind || 'fk'
     }));
 
+    lineageMeasureNodeBoxes(svg, nodes);
+
     if (lineageSimulation) lineageSimulation.stop();
-    const R = 14;
     lineageSimulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 100 : 90)))
-        .force('charge', d3.forceManyBody().strength(-220))
+        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 140 : 120)))
+        .force('charge', d3.forceManyBody().strength(-380))
         .force('center', d3.forceCenter(W / 2, H / 2))
-        .force('collision', d3.forceCollide().radius(R + 28));
+        .force('collision', d3.forceCollide().radius(d => Math.hypot(d.lw, d.lh) + 18));
 
     const linkG = mainG.append('g');
     const linkLines = linkG.selectAll('line').data(linkData).enter().append('line')
@@ -7333,23 +7397,32 @@ function renderLineageGraph(data) {
             .on('end', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0); d.fx = null; d.fy = null; })
         );
 
-    nodeSel.append('circle')
-        .attr('r', R)
+    nodeSel.append('rect')
+        .attr('class', 'lineage-node-shape')
+        .attr('x', d => -d._nw / 2)
+        .attr('y', d => -d._nh / 2)
+        .attr('width', d => d._nw)
+        .attr('height', d => d._nh)
+        .attr('rx', 8)
+        .attr('ry', 8)
         .attr('fill', '#2c5282')
         .attr('stroke', '#81e6d9')
         .attr('stroke-width', 2);
 
     nodeSel.append('text')
+        .attr('class', 'lineage-node-label')
         .attr('text-anchor', 'middle')
-        .attr('dominant-baseline', 'central')
-        .attr('fill', '#e2e8f0')
-        .attr('font-size', '10px')
         .attr('pointer-events', 'none')
         .each(function (d) {
-            const text = d.label || d.id;
-            const maxLen = 10;
-            const shown = text.length > maxLen ? text.slice(0, maxLen) + '…' : text;
-            d3.select(this).text(shown);
+            const el = d3.select(this);
+            const lh = 14;
+            const lines = d._lines || [d.full || d.id];
+            lines.forEach((line, i) => {
+                el.append('tspan')
+                    .attr('x', 0)
+                    .attr('dy', i === 0 ? `${-(lines.length - 1) * lh / 2}` : `${lh}`)
+                    .text(line);
+            });
         });
 
     nodeSel.append('title').text(d => d.full || d.id);
@@ -7370,11 +7443,14 @@ function renderLineageGraph(data) {
     applyLineageFocusHighlight(nodeSel, linkLines, nodes, edges, statsEl, tables, edgeCount);
 
     lineageSimulation.on('tick', () => {
-        linkLines
-            .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y);
+        linkLines.each(function (d) {
+            const offS = Math.hypot(d.source.lw, d.source.lh) + 4;
+            const offT = Math.hypot(d.target.lw, d.target.lh) + 4;
+            const { x1, y1, x2, y2 } = lineageLineEndpoints(
+                d.source.x, d.source.y, d.target.x, d.target.y, offS, offT
+            );
+            d3.select(this).attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2);
+        });
         nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
     });
 }
