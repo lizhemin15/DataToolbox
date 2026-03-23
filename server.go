@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -5066,13 +5067,32 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		} else {
-			// 成功了，返回结果
+			// 成功了，返回结果（含反思洞察）
+			insight := ""
+			confidence := 0.0
+
+			resultsSummary := truncateResultsForAI(results, 20, 2000)
+			reflectionPrompt := buildReflectionPrompt(queryReq.Message, sqlQuery, resultsSummary, dbConfig.Type)
+			reflectionResponse, refErr := callAIService(aiConfig, reflectionPrompt)
+			if refErr != nil {
+				log.Printf("反思失败: %v", refErr)
+			} else {
+				reflection := parseReflectionResponse(reflectionResponse)
+				if !reflection.AnswersQuestion && reflection.Suggestion != "" && retry < maxRetries-1 {
+					log.Printf("反思建议: %s", reflection.Suggestion)
+				}
+				insight = reflection.Insight
+				confidence = reflection.Confidence
+			}
+
 			sendSSE(w, "success", map[string]interface{}{
-				"response": responseText,
-				"sql":      sqlQuery,
-				"results":  results,
-				"attempts": attempts,
-				"retries":  retry,
+				"response":   responseText,
+				"sql":        sqlQuery,
+				"results":    results,
+				"insight":    insight,
+				"confidence": confidence,
+				"attempts":   attempts,
+				"retries":    retry,
 			})
 			sendSSE(w, "done", map[string]interface{}{})
 			flusher.Flush()
@@ -5383,6 +5403,128 @@ func getModulePromptPrefix(modules []string) string {
 		return "你是一个专业的数据库管理助手，聚焦于SQL查询、数据写入、表结构操作。请根据用户的问题和数据库结构生成SQL语句。\n\n"
 	}
 	return "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+}
+
+// ReflectionResult 反思结果
+type ReflectionResult struct {
+	AnswersQuestion bool    `json:"answers_question"`
+	Confidence      float64 `json:"confidence"`
+	Issue           string  `json:"issue"`
+	Insight         string  `json:"insight"`
+	Suggestion      string  `json:"suggestion"`
+}
+
+var reflectionJSONRegexp = regexp.MustCompile(`\{[\s\S]*\}`)
+
+// parseReflectionResponse 解析反思响应
+func parseReflectionResponse(response string) ReflectionResult {
+	result := ReflectionResult{
+		AnswersQuestion: true,
+		Confidence:      0.5,
+		Issue:           "ok",
+		Insight:         "",
+		Suggestion:      "",
+	}
+
+	jsonMatch := reflectionJSONRegexp.FindString(response)
+	if jsonMatch == "" {
+		return result
+	}
+
+	if err := json.Unmarshal([]byte(jsonMatch), &result); err != nil {
+		log.Printf("解析反思结果失败: %v", err)
+	}
+
+	return result
+}
+
+// truncateResultsForAI 裁剪结果供 AI 分析
+func truncateResultsForAI(results []map[string]interface{}, maxRows int, maxChars int) map[string]interface{} {
+	if len(results) == 0 {
+		return map[string]interface{}{
+			"row_count": 0,
+			"columns":   []string{},
+			"sample":    []map[string]interface{}{},
+		}
+	}
+
+	columns := make([]string, 0, len(results[0]))
+	for k := range results[0] {
+		columns = append(columns, k)
+	}
+	sort.Strings(columns)
+
+	sample := results
+	if len(results) > maxRows {
+		sample = results[:maxRows]
+	}
+
+	totalChars := 0
+	truncatedSample := []map[string]interface{}{}
+	for _, row := range sample {
+		newRow := make(map[string]interface{})
+		for _, k := range columns {
+			v, ok := row[k]
+			if !ok {
+				continue
+			}
+			str := fmt.Sprintf("%v", v)
+			if len(str) > 200 {
+				str = str[:200] + "..."
+			}
+			newRow[k] = str
+			totalChars += len(str)
+		}
+		truncatedSample = append(truncatedSample, newRow)
+		if totalChars > maxChars {
+			break
+		}
+	}
+
+	return map[string]interface{}{
+		"row_count": len(results),
+		"columns":   columns,
+		"sample":    truncatedSample,
+	}
+}
+
+// buildReflectionPrompt 构建反思提示词
+func buildReflectionPrompt(userMessage string, sqlQuery string, resultsSummary map[string]interface{}, dbType string) string {
+	var sb strings.Builder
+
+	sb.WriteString("你是一个数据分析专家。请分析以下 SQL 查询结果是否回答了用户的问题。\n\n")
+
+	sb.WriteString("## 用户问题\n")
+	sb.WriteString(userMessage + "\n\n")
+
+	sb.WriteString("## 数据库类型\n")
+	sb.WriteString(dbType + "\n\n")
+
+	sb.WriteString("## 执行的 SQL\n")
+	sb.WriteString(sqlQuery + "\n\n")
+
+	sb.WriteString("## 查询结果摘要\n")
+	sb.WriteString(fmt.Sprintf("- 总行数: %v\n", resultsSummary["row_count"]))
+	sb.WriteString(fmt.Sprintf("- 列名: %v\n", resultsSummary["columns"]))
+	sb.WriteString("- 样本数据（前几行）:\n")
+
+	sampleJSON, err := json.MarshalIndent(resultsSummary["sample"], "", "  ")
+	if err != nil {
+		sb.WriteString("[]\n\n")
+	} else {
+		sb.WriteString(string(sampleJSON) + "\n\n")
+	}
+
+	sb.WriteString("## 请输出 JSON 格式的分析\n")
+	sb.WriteString("要求：只输出一个 JSON 对象，不要输出其他内容。\n\n")
+	sb.WriteString("JSON 字段说明：\n")
+	sb.WriteString("- answers_question: boolean，查询结果是否在实质上回答了用户问题\n")
+	sb.WriteString("- confidence: number，0~1，你对上述判断的置信度\n")
+	sb.WriteString("- issue: string，若有问题简要说明，否则 \"ok\"\n")
+	sb.WriteString("- insight: string，面向用户的中文结论与数据解读（简洁）\n")
+	sb.WriteString("- suggestion: string，若未充分回答，给出改进 SQL 或下一步建议；否则可为空字符串\n")
+
+	return sb.String()
 }
 
 // buildAIPrompt 构建AI提示词

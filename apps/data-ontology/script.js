@@ -4111,6 +4111,19 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             
             let resultHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             
+            if (data.insight != null && String(data.insight).trim() !== '') {
+                const conf = data.confidence;
+                const confStr = typeof conf === 'number' && conf > 0
+                    ? `<div style="font-size:11px;color:#718096;margin-top:6px;">置信度: ${conf <= 1 ? Math.round(conf * 100) + '%' : escapeHtml(String(conf))}</div>`
+                    : '';
+                resultHtml += `
+                    <div class="ai-reflection-insight" style="margin-top:8px;padding:10px 12px;background:#ebf8ff;border-radius:6px;border-left:4px solid #3182ce;">
+                        <div style="font-size:12px;font-weight:600;color:#2c5282;margin-bottom:4px;">💡 数据洞察</div>
+                        <div style="font-size:13px;color:#2d3748;">${formatAIText(data.insight)}</div>
+                        ${confStr}
+                    </div>`;
+            }
+            
             // 显示重试信息（如果有）
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
