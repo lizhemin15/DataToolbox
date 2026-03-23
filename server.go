@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -4860,6 +4861,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var lastError string
 	var lastSQL string
 	var attempts []map[string]interface{}
+	var normalizedSQLs []string
 
 	for retry := 0; retry < maxRetries; retry++ {
 		// 发送生成SQL事件
@@ -4921,8 +4923,31 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		
-		// 检测是否生成了相同的SQL
+		// 检测是否生成了已执行失败过的相同 SQL
 		normalizedSQL := strings.ReplaceAll(strings.ReplaceAll(sqlQuery, " ", ""), "\n", "")
+		dup := false
+		for _, prev := range normalizedSQLs {
+			if normalizedSQL == prev {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			lastError = "AI重复生成已尝试过的SQL，无法修复问题"
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": responseText,
+				"sql":      sqlQuery,
+			})
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+				"sql":     sqlQuery,
+			})
+			flusher.Flush()
+			break
+		}
 		normalizedLastSQL := strings.ReplaceAll(strings.ReplaceAll(lastSQL, " ", ""), "\n", "")
 		if retry > 0 && normalizedSQL == normalizedLastSQL {
 			lastError = "AI重复生成相同的SQL，无法修复问题"
@@ -4998,6 +5023,32 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		results, err := executeSQLQuery(dbConfig, sqlQuery, []interface{}{})
 		if err != nil {
 			lastError = "SQL执行失败: " + err.Error()
+			errorClass := classifySQLError(err, dbConfig.Type)
+			if errorClass == ErrorClassPermission {
+				attempts = append(attempts, map[string]interface{}{
+					"attempt":  retry + 1,
+					"error":    lastError,
+					"response": responseText,
+					"sql":      sqlQuery,
+				})
+				sendSSE(w, "attempt_failed", map[string]interface{}{
+					"attempt": retry + 1,
+					"error":   lastError,
+					"sql":     sqlQuery,
+				})
+				flusher.Flush()
+				sendSSE(w, "error", map[string]interface{}{
+					"message":  "权限不足，请联系 DBA 授权。错误：" + lastError,
+					"no_retry": true,
+				})
+				sendSSE(w, "done", map[string]interface{}{})
+				flusher.Flush()
+				return
+			}
+			normalizedSQLs = append(normalizedSQLs, normalizedSQL)
+			if errorClass == ErrorClassTimeout {
+				lastError += "（请简化查询：限制行数、减少关联、避免 SELECT *）"
+			}
 			attempts = append(attempts, map[string]interface{}{
 				"attempt":  retry + 1,
 				"error":    lastError,
@@ -5010,7 +5061,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"sql":     sqlQuery,
 			})
 			flusher.Flush()
-			
+
 			if retry < maxRetries-1 {
 				continue
 			}
@@ -5182,6 +5233,87 @@ func getDBSpecificWarnings(dbType string) string {
 	}
 }
 
+// ErrorClass 错误类型枚举
+type ErrorClass string
+
+const (
+	ErrorClassSyntax         ErrorClass = "syntax"
+	ErrorClassObjectNotFound ErrorClass = "object_not_found"
+	ErrorClassPermission     ErrorClass = "permission"
+	ErrorClassTimeout        ErrorClass = "timeout"
+	ErrorClassAmbiguous      ErrorClass = "ambiguous"
+	ErrorClassUnknown        ErrorClass = "unknown"
+)
+
+// classifySQLError 根据错误信息分类
+func classifySQLError(err error, dbType string) ErrorClass {
+	_ = dbType
+	errStr := strings.ToLower(err.Error())
+
+	if strings.Contains(errStr, "-2007") ||
+		strings.Contains(errStr, "1064") ||
+		strings.Contains(errStr, "ora-00933") ||
+		strings.Contains(errStr, "语法分析") ||
+		strings.Contains(errStr, "syntax") ||
+		strings.Contains(errStr, "near") {
+		return ErrorClassSyntax
+	}
+
+	if strings.Contains(errStr, "doesn't exist") ||
+		strings.Contains(errStr, "不存在") ||
+		strings.Contains(errStr, "-2106") ||
+		strings.Contains(errStr, "invalid object") {
+		return ErrorClassObjectNotFound
+	}
+
+	if strings.Contains(errStr, "permission") ||
+		strings.Contains(errStr, "拒绝") ||
+		strings.Contains(errStr, "ora-01031") ||
+		strings.Contains(errStr, "-5512") {
+		return ErrorClassPermission
+	}
+
+	if strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "超时") ||
+		strings.Contains(errStr, "deadline") {
+		return ErrorClassTimeout
+	}
+
+	if strings.Contains(errStr, "ambiguous") {
+		return ErrorClassAmbiguous
+	}
+
+	return ErrorClassUnknown
+}
+
+var sqlDocsCache = make(map[string]string)
+var sqlDocsOnce sync.Once
+
+// loadSQLDoc 加载 SQL 文档（带缓存）
+func loadSQLDoc(dbType string) string {
+	sqlDocsOnce.Do(func() {
+		docs := map[string]string{
+			"dm":     "docs/sql/dm.md",
+			"oracle": "docs/sql/oracle.md",
+		}
+		for t, path := range docs {
+			content, err := os.ReadFile(path)
+			if err == nil {
+				s := string(content)
+				if len(s) > 8000 {
+					s = s[:8000] + "\n... (文档已截断)"
+				}
+				sqlDocsCache[t] = s
+			}
+		}
+	})
+
+	if doc, ok := sqlDocsCache[dbType]; ok {
+		return doc
+	}
+	return ""
+}
+
 // formatDBSchemaForPrompt 将数据库结构格式化为提示词文本，返回格式化文本和主数据库类型
 func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string) {
 	var sb strings.Builder
@@ -5311,76 +5443,122 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}, modul
 
 // buildRetryPrompt 构建重试提示词
 func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}, modules []string) string {
-	prompt := getModulePromptPrefix(modules)
-	prompt += "之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
-	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
+	primaryDBType := "mysql"
+	if len(dbSchemas) > 0 {
+		if t, ok := dbSchemas[0]["type"].(string); ok && t != "" {
+			primaryDBType = t
+		}
+	}
+	errorClass := classifySQLError(errors.New(lastError), primaryDBType)
 
-	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
-	prompt += schemaText
+	var sb strings.Builder
+	sb.WriteString(getModulePromptPrefix(modules))
+	sb.WriteString("上一次查询失败，请根据错误信息修正。\n\n")
+
+	switch errorClass {
+	case ErrorClassSyntax:
+		sb.WriteString("【语法错误】\n")
+		sb.WriteString("1. 检查 SQL 语法是否符合 " + primaryDBType + " 规范\n")
+		sb.WriteString("2. 注意：DM/Oracle 不支持 LIMIT，请用 ROWNUM\n")
+		sb.WriteString("3. 确保关键字拼写正确\n")
+		if doc := loadSQLDoc(primaryDBType); doc != "" {
+			sb.WriteString("\n## " + primaryDBType + " 参考文档\n")
+			sb.WriteString(doc)
+			sb.WriteString("\n")
+		}
+	case ErrorClassObjectNotFound:
+		sb.WriteString("【对象不存在】\n")
+		sb.WriteString("1. 只能使用以下表：\n")
+		for _, db := range dbSchemas {
+			if tables, ok := db["tables"].([]map[string]interface{}); ok {
+				for _, t := range tables {
+					sb.WriteString("  - " + fmt.Sprintf("%v", t["name"]) + "\n")
+				}
+			}
+		}
+		sb.WriteString("2. 检查表名大小写\n")
+	case ErrorClassPermission:
+		sb.WriteString("【权限不足】\n")
+		sb.WriteString("此错误无法通过修改 SQL 解决，请联系 DBA 授权。\n")
+		sb.WriteString("不要重试生成 SQL。\n")
+	case ErrorClassTimeout:
+		sb.WriteString("【查询超时】\n")
+		sb.WriteString("1. 添加 ROWNUM <= 100 限制行数\n")
+		sb.WriteString("2. 减少关联表数量\n")
+		sb.WriteString("3. 只查询必要字段，避免 SELECT *\n")
+	case ErrorClassAmbiguous:
+		sb.WriteString("【列名歧义】\n")
+		sb.WriteString("请为所有列添加表别名，如：t1.column_name\n")
+	}
+
+	sb.WriteString("\n历史尝试：\n")
+	for _, a := range attempts {
+		sb.WriteString(fmt.Sprintf("第%v次: SQL=%v, 错误=%v\n",
+			a["attempt"], a["sql"], a["error"]))
+	}
+
+	schemaText, pdb := formatDBSchemaForPrompt(dbSchemas)
+	if pdb != "" {
+		primaryDBType = pdb
+	}
+	sb.WriteString("\n【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n")
+	sb.WriteString(schemaText)
 
 	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
 
-	prompt += "\n用户问题：" + userMessage + "\n\n"
-	prompt += "之前失败的尝试：\n"
-	for _, attempt := range attempts {
-		if sql, ok := attempt["sql"].(string); ok && sql != "" {
-			prompt += fmt.Sprintf("尝试 %d:\n", attempt["attempt"])
-			prompt += fmt.Sprintf("SQL: %s\n", sql)
-			prompt += fmt.Sprintf("错误: %s\n\n", attempt["error"])
-		}
-	}
+	sb.WriteString("\n用户问题：" + userMessage + "\n\n")
 
-	prompt += getDBSpecificWarnings(primaryDBType)
+	sb.WriteString(getDBSpecificWarnings(primaryDBType))
 
-	prompt += "⚠️ 重要注意事项：\n"
-	prompt += "1. 【必须】只生成一条SQL语句，不要生成多条语句！\n"
-	prompt += "2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n"
-	prompt += "   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n"
-	prompt += "   - 是否有语法错误的关键字？\n"
-	prompt += "   - 是否缺少或多余了分号、引号等符号？\n"
-	prompt += "3. 如果错误信息包含'Table doesn't exist'或'对象不存在'，请使用正确的表名\n"
-	prompt += "4. 如果错误信息包含'Column doesn't exist'或'列不存在'，请使用正确的字段名\n"
-	prompt += "5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n"
-	prompt += "   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n"
-	prompt += "   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
-	prompt += "   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n"
+	sb.WriteString("⚠️ 重要注意事项：\n")
+	sb.WriteString("1. 【必须】只生成一条SQL语句，不要生成多条语句！\n")
+	sb.WriteString("2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n")
+	sb.WriteString("   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n")
+	sb.WriteString("   - 是否有语法错误的关键字？\n")
+	sb.WriteString("   - 是否缺少或多余了分号、引号等符号？\n")
+	sb.WriteString("3. 如果错误信息包含'Table doesn't exist'或'对象不存在'，请使用正确的表名\n")
+	sb.WriteString("4. 如果错误信息包含'Column doesn't exist'或'列不存在'，请使用正确的字段名\n")
+	sb.WriteString("5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n")
+	sb.WriteString("   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n")
+	sb.WriteString("   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n")
+	sb.WriteString("   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n")
 
-	prompt += "📚 正确的SQL参考示例：\n"
-	prompt += "🔍 查询表结构：\n" + queryColumns + "\n"
-	prompt += "📋 查看样本数据：" + sampleQuery + "\n\n"
+	sb.WriteString("📚 正确的SQL参考示例：\n")
+	sb.WriteString("🔍 查询表结构：\n" + queryColumns + "\n")
+	sb.WriteString("📋 查看样本数据：" + sampleQuery + "\n\n")
 
 	if strings.Contains(lastError, "near") && strings.Contains(lastError, "at line 2") {
-		prompt += "🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n"
-		prompt += "请修改为只生成一条SQL语句。\n\n"
+		sb.WriteString("🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n")
+		sb.WriteString("请修改为只生成一条SQL语句。\n\n")
 	}
 
 	if strings.Contains(lastError, "different number of columns") {
-		prompt += "🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n"
-		prompt += "解决方案：\n"
-		prompt += "1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
-		prompt += "2. 如果是查询字段，使用：\n" + queryColumns + "\n"
-		prompt += "3. 不要直接合并不同结构的表数据！\n\n"
+		sb.WriteString("🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n")
+		sb.WriteString("解决方案：\n")
+		sb.WriteString("1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n")
+		sb.WriteString("2. 如果是查询字段，使用：\n" + queryColumns + "\n")
+		sb.WriteString("3. 不要直接合并不同结构的表数据！\n\n")
 	}
 
 	if strings.Contains(lastError, "connectex") || strings.Contains(lastError, "connection") {
-		prompt += "🔍 根据错误分析：数据库连接超时或失败！\n"
-		prompt += "请生成简单的SQL语句，避免复杂查询导致超时。\n\n"
+		sb.WriteString("🔍 根据错误分析：数据库连接超时或失败！\n")
+		sb.WriteString("请生成简单的SQL语句，避免复杂查询导致超时。\n\n")
 	}
 
 	if strings.Contains(lastError, "LIMIT") || strings.Contains(lastError, "语法分析") {
-		prompt += "🔍 根据错误分析：SQL语法不兼容当前数据库！\n"
-		prompt += "请严格使用当前数据库（" + primaryDBType + "）支持的SQL语法。\n\n"
+		sb.WriteString("🔍 根据错误分析：SQL语法不兼容当前数据库！\n")
+		sb.WriteString("请严格使用当前数据库（" + primaryDBType + "）支持的SQL语法。\n\n")
 	}
 
-	prompt += "请按以下格式回复：\n"
-	prompt += "1. 简单说明你发现的问题和修正方案（一句话）\n"
-	prompt += "2. 提供修正后的SQL（只能有一条SQL语句）：\n"
-	prompt += "```sql\n"
-	prompt += "SELECT ... FROM ...;\n"
-	prompt += "```\n\n"
-	prompt += "❗ 再次强调：只生成一条SQL语句！"
+	sb.WriteString("请按以下格式回复：\n")
+	sb.WriteString("1. 简单说明你发现的问题和修正方案（一句话）\n")
+	sb.WriteString("2. 提供修正后的SQL（只能有一条SQL语句）：\n")
+	sb.WriteString("```sql\n")
+	sb.WriteString("SELECT ... FROM ...;\n")
+	sb.WriteString("```\n\n")
+	sb.WriteString("❗ 再次强调：只生成一条SQL语句！")
 
-	return prompt
+	return sb.String()
 }
 
 // callAIService 调用AI服务
