@@ -259,9 +259,9 @@
                                 <div id="govFileUploadArea" class="gov-file-upload" style="display:none;">
                                     <div class="gov-upload-zone" id="govDropZone">
                                         <div class="gov-upload-icon">📁</div>
-                                        <p>拖拽文件到此处，或 <label for="govFileInput" class="gov-upload-link">点击上传</label></p>
+                                        <p>拖拽文件到此处，或 <label for="govFileInput" class="gov-upload-link">点击上传</label>（可多选）</p>
                                         <p class="gov-upload-hint" id="govAcceptExts"></p>
-                                        <input type="file" id="govFileInput" style="display:none;" onchange="handleGovFileSelect(event)">
+                                        <input type="file" id="govFileInput" multiple style="display:none;" onchange="handleGovFileSelect(event)">
                                     </div>
                                     <div id="govSelectedFile" class="gov-selected-file" style="display:none;">
                                         <span id="govFileName"></span>

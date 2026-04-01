@@ -4876,7 +4876,8 @@ let currentGovTask = null;
 let isEditGovMode = false;
 let editingGovTaskId = null;
 let govCurrentFilter = 'all';
-let govSelectedFile = null;
+/** @type {File[]} */
+let govSelectedFiles = [];
 
 // 初始化治理模块事件
 (function initGovernanceEvents() {
@@ -4919,7 +4920,7 @@ let govSelectedFile = null;
                 e.preventDefault();
                 this.classList.remove('drag-over');
                 if (e.dataTransfer.files.length > 0) {
-                    setGovFile(e.dataTransfer.files[0]);
+                    setGovFiles(e.dataTransfer.files);
                 }
             });
         }
@@ -5273,21 +5274,36 @@ async function refreshGovTaskStatus() {
     }
 }
 
-// 文件上传
+// 文件上传（支持多选）
 function handleGovFileSelect(event) {
     if (event.target.files.length > 0) {
-        setGovFile(event.target.files[0]);
+        setGovFiles(event.target.files);
     }
 }
 
-function setGovFile(file) {
-    govSelectedFile = file;
-    document.getElementById('govFileName').textContent = file.name + ' (' + formatFileSize(file.size) + ')';
-    document.getElementById('govSelectedFile').style.display = 'flex';
+function setGovFiles(fileList) {
+    govSelectedFiles = Array.from(fileList || []);
+    const row = document.getElementById('govSelectedFile');
+    const nameEl = document.getElementById('govFileName');
+    if (govSelectedFiles.length === 0) {
+        row.style.display = 'none';
+        return;
+    }
+    if (govSelectedFiles.length === 1) {
+        const f = govSelectedFiles[0];
+        nameEl.textContent = f.name + ' (' + formatFileSize(f.size) + ')';
+    } else {
+        const total = govSelectedFiles.reduce((s, f) => s + f.size, 0);
+        const names = govSelectedFiles.map(f => f.name).join('、');
+        const maxLen = 200;
+        const showNames = names.length > maxLen ? names.slice(0, maxLen) + '…' : names;
+        nameEl.textContent = `已选 ${govSelectedFiles.length} 个文件（共 ${formatFileSize(total)}）：${showNames}`;
+    }
+    row.style.display = 'flex';
 }
 
 function clearGovFile() {
-    govSelectedFile = null;
+    govSelectedFiles = [];
     document.getElementById('govFileInput').value = '';
     document.getElementById('govSelectedFile').style.display = 'none';
     document.getElementById('govInputText') && (document.getElementById('govInputText').value = '');
@@ -5303,9 +5319,9 @@ async function executeInteractiveTask() {
     if (!currentGovTask) return;
     const inputType = currentGovTask.input_type || 'file';
     const inputText = document.getElementById('govInputText')?.value || '';
-    const file = govSelectedFile;
+    const files = govSelectedFiles;
 
-    if ((inputType === 'file' || inputType === 'both') && !file && !inputText) {
+    if ((inputType === 'file' || inputType === 'both') && files.length === 0 && !inputText) {
         alert('请选择文件或输入文本');
         return;
     }
@@ -5314,6 +5330,11 @@ async function executeInteractiveTask() {
         return;
     }
 
+    if (files.length > 1) {
+        await executeGovTaskBatchInBrowser(currentGovTask.js_code, files, inputText);
+        return;
+    }
+    const file = files[0] || null;
     await executeGovTaskInBrowser(currentGovTask.js_code, file, inputText);
 }
 
@@ -5688,18 +5709,9 @@ async function generateImportCodeWithAI() {
     }
 }
 
-async function executeGovTaskInBrowser(code, file, inputText) {
-    if (!currentGovTask) return;
+/** 单次执行并写入服务端日志，返回结果供单文件或批量汇总使用 */
+async function executeGovTaskInBrowserOnce(code, file, inputText) {
     const logLines = [];
-    const taskId = currentGovTask.id;
-
-    currentGovTask.status = 'running';
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
-
     let status = 'success';
     let errorMsg = '';
 
@@ -5717,6 +5729,103 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     }
 
     const output = logLines.join('\n');
+    const inputDesc = file ? `file: ${file.name}` : (inputText ? `text: ${inputText.substring(0, 50)}` : '');
+
+    if (currentGovTask) {
+        const taskId = currentGovTask.id;
+        try {
+            const token = localStorage.getItem('dataOntologyToken');
+            await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
+            });
+        } catch (e) {
+            console.error('保存日志失败:', e);
+        }
+    }
+
+    return { status, output, errorMsg, inputDesc };
+}
+
+async function executeGovTaskBatchInBrowser(code, files, inputText) {
+    if (!currentGovTask || !files || files.length < 2) return;
+
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    const results = [];
+    const startedAt = Date.now();
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        container.innerHTML = `
+            <div class="gov-log-entry">
+                <div class="gov-log-header">
+                    <span>批量处理 ${i + 1}/${files.length}：${escapeHtml(file.name)}</span>
+                    <span class="gov-log-status running">运行中</span>
+                </div>
+            </div>`;
+
+        const r = await executeGovTaskInBrowserOnce(code, file, inputText);
+        results.push({ fileName: file.name, ...r });
+    }
+
+    const ok = results.filter(r => r.status === 'success').length;
+    const fail = results.length - ok;
+    const overallStatus = fail === 0 ? 'success' : 'error';
+    const summaryLines = [
+        `批量处理完成：共 ${results.length} 个文件，成功 ${ok}，失败 ${fail}。`,
+        ...results.map(r =>
+            (r.status === 'success' ? '✓' : '✗') + ' ' + r.fileName + (r.errorMsg ? ' — ' + r.errorMsg : '')
+        )
+    ];
+    const summaryText = summaryLines.join('\n');
+    const combinedOutput = results.map(r => `--- ${r.fileName} ---\n${r.output || ''}`).join('\n\n');
+
+    currentGovTask.status = overallStatus;
+    currentGovTask.last_output = summaryText + (combinedOutput ? '\n\n' + combinedOutput : '');
+    currentGovTask.last_error = fail > 0 ? `${fail} 个文件处理失败` : '';
+    currentGovTask.last_run_at = new Date().toISOString();
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+    container.innerHTML = `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date().toLocaleString()} · 耗时 ${durationSec}s</span>
+                <span class="gov-log-status ${overallStatus}">汇总：成功 ${ok} / 失败 ${fail}</span>
+            </div>
+            <div class="gov-log-input">共 ${results.length} 个文件，成功 ${ok}，失败 ${fail}</div>
+            <div class="gov-log-output">${escapeHtml(summaryText)}</div>
+            ${results.map(r => `
+                <div class="gov-log-entry" style="margin-top:10px;border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;">
+                    <div class="gov-log-header">
+                        <span>${escapeHtml(r.fileName)}</span>
+                        <span class="gov-log-status ${r.status}">${r.status === 'success' ? '成功' : '错误'}</span>
+                    </div>
+                    ${r.inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(r.inputDesc)}</div>` : ''}
+                    ${r.output ? `<div class="gov-log-output">${escapeHtml(r.output)}</div>` : ''}
+                    ${r.errorMsg ? `<div class="gov-log-error">${escapeHtml(r.errorMsg)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
+}
+
+async function executeGovTaskInBrowser(code, file, inputText) {
+    if (!currentGovTask) return;
+
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
+
+    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText);
 
     currentGovTask.status = status;
     currentGovTask.last_output = output;
@@ -5725,7 +5834,6 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     showGovTaskDetail(currentGovTask);
     renderGovTaskList();
 
-    const inputDesc = file ? `file: ${file.name}` : (inputText ? `text: ${inputText.substring(0, 50)}` : '');
     container.innerHTML = `
         <div class="gov-log-entry">
             <div class="gov-log-header">
@@ -5737,17 +5845,6 @@ async function executeGovTaskInBrowser(code, file, inputText) {
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
-
-    try {
-        const token = localStorage.getItem('dataOntologyToken');
-        await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
-        });
-    } catch (e) {
-        console.error('保存日志失败:', e);
-    }
 }
 
 // ==================== gov API 帮助 ====================
