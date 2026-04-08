@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -7185,7 +7187,7 @@ func governanceWorker() {
 // executeGovernanceJob 执行单个治理任务
 func executeGovernanceJob(job *GovernanceJob) {
 	taskID := job.TaskID
-	runID := job.RunID
+	_ = job.RunID // 用于日志追踪
 
 	// 获取任务信息
 	dataOntologyMu.RLock()
