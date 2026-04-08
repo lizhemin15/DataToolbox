@@ -3423,6 +3423,19 @@ textarea#testApiParams {
 .gov-codegen-toggle:hover { border-color: var(--primary-color); color: var(--text-primary); }
 .gov-codegen-arrow { font-size: 10px; transition: transform 0.2s; }
 .gov-codegen-arrow.open { transform: rotate(90deg); }
+
+/* 任务代码折叠 */
+.gov-code-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+.gov-code-toggle:hover { opacity: 0.8; }
+.gov-code-toggle h3 { margin: 0; }
+.gov-code-arrow { font-size: 10px; transition: transform 0.2s; color: var(--text-secondary); }
+.gov-code-arrow.open { transform: rotate(90deg); }
+.gov-code-panel { margin-top: 8px; }
 .gov-codegen-panel {
     margin-top: 8px;
     padding: 14px;

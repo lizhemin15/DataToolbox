@@ -276,9 +276,14 @@
                         </div>
 
                         <div class="tables-section">
-                            <h3>任务代码 (JavaScript)</h3>
-                            <div class="sql-display">
-                                <pre id="govTaskCode"></pre>
+                            <div class="gov-code-toggle" onclick="toggleGovTaskCode()">
+                                <h3>任务代码 (JavaScript)</h3>
+                                <span id="govTaskCodeArrow" class="gov-code-arrow">▶</span>
+                            </div>
+                            <div id="govTaskCodePanel" class="gov-code-panel" style="display:none;">
+                                <div class="sql-display">
+                                    <pre id="govTaskCode"></pre>
+                                </div>
                             </div>
                         </div>
 

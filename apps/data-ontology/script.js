@@ -5456,6 +5456,15 @@ function toggleCodeGen() {
     if (!visible) refreshCodegenTables();
 }
 
+// 折叠/展开任务代码预览
+function toggleGovTaskCode() {
+    const panel = document.getElementById('govTaskCodePanel');
+    const arrow = document.getElementById('govTaskCodeArrow');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    arrow.classList.toggle('open', !visible);
+}
+
 async function refreshCodegenTables() {
     const dbId = document.getElementById('govTaskDbSelect').value;
     const sel = document.getElementById('codegenTable');
