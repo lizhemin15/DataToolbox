@@ -59,10 +59,21 @@ jobs:
         with:
           go-version: '1.23'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Download dependencies
         run: |
           go mod tidy
           go mod download
+
+      - name: Build gov-runner
+        run: |
+          cd gov-runner
+          bun install
+          bun build --compile ./index.ts --outfile gov-runner
 
       - name: Install Linux CGO build dependencies
         if: matrix.goos == 'linux'
@@ -92,6 +103,8 @@ jobs:
           cp -r css package/
           cp -r js package/
           cp index.html package/
+          # 添加 gov-runner
+          cp gov-runner/gov-runner package/ || true
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'

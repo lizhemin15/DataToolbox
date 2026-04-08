@@ -2,6 +2,10 @@
 datatoolbox-server
 datatoolbox-server.exe
 
+# gov-runner 可执行文件
+gov-runner/gov-runner
+gov-runner/gov-runner.exe
+
 # 日志文件
 *.log
 

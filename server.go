@@ -544,6 +544,13 @@ type GovernanceTask struct {
 	LastOutput  string   `json:"last_output,omitempty"`
 	LastError   string   `json:"last_error,omitempty"`
 	LastRunAt   string   `json:"last_run_at,omitempty"`
+	// 异步执行进度追踪
+	RunID          string `json:"run_id,omitempty"`           // 当前运行 ID
+	TotalFiles     int    `json:"total_files,omitempty"`      // 总文件数
+	ProcessedFiles int    `json:"processed_files,omitempty"`  // 已处理文件数
+	Percent        int    `json:"percent,omitempty"`          // 进度百分比
+	CurrentFile    string `json:"current_file,omitempty"`     // 当前处理的文件
+	StartedAt      string `json:"started_at,omitempty"`       // 开始时间
 }
 
 // GovernanceTaskLog 任务执行日志
@@ -568,6 +575,20 @@ var (
 	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
 	dataOntologyMu        sync.RWMutex
+)
+
+// 数据治理任务队列
+type GovernanceJob struct {
+	TaskID     string
+	RunID      string
+	Token      string
+	InputFiles []string // 文件路径列表
+	InputText  string
+}
+
+var (
+	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
+	govRunnerPath      = "gov-runner/gov-runner"        // gov-runner 可执行文件路径
 )
 
 // 网页导航
@@ -1017,6 +1038,9 @@ func initDataOntology() {
 	
 	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d", 
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
+	
+	// 启动治理任务 worker（后台执行器）
+	go governanceWorker()
 	
 	// 启动治理任务调度器
 	go governanceScheduler()
@@ -6737,6 +6761,9 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "save-log":
 			handleGovernanceTaskSaveLog(w, r, taskID)
 			return
+		case "progress":
+			handleGovernanceTaskProgress(w, r, taskID)
+			return
 		}
 	}
 
@@ -6854,9 +6881,140 @@ func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID str
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
 }
 
-// handleGovernanceTaskRun 不再服务端执行，仅用于更新任务状态（前端执行完回调）
+// handleGovernanceTaskRun 执行治理任务（后端异步执行）
 func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "请在前端执行"})
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	// 验证 token
+	token := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if token == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	// 获取任务
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	dataOntologyMu.RUnlock()
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	// 解析请求（支持 multipart 和 JSON）
+	var inputText string
+	var filePaths []string
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		// multipart 上传
+		maxSize := int64(100 * 1024 * 1024) // 100MB
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		if err := r.ParseMultipartForm(maxSize); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析表单失败: " + err.Error()})
+			return
+		}
+		inputText = r.FormValue("input_text")
+		
+		// 保存上传的文件
+		files := r.MultipartForm.File["files"]
+		for _, fileHeader := range files {
+			file, err := fileHeader.Open()
+			if err != nil {
+				continue
+			}
+			defer file.Close()
+			
+			// 保存到临时目录
+			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+			os.MkdirAll(tmpDir, 0755)
+			tmpPath := filepath.Join(tmpDir, fileHeader.Filename)
+			dst, err := os.Create(tmpPath)
+			if err != nil {
+				continue
+			}
+			defer dst.Close()
+			io.Copy(dst, file)
+			filePaths = append(filePaths, tmpPath)
+		}
+	} else {
+		// JSON 请求
+		var req struct {
+			InputText string `json:"input_text"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		inputText = req.InputText
+	}
+
+	// 创建任务
+	runID := uuid.New().String()
+	job := &GovernanceJob{
+		TaskID:     taskID,
+		RunID:      runID,
+		Token:      token,
+		InputFiles: filePaths,
+		InputText:  inputText,
+	}
+
+	// 更新任务状态
+	dataOntologyMu.Lock()
+	task.Status = "running"
+	task.RunID = runID
+	task.StartedAt = time.Now().Format(time.RFC3339)
+	task.TotalFiles = len(filePaths)
+	task.ProcessedFiles = 0
+	task.Percent = 0
+	task.CurrentFile = ""
+	dataOntologyMu.Unlock()
+	saveDataOntologyStore()
+
+	// 入队
+	select {
+	case governanceJobQueue <- job:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"run_id":  runID,
+			"message": "任务已入队，正在后台执行",
+		})
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "任务队列已满，请稍后重试",
+		})
+	}
+}
+
+// handleGovernanceTaskProgress 获取任务执行进度
+func handleGovernanceTaskProgress(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":         true,
+		"status":          task.Status,
+		"run_id":          task.RunID,
+		"total_files":     task.TotalFiles,
+		"processed_files": task.ProcessedFiles,
+		"percent":         task.Percent,
+		"current_file":    task.CurrentFile,
+		"started_at":      task.StartedAt,
+		"last_output":     task.LastOutput,
+		"last_error":      task.LastError,
+	})
 }
 
 // handleGovernanceTaskUpload 不再需要，交互任务在前端直接处理文件
@@ -7016,6 +7174,160 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 }
 
 // ==================== 治理任务调度器 ====================
+
+// governanceWorker 任务执行器，从队列取出任务并执行
+func governanceWorker() {
+	for job := range governanceJobQueue {
+		executeGovernanceJob(job)
+	}
+}
+
+// executeGovernanceJob 执行单个治理任务
+func executeGovernanceJob(job *GovernanceJob) {
+	taskID := job.TaskID
+	runID := job.RunID
+
+	// 获取任务信息
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		return
+	}
+	code := task.JsCode
+	dbID := task.DatabaseID
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	// 构建数据库列表
+	var databases []map[string]string
+	for id, db := range dataOntologyDatabases {
+		databases = append(databases, map[string]string{
+			"id":   id,
+			"name": db.Name,
+			"type": db.Type,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        code,
+		"token":       job.Token,
+		"database_id": dbID,
+		"db_type":     dbType,
+		"databases":   databases,
+		"input_text":  job.InputText,
+	}
+
+	// 如果有文件，读取并转为 base64
+	if len(job.InputFiles) > 0 {
+		for i, filePath := range job.InputFiles {
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				log.Printf("读取文件失败: %v", err)
+				continue
+			}
+			taskData["file_base64"] = base64.StdEncoding.EncodeToString(data)
+			taskData["file_name"] = filepath.Base(filePath)
+
+			// 更新进度
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				t.ProcessedFiles = i
+				t.Percent = (i * 100) / len(job.InputFiles)
+				t.CurrentFile = filepath.Base(filePath)
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+
+			// 执行单个文件
+			result := callGovRunner(taskData)
+			if !result.Success {
+				log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
+			}
+
+			// 清理临时文件
+			os.Remove(filePath)
+		}
+	} else {
+		// 无文件，直接执行
+		result := callGovRunner(taskData)
+		if !result.Success {
+			log.Printf("任务 %s 执行失败: %s", taskID, result.Error)
+		}
+	}
+
+	// 清理临时目录
+	if len(job.InputFiles) > 0 {
+		tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+		os.RemoveAll(tmpDir)
+	}
+}
+
+// GovRunnerResult gov-runner 执行结果
+type GovRunnerResult struct {
+	Success bool     `json:"success"`
+	Output  []string `json:"output"`
+	Error   string   `json:"error"`
+}
+
+// callGovRunner 调用 gov-runner 执行任务
+func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
+	// 查找 gov-runner 可执行文件
+	exePath, _ := os.Executable()
+	exeDir := filepath.Dir(exePath)
+	runnerPath := filepath.Join(exeDir, govRunnerPath)
+
+	// 检查文件是否存在
+	if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
+		// 尝试项目目录
+		runnerPath = filepath.Join(filepath.Dir(exeDir), govRunnerPath)
+		if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
+			return &GovRunnerResult{
+				Success: false,
+				Error:   "gov-runner 可执行文件不存在",
+			}
+		}
+	}
+
+	// 写入临时任务文件
+	taskJSON, _ := json.Marshal(taskData)
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("gov-task-%d.json", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, taskJSON, 0644); err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "写入任务文件失败: " + err.Error(),
+		}
+	}
+	defer os.Remove(tmpFile)
+
+	// 执行 gov-runner
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, runnerPath, tmpFile)
+	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE=http://127.0.0.1:8080")
+	output, err := cmd.Output()
+	if err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "执行失败: " + err.Error(),
+		}
+	}
+
+	// 解析结果
+	var result GovRunnerResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "解析结果失败: " + err.Error(),
+		}
+	}
+
+	return &result
+}
 
 func governanceScheduler() {
 	for {
