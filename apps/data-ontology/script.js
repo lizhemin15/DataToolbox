@@ -467,9 +467,9 @@ function initEventListeners() {
     
     // 清除AI上下文按钮（稍后会动态添加）
 
-    const userMgmtNavBtn = document.getElementById('userMgmtNavBtn');
-    if (userMgmtNavBtn) {
-        userMgmtNavBtn.addEventListener('click', function () {
+    const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
+    if (userMgmtHeaderBtn) {
+        userMgmtHeaderBtn.addEventListener('click', function () {
             if (currentUser !== 'admin') return;
             if (userMgmtMode) {
                 closeUserMgmtPanel();
@@ -478,8 +478,10 @@ function initEventListeners() {
             }
         });
     }
+    const userMgmtBackdrop = document.getElementById('userMgmtDrawerBackdrop');
+    if (userMgmtBackdrop) userMgmtBackdrop.addEventListener('click', function () { closeUserMgmtPanel(); });
     const userMgmtCloseBtn = document.getElementById('userMgmtCloseBtn');
-    if (userMgmtCloseBtn) userMgmtCloseBtn.addEventListener('click', closeUserMgmtPanel);
+    if (userMgmtCloseBtn) userMgmtCloseBtn.addEventListener('click', function () { closeUserMgmtPanel(); });
     const createUserBtn = document.getElementById('createUserBtn');
     if (createUserBtn) createUserBtn.addEventListener('click', handleCreateUser);
     const closeUserPasswordModal = document.getElementById('closeUserPasswordModal');
@@ -531,6 +533,7 @@ async function handleLogin(e) {
 
 // 退出登录
 function handleLogout() {
+    closeUserMgmtPanel(true);
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -559,18 +562,16 @@ function showMainPage() {
 }
 
 function updateUserMgmtNavVisibility() {
-    const wrap = document.getElementById('userMgmtNavWrap');
-    if (wrap) {
-        wrap.style.display = currentUser === 'admin' ? 'block' : 'none';
+    const btn = document.getElementById('userMgmtHeaderBtn');
+    if (btn) {
+        btn.style.display = currentUser === 'admin' ? 'inline-flex' : 'none';
     }
 }
 
 // 切换标签页
 function switchTab(tabName) {
     if (tabName !== 'database') {
-        userMgmtMode = false;
-        const umg = document.getElementById('userMgmtView');
-        if (umg) umg.style.display = 'none';
+        closeUserMgmtPanel();
         const wv = document.getElementById('welcomeView');
         const dv = document.getElementById('dbDetailView');
         if (wv && dv) {
@@ -582,8 +583,6 @@ function switchTab(tabName) {
                 dv.style.display = 'none';
             }
         }
-        const nb = document.getElementById('userMgmtNavBtn');
-        if (nb) nb.classList.remove('btn-primary');
     }
     // 更新标签按钮状态
     document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -799,27 +798,27 @@ function hideAddDbModal() {
 function openUserMgmtPanel() {
     if (currentUser !== 'admin') return;
     userMgmtMode = true;
-    document.getElementById('welcomeView').style.display = 'none';
-    document.getElementById('dbDetailView').style.display = 'none';
-    document.getElementById('userMgmtView').style.display = 'block';
-    const nb = document.getElementById('userMgmtNavBtn');
-    if (nb) nb.classList.add('btn-primary');
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.add('open');
+        root.setAttribute('aria-hidden', 'false');
+    }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.add('active');
     renderDatabaseList();
     loadUsers();
 }
 
-function closeUserMgmtPanel() {
+function closeUserMgmtPanel(skipRender) {
     userMgmtMode = false;
-    document.getElementById('userMgmtView').style.display = 'none';
-    const nb = document.getElementById('userMgmtNavBtn');
-    if (nb) nb.classList.remove('btn-primary');
-    renderDatabaseList();
-    if (currentDb) {
-        loadDatabaseDetail(currentDb.id);
-    } else {
-        document.getElementById('welcomeView').style.display = 'block';
-        document.getElementById('dbDetailView').style.display = 'none';
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.remove('open');
+        root.setAttribute('aria-hidden', 'true');
     }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.remove('active');
+    if (!skipRender) renderDatabaseList();
 }
 
 async function loadUsers() {
@@ -1194,11 +1193,7 @@ function renderDatabaseList() {
 
 // 选择数据库
 function selectDatabase(dbId) {
-    userMgmtMode = false;
-    const umg = document.getElementById('userMgmtView');
-    if (umg) umg.style.display = 'none';
-    const nb = document.getElementById('userMgmtNavBtn');
-    if (nb) nb.classList.remove('btn-primary');
+    closeUserMgmtPanel(true);
     currentDb = databases.find(db => db.id === dbId);
     if (currentDb) {
         renderDatabaseList();
@@ -1209,11 +1204,7 @@ function selectDatabase(dbId) {
 
 // 显示数据库加载状态
 function showDatabaseLoading() {
-    userMgmtMode = false;
-    const umg = document.getElementById('userMgmtView');
-    if (umg) umg.style.display = 'none';
-    const nb = document.getElementById('userMgmtNavBtn');
-    if (nb) nb.classList.remove('btn-primary');
+    closeUserMgmtPanel(true);
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('dbDetailView').style.display = 'block';
     
