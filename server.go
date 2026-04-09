@@ -1655,13 +1655,23 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 			"api_key": currentUser.ApiKey,
 		})
 	case http.MethodPost:
-		currentUser.ApiKey = "dok_" + uuid.New().String()
+		var target *User = currentUser
+		var body struct {
+			Username string `json:"username"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if strings.TrimSpace(body.Username) != "" && currentUser.Username == "admin" {
+			if u, ok := dataOntologyUsers[strings.TrimSpace(body.Username)]; ok && u != nil {
+				target = u
+			}
+		}
+		target.ApiKey = "dok_" + uuid.New().String()
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
-			"api_key": currentUser.ApiKey,
+			"api_key": target.ApiKey,
 		})
 	case http.MethodDelete:
 		currentUser.ApiKey = ""

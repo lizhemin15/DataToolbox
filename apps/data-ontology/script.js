@@ -850,7 +850,7 @@ function renderUserMgmtList(users) {
     users.forEach(u => {
         const name = u.username || '';
         const key = u.api_key || '';
-        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '—';
+        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '未生成';
         const row = document.createElement('div');
         row.className = 'user-mgmt-row';
         const col1 = document.createElement('div');
@@ -868,9 +868,37 @@ function renderUserMgmtList(users) {
         const copyBtn = document.createElement('button');
         copyBtn.type = 'button';
         copyBtn.className = 'btn btn-sm';
-        copyBtn.textContent = '复制 Key';
-        copyBtn.onclick = function () {
-            if (key) navigator.clipboard.writeText(key);
+        copyBtn.textContent = key ? '复制 Key' : '生成 Key';
+        copyBtn.onclick = async function () {
+            if (key) {
+                const label = copyBtn.textContent;
+                try {
+                    await navigator.clipboard.writeText(key);
+                    copyBtn.textContent = '已复制';
+                    setTimeout(() => { copyBtn.textContent = label; }, 1000);
+                } catch (e) {
+                    console.error(e);
+                }
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                    },
+                    body: JSON.stringify({ username: name })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    loadUsers();
+                } else {
+                    alert(data.message || '生成失败');
+                }
+            } catch (e) {
+                alert(e.message || '生成失败');
+            }
         };
         const passBtn = document.createElement('button');
         passBtn.type = 'button';
