@@ -36,6 +36,53 @@ let aiSessionContext = {
 // API基础URL
 const API_BASE = window.location.origin;
 
+const RETURN_URL_KEY = 'dataOntologyReturnUrl';
+
+function saveReturnUrlForLogin() {
+    try {
+        sessionStorage.setItem(RETURN_URL_KEY, location.pathname + location.search + location.hash);
+    } catch (e) {}
+}
+
+function handleUnauthorizedFromApi() {
+    if (!localStorage.getItem('dataOntologyToken')) return;
+    try { closeUserMgmtPanel(true); } catch (e) {}
+    saveReturnUrlForLogin();
+    localStorage.removeItem('dataOntologyToken');
+    localStorage.removeItem('dataOntologyUser');
+    currentUser = null;
+    databases = [];
+    currentDb = null;
+    govTasks = [];
+    currentGovTask = null;
+    showLoginPage();
+}
+
+async function fetchWithAuth(input, init) {
+    const initCopy = init ? { ...init } : {};
+    const headers = new Headers(initCopy.headers || {});
+    const token = localStorage.getItem('dataOntologyToken');
+    if (token) {
+        headers.set('Authorization', 'Bearer ' + token);
+    }
+    const response = await fetch(input, { ...initCopy, headers });
+    if (response.status === 401) {
+        handleUnauthorizedFromApi();
+        return response;
+    }
+    const ct = response.headers.get('Content-Type') || '';
+    if (ct.includes('application/json')) {
+        const cloned = response.clone();
+        try {
+            const data = await cloned.json();
+            if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
+                handleUnauthorizedFromApi();
+            }
+        } catch (e) {}
+    }
+    return response;
+}
+
 // ---- 演示库（前端模拟 SQLite 内存库；后端未持久化该 ID）----
 const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
 
@@ -521,6 +568,16 @@ async function handleLogin(e) {
             showMainPage();
             loadDatabases();
             loadGovernanceTasks();
+            try {
+                const ret = sessionStorage.getItem(RETURN_URL_KEY);
+                if (ret) {
+                    sessionStorage.removeItem(RETURN_URL_KEY);
+                    const cur = location.pathname + location.search + location.hash;
+                    if (ret !== cur) {
+                        location.replace(ret);
+                    }
+                }
+            } catch (e) {}
         } else {
             errorEl.textContent = data.message || '登录失败';
             errorEl.classList.add('show');
@@ -534,6 +591,7 @@ async function handleLogin(e) {
 // 退出登录
 function handleLogout() {
     closeUserMgmtPanel(true);
+    try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -825,9 +883,7 @@ async function loadUsers() {
     const listEl = document.getElementById('userMgmtList');
     if (!listEl) return;
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/users`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
         const data = await response.json();
         if (!data.success) {
             listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
@@ -882,11 +938,10 @@ function renderUserMgmtList(users) {
                 return;
             }
             try {
-                const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+                const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ username: name })
                 });
@@ -952,11 +1007,10 @@ async function submitUserPasswordChange() {
         return;
     }
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(userPasswordTarget)}/password`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(userPasswordTarget)}/password`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ password: pwd })
         });
@@ -977,9 +1031,8 @@ async function submitUserPasswordChange() {
 async function userMgmtDelete(username) {
     if (!confirm('确定删除用户「' + username + '」？')) return;
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await response.json();
         if (data.success) {
@@ -1003,11 +1056,10 @@ async function handleCreateUser() {
         return;
     }
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/users`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ username: name, password: pwd })
         });
@@ -1062,11 +1114,10 @@ async function testConnection() {
     successEl.classList.remove('show');
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/test-connection`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/test-connection`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
@@ -1128,11 +1179,10 @@ async function handleAddDatabase(e) {
         
         const method = isEditMode ? 'PUT' : 'POST';
         
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
@@ -1165,11 +1215,7 @@ async function handleAddDatabase(e) {
 // 加载数据库列表
 async function loadDatabases() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
 
         const data = await response.json();
 
@@ -1255,11 +1301,7 @@ function showDatabaseLoading() {
 // 加载数据库详情
 async function loadDatabaseDetail(dbId) {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${dbId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${dbId}`);
 
         const data = await response.json();
 
@@ -1396,19 +1438,11 @@ async function previewTable(tableName, keepEditMode = false) {
 
     try {
         // 首先获取表结构
-        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
         const structureData = await structureResponse.json();
         
         // 然后获取表数据
-        const dataResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const dataResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`);
         const data = await dataResponse.json();
 
         if (data.success) {
@@ -1427,9 +1461,7 @@ async function previewTable(tableName, keepEditMode = false) {
                 columns = Object.keys(data.data[0]);
             } else {
                 // 无结构且无数据时重试一次拉取表结构（新创建的空表可能首次未返回）
-                const retryResp = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-                });
+                const retryResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
                 const retryData = await retryResp.json();
                 if (retryData.success && retryData.columns && retryData.columns.length > 0) {
                     columns = retryData.columns.map(col => col.name);
@@ -1519,8 +1551,7 @@ async function loadStructureAndRenderTable(addOneRow) {
     structureLoadingLock = true;
     previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载表结构...</div>';
     try {
-        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
         });
         const structureData = await structureResponse.json();
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
@@ -1945,11 +1976,10 @@ async function saveTableData() {
             deletes
         });
         
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 updates,
@@ -2007,11 +2037,8 @@ async function dropTable() {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
+            method: 'DELETE'
         });
         
         const data = await response.json();
@@ -2041,11 +2068,7 @@ async function showEditStructureModal() {
     
     try {
         // 获取当前表结构
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`);
         const data = await response.json();
         
         if (!data.success) {
@@ -2205,11 +2228,10 @@ async function saveTableStructure() {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ columns: newColumns })
         });
@@ -2258,11 +2280,10 @@ async function submitRenameTable() {
         return;
     }
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ new_name: newName })
         });
@@ -2289,11 +2310,8 @@ async function handleDeleteDatabase() {
     }
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
+            method: 'DELETE'
         });
 
         const data = await response.json();
@@ -2319,9 +2337,7 @@ async function handleDeleteDatabase() {
 
 async function loadApiKey() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`);
         const data = await response.json();
         if (data.success) {
             currentApiKey = data.api_key || '';
@@ -2334,9 +2350,8 @@ async function loadApiKey() {
 
 async function generateApiKey() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await response.json();
         if (data.success) {
@@ -2352,9 +2367,8 @@ async function generateApiKey() {
 async function deleteApiKey() {
     if (!confirm('删除后，使用此 API Key 的外部调用将全部失效，确认删除？')) return;
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await response.json();
         if (data.success) {
@@ -2402,9 +2416,7 @@ let mcpConfigEnabled = true;
 async function loadMcpInfo() {
     await loadApiKey();
     try {
-        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/config`);
         const data = await r.json();
         if (data.success) mcpConfigEnabled = data.enabled !== false;
     } catch (e) { mcpConfigEnabled = true; }
@@ -2418,10 +2430,9 @@ async function toggleMcpEnabled() {
     if (!cb) return;
     const next = cb.checked;
     try {
-        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/config`, {
             method: 'PUT',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ enabled: next })
@@ -2560,11 +2571,7 @@ export DATA_ONTOLOGY_API_KEY="${key}"
 // 加载接口列表
 async function loadApis() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`);
 
         const data = await response.json();
 
@@ -2640,10 +2647,9 @@ async function toggleApiEnabled(apiId, forceEnabled) {
     if (!api) return;
     const next = forceEnabled !== undefined ? forceEnabled : (api.enabled === false);
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
             method: 'PUT',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ enabled: next })
@@ -2672,11 +2678,7 @@ function toggleApiEnabledFromDetail() {
 // 加载接口详情
 async function loadApiDetail(apiId) {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${apiId}`);
 
         const data = await response.json();
 
@@ -3173,11 +3175,10 @@ async function quickFixSql() {
     
     // 更新接口
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 name: currentApi.name,
@@ -3244,11 +3245,7 @@ async function showAddApiModal() {
 // 加载数据库列表到下拉框
 async function loadDatabasesForSelect() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
 
         const data = await response.json();
 
@@ -3359,11 +3356,10 @@ async function handleAddApi(e) {
         
         const method = isEditApiMode ? 'PUT' : 'POST';
         
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(apiData)
         });
@@ -3505,11 +3501,8 @@ async function handleDeleteApi() {
     }
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+            method: 'DELETE'
         });
 
         const data = await response.json();
@@ -3594,11 +3587,10 @@ async function executeApiTest() {
     const startTime = Date.now();
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ params })
         });
@@ -3634,11 +3626,7 @@ function showTestApiError(message) {
 // 加载AI配置
 async function loadAiConfig() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`);
 
         const data = await response.json();
 
@@ -3688,11 +3676,10 @@ async function handleSaveAiSettings(e) {
     successEl.classList.remove('show');
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
@@ -3947,11 +3934,10 @@ async function handleSendAiMessage() {
     const streamMessageId = addAiStreamMessage();
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/query`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 message: message,
@@ -4282,11 +4268,10 @@ async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
     confirmEl.innerHTML = `<div class="ai-status-executing">⚡ 正在执行写操作...</div>`;
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ sql, dbId })
         });
@@ -4869,11 +4854,10 @@ async function confirmCreateApiFromAI(config, messageId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(apiData)
         });
@@ -4943,10 +4927,9 @@ async function confirmCreateGovTaskFromAI(messageId) {
         accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
     };
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
         });
         const data = await response.json();
@@ -5128,11 +5111,10 @@ async function handleCreateTable(e) {
     successEl.classList.remove('show');
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 name: tableName,
@@ -5224,10 +5206,7 @@ let govSelectedFiles = [];
 
 async function loadGovernanceTasks() {
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`);
         const data = await response.json();
         if (data.success) {
             govTasks = data.tasks || [];
@@ -5347,10 +5326,7 @@ function showGovTaskDetail(task) {
 async function loadGovTaskLogs() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs`);
         const data = await response.json();
         if (data.success) {
             renderGovLogs(data.logs || []);
@@ -5467,15 +5443,13 @@ async function handleGovTaskSubmit(e) {
     }
 
     try {
-        const token = localStorage.getItem('dataOntologyToken');
         const url = isEditGovMode
             ? `${API_BASE}/api/data-ontology/governance/tasks/${editingGovTaskId}`
             : `${API_BASE}/api/data-ontology/governance/tasks`;
         const method = isEditGovMode ? 'PUT' : 'POST';
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(taskData)
@@ -5504,10 +5478,8 @@ async function deleteGovTask() {
     if (!currentGovTask) return;
     if (!confirm(`确定删除任务「${currentGovTask.name}」？`)) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
+            method: 'DELETE'
         });
         const data = await response.json();
         if (data.success) {
@@ -5529,10 +5501,8 @@ async function runGovTask() {
 async function toggleGovTask() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/toggle`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/toggle`, {
+            method: 'POST'
         });
         const data = await response.json();
         if (data.success) {
@@ -5548,10 +5518,7 @@ async function toggleGovTask() {
 async function refreshGovTaskStatus() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`);
         const data = await response.json();
         if (data.success && data.task) {
             const idx = govTasks.findIndex(t => t.id === data.task.id);
@@ -5633,7 +5600,6 @@ async function executeInteractiveTask() {
 async function executeGovTaskOnBackend(files, inputText) {
     if (!currentGovTask) return;
 
-    const token = localStorage.getItem('dataOntologyToken');
     const taskId = currentGovTask.id;
 
     // 更新 UI 显示运行中
@@ -5656,9 +5622,8 @@ async function executeGovTaskOnBackend(files, inputText) {
         }
 
         // 调用后端 run 接口
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/run`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/run`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
             body: formData
         });
 
@@ -5684,7 +5649,6 @@ async function executeGovTaskOnBackend(files, inputText) {
 
 // 轮询任务进度
 async function pollTaskProgress(taskId, runId) {
-    const token = localStorage.getItem('dataOntologyToken');
     const container = document.getElementById('govTaskOutput');
 
     const pollInterval = 2000; // 2秒轮询一次
@@ -5692,9 +5656,7 @@ async function pollTaskProgress(taskId, runId) {
 
     const poll = async () => {
         try {
-            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`);
             const data = await response.json();
 
             if (!data.success) {
@@ -5768,13 +5730,12 @@ async function ensureGovLibsLoaded() {
 }
 
 function createGovHelper(logLines) {
-    const token = localStorage.getItem('dataOntologyToken');
     const dbId = currentGovTask?.database_id || '';
 
     async function _runSQL(databaseId, sql, params = []) {
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: databaseId, sql, params })
         });
         const data = await resp.json();
@@ -5836,9 +5797,9 @@ function createGovHelper(logLines) {
         },
         // 调用 AI 补全（与 AI 助手共用 URL/API Key/模型），返回结构化文本
         async callAI(prompt) {
-            const resp = await fetch(`${API_BASE}/api/data-ontology/ai/completion`, {
+            const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/completion`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
             });
             const data = await resp.json();
@@ -5884,7 +5845,6 @@ async function refreshCodegenTables() {
     if (!db) return;
 
     sel.innerHTML = '<option value="">加载中...</option>';
-    const token = localStorage.getItem('dataOntologyToken');
 
     try {
         let sql;
@@ -5894,9 +5854,9 @@ async function refreshCodegenTables() {
         else if (db.type === 'oracle') sql = "SELECT table_name as name FROM user_tables WHERE table_name NOT LIKE '%$%' AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' AND table_name NOT LIKE 'AQ\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ATP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AUDIT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AV\\_%' ESCAPE '\\' AND table_name NOT LIKE 'BDSQL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CATALOG\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CLUSTER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CQN\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBMS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DEF$%' AND table_name NOT LIKE 'ERROR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FILE\\_%' ESCAPE '\\' AND table_name NOT LIKE 'HELP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGSTDBY%' AND table_name NOT LIKE 'MVIEW\\_%' ESCAPE '\\' AND table_name NOT LIKE 'OLAP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'REPCAT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SCHEDULER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SYS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'TRACE\\_%' ESCAPE '\\' AND table_name <> 'DUAL' AND table_name NOT LIKE 'DDL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FOREIGN\\_%' ESCAPE '\\' AND table_name NOT LIKE 'HANG\\_%' ESCAPE '\\' AND table_name NOT LIKE 'IMPDP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'INC%' AND table_name NOT LIKE 'KU\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGMNRC\\_%' ESCAPE '\\' ORDER BY table_name";
         else sql = 'SHOW TABLES';
 
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: dbId, sql, params: [] })
         });
         const result = await resp.json();
@@ -5928,7 +5888,6 @@ async function onCodegenTableChange() {
         return;
     }
 
-    const token = localStorage.getItem('dataOntologyToken');
     try {
         let sql;
         if (db.type === 'sqlite') sql = `PRAGMA table_info('${tableName}')`;
@@ -5936,9 +5895,9 @@ async function onCodegenTableChange() {
         else if (db.type === 'dm' || db.type === 'oracle') sql = `SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, "''").toUpperCase()}' ORDER BY COLUMN_ID`;
         else sql = 'SHOW COLUMNS FROM `' + tableName + '`';
 
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: dbId, sql, params: [] })
         });
         const result = await resp.json();
@@ -6097,11 +6056,9 @@ async function generateImportCodeWithAI() {
         btn.textContent = '生成中...';
     }
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/codegen`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/codegen`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
@@ -6147,10 +6104,9 @@ async function executeGovTaskInBrowserOnce(code, file, inputText) {
     if (currentGovTask) {
         const taskId = currentGovTask.id;
         try {
-            const token = localStorage.getItem('dataOntologyToken');
-            await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
             });
         } catch (e) {
@@ -7284,7 +7240,6 @@ function startOntologyExtract() {
     }
     const dbIds = [ontoSelectedDbId];
     showOntologyLoading('AI 正在分析数据库结构...');
-    const token = localStorage.getItem('dataOntologyToken');
 
     let progress2 = 0;
     const pi2 = setInterval(() => {
@@ -7292,12 +7247,16 @@ function startOntologyExtract() {
         document.getElementById('ontoAiProgressBar').style.width = progress2 + '%';
     }, 300);
 
-    fetch('/api/data-ontology/ontology/extract', {
+    fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/extract`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ databases: dbIds }),
     }).then(async res => {
         clearInterval(pi2);
+        if (res.status === 401) {
+            hideOntologyLoading();
+            return;
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = '';
@@ -7388,13 +7347,13 @@ async function doOntologyQuery() {
     resultEl.style.display = '';
     resultEl.innerHTML = '<span style="color:#667eea">🧠 AI正在进行语义推理...</span>';
 
-    const token = localStorage.getItem('dataOntologyToken');
     try {
-        const res = await fetch('/api/data-ontology/ontology/query', {
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/query`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, ontology: ontoData }),
         });
+        if (res.status === 401) return;
         const data = await res.json();
         if (data.success) {
             // 高亮相关节点
@@ -7831,11 +7790,8 @@ async function loadLineageGraph() {
         return;
     }
     lineageFocusTableId = null;
-    const token = localStorage.getItem('dataOntologyToken');
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`);
         const data = await res.json();
         if (!data.success) {
             showOntoToast(data.message || '血缘分析失败', true);
