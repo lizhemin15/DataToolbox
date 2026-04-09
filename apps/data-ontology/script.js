@@ -261,6 +261,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (currentUser) {
             showMainPage();
             loadDatabases();
+            loadGovernanceTasks();
         }
     }
 
@@ -489,6 +490,7 @@ async function handleLogin(e) {
             localStorage.setItem('dataOntologyUser', username);
             showMainPage();
             loadDatabases();
+            loadGovernanceTasks();
         } else {
             errorEl.textContent = data.message || '登录失败';
             errorEl.classList.add('show');
@@ -506,6 +508,8 @@ function handleLogout() {
     currentUser = null;
     databases = [];
     currentDb = null;
+    govTasks = [];
+    currentGovTask = null;
     showLoginPage();
 }
 
@@ -895,6 +899,10 @@ async function loadDatabases() {
                 const updatedDb = databases.find(db => db.id === currentDb.id);
                 if (updatedDb) {
                     currentDb = updatedDb;
+                } else {
+                    currentDb = null;
+                    document.getElementById('welcomeView').style.display = 'block';
+                    document.getElementById('dbDetailView').style.display = 'none';
                 }
             }
         }

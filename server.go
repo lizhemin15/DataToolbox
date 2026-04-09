@@ -440,6 +440,7 @@ type User struct {
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
 	ID       string `json:"id"`
+	Owner    string `json:"owner,omitempty"` // 所属用户名
 	Type     string `json:"type"`     // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
 	Name     string `json:"name"`
 	Host     string `json:"host,omitempty"`
@@ -453,6 +454,7 @@ type DatabaseConfig struct {
 // DatabaseInfo 数据库信息（不包含敏感信息）
 type DatabaseInfo struct {
 	ID        string   `json:"id"`
+	Owner     string   `json:"owner,omitempty"`
 	Type      string   `json:"type"`
 	Name      string   `json:"name"`
 	Host      string   `json:"host,omitempty"`
@@ -531,6 +533,7 @@ type AICodegenColumn struct {
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
 	ID          string   `json:"id"`
+	Owner       string   `json:"owner,omitempty"`         // 所属用户名
 	Name        string   `json:"name"`
 	Type        string   `json:"type"`                    // "scheduled" | "interactive"
 	Description string   `json:"description,omitempty"`
@@ -693,6 +696,17 @@ func loadDataOntologyStore() error {
 	}
 	if store.MCPEnabled != nil {
 		dataOntologyMCPEnabled = store.MCPEnabled
+	}
+	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
+	for _, c := range dataOntologyDatabases {
+		if c != nil && c.Owner == "" {
+			c.Owner = "admin"
+		}
+	}
+	for _, t := range governanceTasks {
+		if t != nil && t.Owner == "" {
+			t.Owner = "admin"
+		}
 	}
 	return nil
 }
@@ -963,6 +977,7 @@ func initDataOntology() {
 		scheduledID := uuid.New().String()
 		governanceTasks[scheduledID] = &GovernanceTask{
 			ID:          scheduledID,
+			Owner:       "admin",
 			Name:        "数据库表行数统计",
 			Type:        "scheduled",
 			Description: "查询所有表的行数，输出统计报告（需关联数据库）",
@@ -977,6 +992,7 @@ func initDataOntology() {
 		interactiveID := uuid.New().String()
 		governanceTasks[interactiveID] = &GovernanceTask{
 			ID:          interactiveID,
+			Owner:       "admin",
 			Name:        "Excel数据解析入库",
 			Type:        "interactive",
 			Description: "上传Excel文件，解析内容预览，可选入库",
@@ -991,6 +1007,7 @@ func initDataOntology() {
 		textTaskID := uuid.New().String()
 		governanceTasks[textTaskID] = &GovernanceTask{
 			ID:          textTaskID,
+			Owner:       "admin",
 			Name:        "CSV文本解析",
 			Type:        "interactive",
 			Description: "输入CSV格式文本，解析并展示结构化结果",
@@ -1004,6 +1021,7 @@ func initDataOntology() {
 		syncCheckID := uuid.New().String()
 		governanceTasks[syncCheckID] = &GovernanceTask{
 			ID:          syncCheckID,
+			Owner:       "admin",
 			Name:        "数据完整性检查",
 			Type:        "scheduled",
 			Description: "检查数据库表的空值情况（需关联数据库）",
@@ -1018,6 +1036,7 @@ func initDataOntology() {
 		docTaskID := uuid.New().String()
 		governanceTasks[docTaskID] = &GovernanceTask{
 			ID:          docTaskID,
+			Owner:       "admin",
 			Name:        "Word文档内容提取",
 			Type:        "interactive",
 			Description: "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
@@ -1503,23 +1522,57 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	return columns, nil
 }
 
-// 验证Token（同时支持登录Token和ApiKey）
-func verifyToken(r *http.Request) bool {
+// getDataOntologyUserFromRequest 从 Authorization Bearer 解析 token/apiKey，返回用户名（users map 的 key）
+func getDataOntologyUserFromRequest(r *http.Request) (username string, ok bool) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		return false
+		return "", false
 	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	if token == "" {
+		return "", false
+	}
 	dataOntologyMu.RLock()
 	defer dataOntologyMu.RUnlock()
-
-	for _, user := range dataOntologyUsers {
+	for uname, user := range dataOntologyUsers {
 		if user.Token == token || (user.ApiKey != "" && user.ApiKey == token) {
-			return true
+			return uname, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// dataOntologyResourceVisible 非 admin 仅可见 Owner 与本人一致的资源；Owner 为空视为仅 admin 可见
+func dataOntologyResourceVisible(owner, username string) bool {
+	if username == "admin" {
+		return true
+	}
+	return owner != "" && owner == username
+}
+
+// requireGovernanceTaskAccess 校验当前用户对治理任务的访问权，失败时写入 JSON 响应
+func requireGovernanceTaskAccess(w http.ResponseWriter, r *http.Request, taskID string) (*GovernanceTask, string, bool) {
+	username, ok := getDataOntologyUserFromRequest(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return nil, "", false
+	}
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	dataOntologyMu.RUnlock()
+	if !exists || !dataOntologyResourceVisible(task.Owner, username) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return nil, "", false
+	}
+	return task, username, true
+}
+
+// 验证Token（同时支持登录Token和ApiKey）
+func verifyToken(r *http.Request) bool {
+	_, ok := getDataOntologyUserFromRequest(r)
+	return ok
 }
 
 // 登录处理
@@ -1880,7 +1933,8 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 func handleDatabases(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -1896,8 +1950,12 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 
 		databases := make([]DatabaseInfo, 0)
 		for _, config := range dataOntologyDatabases {
+			if !dataOntologyResourceVisible(config.Owner, username) {
+				continue
+			}
 			databases = append(databases, DatabaseInfo{
 				ID:       config.ID,
+				Owner:    config.Owner,
 				Type:     config.Type,
 				Name:     config.Name,
 				Host:     config.Host,
@@ -1937,6 +1995,7 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 
 		// 保存配置
 		config.ID = uuid.New().String()
+		config.Owner = username
 		dataOntologyMu.Lock()
 		dataOntologyDatabases[config.ID] = &config
 		dataOntologyMu.Unlock()
@@ -1963,7 +2022,8 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -1987,7 +2047,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -2096,6 +2156,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			"success": true,
 			"database": DatabaseInfo{
 				ID:        config.ID,
+				Owner:     config.Owner,
 				Type:      config.Type,
 				Name:      config.Name,
 				Host:      config.Host,
@@ -2122,6 +2183,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		// 保留原ID和类型
 		updateConfig.ID = config.ID
 		updateConfig.Type = config.Type
+		updateConfig.Owner = config.Owner
 		
 		// 如果密码为空，保留原密码
 		if updateConfig.Password == "" {
@@ -2189,7 +2251,8 @@ func dedupeLineageEdges(edges []LineageEdge) []LineageEdge {
 
 func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -2217,7 +2280,7 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -2435,7 +2498,8 @@ func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string)
 func handleTableData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -2462,7 +2526,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -4747,7 +4811,8 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		sendSSE(w, "error", map[string]interface{}{
 			"message": "未授权",
 		})
@@ -4808,7 +4873,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var dbSchemas []map[string]interface{}
 	for _, dbID := range queryReq.Databases {
 		dbConfig, exists := dataOntologyDatabases[dbID]
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			continue
 		}
 
@@ -5030,7 +5095,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		dbConfig, exists := dataOntologyDatabases[targetDBID]
 		dataOntologyMu.RUnlock()
 
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			lastError = "数据库不存在"
 			attempts = append(attempts, map[string]interface{}{
 				"attempt":  retry + 1,
@@ -5139,7 +5204,8 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -5187,7 +5253,7 @@ func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
 	dbConfig, exists := dataOntologyDatabases[req.DBID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -5815,7 +5881,8 @@ func extractCodeFromAIResponse(s string) string {
 // handleAICodegen 处理数据治理入库代码 AI 生成（使用与 AI 助手相同的 api url / api_key / model）
 func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -5836,6 +5903,18 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 			"message": "请求格式错误",
 		})
 		return
+	}
+	if req.DatabaseID != "" {
+		dataOntologyMu.RLock()
+		dc, ok := dataOntologyDatabases[req.DatabaseID]
+		dataOntologyMu.RUnlock()
+		if !ok || !dataOntologyResourceVisible(dc.Owner, username) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
 	}
 	if req.TableName == "" || len(req.Columns) == 0 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -5920,7 +5999,8 @@ func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		sendSSE(w, "onto-error", map[string]interface{}{"message": "未授权"})
 		return
 	}
@@ -5959,7 +6039,7 @@ func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
 	var dbSchemas []map[string]interface{}
 	for _, dbID := range req.Databases {
 		dbConfig, exists := dataOntologyDatabases[dbID]
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			continue
 		}
 		tables, err := getTablesList(dbConfig)
@@ -6680,7 +6760,8 @@ func parseAIResponse(response string, dbSchemas []map[string]interface{}) (strin
 // handleGovernanceTasks 处理治理任务列表和创建
 func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
 		return
 	}
@@ -6692,6 +6773,9 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 
 		taskList := make([]*GovernanceTask, 0, len(governanceTasks))
 		for _, t := range governanceTasks {
+			if !dataOntologyResourceVisible(t.Owner, username) {
+				continue
+			}
 			taskList = append(taskList, t)
 		}
 		sort.Slice(taskList, func(i, j int) bool {
@@ -6709,7 +6793,17 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务名称、类型和Go代码不能为空"})
 			return
 		}
+		if task.DatabaseID != "" {
+			dataOntologyMu.RLock()
+			dc, dbOk := dataOntologyDatabases[task.DatabaseID]
+			dataOntologyMu.RUnlock()
+			if !dbOk || !dataOntologyResourceVisible(dc.Owner, username) {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
+				return
+			}
+		}
 		task.ID = uuid.New().String()
+		task.Owner = username
 		task.CreatedAt = time.Now().Format(time.RFC3339)
 		task.Status = "idle"
 		if task.Type == "scheduled" && task.Enabled {
@@ -6733,10 +6827,6 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 // handleGovernanceTaskDetail 处理单个治理任务的 GET/PUT/DELETE
 func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
-		return
-	}
 
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/tasks/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
@@ -6771,16 +6861,17 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		dataOntologyMu.RLock()
-		task, exists := governanceTasks[taskID]
-		dataOntologyMu.RUnlock()
-		if !exists {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
 
 	case http.MethodPut:
+		_, username, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
+			return
+		}
 		var update GovernanceTask
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
@@ -6803,6 +6894,12 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			task.JsCode = update.JsCode
 		}
 		if update.DatabaseID != "" {
+			dc, dcOk := dataOntologyDatabases[update.DatabaseID]
+			if !dcOk || !dataOntologyResourceVisible(dc.Owner, username) {
+				dataOntologyMu.Unlock()
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
+				return
+			}
 			task.DatabaseID = update.DatabaseID
 		}
 		if update.CronExpr != "" {
@@ -6824,12 +6921,11 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
 
 	case http.MethodDelete:
-		dataOntologyMu.Lock()
-		if _, exists := governanceTasks[taskID]; !exists {
-			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
 			return
 		}
+		dataOntologyMu.Lock()
 		delete(governanceTasks, taskID)
 		delete(governanceTaskLogs, taskID)
 		dataOntologyMu.Unlock()
@@ -6846,8 +6942,13 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 // handleGovernanceTaskToggle 启用/禁用定时任务
 func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 	dataOntologyMu.Lock()
@@ -6869,8 +6970,13 @@ func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID s
 
 // handleGovernanceTaskLogs 获取任务执行日志
 func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 	dataOntologyMu.RLock()
@@ -6891,7 +6997,10 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		return
 	}
 
-	// 验证 token
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
 	token := ""
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 		token = strings.TrimPrefix(auth, "Bearer ")
@@ -6900,16 +7009,6 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
 		return
 	}
-
-	// 获取任务
-	dataOntologyMu.RLock()
-	task, exists := governanceTasks[taskID]
-	dataOntologyMu.RUnlock()
-	if !exists {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
-		return
-	}
-
 	// 解析请求（支持 multipart 和 JSON）
 	var inputText string
 	var filePaths []string
@@ -6996,6 +7095,10 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 // handleGovernanceTaskProgress 获取任务执行进度
 func handleGovernanceTaskProgress(w http.ResponseWriter, r *http.Request, taskID string) {
 	w.Header().Set("Content-Type", "application/json")
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
 	dataOntologyMu.RLock()
 	task, exists := governanceTasks[taskID]
 	dataOntologyMu.RUnlock()
@@ -7029,6 +7132,10 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 
@@ -7082,7 +7189,8 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）
 func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
 		return
 	}
@@ -7108,7 +7216,7 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RLock()
 	dbConfig, exists := dataOntologyDatabases[req.DatabaseID]
 	dataOntologyMu.RUnlock()
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
 		return
 	}
@@ -7202,9 +7310,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 	if db, ok := dataOntologyDatabases[dbID]; ok {
 		dbType = db.Type
 	}
-	// 构建数据库列表
+	// 构建数据库列表（仅包含任务所属用户可见的配置，避免泄露他人连接信息）
 	var databases []map[string]string
 	for id, db := range dataOntologyDatabases {
+		if !dataOntologyResourceVisible(db.Owner, task.Owner) {
+			continue
+		}
 		databases = append(databases, map[string]string{
 			"id":   id,
 			"name": db.Name,
