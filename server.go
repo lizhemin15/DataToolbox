@@ -7258,7 +7258,24 @@ func executeGovernanceJob(job *GovernanceJob) {
 		result := callGovRunner(taskData)
 		if !result.Success {
 			log.Printf("任务 %s 执行失败: %s", taskID, result.Error)
+		} else {
+			log.Printf("任务 %s 执行成功，输出: %v", taskID, result.Output)
 		}
+
+		// 更新任务状态
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[taskID]; ok {
+			if result.Success {
+				t.Status = "success"
+				t.LastOutput = strings.Join(result.Output, "\n")
+			} else {
+				t.Status = "error"
+				t.LastError = result.Error
+			}
+			t.LastRunAt = time.Now().Format(time.RFC3339)
+		}
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
 	}
 
 	// 清理临时目录
