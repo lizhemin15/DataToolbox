@@ -590,7 +590,7 @@ type GovernanceJob struct {
 
 var (
 	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
-	govRunnerPath      = "gov-runner/gov-runner"        // gov-runner 可执行文件路径
+	govRunnerPath      = "gov-runner"                    // gov-runner 可执行文件路径
 )
 
 // 网页导航
