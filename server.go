@@ -6997,7 +6997,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		return
 	}
 
-	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
 	if !ok {
 		return
 	}
