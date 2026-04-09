@@ -7225,10 +7225,14 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 	// 如果有文件，读取并转为 base64
 	if len(job.InputFiles) > 0 {
+		var allOutput []string
+		var lastError string
+		
 		for i, filePath := range job.InputFiles {
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				log.Printf("读取文件失败: %v", err)
+				lastError = "读取文件失败: " + err.Error()
 				continue
 			}
 			taskData["file_base64"] = base64.StdEncoding.EncodeToString(data)
@@ -7248,11 +7252,35 @@ func executeGovernanceJob(job *GovernanceJob) {
 			result := callGovRunner(taskData)
 			if !result.Success {
 				log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
+				lastError = result.Error
+			} else {
+				log.Printf("任务 %s 文件 %s 执行成功", taskID, filePath)
+				allOutput = append(allOutput, result.Output...)
 			}
 
 			// 清理临时文件
 			os.Remove(filePath)
 		}
+		
+		// 更新任务状态
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[taskID]; ok {
+			if lastError == "" {
+				t.Status = "success"
+				t.LastOutput = strings.Join(allOutput, "\n")
+			} else {
+				t.Status = "error"
+				t.LastError = lastError
+				if len(allOutput) > 0 {
+					t.LastOutput = strings.Join(allOutput, "\n")
+				}
+			}
+			t.LastRunAt = time.Now().Format(time.RFC3339)
+			t.ProcessedFiles = len(job.InputFiles)
+			t.Percent = 100
+		}
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
 	} else {
 		// 无文件，直接执行
 		result := callGovRunner(taskData)
