@@ -5330,12 +5330,121 @@ async function executeInteractiveTask() {
         return;
     }
 
-    if (files.length > 1) {
-        await executeGovTaskBatchInBrowser(currentGovTask.js_code, files, inputText);
-        return;
+    // 改为调用后端 API 异步执行
+    await executeGovTaskOnBackend(files, inputText);
+}
+
+// 后端异步执行任务
+async function executeGovTaskOnBackend(files, inputText) {
+    if (!currentGovTask) return;
+
+    const token = localStorage.getItem('dataOntologyToken');
+    const taskId = currentGovTask.id;
+
+    // 更新 UI 显示运行中
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>正在上传文件...</span></div></div>';
+
+    try {
+        // 构建 multipart 表单
+        const formData = new FormData();
+        formData.append('input_text', inputText || '');
+
+        if (files && files.length > 0) {
+            for (const file of files) {
+                formData.append('files', file);
+            }
+        }
+
+        // 调用后端 run 接口
+        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/run`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.message || '任务启动失败');
+        }
+
+        const runId = result.run_id;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>任务已入队，后台执行中...</span><span class="gov-log-status running">运行中</span></div></div>`;
+
+        // 开始轮询进度
+        await pollTaskProgress(taskId, runId);
+
+    } catch (error) {
+        currentGovTask.status = 'error';
+        currentGovTask.last_error = error.message;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span style="color:red">错误: ${escapeHtml(error.message)}</span></div></div>`;
+        renderGovTaskList();
     }
-    const file = files[0] || null;
-    await executeGovTaskInBrowser(currentGovTask.js_code, file, inputText);
+}
+
+// 轮询任务进度
+async function pollTaskProgress(taskId, runId) {
+    const token = localStorage.getItem('dataOntologyToken');
+    const container = document.getElementById('govTaskOutput');
+
+    const pollInterval = 2000; // 2秒轮询一次
+    let lastProcessed = 0;
+
+    const poll = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+
+            if (!data.success) {
+                console.error('获取进度失败:', data.message);
+                return;
+            }
+
+            const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
+
+            // 更新进度显示
+            if (total_files > 0) {
+                container.innerHTML = `
+                    <div class="gov-log-entry">
+                        <div class="gov-log-header">
+                            <span>进度: ${processed_files}/${total_files} (${percent}%)</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
+                        </div>
+                        ${current_file ? `<div class="gov-log-content">当前: ${escapeHtml(current_file)}</div>` : ''}
+                        ${last_output ? `<div class="gov-log-content"><pre>${escapeHtml(last_output.substring(last_output.length - 500))}</pre></div>` : ''}
+                    </div>`;
+            }
+
+            // 如果任务完成，停止轮询
+            if (status !== 'running') {
+                // 刷新任务详情
+                await loadGovernanceTasks();
+                const task = govTasks.find(t => t.id === taskId);
+                if (task) {
+                    currentGovTask = task;
+                    showGovTaskDetail(task);
+                }
+                return;
+            }
+
+            // 继续轮询
+            setTimeout(poll, pollInterval);
+
+        } catch (error) {
+            console.error('轮询进度失败:', error);
+            // 出错后继续轮询
+            setTimeout(poll, pollInterval);
+        }
+    };
+
+    await poll();
 }
 
 // ==================== 浏览器端 JS 执行引擎 ====================
