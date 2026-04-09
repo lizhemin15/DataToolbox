@@ -4,6 +4,8 @@ let databases = [];
 let currentDb = null;
 let isEditMode = false;
 let editingDbId = null;
+let userMgmtMode = false;
+let userPasswordTarget = null;
 
 // 接口管理状态
 let apis = [];
@@ -464,6 +466,32 @@ function initEventListeners() {
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
     
     // 清除AI上下文按钮（稍后会动态添加）
+
+    const userMgmtNavBtn = document.getElementById('userMgmtNavBtn');
+    if (userMgmtNavBtn) {
+        userMgmtNavBtn.addEventListener('click', function () {
+            if (currentUser !== 'admin') return;
+            if (userMgmtMode) {
+                closeUserMgmtPanel();
+            } else {
+                openUserMgmtPanel();
+            }
+        });
+    }
+    const userMgmtCloseBtn = document.getElementById('userMgmtCloseBtn');
+    if (userMgmtCloseBtn) userMgmtCloseBtn.addEventListener('click', closeUserMgmtPanel);
+    const createUserBtn = document.getElementById('createUserBtn');
+    if (createUserBtn) createUserBtn.addEventListener('click', handleCreateUser);
+    const closeUserPasswordModal = document.getElementById('closeUserPasswordModal');
+    if (closeUserPasswordModal) closeUserPasswordModal.addEventListener('click', hideUserPasswordModal);
+    const userPasswordModal = document.getElementById('userPasswordModal');
+    if (userPasswordModal) {
+        userPasswordModal.addEventListener('click', function (e) {
+            if (e.target === this) hideUserPasswordModal();
+        });
+    }
+    const submitUserPasswordBtn = document.getElementById('submitUserPasswordBtn');
+    if (submitUserPasswordBtn) submitUserPasswordBtn.addEventListener('click', submitUserPasswordChange);
 }
 
 // 登录处理
@@ -527,10 +555,36 @@ function showMainPage() {
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('mainPage').classList.add('active');
     document.getElementById('currentUser').textContent = currentUser;
+    updateUserMgmtNavVisibility();
+}
+
+function updateUserMgmtNavVisibility() {
+    const wrap = document.getElementById('userMgmtNavWrap');
+    if (wrap) {
+        wrap.style.display = currentUser === 'admin' ? 'block' : 'none';
+    }
 }
 
 // 切换标签页
 function switchTab(tabName) {
+    if (tabName !== 'database') {
+        userMgmtMode = false;
+        const umg = document.getElementById('userMgmtView');
+        if (umg) umg.style.display = 'none';
+        const wv = document.getElementById('welcomeView');
+        const dv = document.getElementById('dbDetailView');
+        if (wv && dv) {
+            if (currentDb) {
+                wv.style.display = 'none';
+                dv.style.display = 'block';
+            } else {
+                wv.style.display = 'block';
+                dv.style.display = 'none';
+            }
+        }
+        const nb = document.getElementById('userMgmtNavBtn');
+        if (nb) nb.classList.remove('btn-primary');
+    }
     // 更新标签按钮状态
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.classList.remove('active');
@@ -742,6 +796,209 @@ function hideAddDbModal() {
     editingDbId = null;
 }
 
+function openUserMgmtPanel() {
+    if (currentUser !== 'admin') return;
+    userMgmtMode = true;
+    document.getElementById('welcomeView').style.display = 'none';
+    document.getElementById('dbDetailView').style.display = 'none';
+    document.getElementById('userMgmtView').style.display = 'block';
+    const nb = document.getElementById('userMgmtNavBtn');
+    if (nb) nb.classList.add('btn-primary');
+    renderDatabaseList();
+    loadUsers();
+}
+
+function closeUserMgmtPanel() {
+    userMgmtMode = false;
+    document.getElementById('userMgmtView').style.display = 'none';
+    const nb = document.getElementById('userMgmtNavBtn');
+    if (nb) nb.classList.remove('btn-primary');
+    renderDatabaseList();
+    if (currentDb) {
+        loadDatabaseDetail(currentDb.id);
+    } else {
+        document.getElementById('welcomeView').style.display = 'block';
+        document.getElementById('dbDetailView').style.display = 'none';
+    }
+}
+
+async function loadUsers() {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/users`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await response.json();
+        if (!data.success) {
+            listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
+            return;
+        }
+        renderUserMgmtList(data.users || []);
+    } catch (e) {
+        listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function renderUserMgmtList(users) {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'user-mgmt-row um-head';
+    head.innerHTML = '<div class="um-col">用户名</div><div class="um-col">API Key</div><div class="um-actions">操作</div>';
+    listEl.appendChild(head);
+    users.forEach(u => {
+        const name = u.username || '';
+        const key = u.api_key || '';
+        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '—';
+        const row = document.createElement('div');
+        row.className = 'user-mgmt-row';
+        const col1 = document.createElement('div');
+        col1.className = 'um-col';
+        col1.textContent = name;
+        const col2 = document.createElement('div');
+        col2.className = 'um-col';
+        const span = document.createElement('span');
+        span.className = 'user-mgmt-apikey';
+        span.title = key;
+        span.textContent = keyShow;
+        col2.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'um-actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-sm';
+        copyBtn.textContent = '复制 Key';
+        copyBtn.onclick = function () {
+            if (key) navigator.clipboard.writeText(key);
+        };
+        const passBtn = document.createElement('button');
+        passBtn.type = 'button';
+        passBtn.className = 'btn btn-sm';
+        passBtn.textContent = '改密';
+        passBtn.onclick = function () {
+            openUserPasswordModal(name);
+        };
+        actions.appendChild(copyBtn);
+        actions.appendChild(passBtn);
+        if (name !== 'admin') {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-sm btn-danger';
+            delBtn.textContent = '删除';
+            delBtn.onclick = function () {
+                userMgmtDelete(name);
+            };
+            actions.appendChild(delBtn);
+        }
+        row.appendChild(col1);
+        row.appendChild(col2);
+        row.appendChild(actions);
+        listEl.appendChild(row);
+    });
+}
+
+function openUserPasswordModal(username) {
+    userPasswordTarget = username;
+    const title = document.getElementById('userPasswordModalTitle');
+    if (title) title.textContent = '修改密码 — ' + username;
+    const inp = document.getElementById('editPasswordInput');
+    if (inp) inp.value = '';
+    const err = document.getElementById('userPasswordModalErr');
+    if (err) err.classList.remove('show');
+    document.getElementById('userPasswordModal').classList.add('show');
+}
+
+function hideUserPasswordModal() {
+    document.getElementById('userPasswordModal').classList.remove('show');
+    userPasswordTarget = null;
+}
+
+async function submitUserPasswordChange() {
+    const pwd = document.getElementById('editPasswordInput').value;
+    const errEl = document.getElementById('userPasswordModalErr');
+    if (!userPasswordTarget) return;
+    if (!pwd) {
+        errEl.textContent = '请输入新密码';
+        errEl.classList.add('show');
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(userPasswordTarget)}/password`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            hideUserPasswordModal();
+            if (userMgmtMode) loadUsers();
+        } else {
+            errEl.textContent = data.message || '修改失败';
+            errEl.classList.add('show');
+        }
+    } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.add('show');
+    }
+}
+
+async function userMgmtDelete(username) {
+    if (!confirm('确定删除用户「' + username + '」？')) return;
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        });
+        const data = await response.json();
+        if (data.success) {
+            loadUsers();
+        } else {
+            alert(data.message || '删除失败');
+        }
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+async function handleCreateUser() {
+    const name = document.getElementById('newUserName').value.trim();
+    const pwd = document.getElementById('newUserPassword').value;
+    const msgEl = document.getElementById('userMgmtCreateMsg');
+    msgEl.classList.remove('show');
+    if (!name || !pwd) {
+        msgEl.textContent = '请输入用户名和密码';
+        msgEl.classList.add('show');
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE}/api/data-ontology/users`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+            },
+            body: JSON.stringify({ username: name, password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('newUserName').value = '';
+            document.getElementById('newUserPassword').value = '';
+            loadUsers();
+        } else {
+            msgEl.textContent = data.message || '创建失败';
+            msgEl.classList.add('show');
+        }
+    } catch (e) {
+        msgEl.textContent = e.message;
+        msgEl.classList.add('show');
+    }
+}
+
 // 测试数据库连接
 async function testConnection() {
     const dbType = document.getElementById('dbTypeInput').value;
@@ -925,8 +1182,9 @@ function renderDatabaseList() {
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
         
+        const isActive = !userMgmtMode && currentDb && currentDb.id === db.id;
         return `
-            <div class="db-item ${currentDb && currentDb.id === db.id ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
+            <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
                 <div class="db-item-name">${typeIcon} ${db.name}</div>
                 <div class="db-item-info">${info}</div>
             </div>
@@ -936,6 +1194,11 @@ function renderDatabaseList() {
 
 // 选择数据库
 function selectDatabase(dbId) {
+    userMgmtMode = false;
+    const umg = document.getElementById('userMgmtView');
+    if (umg) umg.style.display = 'none';
+    const nb = document.getElementById('userMgmtNavBtn');
+    if (nb) nb.classList.remove('btn-primary');
     currentDb = databases.find(db => db.id === dbId);
     if (currentDb) {
         renderDatabaseList();
@@ -946,6 +1209,11 @@ function selectDatabase(dbId) {
 
 // 显示数据库加载状态
 function showDatabaseLoading() {
+    userMgmtMode = false;
+    const umg = document.getElementById('userMgmtView');
+    if (umg) umg.style.display = 'none';
+    const nb = document.getElementById('userMgmtNavBtn');
+    if (nb) nb.classList.remove('btn-primary');
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('dbDetailView').style.display = 'block';
     

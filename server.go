@@ -1676,6 +1676,182 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// requireDataOntologyAdmin 当前用户须为 admin
+func requireDataOntologyAdmin(w http.ResponseWriter, r *http.Request) (string, bool) {
+	u, ok := getDataOntologyUserFromRequest(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return "", false
+	}
+	if u != "admin" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+		return "", false
+	}
+	return u, true
+}
+
+// UserPublic 用户列表展示（不含密码）
+type UserPublic struct {
+	Username string `json:"username"`
+	ApiKey   string `json:"api_key,omitempty"`
+}
+
+// handleDataOntologyUsers GET 列出用户 / POST 创建用户（仅 admin）
+func handleDataOntologyUsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		dataOntologyMu.RLock()
+		list := make([]UserPublic, 0, len(dataOntologyUsers))
+		for name, u := range dataOntologyUsers {
+			if u == nil {
+				continue
+			}
+			apiKey := ""
+			if u.ApiKey != "" {
+				apiKey = u.ApiKey
+			}
+			list = append(list, UserPublic{Username: name, ApiKey: apiKey})
+		}
+		dataOntologyMu.RUnlock()
+		sort.Slice(list, func(i, j int) bool { return list[i].Username < list[j].Username })
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "users": list})
+
+	case http.MethodPost:
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		name := strings.TrimSpace(body.Username)
+		if name == "" || body.Password == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名和密码不能为空"})
+			return
+		}
+		dataOntologyMu.Lock()
+		if _, exists := dataOntologyUsers[name]; exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名已存在"})
+			return
+		}
+		dataOntologyUsers[name] = &User{
+			Username: name,
+			Password: hashPassword(body.Password),
+		}
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存用户失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleDataOntologyUsersDetail DELETE /users/{username} / PUT /users/{username}/password
+func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	base := "/api/data-ontology/users/"
+	if !strings.HasPrefix(r.URL.Path, base) {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, base)
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效路径"})
+		return
+	}
+	parts := strings.Split(rest, "/")
+	targetName := parts[0]
+	if u, err := url.PathUnescape(targetName); err == nil && u != "" {
+		targetName = u
+	}
+
+	if len(parts) == 1 {
+		if r.Method != http.MethodDelete {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+			return
+		}
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		if targetName == "admin" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不能删除管理员账号"})
+			return
+		}
+		dataOntologyMu.Lock()
+		if _, exists := dataOntologyUsers[targetName]; !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户不存在"})
+			return
+		}
+		delete(dataOntologyUsers, targetName)
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存用户失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "password" && r.Method == http.MethodPut {
+		caller, ok := getDataOntologyUserFromRequest(r)
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+			return
+		}
+		if caller != "admin" && caller != targetName {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只能修改自己的密码"})
+			return
+		}
+		var body struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if strings.TrimSpace(body.Password) == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "密码不能为空"})
+			return
+		}
+		dataOntologyMu.Lock()
+		user, exists := dataOntologyUsers[targetName]
+		if !exists || user == nil {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户不存在"})
+			return
+		}
+		user.Password = hashPassword(body.Password)
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存用户失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效路径"})
+}
+
 // handleMCPConfig MCP 总开关：GET 返回当前状态，PUT 更新（需授权）
 func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -8094,6 +8270,8 @@ func main() {
 	
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
+	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
+	mux.HandleFunc("/api/data-ontology/users/", handleDataOntologyUsersDetail)
 	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)

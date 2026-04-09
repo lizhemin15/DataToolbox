@@ -4783,3 +4783,52 @@ textarea#testApiParams {
     font-weight: 600;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+/* 用户管理（数据库侧栏） */
+.sidebar-user-mgmt {
+    padding: 0 12px 10px;
+    margin-top: -4px;
+}
+.sidebar-user-mgmt .btn {
+    width: 100%;
+}
+.user-mgmt-create-row {
+    align-items: end;
+}
+.user-mgmt-table-wrap {
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+}
+.user-mgmt-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.user-mgmt-row:last-child {
+    border-bottom: none;
+}
+.user-mgmt-row.um-head {
+    font-weight: 600;
+    background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+}
+.user-mgmt-row .um-col {
+    flex: 1;
+    min-width: 140px;
+}
+.user-mgmt-row .um-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.user-mgmt-apikey {
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+    word-break: break-all;
+    color: #4a5568;
+}

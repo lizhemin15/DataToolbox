@@ -107,6 +107,9 @@
                         <h3>数据库列表</h3>
                         <button id="addDbBtn" class="btn btn-sm btn-primary">+ 添加</button>
                     </div>
+                    <div id="userMgmtNavWrap" class="sidebar-user-mgmt" style="display:none;">
+                        <button type="button" id="userMgmtNavBtn" class="btn btn-sm">👤 用户管理</button>
+                    </div>
                     <div id="dbList" class="db-list">
                         <!-- 数据库列表将动态生成 -->
                     </div>
@@ -117,6 +120,36 @@
                         <div class="welcome-icon">🗄️</div>
                         <h2>欢迎使用数据库管理</h2>
                         <p>请在左侧添加或选择一个数据库开始使用</p>
+                    </div>
+
+                    <div id="userMgmtView" class="db-detail-view" style="display:none;">
+                        <div class="detail-header">
+                            <h2>用户管理</h2>
+                            <div class="detail-actions">
+                                <button type="button" id="userMgmtCloseBtn" class="btn btn-sm">关闭</button>
+                            </div>
+                        </div>
+                        <div class="tables-section">
+                            <h3>创建用户</h3>
+                            <div class="db-info user-mgmt-create-row">
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserName">用户名</label>
+                                    <input type="text" id="newUserName" placeholder="新用户名" autocomplete="off">
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserPassword">密码</label>
+                                    <input type="password" id="newUserPassword" placeholder="密码" autocomplete="new-password">
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;align-self:flex-end;">
+                                    <button type="button" id="createUserBtn" class="btn btn-sm btn-primary">创建</button>
+                                </div>
+                            </div>
+                            <div id="userMgmtCreateMsg" class="error-message"></div>
+                        </div>
+                        <div class="tables-section">
+                            <h3>用户列表</h3>
+                            <div id="userMgmtList" class="user-mgmt-table-wrap"></div>
+                        </div>
                     </div>
 
                     <div id="dbDetailView" class="db-detail-view" style="display:none;">
@@ -1193,6 +1226,25 @@
             </div>
             <div class="modal-body gov-api-body" id="govApiBody">
                 <!-- 动态渲染 -->
+            </div>
+        </div>
+    </div>
+
+    <div id="userPasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="userPasswordModalTitle">修改密码</h2>
+                <button type="button" class="modal-close" id="closeUserPasswordModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editPasswordInput">新密码</label>
+                    <input type="password" id="editPasswordInput" autocomplete="new-password">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="submitUserPasswordBtn" class="btn btn-primary">保存</button>
+                </div>
+                <div id="userPasswordModalErr" class="error-message"></div>
             </div>
         </div>
     </div>
