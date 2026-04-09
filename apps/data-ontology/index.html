@@ -192,9 +192,16 @@
                                 <label for="newUserName">用户名</label>
                                 <input type="text" id="newUserName" placeholder="新用户名" autocomplete="off">
                             </div>
-                            <div class="form-group" style="margin-bottom:0;">
-                                <label for="newUserPassword">密码</label>
-                                <input type="password" id="newUserPassword" placeholder="密码" autocomplete="new-password">
+                            <div class="user-mgmt-pwd-stack" style="display:flex;flex-direction:column;gap:8px;align-self:flex-end;">
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserPassword">密码</label>
+                                    <input type="password" id="newUserPassword" placeholder="密码" autocomplete="new-password">
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserPasswordConfirm">确认密码</label>
+                                    <input type="password" id="newUserPasswordConfirm" placeholder="再次输入密码" autocomplete="new-password">
+                                </div>
+                                <div id="userMgmtCreatePwdHint" class="error-message" style="margin-top:0;"></div>
                             </div>
                             <div class="form-group" style="margin-bottom:0;align-self:flex-end;">
                                 <button type="button" id="createUserBtn" class="btn btn-sm btn-primary">创建</button>
@@ -1242,6 +1249,11 @@
                     <label for="editPasswordInput">新密码</label>
                     <input type="password" id="editPasswordInput" autocomplete="new-password">
                 </div>
+                <div class="form-group">
+                    <label for="editPasswordConfirmInput">确认新密码</label>
+                    <input type="password" id="editPasswordConfirmInput" placeholder="再次输入新密码" autocomplete="new-password">
+                </div>
+                <div id="userPasswordModalPwdHint" class="error-message" style="margin-top:0;"></div>
                 <div class="modal-footer">
                     <button type="button" id="submitUserPasswordBtn" class="btn btn-primary">保存</button>
                 </div>

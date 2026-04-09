@@ -7,6 +7,42 @@ let editingDbId = null;
 let userMgmtMode = false;
 let userPasswordTarget = null;
 
+const USER_MIN_PASSWORD_LEN = 4;
+
+function clearUserMgmtCreatePwdHint() {
+    const el = document.getElementById('userMgmtCreatePwdHint');
+    if (el) {
+        el.classList.remove('show');
+        el.textContent = '';
+    }
+}
+
+function clearUserPasswordModalPwdHint() {
+    const el = document.getElementById('userPasswordModalPwdHint');
+    if (el) {
+        el.classList.remove('show');
+        el.textContent = '';
+    }
+}
+
+/** 校验密码与确认密码：先长度再一致性。hintEl 为带 .error-message 的提示节点 */
+function validateUserPasswordPair(password, confirm, hintEl) {
+    if (!hintEl) return false;
+    hintEl.classList.remove('show');
+    hintEl.textContent = '';
+    if (password.length < USER_MIN_PASSWORD_LEN) {
+        hintEl.textContent = '密码至少4位';
+        hintEl.classList.add('show');
+        return false;
+    }
+    if (password !== confirm) {
+        hintEl.textContent = '两次密码输入不一致';
+        hintEl.classList.add('show');
+        return false;
+    }
+    return true;
+}
+
 // 接口管理状态
 let apis = [];
 let currentApi = null;
@@ -541,6 +577,14 @@ function initEventListeners() {
     }
     const submitUserPasswordBtn = document.getElementById('submitUserPasswordBtn');
     if (submitUserPasswordBtn) submitUserPasswordBtn.addEventListener('click', submitUserPasswordChange);
+    const newUserPwd = document.getElementById('newUserPassword');
+    const newUserPwdConfirm = document.getElementById('newUserPasswordConfirm');
+    if (newUserPwd) newUserPwd.addEventListener('input', clearUserMgmtCreatePwdHint);
+    if (newUserPwdConfirm) newUserPwdConfirm.addEventListener('input', clearUserMgmtCreatePwdHint);
+    const editPwd = document.getElementById('editPasswordInput');
+    const editPwdConfirm = document.getElementById('editPasswordConfirmInput');
+    if (editPwd) editPwd.addEventListener('input', clearUserPasswordModalPwdHint);
+    if (editPwdConfirm) editPwdConfirm.addEventListener('input', clearUserPasswordModalPwdHint);
 }
 
 // 登录处理
@@ -987,8 +1031,11 @@ function openUserPasswordModal(username) {
     if (title) title.textContent = '修改密码 — ' + username;
     const inp = document.getElementById('editPasswordInput');
     if (inp) inp.value = '';
+    const inp2 = document.getElementById('editPasswordConfirmInput');
+    if (inp2) inp2.value = '';
     const err = document.getElementById('userPasswordModalErr');
     if (err) err.classList.remove('show');
+    clearUserPasswordModalPwdHint();
     document.getElementById('userPasswordModal').classList.add('show');
 }
 
@@ -999,13 +1046,17 @@ function hideUserPasswordModal() {
 
 async function submitUserPasswordChange() {
     const pwd = document.getElementById('editPasswordInput').value;
+    const pwdConfirm = document.getElementById('editPasswordConfirmInput').value;
     const errEl = document.getElementById('userPasswordModalErr');
+    const hintEl = document.getElementById('userPasswordModalPwdHint');
     if (!userPasswordTarget) return;
-    if (!pwd) {
-        errEl.textContent = '请输入新密码';
+    errEl.classList.remove('show');
+    if (!pwd || !pwdConfirm) {
+        errEl.textContent = '请输入新密码与确认新密码';
         errEl.classList.add('show');
         return;
     }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(userPasswordTarget)}/password`, {
             method: 'PUT',
@@ -1048,13 +1099,22 @@ async function userMgmtDelete(username) {
 async function handleCreateUser() {
     const name = document.getElementById('newUserName').value.trim();
     const pwd = document.getElementById('newUserPassword').value;
+    const pwdConfirm = document.getElementById('newUserPasswordConfirm').value;
     const msgEl = document.getElementById('userMgmtCreateMsg');
+    const hintEl = document.getElementById('userMgmtCreatePwdHint');
     msgEl.classList.remove('show');
-    if (!name || !pwd) {
-        msgEl.textContent = '请输入用户名和密码';
+    clearUserMgmtCreatePwdHint();
+    if (!name) {
+        msgEl.textContent = '请输入用户名';
         msgEl.classList.add('show');
         return;
     }
+    if (!pwd || !pwdConfirm) {
+        msgEl.textContent = '请输入密码和确认密码';
+        msgEl.classList.add('show');
+        return;
+    }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`, {
             method: 'POST',
@@ -1067,6 +1127,7 @@ async function handleCreateUser() {
         if (data.success) {
             document.getElementById('newUserName').value = '';
             document.getElementById('newUserPassword').value = '';
+            document.getElementById('newUserPasswordConfirm').value = '';
             loadUsers();
         } else {
             msgEl.textContent = data.message || '创建失败';
