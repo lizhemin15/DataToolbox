@@ -1660,9 +1660,14 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 			Username string `json:"username"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if strings.TrimSpace(body.Username) != "" && currentUser.Username == "admin" {
-			if u, ok := dataOntologyUsers[strings.TrimSpace(body.Username)]; ok && u != nil {
+		targetName := strings.TrimSpace(body.Username)
+		log.Printf("[apikey] POST body.Username=%q targetName=%q currentUser=%s", body.Username, targetName, currentUser.Username)
+		if targetName != "" && currentUser.Username == "admin" {
+			if u, ok := dataOntologyUsers[targetName]; ok && u != nil {
 				target = u
+				log.Printf("[apikey] target switched to %s", target.Username)
+			} else {
+				log.Printf("[apikey] user %q not found in map, keeping currentUser", targetName)
 			}
 		}
 		target.ApiKey = "dok_" + uuid.New().String()
