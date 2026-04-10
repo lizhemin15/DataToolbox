@@ -1194,6 +1194,10 @@
 // gov.getDatabases()                - 返回 [{id,name,type},...] 可入多个库
 // gov.readExcel(file)               - 读取Excel，返回workbook
 // gov.readCSV(text)                 - 解析CSV，返回二维数组
+// gov.writeExcel(fn, data, opt?)    - 导出 Excel（二维数组或对象数组），浏览器下载
+// gov.writeCSV(fn, rows)            - 导出 CSV（二维数组），浏览器下载
+// gov.writeText(fn, str)            - 导出纯文本，浏览器下载
+// gov.writeJSON(fn, obj)            - 导出格式化 JSON，浏览器下载
 // gov.querySQL(sql, params?)        - 当前关联库查询
 // gov.executeSQL(sql, params?)      - 当前关联库执行
 // gov.querySQLForDb(dbId, sql, params?)   - 指定库查询

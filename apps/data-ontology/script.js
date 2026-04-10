@@ -5809,6 +5809,23 @@ function createGovHelper(logLines) {
         return db ? db.type : '';
     })();
 
+    function _govDownloadBlob(blob, filename) {
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function _govCsvEscapeCell(val) {
+        const s = val === null || val === undefined ? '' : String(val);
+        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+    }
+
     return {
         log(msg) {
             logLines.push(String(msg));
@@ -5866,6 +5883,49 @@ function createGovHelper(logLines) {
             const data = await resp.json();
             if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
+        },
+        writeExcel(filename, data, options) {
+            if (!filename) throw new Error('未提供文件名');
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
+            const opts = options || {};
+            const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
+            let ws;
+            if (!data || !data.length) {
+                ws = XLSX.utils.aoa_to_sheet([[]]);
+            } else if (Array.isArray(data[0])) {
+                ws = XLSX.utils.aoa_to_sheet(data);
+            } else {
+                ws = XLSX.utils.json_to_sheet(data);
+            }
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            const outName = /\.xlsx?$/i.test(filename) ? filename : `${filename}.xlsx`;
+            XLSX.writeFile(wb, outName);
+        },
+        writeCSV(filename, data) {
+            if (!filename) throw new Error('未提供文件名');
+            if (!Array.isArray(data)) throw new Error('data 须为二维数组');
+            const lines = data.map(row => {
+                if (!Array.isArray(row)) throw new Error('CSV 每行须为数组');
+                return row.map(_govCsvEscapeCell).join(',');
+            });
+            const csv = lines.join('\r\n');
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+            const outName = /\.csv$/i.test(filename) ? filename : `${filename}.csv`;
+            _govDownloadBlob(blob, outName);
+        },
+        writeText(filename, content) {
+            if (!filename) throw new Error('未提供文件名');
+            const text = content === undefined || content === null ? '' : String(content);
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            _govDownloadBlob(blob, filename);
+        },
+        writeJSON(filename, data) {
+            if (!filename) throw new Error('未提供文件名');
+            const text = JSON.stringify(data, null, 2);
+            const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+            const outName = /\.json$/i.test(filename) ? filename : `${filename}.json`;
+            _govDownloadBlob(blob, outName);
         },
     };
 }
@@ -6320,6 +6380,30 @@ const GOV_API_DOCS = [
                 example: 'const result = await gov.readWord(INPUT_FILE);\nconst text = result.value;\ngov.log(\'字数: \' + text.length);'
             },
             {
+                name: 'gov.writeExcel',
+                signature: 'gov.writeExcel(filename, data, options?)',
+                desc: '生成 Excel 并触发浏览器下载。data 可为二维数组或对象数组；options 可选 { sheetName: \'Sheet1\' }（内部 SheetJS XLSX.writeFile）。',
+                example: '// 二维数组\nconst rows = [[\'姓名\', \'分数\'], [\'张三\', 90]];\ngov.writeExcel(\'结果.xlsx\', rows, { sheetName: \'Sheet1\' });\n\n// 对象数组\nconst objs = [{ name: \'张三\', score: 90 }];\ngov.writeExcel(\'导出.xlsx\', objs);'
+            },
+            {
+                name: 'gov.writeCSV',
+                signature: 'gov.writeCSV(filename, data)',
+                desc: '将二维数组转为 CSV 并下载（UTF-8 BOM，便于 Excel 打开中文）。',
+                example: 'const rows = [[\'a\', \'b\'], [\'1\', \'2\']];\ngov.writeCSV(\'数据.csv\', rows);'
+            },
+            {
+                name: 'gov.writeText',
+                signature: 'gov.writeText(filename, content)',
+                desc: '将字符串写入纯文本文件并下载。',
+                example: 'gov.writeText(\'报告.txt\', \'第一行\\n第二行\');'
+            },
+            {
+                name: 'gov.writeJSON',
+                signature: 'gov.writeJSON(filename, data)',
+                desc: '将对象或数组格式化为 JSON（缩进 2 空格）并下载。',
+                example: 'const rows = await gov.querySQL(\'SELECT id, name FROM t LIMIT 10\');\ngov.writeJSON(\'查询结果.json\', rows);'
+            },
+            {
                 name: 'gov.querySQL',
                 signature: 'await gov.querySQL(sql, params?) → [{...}]',
                 desc: '对任务关联的数据库执行 SELECT 查询，返回行对象数组。params 为可选参数数组（? 占位符对应）。未关联数据库时抛出错误。',
@@ -6374,8 +6458,8 @@ const GOV_API_DOCS = [
             {
                 name: 'XLSX',
                 signature: 'XLSX (SheetJS)',
-                desc: '完整的 SheetJS 库，用于 Excel 文件读写。常用：XLSX.utils.sheet_to_json、XLSX.utils.json_to_sheet、XLSX.writeFile。',
-                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\n// 带表头的对象数组\nconst data = XLSX.utils.sheet_to_json(sheet);\n// 原始二维数组\nconst raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });'
+                desc: '完整的 SheetJS 库，用于 Excel 文件读写。常用：XLSX.utils.sheet_to_json、XLSX.utils.json_to_sheet、XLSX.writeFile。导出可直接用 gov.writeExcel（内部调用 XLSX.writeFile）。',
+                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\n// 带表头的对象数组\nconst data = XLSX.utils.sheet_to_json(sheet);\n// 原始二维数组\nconst raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });\n// 或导出：gov.writeExcel(\'out.xlsx\', raw);'
             },
             {
                 name: 'Papa',
@@ -6392,6 +6476,9 @@ const GOV_API_DOCS = [
         ]
     }
 ];
+
+/** 治理任务函数说明（与 GOV_API_DOCS 相同，供帮助面板与检索） */
+const governanceFunctions = GOV_API_DOCS;
 
 function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');
@@ -6412,7 +6499,7 @@ function filterGovApiHelp(query) {
 function renderGovApiDocs(query) {
     const body = document.getElementById('govApiBody');
     let html = '';
-    for (const cat of GOV_API_DOCS) {
+    for (const cat of governanceFunctions) {
         const items = cat.items.filter(item =>
             !query ||
             item.name.toLowerCase().includes(query) ||
