@@ -504,6 +504,36 @@ type AIConfig struct {
 	Model  string `json:"model"`
 }
 
+// LLMModelConfig 大模型配置
+type LLMModelConfig struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`        // "llm" | "rerank" | "embedding" | "asr" | "tts"
+	Provider    string `json:"provider"`    // "openai" | "anthropic" | "ollama" | "custom"
+	URL         string `json:"url"`
+	APIKey      string `json:"api_key,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
+// SmallModelConfig 小模型配置（JS 代码运行）
+type SmallModelConfig struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	JsCode      string `json:"js_code"`
+	DatabaseID  string `json:"database_id,omitempty"`
+	InputType   string `json:"input_type,omitempty"`   // "text" | "file" | "both"
+	AcceptExts  string `json:"accept_exts,omitempty"`  // ".csv,.txt,.json"
+	OutputType  string `json:"output_type,omitempty"`  // "text" | "json" | "file"
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
 // AIQueryRequest AI查询请求
 type AIQueryRequest struct {
 	Message   string                   `json:"message"`
@@ -582,7 +612,10 @@ var (
 	governanceTasks       = make(map[string]*GovernanceTask)
 	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
-	dataOntologyMu        sync.RWMutex
+	// 模型管理
+	llmModels      = make(map[string]*LLMModelConfig)
+	smallModels    = make(map[string]*SmallModelConfig)
+	dataOntologyMu sync.RWMutex
 )
 
 // 数据治理任务队列
@@ -628,6 +661,9 @@ type DataOntologyStore struct {
 	Tasks      map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
 	TaskLogs   map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
 	MCPEnabled *bool                             `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	// 模型管理
+	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
+	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
 }
 
 // 获取持久化文件路径
@@ -700,6 +736,15 @@ func loadDataOntologyStore() error {
 	if store.MCPEnabled != nil {
 		dataOntologyMCPEnabled = store.MCPEnabled
 	}
+	// 模型管理
+	if store.LLMModels != nil {
+		llmModels = store.LLMModels
+		log.Printf("已加载 %d 个大模型配置", len(llmModels))
+	}
+	if store.SmallModels != nil {
+		smallModels = store.SmallModels
+		log.Printf("已加载 %d 个小模型配置", len(smallModels))
+	}
 	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
 	for _, c := range dataOntologyDatabases {
 		if c != nil && c.Owner == "" {
@@ -727,13 +772,15 @@ func saveDataOntologyStore() error {
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
-		Users:      dataOntologyUsers,
-		Databases:  dataOntologyDatabases,
-		Apis:       dataOntologyApis,
-		AIConfig:   dataOntologyAIConfig,
-		Tasks:      governanceTasks,
-		TaskLogs:   governanceTaskLogs,
-		MCPEnabled: dataOntologyMCPEnabled,
+		Users:       dataOntologyUsers,
+		Databases:   dataOntologyDatabases,
+		Apis:        dataOntologyApis,
+		AIConfig:    dataOntologyAIConfig,
+		Tasks:       governanceTasks,
+		TaskLogs:    governanceTaskLogs,
+		MCPEnabled:  dataOntologyMCPEnabled,
+		LLMModels:   llmModels,
+		SmallModels: smallModels,
 	}
 	dataOntologyMu.RUnlock()
 	
@@ -5063,6 +5110,280 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ========== 大模型管理 API ==========
+
+// handleLLMModels 处理大模型列表和创建
+func handleLLMModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		list := make([]*LLMModelConfig, 0, len(llmModels))
+		for _, m := range llmModels {
+			list = append(list, m)
+		}
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "models": list})
+
+	case http.MethodPost:
+		var model LLMModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&model); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if model.Name == "" || model.Type == "" || model.URL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "名称、类型和URL不能为空"})
+			return
+		}
+		model.ID = uuid.New().String()
+		model.CreatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Lock()
+		llmModels[model.ID] = &model
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleLLMModelDetail 处理单个大模型的 GET/PUT/DELETE
+func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/llm/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少模型ID"})
+		return
+	}
+	modelID := pathParts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		model, exists := llmModels[modelID]
+		dataOntologyMu.RUnlock()
+		if !exists {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodPut:
+		var update LLMModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		dataOntologyMu.Lock()
+		model, exists := llmModels[modelID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		if update.Name != "" { model.Name = update.Name }
+		if update.Type != "" { model.Type = update.Type }
+		if update.Provider != "" { model.Provider = update.Provider }
+		if update.URL != "" { model.URL = update.URL }
+		model.APIKey = update.APIKey
+		if update.Model != "" { model.Model = update.Model }
+		model.Description = update.Description
+		model.Enabled = update.Enabled
+		model.UpdatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodDelete:
+		dataOntologyMu.Lock()
+		delete(llmModels, modelID)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "删除成功"})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// ========== 小模型管理 API ==========
+
+// handleSmallModels 处理小模型列表和创建
+func handleSmallModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		list := make([]*SmallModelConfig, 0, len(smallModels))
+		for _, m := range smallModels {
+			list = append(list, m)
+		}
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "models": list})
+
+	case http.MethodPost:
+		var model SmallModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&model); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if model.Name == "" || model.JsCode == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "名称和代码不能为空"})
+			return
+		}
+		model.ID = uuid.New().String()
+		model.CreatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Lock()
+		smallModels[model.ID] = &model
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleSmallModelDetail 处理单个小模型的 GET/PUT/DELETE/Run
+func handleSmallModelDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/small/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少模型ID"})
+		return
+	}
+	modelID := pathParts[0]
+
+	// 运行小模型
+	if len(pathParts) >= 2 && pathParts[1] == "run" {
+		handleSmallModelRun(w, r, modelID)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		model, exists := smallModels[modelID]
+		dataOntologyMu.RUnlock()
+		if !exists {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodPut:
+		var update SmallModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		dataOntologyMu.Lock()
+		model, exists := smallModels[modelID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		if update.Name != "" { model.Name = update.Name }
+		model.Description = update.Description
+		if update.JsCode != "" { model.JsCode = update.JsCode }
+		model.DatabaseID = update.DatabaseID
+		model.InputType = update.InputType
+		model.AcceptExts = update.AcceptExts
+		model.OutputType = update.OutputType
+		model.Enabled = update.Enabled
+		model.UpdatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodDelete:
+		dataOntologyMu.Lock()
+		delete(smallModels, modelID)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "删除成功"})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleSmallModelRun 运行小模型
+func handleSmallModelRun(w http.ResponseWriter, r *http.Request, modelID string) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	dataOntologyMu.RLock()
+	model, exists := smallModels[modelID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+		return
+	}
+	dbID := model.DatabaseID
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	code := model.JsCode
+	dataOntologyMu.RUnlock()
+
+	// 解析输入参数
+	var req struct {
+		InputText string `json:"input_text"`
+		InputFile string `json:"input_file"` // base64
+		FileName  string `json:"file_name"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        code,
+		"token":       "",
+		"database_id": dbID,
+		"db_type":     dbType,
+		"input_text":  req.InputText,
+		"file_base64": req.InputFile,
+		"file_name":   req.FileName,
+	}
+
+	// 执行
+	result := callGovRunner(taskData)
+	if !result.Success {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": result.Error})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"output":  result.Output,
+	})
+}
+
 // handleAIQuery 处理AI查询（流式响应）
 func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	// 设置流式响应头
@@ -8461,6 +8782,12 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
+	
+	// 模型管理API路由
+	mux.HandleFunc("/api/data-ontology/models/llm", handleLLMModels)
+	mux.HandleFunc("/api/data-ontology/models/llm/", handleLLMModelDetail)
+	mux.HandleFunc("/api/data-ontology/models/small", handleSmallModels)
+	mux.HandleFunc("/api/data-ontology/models/small/", handleSmallModelDetail)
 	
 	// 本体论API路由
 	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)

@@ -75,6 +75,7 @@
                         <button class="nav-tab" data-tab="api">接口分发</button>
                         <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
+                        <button class="nav-tab" data-tab="models">模型管理</button>
                     </div>
                 </div>
                 <div class="header-right">
@@ -754,6 +755,185 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- 模型管理 Tab -->
+        <div id="modelsTab" class="tab-content">
+            <div class="models-container">
+                <div class="models-sidebar">
+                    <div class="models-sidebar-header">
+                        <h3>模型管理</h3>
+                    </div>
+                    <div class="models-tabs">
+                        <button class="models-tab-btn active" data-model-tab="llm">🤖 大模型</button>
+                        <button class="models-tab-btn" data-model-tab="small">📝 小模型</button>
+                    </div>
+                </div>
+                <div class="models-main">
+                    <!-- 大模型管理 -->
+                    <div id="llmModelsPanel" class="models-panel active">
+                        <div class="models-panel-header">
+                            <h3>大模型管理</h3>
+                            <button class="btn btn-primary btn-sm" onclick="showAddLLMModelModal()">+ 添加模型</button>
+                        </div>
+                        <div class="models-desc">
+                            <p>配置 LLM、Rerank、向量化、语音识别等 AI 服务的转发接口。</p>
+                        </div>
+                        <div id="llmModelsList" class="models-list"></div>
+                    </div>
+                    
+                    <!-- 小模型管理 -->
+                    <div id="smallModelsPanel" class="models-panel" style="display:none;">
+                        <div class="models-panel-header">
+                            <h3>小模型管理</h3>
+                            <button class="btn btn-primary btn-sm" onclick="showAddSmallModelModal()">+ 添加模型</button>
+                        </div>
+                        <div class="models-desc">
+                            <p>通过 JavaScript 代码实现自定义数据处理逻辑，可调用已注册的数据库。</p>
+                        </div>
+                        <div id="smallModelsList" class="models-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑大模型弹窗 -->
+    <div id="llmModelModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="llmModalTitle">添加大模型</h2>
+                <button class="modal-close" onclick="hideLLMModelModal()">&times;</button>
+            </div>
+            <form id="llmModelForm" class="modal-body" onsubmit="handleLLMModelSubmit(event)">
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="llmNameInput">模型名称</label>
+                        <input type="text" id="llmNameInput" placeholder="如: GPT-4o" required>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="llmTypeInput">模型类型</label>
+                        <select id="llmTypeInput" required>
+                            <option value="llm">LLM (大语言模型)</option>
+                            <option value="rerank">Rerank (重排序)</option>
+                            <option value="embedding">Embedding (向量化)</option>
+                            <option value="asr">ASR (语音识别)</option>
+                            <option value="tts">TTS (语音合成)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="llmProviderInput">服务商</label>
+                        <select id="llmProviderInput">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="ollama">Ollama</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="llmModelNameInput">模型标识</label>
+                        <input type="text" id="llmModelNameInput" placeholder="如: gpt-4o">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="llmUrlInput">API 地址</label>
+                    <input type="text" id="llmUrlInput" placeholder="https://api.openai.com/v1" required>
+                </div>
+                <div class="form-group">
+                    <label for="llmApiKeyInput">API Key</label>
+                    <input type="password" id="llmApiKeyInput" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label for="llmDescInput">描述</label>
+                    <input type="text" id="llmDescInput" placeholder="可选描述">
+                </div>
+                <div class="form-group">
+                    <label>启用状态</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="llmEnabledInput" checked>
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="llmEnabledLabel">已启用</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 添加/编辑小模型弹窗 -->
+    <div id="smallModelModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="smallModalTitle">添加小模型</h2>
+                <button class="modal-close" onclick="hideSmallModelModal()">&times;</button>
+            </div>
+            <form id="smallModelForm" class="modal-body" onsubmit="handleSmallModelSubmit(event)">
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="smallNameInput">模型名称</label>
+                        <input type="text" id="smallNameInput" placeholder="如: 文本分类器" required>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="smallDbSelect">关联数据库（可选）</label>
+                        <select id="smallDbSelect">
+                            <option value="">不关联数据库</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="smallDescInput">描述</label>
+                    <input type="text" id="smallDescInput" placeholder="可选描述">
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-group-third">
+                        <label for="smallInputTypeInput">输入类型</label>
+                        <select id="smallInputTypeInput">
+                            <option value="text">文本</option>
+                            <option value="file">文件</option>
+                            <option value="both">文本+文件</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-third">
+                        <label for="smallAcceptExtsInput">接受文件类型</label>
+                        <input type="text" id="smallAcceptExtsInput" placeholder=".csv,.txt,.json">
+                    </div>
+                    <div class="form-group form-group-third">
+                        <label for="smallOutputTypeInput">输出类型</label>
+                        <select id="smallOutputTypeInput">
+                            <option value="text">文本</option>
+                            <option value="json">JSON</option>
+                            <option value="file">文件</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="smallCodeInput">模型代码 (JavaScript)</label>
+                    <textarea id="smallCodeInput" rows="12" placeholder="// 可用: INPUT_TEXT, INPUT_FILE, gov.*, XLSX, Papa
+// gov.querySQL(sql) - 查询关联数据库
+// gov.executeSQL(sql) - 执行 SQL
+// gov.log(msg) - 输出日志
+// return 结果文本或对象" style="font-family: monospace;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>启用状态</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="smallEnabledInput" checked>
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="smallEnabledLabel">已启用</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
         </div>
     </div>
 

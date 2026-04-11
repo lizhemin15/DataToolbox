@@ -711,6 +711,8 @@ function switchTab(tabName) {
         loadGovernanceTasks();
     } else if (tabName === 'ontology') {
         initOntologyTab();
+    } else if (tabName === 'models') {
+        initModelsTab();
     } else if (tabName === 'lineage') {
         initLineageTab();
         if (!window._lineageDemoAutoLoaded) {
@@ -8446,3 +8448,307 @@ document.addEventListener('keydown', e => {
         closeGovApiHelp();
     }
 });
+
+// ============================================================
+// 模型管理模块
+// ============================================================
+
+let llmModels = [];
+let smallModels = [];
+let editingLLMModelId = null;
+let editingSmallModelId = null;
+
+// 初始化模型管理
+function initModelsTab() {
+    loadLLMModels();
+    loadSmallModels();
+    
+    // Tab 切换
+    document.querySelectorAll('.models-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.models-tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const tab = btn.dataset.modelTab;
+            document.getElementById('llmModelsPanel').style.display = tab === 'llm' ? '' : 'none';
+            document.getElementById('smallModelsPanel').style.display = tab === 'small' ? '' : 'none';
+        });
+    });
+}
+
+// ========== 大模型管理 ==========
+
+async function loadLLMModels() {
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm`);
+        const data = await resp.json();
+        if (data.success) {
+            llmModels = data.models || [];
+            renderLLMModels();
+        }
+    } catch (e) {
+        console.error('加载大模型失败:', e);
+    }
+}
+
+function renderLLMModels() {
+    const container = document.getElementById('llmModelsList');
+    if (llmModels.length === 0) {
+        container.innerHTML = '<div class="models-empty">暂无大模型配置，点击"添加模型"创建</div>';
+        return;
+    }
+    
+    const typeIcons = { llm: '🤖', rerank: '🔄', embedding: '📊', asr: '🎤', tts: '🔊' };
+    const typeLabels = { llm: 'LLM', rerank: 'Rerank', embedding: 'Embedding', asr: 'ASR', tts: 'TTS' };
+    
+    container.innerHTML = llmModels.map(m => `
+        <div class="model-card ${m.enabled ? '' : 'disabled'}">
+            <div class="model-card-header">
+                <span class="model-icon">${typeIcons[m.type] || '🤖'}</span>
+                <span class="model-name">${escapeHtml(m.name)}</span>
+                <span class="model-type-badge">${typeLabels[m.type] || m.type}</span>
+            </div>
+            <div class="model-card-body">
+                <div class="model-info"><strong>服务商:</strong> ${escapeHtml(m.provider || 'custom')}</div>
+                <div class="model-info"><strong>模型:</strong> ${escapeHtml(m.model || '-')}</div>
+                <div class="model-info"><strong>地址:</strong> ${escapeHtml(m.url)}</div>
+                ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
+            </div>
+            <div class="model-card-footer">
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
+                <div class="model-actions">
+                    <button class="btn btn-sm" onclick="editLLMModel('${m.id}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${m.id}')">删除</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showAddLLMModelModal() {
+    editingLLMModelId = null;
+    document.getElementById('llmModalTitle').textContent = '添加大模型';
+    document.getElementById('llmModelForm').reset();
+    document.getElementById('llmEnabledInput').checked = true;
+    document.getElementById('llmModelModal').classList.add('show');
+}
+
+function editLLMModel(id) {
+    const model = llmModels.find(m => m.id === id);
+    if (!model) return;
+    editingLLMModelId = id;
+    document.getElementById('llmModalTitle').textContent = '编辑大模型';
+    document.getElementById('llmNameInput').value = model.name;
+    document.getElementById('llmTypeInput').value = model.type;
+    document.getElementById('llmProviderInput').value = model.provider || 'custom';
+    document.getElementById('llmModelNameInput').value = model.model || '';
+    document.getElementById('llmUrlInput').value = model.url;
+    document.getElementById('llmApiKeyInput').value = model.api_key || '';
+    document.getElementById('llmDescInput').value = model.description || '';
+    document.getElementById('llmEnabledInput').checked = model.enabled;
+    document.getElementById('llmModelModal').classList.add('show');
+}
+
+function hideLLMModelModal() {
+    document.getElementById('llmModelModal').classList.remove('show');
+}
+
+async function handleLLMModelSubmit(e) {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('llmNameInput').value.trim(),
+        type: document.getElementById('llmTypeInput').value,
+        provider: document.getElementById('llmProviderInput').value,
+        model: document.getElementById('llmModelNameInput').value.trim(),
+        url: document.getElementById('llmUrlInput').value.trim(),
+        api_key: document.getElementById('llmApiKeyInput').value,
+        description: document.getElementById('llmDescInput').value.trim(),
+        enabled: document.getElementById('llmEnabledInput').checked,
+    };
+    
+    try {
+        const url = editingLLMModelId
+            ? `${API_BASE}/api/data-ontology/models/llm/${editingLLMModelId}`
+            : `${API_BASE}/api/data-ontology/models/llm`;
+        const method = editingLLMModelId ? 'PUT' : 'POST';
+        const resp = await fetchWithAuth(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (result.success) {
+            hideLLMModelModal();
+            loadLLMModels();
+        } else {
+            alert(result.message || '保存失败');
+        }
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+async function deleteLLMModel(id) {
+    if (!confirm('确定删除该模型？')) return;
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm/${id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (result.success) loadLLMModels();
+        else alert(result.message || '删除失败');
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+// ========== 小模型管理 ==========
+
+async function loadSmallModels() {
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small`);
+        const data = await resp.json();
+        if (data.success) {
+            smallModels = data.models || [];
+            renderSmallModels();
+        }
+    } catch (e) {
+        console.error('加载小模型失败:', e);
+    }
+}
+
+function renderSmallModels() {
+    const container = document.getElementById('smallModelsList');
+    if (smallModels.length === 0) {
+        container.innerHTML = '<div class="models-empty">暂无小模型配置，点击"添加模型"创建</div>';
+        return;
+    }
+    
+    container.innerHTML = smallModels.map(m => `
+        <div class="model-card ${m.enabled ? '' : 'disabled'}">
+            <div class="model-card-header">
+                <span class="model-icon">📝</span>
+                <span class="model-name">${escapeHtml(m.name)}</span>
+            </div>
+            <div class="model-card-body">
+                ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
+                <div class="model-info"><strong>输入:</strong> ${m.input_type || 'text'}</div>
+                <div class="model-info"><strong>输出:</strong> ${m.output_type || 'text'}</div>
+            </div>
+            <div class="model-card-footer">
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
+                <div class="model-actions">
+                    <button class="btn btn-sm" onclick="runSmallModel('${m.id}')">运行</button>
+                    <button class="btn btn-sm" onclick="editSmallModel('${m.id}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${m.id}')">删除</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showAddSmallModelModal() {
+    editingSmallModelId = null;
+    document.getElementById('smallModalTitle').textContent = '添加小模型';
+    document.getElementById('smallModelForm').reset();
+    document.getElementById('smallEnabledInput').checked = true;
+    populateSmallModelDbSelect();
+    document.getElementById('smallModelModal').classList.add('show');
+}
+
+function editSmallModel(id) {
+    const model = smallModels.find(m => m.id === id);
+    if (!model) return;
+    editingSmallModelId = id;
+    document.getElementById('smallModalTitle').textContent = '编辑小模型';
+    populateSmallModelDbSelect();
+    document.getElementById('smallNameInput').value = model.name;
+    document.getElementById('smallDescInput').value = model.description || '';
+    document.getElementById('smallDbSelect').value = model.database_id || '';
+    document.getElementById('smallInputTypeInput').value = model.input_type || 'text';
+    document.getElementById('smallAcceptExtsInput').value = model.accept_exts || '';
+    document.getElementById('smallOutputTypeInput').value = model.output_type || 'text';
+    document.getElementById('smallCodeInput').value = model.js_code || '';
+    document.getElementById('smallEnabledInput').checked = model.enabled;
+    document.getElementById('smallModelModal').classList.add('show');
+}
+
+function hideSmallModelModal() {
+    document.getElementById('smallModelModal').classList.remove('show');
+}
+
+function populateSmallModelDbSelect() {
+    const select = document.getElementById('smallDbSelect');
+    select.innerHTML = '<option value="">不关联数据库</option>';
+    databases.forEach(db => {
+        select.innerHTML += `<option value="${db.id}">${escapeHtml(db.name)} (${db.type})</option>`;
+    });
+}
+
+async function handleSmallModelSubmit(e) {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('smallNameInput').value.trim(),
+        description: document.getElementById('smallDescInput').value.trim(),
+        database_id: document.getElementById('smallDbSelect').value,
+        input_type: document.getElementById('smallInputTypeInput').value,
+        accept_exts: document.getElementById('smallAcceptExtsInput').value.trim(),
+        output_type: document.getElementById('smallOutputTypeInput').value,
+        js_code: document.getElementById('smallCodeInput').value,
+        enabled: document.getElementById('smallEnabledInput').checked,
+    };
+    
+    try {
+        const url = editingSmallModelId
+            ? `${API_BASE}/api/data-ontology/models/small/${editingSmallModelId}`
+            : `${API_BASE}/api/data-ontology/models/small`;
+        const method = editingSmallModelId ? 'PUT' : 'POST';
+        const resp = await fetchWithAuth(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (result.success) {
+            hideSmallModelModal();
+            loadSmallModels();
+        } else {
+            alert(result.message || '保存失败');
+        }
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+async function deleteSmallModel(id) {
+    if (!confirm('确定删除该模型？')) return;
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (result.success) loadSmallModels();
+        else alert(result.message || '删除失败');
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+async function runSmallModel(id) {
+    const model = smallModels.find(m => m.id === id);
+    if (!model) return;
+    
+    const inputText = prompt('请输入文本内容:');
+    if (inputText === null) return;
+    
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_text: inputText })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            alert('运行结果:\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)));
+        } else {
+            alert('运行失败: ' + result.message);
+        }
+    } catch (e) {
+        alert('运行失败: ' + e.message);
+    }
+}
