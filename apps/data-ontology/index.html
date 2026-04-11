@@ -6,8 +6,8 @@
     <title>数据本体池</title>
     <link rel="stylesheet" href="style.css">
     <script src="/lib/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="lib/three.min.js"></script>
+    <script src="lib/orbit-controls-wrapper.js"></script>
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -1141,6 +1141,33 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <label>注册为 API 接口</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="govRegisterAPIInput" onchange="onGovRegisterAPIChange()">
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="govRegisterAPILabel">未注册</span>
+                    </div>
+                    <small>启用后，该任务可通过 API 接口调用执行</small>
+                </div>
+                <div id="govAPIFields" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
+                            <label for="govAPIPathInput">API 路径</label>
+                            <input type="text" id="govAPIPathInput" placeholder="/api/tasks/my-task">
+                            <small>以 /api/ 开头的路径</small>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label for="govAPIMethodInput">请求方法</label>
+                            <select id="govAPIMethodInput">
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
                     <div class="gov-codegen-toggle" onclick="toggleCodeGen()">
                         <span>导入到数据库（可视化选择库、表与要导入的数据）</span>
                         <span id="codegenArrow" class="gov-codegen-arrow">▶</span>
@@ -1189,12 +1216,14 @@
                         <span>任务代码 (JavaScript)</span>
                         <button type="button" class="btn btn-sm" onclick="openGovApiHelp()" style="font-size:12px;">📖 API 参考</button>
                     </label>
-                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth
+                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
 // gov.log(msg)                      - 输出日志
 // gov.getDatabases()                - 返回 [{id,name,type},...] 可入多个库
 // gov.readExcel(file)               - 读取Excel，返回workbook
 // gov.readCSV(text)                 - 解析CSV，返回二维数组
 // gov.writeExcel(fn, data, opt?)    - 导出 Excel（二维数组或对象数组），浏览器下载
+// await gov.fillWordTemplate(file, data, fn)   - .docx 模板 {占位符} 渲染下载
+// await gov.fillExcelTemplate(file, data, fn)  - .xlsx 模板按 A1、Sheet1!A1 等填格下载
 // gov.writeCSV(fn, rows)            - 导出 CSV（二维数组），浏览器下载
 // gov.writeText(fn, str)            - 导出纯文本，浏览器下载
 // gov.writeJSON(fn, obj)            - 导出格式化 JSON，浏览器下载
@@ -1266,6 +1295,8 @@
         </div>
     </div>
 
+    <script src="lib/pizzip.js"></script>
+    <script src="lib/docxtemplater.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

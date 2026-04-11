@@ -5299,7 +5299,10 @@ function renderGovTaskList() {
              onclick="selectGovTask('${t.id}')">
             <div class="gov-task-item-icon">${t.type === 'scheduled' ? '⏰' : '📤'}</div>
             <div class="gov-task-item-info">
-                <div class="gov-task-item-name">${escapeHtml(t.name)}</div>
+                <div class="gov-task-item-name">
+                    ${escapeHtml(t.name)}
+                    ${t.register_as_api ? '<span class="gov-api-badge" title="已注册为 API">🔗</span>' : ''}
+                </div>
                 <div class="gov-task-item-meta">
                     <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '定时' : '交互'}</span>
                     <span class="gov-status-dot ${t.status}"></span>
@@ -5430,6 +5433,12 @@ function showAddGovTaskModal() {
     document.getElementById('govTaskForm').reset();
     document.getElementById('govEnabledInput').checked = true;
     document.getElementById('govEnabledLabel').textContent = '已启用';
+    // 重置 API 字段
+    document.getElementById('govRegisterAPIInput').checked = false;
+    document.getElementById('govRegisterAPILabel').textContent = '未注册';
+    document.getElementById('govAPIPathInput').value = '';
+    document.getElementById('govAPIMethodInput').value = 'POST';
+    document.getElementById('govAPIFields').style.display = 'none';
     onGovTaskTypeChange();
     populateGovDbSelect();
     document.getElementById('govFormError').textContent = '';
@@ -5453,6 +5462,12 @@ function editGovTask() {
     document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
     document.getElementById('govInputTypeSelect').value = currentGovTask.input_type || 'file';
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
+    // API 字段
+    document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
+    document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
+    document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
+    document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
+    document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
     populateGovDbSelect();
     document.getElementById('govTaskDbSelect').value = currentGovTask.database_id || '';
     onGovTaskTypeChange();
@@ -5473,6 +5488,24 @@ function onGovTaskTypeChange() {
     document.getElementById('govInteractiveFields').style.display = type === 'interactive' ? '' : 'none';
 }
 
+function onGovRegisterAPIChange() {
+    const checked = document.getElementById('govRegisterAPIInput').checked;
+    document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
+    document.getElementById('govRegisterAPILabel').textContent = checked ? '已注册' : '未注册';
+    
+    // 自动生成 API 路径
+    if (checked && !document.getElementById('govAPIPathInput').value) {
+        const taskName = document.getElementById('govTaskNameInput').value.trim();
+        if (taskName) {
+            // 将任务名转为 URL 友好格式
+            const slug = taskName.toLowerCase()
+                .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+                .replace(/^-|-$/g, '');
+            document.getElementById('govAPIPathInput').value = `/api/tasks/${slug}`;
+        }
+    }
+}
+
 function populateGovDbSelect() {
     const select = document.getElementById('govTaskDbSelect');
     select.innerHTML = '<option value="">不关联数据库</option>';
@@ -5485,6 +5518,7 @@ async function handleGovTaskSubmit(e) {
     e.preventDefault();
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
+    const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
         type: type,
@@ -5495,6 +5529,9 @@ async function handleGovTaskSubmit(e) {
         enabled: type === 'scheduled' ? document.getElementById('govEnabledInput').checked : false,
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+        register_as_api: registerAsAPI,
+        api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
+        api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
     };
 
     if (!taskData.name || !taskData.js_code) {
@@ -5775,6 +5812,7 @@ async function ensureGovLibsLoaded() {
         { global: 'XLSX',    src: '../../lib/xlsx.full.min.js' },
         { global: 'Papa',    src: '../../lib/papaparse.min.js' },
         { global: 'mammoth', src: '../../lib/mammoth.browser.min.js' },
+        { global: 'PizZip',  src: 'lib/pizzip.js' },
     ];
     for (const lib of libs) {
         if (!window[lib.global]) {
@@ -5787,11 +5825,101 @@ async function ensureGovLibsLoaded() {
             });
         }
     }
+    if (!_govGetDocxtemplaterClass()) {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'lib/docxtemplater.js';
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('加载 docxtemplater 失败'));
+            document.head.appendChild(s);
+        });
+    }
+    if (!_govGetDocxtemplaterClass()) {
+        throw new Error('Docxtemplater 不可用');
+    }
     govLibsLoaded = true;
 }
 
-function createGovHelper(logLines) {
+function _govGetDocxtemplaterClass() {
+    if (typeof window.Docxtemplater !== 'undefined') return window.Docxtemplater;
+    const d = window.docxtemplater;
+    if (d && (d.default || d.Docxtemplater)) return d.default || d.Docxtemplater;
+    return null;
+}
+
+function _govExcelCellForValue(val) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'number' && !isNaN(val)) return { t: 'n', v: val };
+    if (val instanceof Date) return { t: 'd', v: val };
+    if (typeof val === 'boolean') return { t: 'b', v: val };
+    return { t: 's', v: String(val) };
+}
+
+function _govExpandSheetRef(XLSX, ws) {
+    let maxR = 0;
+    let maxC = 0;
+    let has = false;
+    for (const k of Object.keys(ws)) {
+        if (k[0] === '!') continue;
+        try {
+            const cell = XLSX.utils.decode_cell(k);
+            has = true;
+            maxR = Math.max(maxR, cell.r);
+            maxC = Math.max(maxC, cell.c);
+        } catch (e) {
+            /* ignore */
+        }
+    }
+    if (has) {
+        ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
+    }
+}
+
+function _govApplyCellMapToSheet(XLSX, ws, cellMap) {
+    for (const [addr, val] of Object.entries(cellMap)) {
+        if (!addr || addr[0] === '!') continue;
+        try {
+            XLSX.utils.decode_cell(addr);
+        } catch (e) {
+            continue;
+        }
+        const cellObj = _govExcelCellForValue(val);
+        if (cellObj === null) delete ws[addr];
+        else ws[addr] = cellObj;
+    }
+    _govExpandSheetRef(XLSX, ws);
+}
+
+function _govDataIsFlatCellMap(XLSX, data) {
+    const keys = Object.keys(data);
+    if (keys.length === 0) return false;
+    return keys.every(k => {
+        if (typeof k !== 'string') return false;
+        try {
+            XLSX.utils.decode_cell(k);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    });
+}
+
+function createGovHelper(logLines, uploadedFiles) {
+    const uploaded = Array.isArray(uploadedFiles) ? uploadedFiles : [];
     const dbId = currentGovTask?.database_id || '';
+
+    async function _resolveGovTemplateFile(templateFile) {
+        if (templateFile instanceof File || templateFile instanceof Blob) return templateFile;
+        if (typeof templateFile === 'string') {
+            const name = templateFile.trim();
+            if (!name) throw new Error('未指定模板文件名');
+            const found = uploaded.find(f => f && f.name === name)
+                || uploaded.find(f => f && (f.name.endsWith(name) || name.endsWith(f.name)));
+            if (found) return found;
+            throw new Error(`未找到模板文件「${name}」，请上传后传入 File 或匹配的文件名`);
+        }
+        throw new Error('templateFile 须为 File/Blob 或文件名字符串');
+    }
 
     async function _runSQL(databaseId, sql, params = []) {
         const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
@@ -5883,6 +6011,46 @@ function createGovHelper(logLines) {
             const data = await resp.json();
             if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
+        },
+        async fillWordTemplate(templateFile, data, outputFilename) {
+            await ensureGovLibsLoaded();
+            if (!window.PizZip) throw new Error('PizZip 未加载');
+            const DocxCtor = _govGetDocxtemplaterClass();
+            if (!DocxCtor) throw new Error('Docxtemplater 未加载');
+            const fileObj = await _resolveGovTemplateFile(templateFile);
+            const buf = await fileObj.arrayBuffer();
+            const zip = new window.PizZip(buf);
+            const doc = new DocxCtor(zip, { paragraphLoop: true, linebreaks: true });
+            doc.setData(data || {});
+            doc.render();
+            const blob = doc.getZip().generate({
+                type: 'blob',
+                mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            });
+            const base = outputFilename || 'output.docx';
+            const outName = /\.docx$/i.test(base) ? base : `${base}.docx`;
+            _govDownloadBlob(blob, outName);
+        },
+        async fillExcelTemplate(templateFile, data, outputFilename) {
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
+            if (!data || typeof data !== 'object') throw new Error('data 须为对象');
+            const fileObj = await _resolveGovTemplateFile(templateFile);
+            const wb = await this.readExcel(fileObj);
+            const flat = _govDataIsFlatCellMap(XLSX, data);
+            if (flat) {
+                const sn = wb.SheetNames[0];
+                _govApplyCellMapToSheet(XLSX, wb.Sheets[sn], data);
+            } else {
+                for (const [sheetName, cells] of Object.entries(data)) {
+                    if (!cells || typeof cells !== 'object' || Array.isArray(cells)) continue;
+                    const ws = wb.Sheets[sheetName];
+                    if (!ws) throw new Error(`模板中不存在工作表「${sheetName}」`);
+                    _govApplyCellMapToSheet(XLSX, ws, cells);
+                }
+            }
+            const base = outputFilename || 'output.xlsx';
+            const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
+            XLSX.writeFile(wb, outName);
         },
         writeExcel(filename, data, options) {
             if (!filename) throw new Error('未提供文件名');
@@ -6208,11 +6376,12 @@ async function executeGovTaskInBrowserOnce(code, file, inputText) {
 
     try {
         await ensureGovLibsLoaded();
-        const gov = createGovHelper(logLines);
+        const gov = createGovHelper(logLines, file ? [file] : []);
+        const DocxCtor = _govGetDocxtemplaterClass();
 
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', code);
-        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth);
+        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', code);
+        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor);
     } catch (err) {
         status = 'error';
         errorMsg = err.message || String(err);
@@ -6382,8 +6551,20 @@ const GOV_API_DOCS = [
             {
                 name: 'gov.writeExcel',
                 signature: 'gov.writeExcel(filename, data, options?)',
-                desc: '生成 Excel 并触发浏览器下载。data 可为二维数组或对象数组；options 可选 { sheetName: \'Sheet1\' }（内部 SheetJS XLSX.writeFile）。',
+                desc: '从空白生成 Excel 并下载。data 为二维数组或对象数组；options 可选 { sheetName }。若需基于已有 .xlsx 模板只填单元格，请用 gov.fillExcelTemplate。',
                 example: '// 二维数组\nconst rows = [[\'姓名\', \'分数\'], [\'张三\', 90]];\ngov.writeExcel(\'结果.xlsx\', rows, { sheetName: \'Sheet1\' });\n\n// 对象数组\nconst objs = [{ name: \'张三\', score: 90 }];\ngov.writeExcel(\'导出.xlsx\', objs);'
+            },
+            {
+                name: 'gov.fillWordTemplate',
+                signature: 'await gov.fillWordTemplate(templateFile, data, outputFilename)',
+                desc: '基于 .docx 模板（占位符 {name}、循环 {#items}...{/items}、条件 {#show}...{/show}）用 docxtemplater 渲染并下载。templateFile 为 File/Blob，或与已上传文件同名的字符串。',
+                example: 'await gov.fillWordTemplate(INPUT_FILE, {\n  name: \'张三\',\n  date: \'2024-01-01\',\n  items: [{ x: 1 }, { x: 2 }],\n  show: true\n}, \'报告.docx\');'
+            },
+            {
+                name: 'gov.fillExcelTemplate',
+                signature: 'await gov.fillExcelTemplate(templateFile, data, outputFilename)',
+                desc: '读取 .xlsx 模板，按单元格地址写入 data 后下载。data 可为 { A1: \'值\', B2: 123 }（默认第一个工作表），或 { Sheet1: { A1: \'值\' }, Sheet2: { B2: 2 } }。',
+                example: '// 单表\nawait gov.fillExcelTemplate(INPUT_FILE, { A1: \'标题\', B2: 100 }, \'导出.xlsx\');\n\n// 多表\nawait gov.fillExcelTemplate(\'tpl.xlsx\', {\n  Sheet1: { A1: \'a\' },\n  数据: { B3: \'b\' }\n}, \'结果.xlsx\');'
             },
             {
                 name: 'gov.writeCSV',
@@ -6472,6 +6653,18 @@ const GOV_API_DOCS = [
                 signature: 'mammoth',
                 desc: 'Word 文档处理库。mammoth.extractRawText({ arrayBuffer }) 提取 .docx 纯文本，convertToHtml 转为 HTML。gov.readWord 已封装常用用法。',
                 example: '// gov.readWord 已封装，直接使用：\nconst result = await gov.readWord(INPUT_FILE);\ngov.log(result.value); // 纯文本'
+            },
+            {
+                name: 'PizZip',
+                signature: 'PizZip',
+                desc: '读写 docx 的 zip 结构。gov.fillWordTemplate 已封装；也可在任务代码中直接 new PizZip(arrayBuffer) 做自定义处理。',
+                example: 'const zip = new PizZip(buf);'
+            },
+            {
+                name: 'Docxtemplater',
+                signature: 'Docxtemplater',
+                desc: 'Word 模板占位符替换。gov.fillWordTemplate 已封装；也可 new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true }) 后 setData、render、getZip().generate。',
+                example: 'const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });\ndoc.setData({ name: \'x\' });\ndoc.render();'
             }
         ]
     }

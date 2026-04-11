@@ -532,23 +532,26 @@ type AICodegenColumn struct {
 
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
-	ID          string   `json:"id"`
-	Owner       string   `json:"owner,omitempty"`         // 所属用户名
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`                    // "scheduled" | "interactive"
-	Description string   `json:"description,omitempty"`
-	JsCode      string   `json:"js_code"`
-	DatabaseID  string   `json:"database_id,omitempty"`
-	CronExpr    string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
-	Enabled     bool     `json:"enabled"`
-	InputType   string   `json:"input_type,omitempty"`    // "file" | "text" | "both"
-	AcceptExts  []string `json:"accept_exts,omitempty"`   // [".xlsx",".csv",".docx"]
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-	Status      string   `json:"status"`                  // "idle" | "running" | "success" | "error"
-	LastOutput  string   `json:"last_output,omitempty"`
-	LastError   string   `json:"last_error,omitempty"`
-	LastRunAt   string   `json:"last_run_at,omitempty"`
+	ID            string   `json:"id"`
+	Owner         string   `json:"owner,omitempty"`         // 所属用户名
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`                    // "scheduled" | "interactive"
+	Description   string   `json:"description,omitempty"`
+	JsCode        string   `json:"js_code"`
+	DatabaseID    string   `json:"database_id,omitempty"`
+	CronExpr      string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
+	Enabled       bool     `json:"enabled"`
+	InputType     string   `json:"input_type,omitempty"`    // "file" | "text" | "both"
+	AcceptExts    []string `json:"accept_exts,omitempty"`   // [".xlsx",".csv",".docx"]
+	RegisterAsAPI bool     `json:"register_as_api"`         // 是否注册为 API 接口
+	APIPath       string   `json:"api_path,omitempty"`      // API 路径（如 /api/tasks/my-task）
+	APIMethod     string   `json:"api_method,omitempty"`    // API 方法（GET/POST）
+	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     string   `json:"updated_at,omitempty"`
+	Status        string   `json:"status"`                  // "idle" | "running" | "success" | "error"
+	LastOutput    string   `json:"last_output,omitempty"`
+	LastError     string   `json:"last_error,omitempty"`
+	LastRunAt     string   `json:"last_run_at,omitempty"`
 	// 异步执行进度追踪
 	RunID          string `json:"run_id,omitempty"`           // 当前运行 ID
 	TotalFiles     int    `json:"total_files,omitempty"`      // 总文件数
@@ -4389,6 +4392,72 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			return
 		}
 
+		// 先检查是否有匹配的数据治理任务 API
+		dataOntologyMu.RLock()
+		var matchedTask *GovernanceTask
+		for _, task := range dataOntologyTasks {
+			if task.RegisterAsAPI && task.APIPath == reqPath && strings.EqualFold(task.APIMethod, reqMethod) {
+				matchedTask = task
+				break
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		if matchedTask != nil {
+			// 找到匹配的任务，执行任务
+			if !matchedTask.Enabled {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "该任务已禁用",
+				})
+				return
+			}
+
+			if !verifyToken(r) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "未授权，请提供有效的 API Key 或 Token",
+				})
+				return
+			}
+
+			// 解析请求参数
+			params := make(map[string]interface{})
+			isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
+			if isBodyMethod && r.Body != nil {
+				json.NewDecoder(r.Body).Decode(&params)
+			}
+			for k, v := range r.URL.Query() {
+				if _, exists := params[k]; !exists {
+					if len(v) == 1 {
+						params[k] = v[0]
+					} else {
+						params[k] = v
+					}
+				}
+			}
+
+			// 执行任务
+			result, err := executeGovernanceTaskForAPI(matchedTask, params)
+			w.Header().Set("Content-Type", "application/json")
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "任务执行失败: " + err.Error(),
+				})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"data":    result,
+			})
+			return
+		}
+
 		dataOntologyMu.RLock()
 		var matchedApi *ApiConfig
 		var matchedDb *DatabaseConfig
@@ -7481,6 +7550,64 @@ func governanceWorker() {
 	for job := range governanceJobQueue {
 		executeGovernanceJob(job)
 	}
+}
+
+// executeGovernanceTaskForAPI 为 API 调用执行任务（同步返回结果）
+func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interface{}) (interface{}, error) {
+	// 获取任务信息
+	dataOntologyMu.RLock()
+	dbID := task.DatabaseID
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	// 构建数据库列表
+	var databases []map[string]string
+	for id, db := range dataOntologyDatabases {
+		if !dataOntologyResourceVisible(db.Owner, task.Owner) {
+			continue
+		}
+		databases = append(databases, map[string]string{
+			"id":   id,
+			"name": db.Name,
+			"type": db.Type,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        task.JsCode,
+		"token":       "", // API 调用不需要 token
+		"database_id": dbID,
+		"db_type":     dbType,
+		"databases":   databases,
+		"input_text":  "",
+		"api_params":  params, // 传入 API 参数
+	}
+
+	// 处理文件参数（如果有的话）
+	if fileBase64, ok := params["file_base64"].(string); ok {
+		taskData["file_base64"] = fileBase64
+	}
+	if fileName, ok := params["file_name"].(string); ok {
+		taskData["file_name"] = fileName
+	}
+	if inputText, ok := params["input_text"].(string); ok {
+		taskData["input_text"] = inputText
+	}
+
+	// 执行任务
+	result := callGovRunner(taskData)
+	if !result.Success {
+		return nil, fmt.Errorf(result.Error)
+	}
+
+	// 返回结果
+	if len(result.Output) == 1 {
+		return result.Output[0], nil
+	}
+	return result.Output, nil
 }
 
 // executeGovernanceJob 执行单个治理任务
