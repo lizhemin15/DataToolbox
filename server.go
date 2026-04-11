@@ -7172,6 +7172,14 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			task.AcceptExts = update.AcceptExts
 		}
 		task.Enabled = update.Enabled
+		// API 注册字段
+		task.RegisterAsAPI = update.RegisterAsAPI
+		if update.APIPath != "" {
+			task.APIPath = update.APIPath
+		}
+		if update.APIMethod != "" {
+			task.APIMethod = update.APIMethod
+		}
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()
 
