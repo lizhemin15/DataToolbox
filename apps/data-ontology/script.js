@@ -5488,20 +5488,59 @@ function onGovTaskTypeChange() {
     document.getElementById('govInteractiveFields').style.display = type === 'interactive' ? '' : 'none';
 }
 
+// 中文转拼音首字母
+function chineseToPinyinInitials(str) {
+    const pinyinMap = {
+        '阿': 'a', '啊': 'a', '安': 'a', '爱': 'a', '艾': 'a',
+        '巴': 'b', '白': 'b', '北': 'b', '本': 'b', '表': 'b', '别': 'b', '不': 'b',
+        '才': 'c', '成': 'c', '城': 'c', '出': 'c', '处': 'c', '从': 'c', '存': 'c',
+        '大': 'd', '但': 'd', '当': 'd', '到': 'd', '得': 'd', '的': 'd', '地': 'd', '点': 'd', '定': 'd', '东': 'd', '动': 'd', '对': 'd', '多': 'd',
+        '而': 'e', '二': 'e',
+        '发': 'f', '法': 'f', '方': 'f', '分': 'f', '服': 'f', '府': 'f',
+        '改': 'g', '高': 'g', '个': 'g', '给': 'g', '更': 'g', '工': 'g', '公': 'g', '共': 'g', '关': 'g', '管': 'g', '国': 'g', '过': 'g',
+        '还': 'h', '海': 'h', '好': 'h', '和': 'h', '合': 'h', '很': 'h', '后': 'h', '会': 'h', '活': 'h',
+        '机': 'j', '基': 'j', '级': 'j', '即': 'j', '几': 'j', '技': 'j', '计': 'j', '记': 'j', '加': 'j', '家': 'j', '间': 'j', '建': 'j', '将': 'j', '交': 'j', '教': 'j', '解': 'j', '进': 'j', '经': 'j', '就': 'j', '局': 'j', '据': 'j', '决': 'j',
+        '开': 'k', '看': 'k', '可': 'k', '客': 'k', '空': 'k', '口': 'k',
+        '来': 'l', '老': 'l', '了': 'l', '理': 'l', '力': 'l', '立': 'l', '利': 'l', '连': 'l', '两': 'l', '林': 'l', '路': 'l',
+        '妈': 'm', '马': 'm', '么': 'm', '没': 'm', '每': 'm', '美': 'm', '门': 'm', '们': 'm', '面': 'm', '名': 'm', '明': 'm', '目': 'm',
+        '那': 'n', '南': 'n', '能': 'n', '你': 'n', '年': 'n', '您': 'n',
+        '欧': 'o',
+        '排': 'p', '配': 'p', '朋': 'p', '平': 'p', '品': 'p',
+        '期': 'q', '其': 'q', '起': 'q', '气': 'q', '前': 'q', '情': 'q', '请': 'q', '区': 'q', '去': 'q', '全': 'q', '确': 'q',
+        '然': 'r', '人': 'r', '日': 'r', '容': 'r', '入': 'r',
+        '三': 's', '色': 's', '上': 's', '少': 's', '社': 's', '设': 's', '生': 's', '时': 's', '实': 's', '使': 's', '事': 's', '是': 's', '书': 's', '水': 's', '说': 's', '思': 's', '四': 's', '送': 's', '算': 's', '所': 's',
+        '他': 't', '她': 't', '台': 't', '天': 't', '条': 't', '通': 't', '同': 't', '头': 't', '图': 't', '团': 't',
+        '外': 'w', '完': 'w', '万': 'w', '网': 'w', '为': 'w', '文': 'w', '问': 'w', '我': 'w', '无': 'w', '五': 'w', '物': 'w',
+        '西': 'x', '系': 'x', '下': 'x', '先': 'x', '显': 'x', '现': 'x', '相': 'x', '想': 'x', '向': 'x', '小': 'x', '效': 'x', '新': 'x', '心': 'x', '信': 'x', '行': 'x', '学': 'x',
+        '研': 'y', '样': 'y', '要': 'y', '也': 'y', '业': 'y', '一': 'y', '已': 'y', '以': 'y', '意': 'y', '因': 'y', '应': 'y', '用': 'y', '有': 'y', '又': 'y', '于': 'y', '元': 'y', '月': 'y', '员': 'y', '原': 'y', '源': 'y', '约': 'y', '越': 'y',
+        '再': 'z', '在': 'z', '则': 'z', '怎': 'z', '展': 'z', '张': 'z', '找': 'z', '这': 'z', '真': 'z', '正': 'z', '证': 'z', '知': 'z', '只': 'z', '至': 'z', '制': 'z', '中': 'z', '种': 'z', '重': 'z', '主': 'z', '注': 'z', '专': 'z', '资': 'z', '子': 'z', '自': 'z', '总': 'z', '组': 'z', '最': 'z', '作': 'z',
+        '数': 's', '据': 'j', '治': 'z', '理': 'l', '任': 'r', '务': 'w', '导': 'd', '入': 'r', '出': 'c', '报': 'b', '告': 'g', '处': 'c', '析': 'x', '测': 'c', '试': 's', '运': 'y', '行': 'x', '配': 'p', '置': 'z', '查': 'c', '询': 'x', '更': 'g', '新': 'x', '删': 's', '除': 'c', '添': 't', '加': 'j', '编': 'b', '辑': 'j', '创': 'c', '建': 'j'
+    };
+    
+    let result = '';
+    for (const char of str) {
+        if (pinyinMap[char]) {
+            result += pinyinMap[char];
+        } else if (/[a-zA-Z]/.test(char)) {
+            result += char.toLowerCase();
+        } else if (/[0-9]/.test(char)) {
+            result += char;
+        }
+    }
+    return result;
+}
+
 function onGovRegisterAPIChange() {
     const checked = document.getElementById('govRegisterAPIInput').checked;
     document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
     document.getElementById('govRegisterAPILabel').textContent = checked ? '已注册' : '未注册';
     
-    // 自动生成 API 路径
+    // 自动生成 API 路径（拼音首字母）
     if (checked && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
         if (taskName) {
-            // 将任务名转为 URL 友好格式
-            const slug = taskName.toLowerCase()
-                .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
-                .replace(/^-|-$/g, '');
-            document.getElementById('govAPIPathInput').value = `/api/tasks/${slug}`;
+            const initials = chineseToPinyinInitials(taskName);
+            document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
         }
     }
 }
