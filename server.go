@@ -4395,7 +4395,7 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		// 先检查是否有匹配的数据治理任务 API
 		dataOntologyMu.RLock()
 		var matchedTask *GovernanceTask
-		for _, task := range dataOntologyTasks {
+		for _, task := range governanceTasks {
 			if task.RegisterAsAPI && task.APIPath == reqPath && strings.EqualFold(task.APIMethod, reqMethod) {
 				matchedTask = task
 				break
