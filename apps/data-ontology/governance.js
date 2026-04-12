@@ -49,3 +49,30 @@ function govDownloadExamplesForTask(taskId) {
         govDownloadExampleZip(list);
     }
 }
+
+async function govReloadExamplesFromEmbed() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/reload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!data.success) {
+            alert(data.message || '刷新失败');
+            return;
+        }
+        await loadGovernanceTasks();
+        if (currentGovTask) {
+            const t = govTasks.find(x => x.id === currentGovTask.id);
+            if (t) {
+                currentGovTask = t;
+                showGovTaskDetail(t);
+            }
+        }
+        const n = data.updated_tasks != null ? data.updated_tasks : 0;
+        alert(n > 0 ? `已同步 ${n} 个预置任务的示例元数据` : '已是最新，无需更新');
+    } catch (e) {
+        alert('刷新失败');
+    }
+}

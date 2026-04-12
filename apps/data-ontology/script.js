@@ -668,6 +668,10 @@ function updateUserMgmtNavVisibility() {
     if (btn) {
         btn.style.display = currentUser === 'admin' ? 'inline-flex' : 'none';
     }
+    const govRefresh = document.getElementById('govRefreshExamplesBtn');
+    if (govRefresh) {
+        govRefresh.style.display = currentUser === 'admin' ? 'inline-flex' : 'none';
+    }
 }
 
 // 切换标签页

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/md5"
 	"database/sql"
@@ -573,28 +573,28 @@ type GovernanceExampleFile struct {
 
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
-	ID            string   `json:"id"`
-	Owner         string   `json:"owner,omitempty"` // 所属用户名
-	Name          string   `json:"name"`
-	Type          string   `json:"type"` // "scheduled" | "interactive"
-	Description   string   `json:"description,omitempty"`
-	JsCode        string   `json:"js_code"`
-	DatabaseID    string   `json:"database_id,omitempty"`
-	CronExpr      string   `json:"cron_expr,omitempty"` // "分 时 日 月 周" e.g. "0 2 * * *"
-	Enabled       bool     `json:"enabled"`
-	InputType     string   `json:"input_type,omitempty"`      // "file" | "text" | "both"
-	AcceptExts    []string `json:"accept_exts,omitempty"`     // [".xlsx",".csv",".docx"]
-	RegisterAsAPI bool     `json:"register_as_api"`           // 是否注册为 API 接口
-	APIPath       string   `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
-	APIMethod     string   `json:"api_method,omitempty"`      // API 方法（GET/POST）
-	FileBatchMode string   `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
+	ID            string                  `json:"id"`
+	Owner         string                  `json:"owner,omitempty"` // 所属用户名
+	Name          string                  `json:"name"`
+	Type          string                  `json:"type"` // "scheduled" | "interactive"
+	Description   string                  `json:"description,omitempty"`
+	JsCode        string                  `json:"js_code"`
+	DatabaseID    string                  `json:"database_id,omitempty"`
+	CronExpr      string                  `json:"cron_expr,omitempty"` // "分 时 日 月 周" e.g. "0 2 * * *"
+	Enabled       bool                    `json:"enabled"`
+	InputType     string                  `json:"input_type,omitempty"`      // "file" | "text" | "both"
+	AcceptExts    []string                `json:"accept_exts,omitempty"`     // [".xlsx",".csv",".docx"]
+	RegisterAsAPI bool                    `json:"register_as_api"`           // 是否注册为 API 接口
+	APIPath       string                  `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
+	APIMethod     string                  `json:"api_method,omitempty"`      // API 方法（GET/POST）
+	FileBatchMode string                  `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
 	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
-	CreatedAt     string   `json:"created_at"`
-	UpdatedAt     string   `json:"updated_at,omitempty"`
-	Status        string   `json:"status"` // "idle" | "running" | "success" | "error"
-	LastOutput    string   `json:"last_output,omitempty"`
-	LastError     string   `json:"last_error,omitempty"`
-	LastRunAt     string   `json:"last_run_at,omitempty"`
+	CreatedAt     string                  `json:"created_at"`
+	UpdatedAt     string                  `json:"updated_at,omitempty"`
+	Status        string                  `json:"status"` // "idle" | "running" | "success" | "error"
+	LastOutput    string                  `json:"last_output,omitempty"`
+	LastError     string                  `json:"last_error,omitempty"`
+	LastRunAt     string                  `json:"last_run_at,omitempty"`
 	// 异步执行进度追踪
 	RunID          string `json:"run_id,omitempty"`          // 当前运行 ID
 	TotalFiles     int    `json:"total_files,omitempty"`     // 总文件数
@@ -1015,30 +1015,76 @@ func loadGovernanceAggregateDailyReportJS() string {
 	return string(b)
 }
 
-// ensureGovernanceExampleFiles 为已持久化的预置任务补全示例文件元数据
-func ensureGovernanceExampleFiles() {
-	changed := false
+// governancePresetExampleFilesByName 内置预置任务的示例文件列表（与 embed 中 governance-examples 一致）
+func governancePresetExampleFilesByName(taskName string) ([]GovernanceExampleFile, bool) {
+	switch taskName {
+	case "Word文档内容提取":
+		return []GovernanceExampleFile{
+			{Name: "模板.docx", Path: "template.docx"},
+		}, true
+	case "综合日报生成器":
+		return []GovernanceExampleFile{
+			{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+			{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
+			{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
+			{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// exampleFilesListsEqual 比较两个示例列表是否一致（顺序敏感）
+func exampleFilesListsEqual(a, b []GovernanceExampleFile) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].Path != b[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+// syncGovernancePresetExamplesFromEmbed 将 embed 中的预置示例元数据同步到内存中的任务并写入 data-store。
+// 仅处理名称与内置预置完全一致的任务，不会修改用户自建任务。
+// includeJS 为 true 时，将「综合日报生成器」的 js_code 替换为 embed 内最新脚本（慎用：会覆盖用户对该任务的代码修改）。
+func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
+	now := time.Now().Format(time.RFC3339)
+	updated := 0
 	for _, t := range governanceTasks {
 		if t == nil {
 			continue
 		}
-		if t.Name == "Word文档内容提取" && len(t.ExampleFiles) == 0 {
-			t.ExampleFiles = []GovernanceExampleFile{
-				{Name: "模板.docx", Path: "template.docx"},
-			}
+		files, ok := governancePresetExampleFilesByName(t.Name)
+		if !ok {
+			continue
+		}
+		changed := false
+		if !exampleFilesListsEqual(t.ExampleFiles, files) {
+			t.ExampleFiles = files
+			t.UpdatedAt = now
 			changed = true
 		}
-		if t.Name == "综合日报生成器" && len(t.ExampleFiles) == 0 {
-			t.ExampleFiles = []GovernanceExampleFile{
-				{Name: "日报模板.docx", Path: "daily-report-template.docx"},
-				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
-				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
-				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+		if includeJS && t.Name == "综合日报生成器" {
+			js := loadGovernanceAggregateDailyReportJS()
+			if js != "" && t.JsCode != js {
+				t.JsCode = js
+				t.UpdatedAt = now
+				changed = true
 			}
-			changed = true
+		}
+		if changed {
+			updated++
 		}
 	}
-	if changed {
+	return updated
+}
+
+// ensureGovernanceExampleFiles 为已持久化的预置任务补全示例文件元数据（兼容旧数据，逻辑已由 syncGovernancePresetExamplesFromEmbed 覆盖）
+func ensureGovernanceExampleFiles() {
+	if n := syncGovernancePresetExamplesFromEmbed(false); n > 0 {
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存示例文件元数据失败: %v", err)
 		}
@@ -1150,8 +1196,8 @@ func initDataOntology() {
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "模板.docx", Path: "template.docx"},
 			},
-			CreatedAt:   now,
-			Status:      "idle",
+			CreatedAt: now,
+			Status:    "idle",
 		}
 
 		// 示例6: 交互任务 - 综合日报生成器（多文件一次执行 + LLM + docxtemplater）
@@ -1172,8 +1218,8 @@ func initDataOntology() {
 				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
 				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
 			},
-			CreatedAt:     now,
-			Status:        "idle",
+			CreatedAt: now,
+			Status:    "idle",
 		}
 
 		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
@@ -7889,8 +7935,17 @@ func sanitizeGovernanceExampleFilename(s string) string {
 	return base
 }
 
-// handleGovernanceExampleDownload GET …/examples/{filename}
+// handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
+	rawPath := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
+	if rawPath == r.URL.Path {
+		rawPath = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
+	}
+	rawPath = strings.TrimPrefix(rawPath, "/")
+	if r.Method == http.MethodPost && rawPath == "reload" {
+		handleGovernanceExamplesReload(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
@@ -7903,11 +7958,7 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = username
-	raw := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
-	if raw == r.URL.Path {
-		raw = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
-	}
-	raw = strings.TrimPrefix(raw, "/")
+	raw := rawPath
 	if raw == "" || raw == "download" {
 		http.NotFound(w, r)
 		return
@@ -8025,6 +8076,37 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="governance-examples.zip"`)
 	w.Write(buf.Bytes())
+}
+
+// handleGovernanceExamplesReload POST /api/data-ontology/governance/examples/reload
+// 从当前进程内的 embed FS 将预置任务的 example_files（及可选的「综合日报生成器」js_code）同步到 data-store.json。
+// 仅匹配内置任务名称，不修改用户自建任务。需管理员。
+func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	if _, ok := requireDataOntologyAdmin(w, r); !ok {
+		return
+	}
+	var body struct {
+		IncludeJS bool `json:"include_js"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	dataOntologyMu.Lock()
+	n := syncGovernancePresetExamplesFromEmbed(body.IncludeJS)
+	dataOntologyMu.Unlock()
+
+	if n > 0 {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存治理预置示例同步失败: %v", err)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存失败"})
+			return
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n})
 }
 
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）

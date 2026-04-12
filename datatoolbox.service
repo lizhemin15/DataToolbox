@@ -1,0 +1,16 @@
+[Unit]
+Description=DataToolbox Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/datatoolbox
+ExecStart=/opt/datatoolbox/datatoolbox-server
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=datatoolbox
+
+[Install]
+WantedBy=multi-user.target

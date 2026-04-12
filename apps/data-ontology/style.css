@@ -3064,6 +3064,14 @@ textarea#testApiParams {
 
 /* ==================== 数据治理模块 ==================== */
 
+.gov-sidebar-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .gov-task-type-filter {
     display: flex;
     gap: 4px;

@@ -224,7 +224,10 @@
                 <div class="sidebar">
                     <div class="sidebar-header">
                         <h3>任务列表</h3>
-                        <button id="addGovernanceTaskBtn" class="btn btn-sm btn-primary">+ 新建</button>
+                        <div class="gov-sidebar-actions">
+                            <button type="button" id="govRefreshExamplesBtn" class="btn btn-sm btn-secondary" style="display:none;" onclick="govReloadExamplesFromEmbed()">刷新示例</button>
+                            <button id="addGovernanceTaskBtn" class="btn btn-sm btn-primary">+ 新建</button>
+                        </div>
                     </div>
                     <div class="sidebar-search">
                         <input type="text" id="govTaskSearchInput" placeholder="搜索任务名称..." oninput="filterGovTaskList()">
