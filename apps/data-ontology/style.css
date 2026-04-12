@@ -400,12 +400,13 @@ body {
 }
 
 /* 与 .container 同宽（max-width: 1400px），用于非侧栏布局的 tab 内容区 */
+/* 与 .container 一致：外层 30px 与主背景留白 + 内层 20px 与侧栏白卡 padding 对齐，避免白卡顶边贴住 tab 区 */
 .tab-content-wrap {
     box-sizing: border-box;
     width: min(100%, 1400px);
     max-width: 1400px;
-    margin: 0 auto;
-    padding: 30px;
+    margin: 30px auto 0 auto;
+    padding: 20px 30px 30px 30px;
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;
