@@ -3180,6 +3180,23 @@ textarea#testApiParams {
     align-items: center;
 }
 
+.gov-example-btn {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 4px 8px;
+    border: 1px solid #cbd5e0;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #4a5568;
+}
+
+.gov-example-btn:hover {
+    background: #edf2f7;
+    border-color: #667eea;
+    color: #667eea;
+}
+
 .gov-task-badge {
     display: inline-block;
     padding: 1px 6px;

@@ -5311,6 +5311,7 @@ function renderGovTaskList() {
                     <span>${t.status === 'idle' ? '空闲' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '错误'}</span>
                 </div>
             </div>
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${t.id}')">下载示例</button>` : ''}
         </div>
     `).join('');
 }

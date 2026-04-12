@@ -2,10 +2,11 @@ package main
 
 import (
 	"bytes"
+	"archive/zip"
 	"context"
 	"crypto/md5"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -42,8 +43,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-//go:embed governance-examples/aggregate-daily-report.js
-var governanceExampleAggregateDailyReportJS string
+//go:embed governance-examples
+var governanceExamplesFS embed.FS
 
 // 条件编译：仅在支持CGO时导入这些驱动
 // SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
@@ -564,6 +565,12 @@ type AICodegenColumn struct {
 	SourceIndex int    `json:"source_index"`
 }
 
+// GovernanceExampleFile 预置任务示例文件（供下载，path 为 governance-examples 下相对路径）
+type GovernanceExampleFile struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
 	ID            string   `json:"id"`
@@ -581,6 +588,7 @@ type GovernanceTask struct {
 	APIPath       string   `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
 	APIMethod     string   `json:"api_method,omitempty"`      // API 方法（GET/POST）
 	FileBatchMode string   `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
+	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
 	CreatedAt     string   `json:"created_at"`
 	UpdatedAt     string   `json:"updated_at,omitempty"`
 	Status        string   `json:"status"` // "idle" | "running" | "success" | "error"
@@ -998,12 +1006,52 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 	}
 }
 
+func loadGovernanceAggregateDailyReportJS() string {
+	b, err := governanceExamplesFS.ReadFile("governance-examples/aggregate-daily-report.js")
+	if err != nil {
+		log.Printf("读取 aggregate-daily-report.js 失败: %v", err)
+		return ""
+	}
+	return string(b)
+}
+
+// ensureGovernanceExampleFiles 为已持久化的预置任务补全示例文件元数据
+func ensureGovernanceExampleFiles() {
+	changed := false
+	for _, t := range governanceTasks {
+		if t == nil {
+			continue
+		}
+		if t.Name == "Word文档内容提取" && len(t.ExampleFiles) == 0 {
+			t.ExampleFiles = []GovernanceExampleFile{
+				{Name: "模板.docx", Path: "template.docx"},
+			}
+			changed = true
+		}
+		if t.Name == "综合日报生成器" && len(t.ExampleFiles) == 0 {
+			t.ExampleFiles = []GovernanceExampleFile{
+				{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
+				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
+				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+			}
+			changed = true
+		}
+	}
+	if changed {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存示例文件元数据失败: %v", err)
+		}
+	}
+}
+
 // 初始化默认管理员账号
 func initDataOntology() {
 	// 先尝试加载持久化数据
 	if err := loadDataOntologyStore(); err != nil {
 		log.Printf("加载持久化数据失败: %v", err)
 	}
+	ensureGovernanceExampleFiles()
 
 	// 如果没有用户，创建默认管理员账号
 	dataOntologyMu.Lock()
@@ -1099,6 +1147,9 @@ func initDataOntology() {
 			JsCode:      "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nif (structured.length > 0 && currentGovTask && currentGovTask.database_id) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
 			InputType:   "file",
 			AcceptExts:  []string{".docx"},
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "模板.docx", Path: "template.docx"},
+			},
 			CreatedAt:   now,
 			Status:      "idle",
 		}
@@ -1111,10 +1162,16 @@ func initDataOntology() {
 			Name:          "综合日报生成器",
 			Type:          "interactive",
 			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，AI 整合后生成综合日报",
-			JsCode:        governanceExampleAggregateDailyReportJS,
+			JsCode:        loadGovernanceAggregateDailyReportJS(),
 			InputType:     "file",
 			AcceptExts:    []string{".docx"},
 			FileBatchMode: "single",
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
+				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
+				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+			},
 			CreatedAt:     now,
 			Status:        "idle",
 		}
@@ -7419,6 +7476,7 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		task.ExampleFiles = nil
 		task.ID = uuid.New().String()
 		task.Owner = username
 		task.CreatedAt = time.Now().Format(time.RFC3339)
@@ -7810,6 +7868,163 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 		log.Printf("保存治理任务执行日志失败: %v", err)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// sanitizeGovernanceExampleFilename 仅允许 governance-examples 下的文件名（无路径穿越）
+func sanitizeGovernanceExampleFilename(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.Contains(s, "..") || strings.Contains(s, "/") || strings.Contains(s, "\\") {
+		return ""
+	}
+	base := filepath.Base(s)
+	if base != s {
+		return ""
+	}
+	for _, c := range base {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
+			continue
+		}
+		return ""
+	}
+	return base
+}
+
+// handleGovernanceExampleDownload GET …/examples/{filename}
+func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	_ = username
+	raw := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
+	if raw == r.URL.Path {
+		raw = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
+	}
+	raw = strings.TrimPrefix(raw, "/")
+	if raw == "" || raw == "download" {
+		http.NotFound(w, r)
+		return
+	}
+	safe := sanitizeGovernanceExampleFilename(raw)
+	if safe == "" {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	data, err := governanceExamplesFS.ReadFile("governance-examples/" + safe)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`"`)
+	w.Write(data)
+}
+
+// handleGovernanceExamplesZipDownload POST body: {"paths":["a.docx","b.docx"]}
+func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	_ = username
+	var req struct {
+		Paths []string `json:"paths"`
+		Files []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	type zipItem struct {
+		entryName string
+		diskPath  string
+	}
+	var items []zipItem
+	if len(req.Files) > 0 {
+		for _, it := range req.Files {
+			safe := sanitizeGovernanceExampleFilename(it.Path)
+			if safe == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法路径"})
+				return
+			}
+			name := strings.TrimSpace(it.Name)
+			if name == "" {
+				name = safe
+			}
+			if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法文件名"})
+				return
+			}
+			items = append(items, zipItem{entryName: name, diskPath: safe})
+		}
+	} else {
+		for _, p := range req.Paths {
+			safe := sanitizeGovernanceExampleFilename(p)
+			if safe == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法路径"})
+				return
+			}
+			items = append(items, zipItem{entryName: safe, diskPath: safe})
+		}
+	}
+	if len(items) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "paths 或 files 不能为空"})
+		return
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, it := range items {
+		data, err := governanceExamplesFS.ReadFile("governance-examples/" + it.diskPath)
+		if err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件不存在"})
+			return
+		}
+		f, err := zw.Create(it.entryName)
+		if err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+		if _, err := f.Write(data); err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+	}
+	if err := zw.Close(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="governance-examples.zip"`)
+	w.Write(buf.Bytes())
 }
 
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）
@@ -8998,6 +9213,10 @@ func main() {
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
+	mux.HandleFunc("/api/data-ontology/governance/examples/download", handleGovernanceExamplesZipDownload)
+	mux.HandleFunc("/api/data-ontology/governance/examples/", handleGovernanceExampleDownload)
+	mux.HandleFunc("/api/governance/examples/download", handleGovernanceExamplesZipDownload)
+	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
 	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
 
