@@ -69,12 +69,6 @@ jobs:
           go mod tidy
           go mod download
 
-      - name: Build gov-runner
-        run: |
-          cd gov-runner
-          bun install
-          bun build --compile ./index.ts --outfile gov-runner
-
       - name: Install Linux CGO build dependencies
         if: matrix.goos == 'linux'
         run: |
@@ -88,6 +82,18 @@ jobs:
           CGO_ENABLED: ${{ matrix.goos == 'linux' && '1' || '0' }}
         run: |
           go mod tidy
+          cd gov-runner
+          bun install
+          case "${{ matrix.goos }}-${{ matrix.goarch }}" in
+            linux-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-x64 ;;
+            linux-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-arm64 ;;
+            windows-amd64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-x64 ;;
+            windows-arm64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-arm64 ;;
+            darwin-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-x64 ;;
+            darwin-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-arm64 ;;
+            *) echo "Unknown matrix"; exit 1 ;;
+          esac
+          cd ..
           if [[ "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "arm64" ]]; then
             export CC=aarch64-linux-gnu-gcc
           fi
@@ -98,13 +104,6 @@ jobs:
           mkdir -p package
           cp ${{ matrix.output }} package/
           cp server.config.json package/
-          cp -r apps package/
-          cp -r lib package/
-          cp -r css package/
-          cp -r js package/
-          cp index.html package/
-          # 添加 gov-runner
-          cp gov-runner/gov-runner package/ || true
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'
@@ -246,7 +245,7 @@ jobs:
             
             **Linux 更新版本：**
             1. 停止服务：`sudo systemctl stop datatoolbox`
-            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`（若新包里有更新的 `apps`、`lib` 等也一并覆盖）
+            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`
             3. 启动服务：`sudo systemctl start datatoolbox`
             
             **Linux 停止服务 / 取消开机自启：**

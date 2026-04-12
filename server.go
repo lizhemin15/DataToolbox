@@ -629,7 +629,8 @@ type GovernanceJob struct {
 
 var (
 	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
-	govRunnerPath      = "gov-runner"                    // gov-runner 可执行文件路径
+	govRunnerPath      = "gov-runner"                    // 未嵌入时从可执行文件旁查找
+	govRunnerAPIBase   string                             // 供 gov-runner 回调本机 API，在 main 中设置
 )
 
 // 网页导航
@@ -8080,20 +8081,11 @@ type GovRunnerResult struct {
 
 // callGovRunner 调用 gov-runner 执行任务
 func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
-	// 查找 gov-runner 可执行文件
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	runnerPath := filepath.Join(exeDir, govRunnerPath)
-
-	// 检查文件是否存在
-	if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
-		// 尝试项目目录
-		runnerPath = filepath.Join(filepath.Dir(exeDir), govRunnerPath)
-		if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
-			return &GovRunnerResult{
-				Success: false,
-				Error:   "gov-runner 可执行文件不存在",
-			}
+	runnerPath, err := resolveGovRunnerPath()
+	if err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   err.Error(),
 		}
 	}
 
@@ -8113,7 +8105,11 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, runnerPath, tmpFile)
-	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE=http://127.0.0.1:8080")
+	apiBase := govRunnerAPIBase
+	if apiBase == "" {
+		apiBase = "http://127.0.0.1:8080"
+	}
+	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE="+apiBase)
 	output, err := cmd.Output()
 	if err != nil {
 		return &GovRunnerResult{
@@ -8704,12 +8700,9 @@ func main() {
 		port = *portFlag
 	}
 
-	// 获取当前目录
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatal(err)
-	}
-	rootDir := filepath.Dir(exePath)
+	// MCP 回环与 gov-runner 回调本机 API（需在 init 之前，避免非默认端口时回调错误）
+	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	govRunnerAPIBase = mcpLoopbackAddr
 
 	// 初始化数据本体池
 	initDataOntology()
@@ -8810,14 +8803,10 @@ func main() {
 		handleWebNavLinkByID(w, r, id)
 	})
 	
-	// 文件服务器
-	fs := http.FileServer(http.Dir(rootDir))
-	mux.Handle("/", fs)
-	
-	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
+	// 静态资源（嵌入二进制，无需外置 apps/css/js/lib）
+	mux.Handle("/", newStaticFileHandler())
 
-	// 设置 MCP HTTP 模式的回环地址
-	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)

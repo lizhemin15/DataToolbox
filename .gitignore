@@ -2,7 +2,7 @@
 datatoolbox-server
 datatoolbox-server.exe
 
-# gov-runner 可执行文件
+# gov-runner 可执行文件（构建产物，嵌入 datatoolbox-server）
 gov-runner/gov-runner
 gov-runner/gov-runner.exe
 
