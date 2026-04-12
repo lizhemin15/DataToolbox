@@ -121,6 +121,7 @@ async function handleRequest(req: Request): Promise<Response> {
         success: result.success,
         output: result.output,
         error: result.error,
+        output_files: result.output_files,
       }, {
         headers: { 'Access-Control-Allow-Origin': '*' },
       });
@@ -161,13 +162,19 @@ async function runFromCLI() {
   };
 
   let inputFile: FileLike | null = null;
-  if (task.file_base64 && task.file_name) {
+  let inputFiles: FileLike[] | null = null;
+  if (task.files && Array.isArray(task.files) && task.files.length > 0) {
+    inputFiles = task.files.map((f: { file_name: string; file_base64: string }) =>
+      new BufferFile(f.file_name, Buffer.from(f.file_base64, 'base64'))
+    );
+  } else if (task.file_base64 && task.file_name) {
     const buffer = Buffer.from(task.file_base64, 'base64');
     inputFile = new BufferFile(task.file_name, buffer);
   }
 
   const result = await runUserCode(task.code, ctx, {
     inputFile,
+    inputFiles,
     inputText: task.input_text || '',
   });
 

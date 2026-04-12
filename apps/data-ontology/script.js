@@ -5383,6 +5383,10 @@ function showGovTaskDetail(task) {
         } else {
             document.getElementById('govFileInput').accept = '';
         }
+        const hintEl = document.getElementById('govSingleBatchHint');
+        if (hintEl) {
+            hintEl.style.display = (task.file_batch_mode === 'single') ? '' : 'none';
+        }
     } else {
         interactiveSection.style.display = 'none';
     }
@@ -5441,6 +5445,8 @@ function showAddGovTaskModal() {
     document.getElementById('govAPIPathInput').value = '';
     document.getElementById('govAPIMethodInput').value = 'POST';
     document.getElementById('govAPIFields').style.display = 'none';
+    const fbNew = document.getElementById('govFileBatchModeSelect');
+    if (fbNew) fbNew.value = 'per_file';
     onGovTaskTypeChange();
     populateGovDbSelect();
     document.getElementById('govFormError').textContent = '';
@@ -5464,6 +5470,8 @@ function editGovTask() {
     document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
     document.getElementById('govInputTypeSelect').value = currentGovTask.input_type || 'file';
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
+    const fb = document.getElementById('govFileBatchModeSelect');
+    if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
     // API 字段
     document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
     document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
@@ -5570,6 +5578,7 @@ async function handleGovTaskSubmit(e) {
         enabled: type === 'scheduled' ? document.getElementById('govEnabledInput').checked : false,
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+        file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
@@ -5731,8 +5740,47 @@ async function executeInteractiveTask() {
         return;
     }
 
-    // 改为调用后端 API 异步执行
+    const batchMode = currentGovTask.file_batch_mode || 'per_file';
+    if (currentGovTask.type === 'interactive' && batchMode === 'single') {
+        if (files.length < 2) {
+            alert('请至少上传 2 个文件：1 个综合日报 Word 模板 + 至少 1 份单位日报');
+            return;
+        }
+        await executeGovTaskAggregateInBrowser(files, inputText);
+        return;
+    }
+
     await executeGovTaskOnBackend(files, inputText);
+}
+
+async function executeGovTaskAggregateInBrowser(files, inputText) {
+    if (!currentGovTask) return;
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
+
+    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(currentGovTask.js_code, null, inputText, files);
+
+    currentGovTask.status = status;
+    currentGovTask.last_output = output;
+    currentGovTask.last_error = errorMsg;
+    currentGovTask.last_run_at = new Date().toISOString();
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    container.innerHTML = `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date().toLocaleString()}</span>
+                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '错误'}</span>
+            </div>
+            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
+            ${output ? `<div class="gov-log-output">${escapeHtml(output)}</div>` : ''}
+            ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
+        </div>
+    `;
 }
 
 // 后端异步执行任务
@@ -6410,19 +6458,21 @@ async function generateImportCodeWithAI() {
 }
 
 /** 单次执行并写入服务端日志，返回结果供单文件或批量汇总使用 */
-async function executeGovTaskInBrowserOnce(code, file, inputText) {
+async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverride) {
     const logLines = [];
     let status = 'success';
     let errorMsg = '';
 
     try {
         await ensureGovLibsLoaded();
-        const gov = createGovHelper(logLines, file ? [file] : []);
+        const uploaded = Array.isArray(allFilesOverride) ? allFilesOverride : (file ? [file] : (govSelectedFiles || []));
+        const gov = createGovHelper(logLines, uploaded);
         const DocxCtor = _govGetDocxtemplaterClass();
 
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', code);
-        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor);
+        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', 'INPUT_FILES', code);
+        const inputFiles = uploaded;
+        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor, inputFiles);
     } catch (err) {
         status = 'error';
         errorMsg = err.message || String(err);
@@ -6430,7 +6480,14 @@ async function executeGovTaskInBrowserOnce(code, file, inputText) {
     }
 
     const output = logLines.join('\n');
-    const inputDesc = file ? `file: ${file.name}` : (inputText ? `text: ${inputText.substring(0, 50)}` : '');
+    let inputDesc = '';
+    if (Array.isArray(allFilesOverride) && allFilesOverride.length) {
+        inputDesc = `files (${allFilesOverride.length}): ${allFilesOverride.map(f => f.name).join('、')}`;
+    } else if (file) {
+        inputDesc = `file: ${file.name}`;
+    } else if (inputText) {
+        inputDesc = `text: ${inputText.substring(0, 50)}`;
+    }
 
     if (currentGovTask) {
         const taskId = currentGovTask.id;
@@ -6469,7 +6526,7 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
                 </div>
             </div>`;
 
-        const r = await executeGovTaskInBrowserOnce(code, file, inputText);
+        const r = await executeGovTaskInBrowserOnce(code, file, inputText, [file]);
         results.push({ fileName: file.name, ...r });
     }
 
@@ -6671,6 +6728,12 @@ const GOV_API_DOCS = [
                 signature: 'INPUT_TEXT : string | ""',
                 desc: '交互任务中用户输入的文本字符串。仅当任务输入方式含"文本输入"时有效，否则为空字符串。',
                 example: 'if (INPUT_TEXT) {\n  const rows = await gov.readCSV(INPUT_TEXT);\n  // ...\n}'
+            },
+            {
+                name: 'INPUT_FILES',
+                signature: 'INPUT_FILES : File[]',
+                desc: '当任务「多文件执行」为「合并为一次执行」时，为用户上传的全部文件数组；否则与单文件时一致（第一个文件同 INPUT_FILE）。',
+                example: 'for (const f of INPUT_FILES) {\n  gov.log(f.name);\n}'
             }
         ]
     },

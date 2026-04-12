@@ -5,7 +5,9 @@
 
 import * as XLSX from 'xlsx';
 import * as Papa from 'papaparse';
-import * as mammoth from 'mammoth';
+import mammoth from 'mammoth';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
 
 export interface GovContext {
   apiBase: string;
@@ -22,6 +24,11 @@ export interface FileLike {
   text(): Promise<string>;
 }
 
+export interface GovOutputFile {
+  name: string;
+  content_base64: string;
+}
+
 export interface GovHelper {
   log(msg: string): void;
   getDbType(): string;
@@ -34,12 +41,17 @@ export interface GovHelper {
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
+  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
 }
 
 /**
  * 创建治理助手（后端版）
  */
-export function createGovHelper(ctx: GovContext, logLines: string[]): GovHelper {
+export function createGovHelper(
+  ctx: GovContext,
+  logLines: string[],
+  outputFiles: GovOutputFile[]
+): GovHelper {
   const { apiBase, token, databaseId, dbType, databases } = ctx;
 
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
@@ -88,7 +100,6 @@ export function createGovHelper(ctx: GovContext, logLines: string[]): GovHelper 
     async readWord(file: FileLike): Promise<{ value: string }> {
       if (!file) throw new Error('未提供文件');
       const arrayBuffer = await file.arrayBuffer();
-      // Node/Bun 版 mammoth 使用 buffer 字段
       return mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
     },
 
@@ -127,6 +138,20 @@ export function createGovHelper(ctx: GovContext, logLines: string[]): GovHelper 
       if (!data.success) throw new Error(data.message || 'AI 调用失败');
       return data.content || '';
     },
+
+    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string) {
+      if (!templateFile) throw new Error('未提供模板文件');
+      const buf = Buffer.from(await templateFile.arrayBuffer());
+      const zip = new PizZip(buf);
+      const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+      doc.setData(data || {});
+      doc.render();
+      const out = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer;
+      const base = outputFilename || 'output.docx';
+      const name = /\.docx$/i.test(base) ? base : `${base}.docx`;
+      outputFiles.push({ name, content_base64: out.toString('base64') });
+      logLines.push(`已生成输出文件: ${name}`);
+    },
   };
 }
 
@@ -138,40 +163,56 @@ export async function runUserCode(
   ctx: GovContext,
   options: {
     inputFile?: FileLike | null;
+    inputFiles?: FileLike[] | null;
     inputText?: string;
   } = {}
-): Promise<{ success: boolean; output: string[]; error?: string }> {
+): Promise<{ success: boolean; output: string[]; error?: string; output_files?: GovOutputFile[] }> {
   const logLines: string[] = [];
-  const gov = createGovHelper(ctx, logLines);
+  const outputFiles: GovOutputFile[] = [];
+  const gov = createGovHelper(ctx, logLines, outputFiles);
+
+  const inputFiles =
+    options.inputFiles && options.inputFiles.length > 0
+      ? options.inputFiles
+      : options.inputFile
+        ? [options.inputFile]
+        : [];
+  const inputFile = inputFiles[0] || null;
 
   try {
-    // 使用 AsyncFunction 执行用户代码（与浏览器版一致）
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
     const fn = new AsyncFunction(
-      'gov', 
-      'INPUT_FILE', 
-      'INPUT_TEXT', 
-      'XLSX', 
-      'Papa', 
-      'mammoth', 
+      'gov',
+      'INPUT_FILE',
+      'INPUT_TEXT',
+      'XLSX',
+      'Papa',
+      'mammoth',
+      'PizZip',
+      'Docxtemplater',
+      'INPUT_FILES',
       code
     );
-    
+
     await fn(
-      gov, 
-      options.inputFile || null, 
-      options.inputText || '', 
-      XLSX, 
-      Papa, 
-      mammoth
+      gov,
+      inputFile,
+      options.inputText || '',
+      XLSX,
+      Papa,
+      mammoth,
+      PizZip,
+      Docxtemplater,
+      inputFiles
     );
 
-    return { success: true, output: logLines };
+    return { success: true, output: logLines, output_files: outputFiles.length ? outputFiles : undefined };
   } catch (error: any) {
-    return { 
-      success: false, 
-      output: logLines, 
-      error: error.message || String(error) 
+    return {
+      success: false,
+      output: logLines,
+      error: error.message || String(error),
+      output_files: outputFiles.length ? outputFiles : undefined
     };
   }
 }

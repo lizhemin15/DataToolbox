@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	_ "gitee.com/chunanyong/dm"
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -34,12 +36,14 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
-	_ "gitee.com/chunanyong/dm"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	gossh "golang.org/x/crypto/ssh"
 )
+
+//go:embed governance-examples/aggregate-daily-report.js
+var governanceExampleAggregateDailyReportJS string
 
 // 条件编译：仅在支持CGO时导入这些驱动
 // SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
@@ -150,12 +154,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -271,7 +275,7 @@ func (h *Hub) broadcastPeerJoin(client *Client) {
 	data, _ := json.Marshal(msg)
 
 	log.Printf("广播用户加入: %s (%s) 给 %d 个其他用户", client.Name, client.ID, len(h.clients)-1)
-	
+
 	for _, c := range h.clients {
 		if c.ID != client.ID {
 			select {
@@ -441,7 +445,7 @@ type User struct {
 type DatabaseConfig struct {
 	ID       string `json:"id"`
 	Owner    string `json:"owner,omitempty"` // 所属用户名
-	Type     string `json:"type"`     // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
+	Type     string `json:"type"`            // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
 	Name     string `json:"name"`
 	Host     string `json:"host,omitempty"`
 	Port     int    `json:"port,omitempty"`
@@ -471,8 +475,8 @@ type ApiConfig struct {
 	ID            string                 `json:"id"`
 	Name          string                 `json:"name"`
 	Path          string                 `json:"path"`
-	Method        string                 `json:"method"`               // GET, POST, PUT, DELETE
-	Type          string                 `json:"type,omitempty"`       // "query"(默认) | "forward"
+	Method        string                 `json:"method"`                // GET, POST, PUT, DELETE
+	Type          string                 `json:"type,omitempty"`        // "query"(默认) | "forward"
 	DatabaseID    string                 `json:"database_id,omitempty"` // query类型：关联的数据库ID
 	SQL           string                 `json:"sql,omitempty"`         // query类型：MyBatis风格的SQL语句
 	ForwardURL    string                 `json:"forward_url,omitempty"` // forward类型：转发目标URL
@@ -508,8 +512,8 @@ type AIConfig struct {
 type LLMModelConfig struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Type        string `json:"type"`        // "llm" | "rerank" | "embedding" | "asr" | "tts"
-	Provider    string `json:"provider"`    // "openai" | "anthropic" | "ollama" | "custom"
+	Type        string `json:"type"`     // "llm" | "rerank" | "embedding" | "asr" | "tts"
+	Provider    string `json:"provider"` // "openai" | "anthropic" | "ollama" | "custom"
 	URL         string `json:"url"`
 	APIKey      string `json:"api_key,omitempty"`
 	Model       string `json:"model,omitempty"`
@@ -526,9 +530,9 @@ type SmallModelConfig struct {
 	Description string `json:"description,omitempty"`
 	JsCode      string `json:"js_code"`
 	DatabaseID  string `json:"database_id,omitempty"`
-	InputType   string `json:"input_type,omitempty"`   // "text" | "file" | "both"
-	AcceptExts  string `json:"accept_exts,omitempty"`  // ".csv,.txt,.json"
-	OutputType  string `json:"output_type,omitempty"`  // "text" | "json" | "file"
+	InputType   string `json:"input_type,omitempty"`  // "text" | "file" | "both"
+	AcceptExts  string `json:"accept_exts,omitempty"` // ".csv,.txt,.json"
+	OutputType  string `json:"output_type,omitempty"` // "text" | "json" | "file"
 	Enabled     bool   `json:"enabled"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
@@ -544,13 +548,13 @@ type AIQueryRequest struct {
 
 // AICodegenRequest 数据治理入库代码 AI 生成请求（与 AI 助手共用 url/api_key/model）
 type AICodegenRequest struct {
-	DatabaseID   string             `json:"database_id"`
-	DatabaseName string             `json:"database_name"`
-	DBType       string             `json:"db_type"`
-	TableName    string             `json:"table_name"`
-	SourceType   string             `json:"source_type"` // excel | csv_file | csv_text
-	Columns      []AICodegenColumn  `json:"columns"`
-	UserHint     string             `json:"user_hint,omitempty"`
+	DatabaseID   string            `json:"database_id"`
+	DatabaseName string            `json:"database_name"`
+	DBType       string            `json:"db_type"`
+	TableName    string            `json:"table_name"`
+	SourceType   string            `json:"source_type"` // excel | csv_file | csv_text
+	Columns      []AICodegenColumn `json:"columns"`
+	UserHint     string            `json:"user_hint,omitempty"`
 }
 
 // AICodegenColumn 列映射
@@ -563,32 +567,33 @@ type AICodegenColumn struct {
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
 	ID            string   `json:"id"`
-	Owner         string   `json:"owner,omitempty"`         // 所属用户名
+	Owner         string   `json:"owner,omitempty"` // 所属用户名
 	Name          string   `json:"name"`
-	Type          string   `json:"type"`                    // "scheduled" | "interactive"
+	Type          string   `json:"type"` // "scheduled" | "interactive"
 	Description   string   `json:"description,omitempty"`
 	JsCode        string   `json:"js_code"`
 	DatabaseID    string   `json:"database_id,omitempty"`
-	CronExpr      string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
+	CronExpr      string   `json:"cron_expr,omitempty"` // "分 时 日 月 周" e.g. "0 2 * * *"
 	Enabled       bool     `json:"enabled"`
-	InputType     string   `json:"input_type,omitempty"`    // "file" | "text" | "both"
-	AcceptExts    []string `json:"accept_exts,omitempty"`   // [".xlsx",".csv",".docx"]
-	RegisterAsAPI bool     `json:"register_as_api"`         // 是否注册为 API 接口
-	APIPath       string   `json:"api_path,omitempty"`      // API 路径（如 /api/tasks/my-task）
-	APIMethod     string   `json:"api_method,omitempty"`    // API 方法（GET/POST）
+	InputType     string   `json:"input_type,omitempty"`      // "file" | "text" | "both"
+	AcceptExts    []string `json:"accept_exts,omitempty"`     // [".xlsx",".csv",".docx"]
+	RegisterAsAPI bool     `json:"register_as_api"`           // 是否注册为 API 接口
+	APIPath       string   `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
+	APIMethod     string   `json:"api_method,omitempty"`      // API 方法（GET/POST）
+	FileBatchMode string   `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
 	CreatedAt     string   `json:"created_at"`
 	UpdatedAt     string   `json:"updated_at,omitempty"`
-	Status        string   `json:"status"`                  // "idle" | "running" | "success" | "error"
+	Status        string   `json:"status"` // "idle" | "running" | "success" | "error"
 	LastOutput    string   `json:"last_output,omitempty"`
 	LastError     string   `json:"last_error,omitempty"`
 	LastRunAt     string   `json:"last_run_at,omitempty"`
 	// 异步执行进度追踪
-	RunID          string `json:"run_id,omitempty"`           // 当前运行 ID
-	TotalFiles     int    `json:"total_files,omitempty"`      // 总文件数
-	ProcessedFiles int    `json:"processed_files,omitempty"`  // 已处理文件数
-	Percent        int    `json:"percent,omitempty"`          // 进度百分比
-	CurrentFile    string `json:"current_file,omitempty"`     // 当前处理的文件
-	StartedAt      string `json:"started_at,omitempty"`       // 开始时间
+	RunID          string `json:"run_id,omitempty"`          // 当前运行 ID
+	TotalFiles     int    `json:"total_files,omitempty"`     // 总文件数
+	ProcessedFiles int    `json:"processed_files,omitempty"` // 已处理文件数
+	Percent        int    `json:"percent,omitempty"`         // 进度百分比
+	CurrentFile    string `json:"current_file,omitempty"`    // 当前处理的文件
+	StartedAt      string `json:"started_at,omitempty"`      // 开始时间
 }
 
 // GovernanceTaskLog 任务执行日志
@@ -605,12 +610,12 @@ type GovernanceTaskLog struct {
 
 // 数据本体池存储
 var (
-	dataOntologyUsers     = make(map[string]*User)
-	dataOntologyDatabases = make(map[string]*DatabaseConfig)
-	dataOntologyApis      = make(map[string]*ApiConfig)
-	dataOntologyAIConfig  *AIConfig
-	governanceTasks       = make(map[string]*GovernanceTask)
-	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
+	dataOntologyUsers      = make(map[string]*User)
+	dataOntologyDatabases  = make(map[string]*DatabaseConfig)
+	dataOntologyApis       = make(map[string]*ApiConfig)
+	dataOntologyAIConfig   *AIConfig
+	governanceTasks        = make(map[string]*GovernanceTask)
+	governanceTaskLogs     = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
 	// 模型管理
 	llmModels      = make(map[string]*LLMModelConfig)
@@ -629,14 +634,14 @@ type GovernanceJob struct {
 
 var (
 	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
-	govRunnerPath      = "gov-runner"                    // 未嵌入时从可执行文件旁查找
-	govRunnerAPIBase   string                             // 供 gov-runner 回调本机 API，在 main 中设置
+	govRunnerPath      = "gov-runner"                   // 未嵌入时从可执行文件旁查找
+	govRunnerAPIBase   string                           // 供 gov-runner 回调本机 API，在 main 中设置
 )
 
 // 网页导航
 var (
-	webNavLinks   []WebNavLink
-	webNavMu      sync.RWMutex
+	webNavLinks      []WebNavLink
+	webNavMu         sync.RWMutex
 	webNavAdminToken string // 管理员登录后的 token
 )
 
@@ -655,13 +660,13 @@ type WebNavStore struct {
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users      map[string]*User                  `json:"users"`
-	Databases  map[string]*DatabaseConfig        `json:"databases"`
-	Apis       map[string]*ApiConfig             `json:"apis"`
-	AIConfig   *AIConfig                         `json:"ai_config,omitempty"`
-	Tasks      map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
-	TaskLogs   map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
-	MCPEnabled *bool                             `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	Users      map[string]*User                `json:"users"`
+	Databases  map[string]*DatabaseConfig      `json:"databases"`
+	Apis       map[string]*ApiConfig           `json:"apis"`
+	AIConfig   *AIConfig                       `json:"ai_config,omitempty"`
+	Tasks      map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
+	TaskLogs   map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
+	MCPEnabled *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
@@ -682,54 +687,54 @@ func getDataOntologyStorePath() string {
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePath()
-	
+
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
 		log.Printf("持久化文件不存在，将创建新文件: %s", storePath)
 		return nil
 	}
-	
+
 	// 读取文件
 	data, err := os.ReadFile(storePath)
 	if err != nil {
 		return fmt.Errorf("读取持久化文件失败: %v", err)
 	}
-	
+
 	// 解析JSON
 	var store DataOntologyStore
 	if err := json.Unmarshal(data, &store); err != nil {
 		return fmt.Errorf("解析持久化数据失败: %v", err)
 	}
-	
+
 	// 加载数据到内存
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
-	
+
 	if store.Users != nil {
 		dataOntologyUsers = store.Users
 		log.Printf("已加载 %d 个用户", len(dataOntologyUsers))
 	}
-	
+
 	if store.Databases != nil {
 		dataOntologyDatabases = store.Databases
 		log.Printf("已加载 %d 个数据库配置", len(dataOntologyDatabases))
 	}
-	
+
 	if store.Apis != nil {
 		dataOntologyApis = store.Apis
 		log.Printf("已加载 %d 个接口配置", len(dataOntologyApis))
 	}
-	
+
 	if store.AIConfig != nil {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
 	}
-	
+
 	if store.Tasks != nil {
 		governanceTasks = store.Tasks
 		log.Printf("已加载 %d 个治理任务", len(governanceTasks))
 	}
-	
+
 	if store.TaskLogs != nil {
 		governanceTaskLogs = store.TaskLogs
 		log.Printf("已加载治理任务日志")
@@ -763,13 +768,13 @@ func loadDataOntologyStore() error {
 // 保存持久化数据
 func saveDataOntologyStore() error {
 	storePath := getDataOntologyStorePath()
-	
+
 	// 确保目录存在
 	storeDir := filepath.Dir(storePath)
 	if err := os.MkdirAll(storeDir, 0755); err != nil {
 		return fmt.Errorf("创建目录失败: %v", err)
 	}
-	
+
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
@@ -784,18 +789,18 @@ func saveDataOntologyStore() error {
 		SmallModels: smallModels,
 	}
 	dataOntologyMu.RUnlock()
-	
+
 	// 序列化为JSON
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化数据失败: %v", err)
 	}
-	
+
 	// 写入文件
 	if err := os.WriteFile(storePath, data, 0644); err != nil {
 		return fmt.Errorf("写入文件失败: %v", err)
 	}
-	
+
 	log.Printf("数据已保存到: %s", storePath)
 	return nil
 }
@@ -999,7 +1004,7 @@ func initDataOntology() {
 	if err := loadDataOntologyStore(); err != nil {
 		log.Printf("加载持久化数据失败: %v", err)
 	}
-	
+
 	// 如果没有用户，创建默认管理员账号
 	dataOntologyMu.Lock()
 	if len(dataOntologyUsers) == 0 {
@@ -1009,7 +1014,7 @@ func initDataOntology() {
 			Password: hashedPassword,
 		}
 		log.Println("已创建默认管理员账号: admin/admin1234")
-		
+
 		// 保存初始数据
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
@@ -1018,12 +1023,12 @@ func initDataOntology() {
 		dataOntologyMu.Lock()
 	}
 	dataOntologyMu.Unlock()
-	
+
 	// 如果没有治理任务，创建示例任务
 	dataOntologyMu.Lock()
 	if len(governanceTasks) == 0 {
 		now := time.Now().Format(time.RFC3339)
-		
+
 		// 示例1: 定时任务 - 数据库表统计
 		scheduledID := uuid.New().String()
 		governanceTasks[scheduledID] = &GovernanceTask{
@@ -1032,11 +1037,11 @@ func initDataOntology() {
 			Name:        "数据库表行数统计",
 			Type:        "scheduled",
 			Description: "查询所有表的行数，输出统计报告（需关联数据库）",
-			JsCode: "// 定时任务：统计数据库所有表的行数（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\ngov.log('='.repeat(40));\ngov.log(`共 ${tableList.length} 张表`);\ngov.log('='.repeat(40));\nfor (const tableName of tableList) {\n  const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const cnt = result && result[0] ? (result[0].cnt ?? result[0].CNT ?? 0) : 0;\n  gov.log(`  ${String(tableName).padEnd(30)} ${cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
-			CronExpr:   "0 2 * * *",
-			Enabled:    false,
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 定时任务：统计数据库所有表的行数（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\ngov.log('='.repeat(40));\ngov.log(`共 ${tableList.length} 张表`);\ngov.log('='.repeat(40));\nfor (const tableName of tableList) {\n  const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const cnt = result && result[0] ? (result[0].cnt ?? result[0].CNT ?? 0) : 0;\n  gov.log(`  ${String(tableName).padEnd(30)} ${cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
+			CronExpr:    "0 2 * * *",
+			Enabled:     false,
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例2: 交互任务 - Excel数据导入
@@ -1047,11 +1052,11 @@ func initDataOntology() {
 			Name:        "Excel数据解析入库",
 			Type:        "interactive",
 			Description: "上传Excel文件，解析内容预览，可选入库",
-			JsCode: "// Excel 数据解析预览 + 入「当前关联的单个库」的指定表\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\nconst headers = data[0];\nconst rows = data.slice(1);\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${rows.length}, 列数: ${headers.length}`);\ngov.log(`表头: ${headers.join(', ')}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, rows.length); i++) {\n    gov.log(`  行${i + 1}: ${rows[i].join(' | ')}`);\n}\n\n// 入当前任务关联的单个库的某张表（编辑任务时可选择关联数据库）\nconst tableName = 'your_table';\nconst insertCols = ['col1', 'col2', 'col3'];\nlet n = 0;\ntry {\n  for (let i = 0; i < rows.length; i++) {\n    const row = rows[i];\n    await gov.executeSQL(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (?,?,?)`, [row[0], row[1], row[2] ?? null]);\n    n++;\n  }\n  gov.log(`\\n入库完成: ${tableName} 写入 ${n} 行`);\n} catch (e) {\n  gov.log('\\n入库失败: ' + e.message);\n  gov.log('请编辑任务：1) 关联一个数据库 2) 修改上面 tableName、insertCols 与列数');\n}\n",
-			InputType:  "file",
-			AcceptExts: []string{".xlsx", ".xls"},
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// Excel 数据解析预览 + 入「当前关联的单个库」的指定表\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\nconst headers = data[0];\nconst rows = data.slice(1);\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${rows.length}, 列数: ${headers.length}`);\ngov.log(`表头: ${headers.join(', ')}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, rows.length); i++) {\n    gov.log(`  行${i + 1}: ${rows[i].join(' | ')}`);\n}\n\n// 入当前任务关联的单个库的某张表（编辑任务时可选择关联数据库）\nconst tableName = 'your_table';\nconst insertCols = ['col1', 'col2', 'col3'];\nlet n = 0;\ntry {\n  for (let i = 0; i < rows.length; i++) {\n    const row = rows[i];\n    await gov.executeSQL(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (?,?,?)`, [row[0], row[1], row[2] ?? null]);\n    n++;\n  }\n  gov.log(`\\n入库完成: ${tableName} 写入 ${n} 行`);\n} catch (e) {\n  gov.log('\\n入库失败: ' + e.message);\n  gov.log('请编辑任务：1) 关联一个数据库 2) 修改上面 tableName、insertCols 与列数');\n}\n",
+			InputType:   "file",
+			AcceptExts:  []string{".xlsx", ".xls"},
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例3: 交互任务 - CSV文本解析
@@ -1062,10 +1067,10 @@ func initDataOntology() {
 			Name:        "CSV文本解析",
 			Type:        "interactive",
 			Description: "输入CSV格式文本，解析并展示结构化结果",
-			JsCode: "// CSV 文本解析预览\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, result.data.length); i++) {\n    const row = result.data[i];\n    gov.log(`行 ${i + 1}: ${Object.values(row).join(' | ')}`);\n}\ngov.log(`\\n提示: 使用\"入库代码生成助手\"可快速生成入库代码`);",
-			InputType:  "text",
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// CSV 文本解析预览\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, result.data.length); i++) {\n    const row = result.data[i];\n    gov.log(`行 ${i + 1}: ${Object.values(row).join(' | ')}`);\n}\ngov.log(`\\n提示: 使用\"入库代码生成助手\"可快速生成入库代码`);",
+			InputType:   "text",
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例4: 定时任务 - 数据完整性检查
@@ -1076,11 +1081,11 @@ func initDataOntology() {
 			Name:        "数据完整性检查",
 			Type:        "scheduled",
 			Description: "检查数据库表的空值情况（需关联数据库）",
-			JsCode: "// 定时任务：检查各表的数据完整性（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\nfor (const tableName of tableList) {\n  gov.log(`\\n[${tableName}]`);\n  let columns = [];\n  if (dbType === 'dm') {\n    const rows = await gov.querySQL(`SELECT COLUMN_NAME, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, \"''\").toUpperCase()}' ORDER BY COLUMN_ID`);\n    columns = rows.map(r => ({ name: r.COLUMN_NAME ?? r.column_name, nullable: (r.NULLABLE ?? r.nullable) === 'Y' }));\n  } else {\n    const rows = await gov.querySQL(`SHOW COLUMNS FROM ${q(tableName)}`);\n    columns = rows.map(r => ({ name: r.Field, nullable: r.Null === 'YES' }));\n  }\n  const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const totalCnt = countResult && countResult[0] ? (countResult[0].cnt ?? countResult[0].CNT ?? 0) : 0;\n  for (const col of columns) {\n    if (col.nullable) {\n      const colQ = q(col.name);\n      const nullResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)} WHERE ${colQ} IS NULL`);\n      const n = nullResult && nullResult[0] ? (nullResult[0].cnt ?? nullResult[0].CNT ?? 0) : 0;\n      if (n > 0) gov.log(`  ⚠ ${col.name}: ${n} 个空值`);\n    }\n  }\n  gov.log(`  总行数: ${totalCnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
-			CronExpr:   "30 1 * * *",
-			Enabled:    false,
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 定时任务：检查各表的数据完整性（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\nfor (const tableName of tableList) {\n  gov.log(`\\n[${tableName}]`);\n  let columns = [];\n  if (dbType === 'dm') {\n    const rows = await gov.querySQL(`SELECT COLUMN_NAME, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, \"''\").toUpperCase()}' ORDER BY COLUMN_ID`);\n    columns = rows.map(r => ({ name: r.COLUMN_NAME ?? r.column_name, nullable: (r.NULLABLE ?? r.nullable) === 'Y' }));\n  } else {\n    const rows = await gov.querySQL(`SHOW COLUMNS FROM ${q(tableName)}`);\n    columns = rows.map(r => ({ name: r.Field, nullable: r.Null === 'YES' }));\n  }\n  const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const totalCnt = countResult && countResult[0] ? (countResult[0].cnt ?? countResult[0].CNT ?? 0) : 0;\n  for (const col of columns) {\n    if (col.nullable) {\n      const colQ = q(col.name);\n      const nullResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)} WHERE ${colQ} IS NULL`);\n      const n = nullResult && nullResult[0] ? (nullResult[0].cnt ?? nullResult[0].CNT ?? 0) : 0;\n      if (n > 0) gov.log(`  ⚠ ${col.name}: ${n} 个空值`);\n    }\n  }\n  gov.log(`  总行数: ${totalCnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
+			CronExpr:    "30 1 * * *",
+			Enabled:     false,
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例5: 交互任务 - Word文档解析
@@ -1091,15 +1096,31 @@ func initDataOntology() {
 			Name:        "Word文档内容提取",
 			Type:        "interactive",
 			Description: "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
-			JsCode: "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nif (structured.length > 0 && currentGovTask && currentGovTask.database_id) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
-			InputType:  "file",
-			AcceptExts: []string{".docx"},
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nif (structured.length > 0 && currentGovTask && currentGovTask.database_id) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
+			InputType:   "file",
+			AcceptExts:  []string{".docx"},
+			CreatedAt:   now,
+			Status:      "idle",
+		}
+
+		// 示例6: 交互任务 - 综合日报生成器（多文件一次执行 + LLM + docxtemplater）
+		reportTaskID := uuid.New().String()
+		governanceTasks[reportTaskID] = &GovernanceTask{
+			ID:            reportTaskID,
+			Owner:         "admin",
+			Name:          "综合日报生成器",
+			Type:          "interactive",
+			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，AI 整合后生成综合日报",
+			JsCode:        governanceExampleAggregateDailyReportJS,
+			InputType:     "file",
+			AcceptExts:    []string{".docx"},
+			FileBatchMode: "single",
+			CreatedAt:     now,
+			Status:        "idle",
 		}
 
 		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
-		
+
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存示例治理任务失败: %v", err)
@@ -1107,13 +1128,13 @@ func initDataOntology() {
 		dataOntologyMu.Lock()
 	}
 	dataOntologyMu.Unlock()
-	
-	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d", 
+
+	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
-	
+
 	// 启动治理任务 worker（后台执行器）
 	go governanceWorker()
-	
+
 	// 启动治理任务调度器
 	go governanceScheduler()
 }
@@ -1161,7 +1182,7 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		// 格式: dm://username:password@host:port/schema
 		// 需要对用户名和密码进行 URL 编码，避免特殊字符导致解析错误
 		log.Printf("DM配置: 原始Host='%s', 原始Port=%d", config.Host, config.Port)
-		
+
 		host := config.Host
 		if host == "" {
 			host = "localhost"
@@ -1172,18 +1193,18 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 			port = 5236
 			log.Printf("DM: Port为0，使用默认值 5236")
 		}
-		
+
 		// URL 编码用户名和密码，避免特殊字符（如 @、:、/ 等）导致 DSN 解析错误
 		encodedUser := url.QueryEscape(config.User)
 		encodedPassword := url.QueryEscape(config.Password)
-		
+
 		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
 			encodedUser, encodedPassword, host, port)
 		if config.Database != "" {
 			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
 				encodedUser, encodedPassword, host, port, config.Database)
 		}
-		
+
 		log.Printf("DM最终DSN(已编码): %s", dsn)
 		return "dm", dsn, nil
 
@@ -1256,18 +1277,18 @@ func buildMongoURI(config *DatabaseConfig) string {
 	if strings.Contains(config.Host, ".mongodb.net") {
 		// MongoDB Atlas 使用 SRV 连接格式，不需要端口号
 		uri := fmt.Sprintf("mongodb+srv://%s:%s@%s/%s?retryWrites=true&w=majority",
-			url.QueryEscape(config.User), 
-			url.QueryEscape(config.Password), 
-			config.Host, 
+			url.QueryEscape(config.User),
+			url.QueryEscape(config.Password),
+			config.Host,
 			config.Database)
 		return uri
 	}
 	// 标准 MongoDB 连接格式
 	return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-		url.QueryEscape(config.User), 
-		url.QueryEscape(config.Password), 
-		config.Host, 
-		config.Port, 
+		url.QueryEscape(config.User),
+		url.QueryEscape(config.Password),
+		config.Host,
+		config.Port,
 		config.Database)
 }
 
@@ -1286,7 +1307,7 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 			return nil, err
 		}
 		defer client.Disconnect(ctx)
-		
+
 		db := client.Database(config.Database)
 		collections, err := db.ListCollectionNames(ctx, bson.M{})
 		if err != nil {
@@ -1301,9 +1322,9 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	}
 
 	// 其他NoSQL数据库暂不支持
-	if config.Type == "neo4j" || config.Type == "elasticsearch" || 
-	   config.Type == "influxdb" || config.Type == "memcached" || 
-	   config.Type == "cassandra" || config.Type == "hbase" {
+	if config.Type == "neo4j" || config.Type == "elasticsearch" ||
+		config.Type == "influxdb" || config.Type == "memcached" ||
+		config.Type == "cassandra" || config.Type == "hbase" {
 		return []string{}, nil
 	}
 
@@ -1401,7 +1422,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		defer client.Disconnect(ctx)
 
 		collection := client.Database(config.Database).Collection(tableName)
-		
+
 		// 采样一个文档来推断字段
 		var sample bson.M
 		err = collection.FindOne(ctx, bson.M{}).Decode(&sample)
@@ -1490,7 +1511,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		}
 
 		var colName, colType string
-		
+
 		// 根据不同数据库类型解析列信息
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
@@ -1982,7 +2003,7 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 调试日志：打印接收到的配置
-	log.Printf("测试连接配置: Type=%s, Host=%s, Port=%d, User=%s, Database=%s", 
+	log.Printf("测试连接配置: Type=%s, Host=%s, Port=%d, User=%s, Database=%s",
 		config.Type, config.Host, config.Port, config.User, config.Database)
 
 	// MongoDB 特殊处理
@@ -2426,12 +2447,12 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		updateConfig.ID = config.ID
 		updateConfig.Type = config.Type
 		updateConfig.Owner = config.Owner
-		
+
 		// 如果密码为空，保留原密码
 		if updateConfig.Password == "" {
 			updateConfig.Password = config.Password
 		}
-		
+
 		dataOntologyDatabases[dbID] = &updateConfig
 		dataOntologyMu.Unlock()
 
@@ -2470,11 +2491,11 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 
 // LineageEdge 外键血缘边：from 表的外键列引用 to 表的主键/唯一列（数据从 to 流向 from）
 type LineageEdge struct {
-	FromTable   string `json:"fromTable"`
-	FromColumn  string `json:"fromColumn"`
-	ToTable     string `json:"toTable"`
-	ToColumn    string `json:"toColumn"`
-	Constraint  string `json:"constraint,omitempty"`
+	FromTable  string `json:"fromTable"`
+	FromColumn string `json:"fromColumn"`
+	ToTable    string `json:"toTable"`
+	ToColumn   string `json:"toColumn"`
+	Constraint string `json:"constraint,omitempty"`
 }
 
 func dedupeLineageEdges(edges []LineageEdge) []LineageEdge {
@@ -2752,7 +2773,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	// 从URL中提取数据库ID和表名
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	
+
 	// 路径格式: /api/data-ontology/databases/{id}/tables 或 /api/data-ontology/databases/{id}/tables/{name}
 	if len(parts) < 6 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2761,9 +2782,9 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	dbID := parts[4]
-	
+
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
@@ -2781,7 +2802,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		handleTableCreate(w, r, config)
 		return
 	}
-	
+
 	// 其他情况需要表名
 	if len(parts) < 7 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2790,7 +2811,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	tableName := parts[6]
 
 	// 检查是否是特殊路径
@@ -2817,7 +2838,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	
+
 	// 处理不同的HTTP方法
 	switch r.Method {
 	case http.MethodGet:
@@ -2859,7 +2880,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		return
 	}
 
-	log.Printf("收到保存请求: 表=%s, 更新=%d条, 插入=%d条, 删除=%d条", 
+	log.Printf("收到保存请求: 表=%s, 更新=%d条, 插入=%d条, 删除=%d条",
 		tableName, len(req.Updates), len(req.Inserts), len(req.Deletes))
 
 	// 只支持SQL数据库的数据修改
@@ -2973,7 +2994,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		quoteChar = "`"
 		supportsLimit = true
 	}
-	
+
 	quoteIdentifier := func(name string) string {
 		if quoteChar == "[" {
 			return "[" + name + "]"
@@ -3018,7 +3039,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			}
 
 			rowData := allData[index]
-			
+
 			// 构建WHERE条件（使用所有列匹配）
 			whereClauses := make([]string, 0)
 			whereValues := make([]interface{}, 0)
@@ -3033,18 +3054,18 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 
 			var deleteQuery string
 			if supportsLimit {
-				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s LIMIT 1", 
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s LIMIT 1",
 					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
 			} else {
 				// 达梦、Oracle、SQL Server 不支持 DELETE ... LIMIT
 				// WHERE 条件已包含所有列匹配，理论上只会删除一行
-				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s", 
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s",
 					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
 			}
-			
-		deleteQuery = oraclize(deleteQuery)
-		log.Printf("执行删除SQL: %s", deleteQuery)
-		result, err := db.Exec(deleteQuery, whereValues...)
+
+			deleteQuery = oraclize(deleteQuery)
+			log.Printf("执行删除SQL: %s", deleteQuery)
+			result, err := db.Exec(deleteQuery, whereValues...)
 			if err != nil {
 				log.Printf("删除失败: %v", err)
 				continue
@@ -3063,7 +3084,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		}
 
 		oldRow := allData[update.Index]
-		
+
 		// 构建UPDATE语句
 		setClauses := make([]string, 0)
 		setValues := make([]interface{}, 0)
@@ -3094,7 +3115,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s",
 				quoteIdentifier(tableName), strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
 		}
-		
+
 		allValues := append(setValues, whereValues...)
 		updateQuery = oraclize(updateQuery)
 		log.Printf("执行更新SQL: %s", updateQuery)
@@ -3149,7 +3170,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			}
 		}
 	}
-	
+
 	for _, insertData := range req.Inserts {
 		cols := make([]string, 0)
 		placeholders := make([]string, 0)
@@ -3161,7 +3182,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 				log.Printf("跳过自增列 %s", col)
 				continue
 			}
-			
+
 			cols = append(cols, quoteIdentifier(col))
 			placeholders = append(placeholders, "?")
 			values = append(values, val)
@@ -3170,7 +3191,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		var insertQuery string
 		var result sql.Result
 		var err error
-		
+
 		// 如果所有列都被跳过（只有自增列），使用 DEFAULT VALUES
 		if len(cols) == 0 {
 			insertQuery = fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", quoteIdentifier(tableName))
@@ -3183,7 +3204,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			log.Printf("执行插入SQL: %s", insertQuery)
 			result, err = db.Exec(insertQuery, values...)
 		}
-		
+
 		if err != nil {
 			log.Printf("插入失败: %v, SQL: %s", err, insertQuery)
 			continue
@@ -3197,10 +3218,10 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	log.Printf("保存完成: 更新=%d, 插入=%d, 删除=%d", updated, inserted, deleted)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"updated": updated,
+		"success":  true,
+		"updated":  updated,
 		"inserted": inserted,
-		"deleted": deleted,
+		"deleted":  deleted,
 	})
 }
 
@@ -3441,7 +3462,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 	for rows.Next() {
 		var colName, colType string
 		var nullable, extra interface{}
-		
+
 		// 根据不同数据库类型处理不同的返回格式
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
@@ -3600,17 +3621,17 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			WHERE TABLE_NAME = '%s'
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
-		case "dm", "oracle":
-			if config.Type == "oracle" {
-				query = oracleTableColumnsSQL(tableName, false)
-			} else {
-				query = fmt.Sprintf(`
+	case "dm", "oracle":
+		if config.Type == "oracle" {
+			query = oracleTableColumnsSQL(tableName, false)
+		} else {
+			query = fmt.Sprintf(`
 			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
 		`, strings.ToUpper(tableName))
-			}
+		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -3628,7 +3649,7 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var colName string
-		
+
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
 			var colType, nullable interface{}
@@ -4048,7 +4069,7 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	default:
 		quoteChar = "`"
 	}
-	
+
 	quoteIdentifier := func(name string) string {
 		if quoteChar == "[" {
 			return "[" + name + "]"
@@ -4057,23 +4078,23 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		}
 		return quoteChar + name + quoteChar
 	}
-	
+
 	columnDefs := make([]string, 0)
 	primaryKeys := make([]string, 0)
 
 	for _, col := range req.Columns {
 		colDef := fmt.Sprintf("%s %s", quoteIdentifier(col.Name), col.Type)
-		
+
 		// 添加长度
 		if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR") {
 			colDef = fmt.Sprintf("%s %s(%s)", quoteIdentifier(col.Name), col.Type, col.Size)
 		}
-		
+
 		// 添加NOT NULL
 		if col.NotNull {
 			colDef += " NOT NULL"
 		}
-		
+
 		// 添加AUTO_INCREMENT
 		if col.AutoIncrement {
 			switch config.Type {
@@ -4090,9 +4111,9 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 				colDef += " AUTO_INCREMENT"
 			}
 		}
-		
+
 		columnDefs = append(columnDefs, colDef)
-		
+
 		// 收集主键
 		if col.PrimaryKey {
 			primaryKeys = append(primaryKeys, quoteIdentifier(col.Name))
@@ -4104,7 +4125,7 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(primaryKeys, ", ")))
 	}
 
-	createQuery := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)", 
+	createQuery := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)",
 		quoteIdentifier(req.Name), strings.Join(columnDefs, ",\n    "))
 
 	log.Printf("执行创建表: %s", createQuery)
@@ -5193,12 +5214,22 @@ func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
 			return
 		}
-		if update.Name != "" { model.Name = update.Name }
-		if update.Type != "" { model.Type = update.Type }
-		if update.Provider != "" { model.Provider = update.Provider }
-		if update.URL != "" { model.URL = update.URL }
+		if update.Name != "" {
+			model.Name = update.Name
+		}
+		if update.Type != "" {
+			model.Type = update.Type
+		}
+		if update.Provider != "" {
+			model.Provider = update.Provider
+		}
+		if update.URL != "" {
+			model.URL = update.URL
+		}
 		model.APIKey = update.APIKey
-		if update.Model != "" { model.Model = update.Model }
+		if update.Model != "" {
+			model.Model = update.Model
+		}
 		model.Description = update.Description
 		model.Enabled = update.Enabled
 		model.UpdatedAt = time.Now().Format(time.RFC3339)
@@ -5306,9 +5337,13 @@ func handleSmallModelDetail(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
 			return
 		}
-		if update.Name != "" { model.Name = update.Name }
+		if update.Name != "" {
+			model.Name = update.Name
+		}
 		model.Description = update.Description
-		if update.JsCode != "" { model.JsCode = update.JsCode }
+		if update.JsCode != "" {
+			model.JsCode = update.JsCode
+		}
 		model.DatabaseID = update.DatabaseID
 		model.InputType = update.InputType
 		model.AcceptExts = update.AcceptExts
@@ -5407,7 +5442,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// 确保支持流式传输
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -5502,7 +5537,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// 根据模块上下文路由
 	moduleSet := make(map[string]bool)
 	for _, m := range queryReq.Modules {
@@ -5596,7 +5631,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 			continue
 		}
-		
+
 		// 检测是否生成了已执行失败过的相同 SQL
 		normalizedSQL := strings.ReplaceAll(strings.ReplaceAll(sqlQuery, " ", ""), "\n", "")
 		dup := false
@@ -6523,9 +6558,9 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 		colLines = append(colLines, fmt.Sprintf("  - 列 %s (%s) ← 源数据第 %d 列(0-based)", c.Name, c.Type, c.SourceIndex))
 	}
 	sourceDesc := map[string]string{
-		"excel":     "Excel 文件 (.xlsx)，使用 INPUT_FILE，gov.readExcel(INPUT_FILE) 与 XLSX.utils.sheet_to_json",
-		"csv_file":  "CSV 文件，使用 INPUT_FILE.text() 与 Papa.parse",
-		"csv_text":  "CSV 文本，使用 INPUT_TEXT 与 Papa.parse(INPUT_TEXT)",
+		"excel":    "Excel 文件 (.xlsx)，使用 INPUT_FILE，gov.readExcel(INPUT_FILE) 与 XLSX.utils.sheet_to_json",
+		"csv_file": "CSV 文件，使用 INPUT_FILE.text() 与 Papa.parse",
+		"csv_text": "CSV 文本，使用 INPUT_TEXT 与 Papa.parse(INPUT_TEXT)",
 	}[req.SourceType]
 	if sourceDesc == "" {
 		sourceDesc = "Excel 文件"
@@ -7028,7 +7063,7 @@ func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryRe
 	draft, parseErr := parseGovernanceTaskDraft(aiResponse, defaultDBID)
 	if draft == nil {
 		sendSSE(w, "error", map[string]interface{}{
-			"message": "未能生成有效任务草稿。" + parseErr,
+			"message":  "未能生成有效任务草稿。" + parseErr,
 			"response": aiResponse,
 		})
 		sendSSE(w, "done", map[string]interface{}{})
@@ -7046,7 +7081,7 @@ func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryRe
 
 // handleAICreateApi 处理AI创建接口请求
 func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
-	
+
 	// 如果 dbSchemas 尚未增强（tables 还是 []string），则获取字段信息
 	needEnhance := false
 	if len(dbSchemas) > 0 {
@@ -7103,10 +7138,10 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		"message": "正在分析您的需求并生成接口配置...",
 	})
 	flusher.Flush()
-	
+
 	// 构建创建接口的提示词
 	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas)
-	
+
 	// 调用AI服务
 	aiResponse, err := callAIService(aiConfig, prompt)
 	if err != nil {
@@ -7117,7 +7152,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		flusher.Flush()
 		return
 	}
-	
+
 	// 解析AI返回的接口配置
 	apiConfig, parseError := parseApiConfigFromAI(aiResponse, dbSchemas)
 	if apiConfig == nil {
@@ -7126,14 +7161,14 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			log.Printf("解析错误: %s", parseError)
 		}
 		sendSSE(w, "error", map[string]interface{}{
-			"message": "AI未能生成有效的接口配置。" + parseError,
+			"message":  "AI未能生成有效的接口配置。" + parseError,
 			"response": aiResponse,
 		})
 		sendSSE(w, "done", map[string]interface{}{})
 		flusher.Flush()
 		return
 	}
-	
+
 	// 返回接口配置供用户确认
 	sendSSE(w, "api_config_generated", map[string]interface{}{
 		"message": "已生成接口配置，请确认后创建",
@@ -7147,17 +7182,17 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
 	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求和以下真实数据库结构生成接口配置。\n\n"
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL：\n\n"
-	
+
 	for _, schema := range dbSchemas {
 		prompt += fmt.Sprintf("数据库: %s (类型: %s)\n", schema["name"], schema["type"])
 		prompt += "=" + strings.Repeat("=", 60) + "\n"
-		
+
 		// 处理新格式（包含字段信息）
 		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
 			for _, table := range tables {
 				tableName := table["name"].(string)
 				prompt += fmt.Sprintf("\n表名: %s\n", tableName)
-				
+
 				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
 					prompt += "字段列表:\n"
 					for _, col := range columns {
@@ -7175,7 +7210,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 		}
 		prompt += "\n"
 	}
-	
+
 	prompt += "\n用户需求：" + userMessage + "\n\n"
 	prompt += "请生成接口配置，必须包含以下信息：\n"
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
@@ -7210,7 +7245,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
 	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
 	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询"
-	
+
 	return prompt
 }
 
@@ -7221,7 +7256,7 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 	if jsonStart == -1 {
 		jsonStart = strings.Index(response, "```")
 	}
-	
+
 	if jsonStart == -1 {
 		// 尝试直接解析整个响应作为JSON
 		var config map[string]interface{}
@@ -7236,24 +7271,24 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 		}
 		return nil, "未找到JSON代码块，且响应内容无法直接解析为JSON"
 	}
-	
+
 	jsonStart = strings.Index(response[jsonStart:], "\n")
 	if jsonStart == -1 {
 		return nil, "找到代码块标记但格式不正确"
 	}
-	
+
 	jsonEnd := strings.Index(response[jsonStart+1:], "```")
 	if jsonEnd == -1 {
 		return nil, "找到代码块开始标记但未找到结束标记"
 	}
-	
+
 	jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
-	
+
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
 		return nil, fmt.Sprintf("JSON解析失败: %v，JSON内容: %s", err, jsonStr)
 	}
-	
+
 	// 验证必需字段
 	requiredFields := []string{"name", "path", "method", "sql"}
 	for _, field := range requiredFields {
@@ -7261,14 +7296,14 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 			return nil, fmt.Sprintf("缺少必需字段: %s", field)
 		}
 	}
-	
+
 	// 添加数据库ID
 	if len(dbSchemas) > 0 {
 		if id, ok := dbSchemas[0]["id"].(string); ok {
 			config["database_id"] = id
 		}
 	}
-	
+
 	return config, ""
 }
 
@@ -7493,6 +7528,7 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.AcceptExts != nil {
 			task.AcceptExts = update.AcceptExts
 		}
+		task.FileBatchMode = update.FileBatchMode
 		task.Enabled = update.Enabled
 		// API 注册字段
 		task.RegisterAsAPI = update.RegisterAsAPI
@@ -7613,7 +7649,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 			return
 		}
 		inputText = r.FormValue("input_text")
-		
+
 		// 保存上传的文件
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
@@ -7622,7 +7658,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 				continue
 			}
 			defer file.Close()
-			
+
 			// 保存到临时目录
 			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 			os.MkdirAll(tmpDir, 0755)
@@ -7777,6 +7813,50 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 }
 
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）
+// handleGovernanceDownloadOutput 下载单次任务生成的输出文件（gov-runner output_files）
+func handleGovernanceDownloadOutput(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	runID := r.URL.Query().Get("run_id")
+	safeName := sanitizeGovOutputFilename(r.URL.Query().Get("name"))
+	if runID == "" || safeName == "" {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	dataOntologyMu.RLock()
+	var owner string
+	var found bool
+	for _, t := range governanceTasks {
+		if t.RunID == runID {
+			owner = t.Owner
+			found = true
+			break
+		}
+	}
+	dataOntologyMu.RUnlock()
+	if !found || !dataOntologyResourceVisible(owner, username) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	path := filepath.Join(os.TempDir(), "gov-output-downloads", runID, safeName)
+	if _, err := os.Stat(path); err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`"`)
+	http.ServeFile(w, r, path)
+}
+
 func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -7940,6 +8020,57 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 	return result.Output, nil
 }
 
+// GovOutputFile gov-runner 生成的二进制输出
+type GovOutputFile struct {
+	Name          string `json:"name"`
+	ContentBase64 string `json:"content_base64"`
+}
+
+// GovRunnerResult gov-runner 执行结果
+type GovRunnerResult struct {
+	Success     bool            `json:"success"`
+	Output      []string        `json:"output"`
+	Error       string          `json:"error"`
+	OutputFiles []GovOutputFile `json:"output_files,omitempty"`
+}
+
+func sanitizeGovOutputFilename(name string) string {
+	base := filepath.Base(name)
+	if base == "." || base == "" {
+		return "output.docx"
+	}
+	return base
+}
+
+// governanceWriteOutputFiles 将 gov-runner 输出的文件落盘并返回日志行（含下载路径）
+func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
+	if runID == "" || len(files) == 0 {
+		return nil
+	}
+	dir := filepath.Join(os.TempDir(), "gov-output-downloads", runID)
+	_ = os.MkdirAll(dir, 0755)
+	var lines []string
+	for _, f := range files {
+		if f.Name == "" || f.ContentBase64 == "" {
+			continue
+		}
+		safe := sanitizeGovOutputFilename(f.Name)
+		data, err := base64.StdEncoding.DecodeString(f.ContentBase64)
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(dir, safe)
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			continue
+		}
+		q := url.Values{}
+		q.Set("run_id", runID)
+		q.Set("name", safe)
+		lines = append(lines, fmt.Sprintf("输出文件 %s — 下载: /api/data-ontology/governance/download-output?%s", safe, q.Encode()))
+	}
+	return lines
+}
+
 // executeGovernanceJob 执行单个治理任务
 func executeGovernanceJob(job *GovernanceJob) {
 	taskID := job.TaskID
@@ -7954,6 +8085,10 @@ func executeGovernanceJob(job *GovernanceJob) {
 	}
 	code := task.JsCode
 	dbID := task.DatabaseID
+	batchMode := task.FileBatchMode
+	if batchMode == "" {
+		batchMode = "per_file"
+	}
 	dbType := ""
 	if db, ok := dataOntologyDatabases[dbID]; ok {
 		dbType = db.Type
@@ -7984,62 +8119,143 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 	// 如果有文件，读取并转为 base64
 	if len(job.InputFiles) > 0 {
-		var allOutput []string
-		var lastError string
-		
-		for i, filePath := range job.InputFiles {
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				log.Printf("读取文件失败: %v", err)
-				lastError = "读取文件失败: " + err.Error()
-				continue
+		if batchMode == "single" {
+			var filePayloads []map[string]interface{}
+			for _, filePath := range job.InputFiles {
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					log.Printf("读取文件失败: %v", err)
+					dataOntologyMu.Lock()
+					if t, ok := governanceTasks[taskID]; ok {
+						t.Status = "error"
+						t.LastError = "读取文件失败: " + err.Error()
+						t.LastRunAt = time.Now().Format(time.RFC3339)
+						t.ProcessedFiles = len(job.InputFiles)
+						t.Percent = 100
+					}
+					dataOntologyMu.Unlock()
+					saveDataOntologyStore()
+					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+					os.RemoveAll(tmpDir)
+					return
+				}
+				filePayloads = append(filePayloads, map[string]interface{}{
+					"file_name":   filepath.Base(filePath),
+					"file_base64": base64.StdEncoding.EncodeToString(data),
+				})
 			}
-			taskData["file_base64"] = base64.StdEncoding.EncodeToString(data)
-			taskData["file_name"] = filepath.Base(filePath)
+			for _, filePath := range job.InputFiles {
+				os.Remove(filePath)
+			}
+			taskData["files"] = filePayloads
 
-			// 更新进度
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[taskID]; ok {
-				t.ProcessedFiles = i
-				t.Percent = (i * 100) / len(job.InputFiles)
-				t.CurrentFile = filepath.Base(filePath)
+				t.ProcessedFiles = 0
+				t.Percent = 50
+				t.CurrentFile = "合并执行"
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
 
-			// 执行单个文件
 			result := callGovRunner(taskData)
+			var extraLines []string
+			if len(result.OutputFiles) > 0 {
+				extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+			}
 			if !result.Success {
-				log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
-				lastError = result.Error
+				log.Printf("任务 %s 合并执行失败: %s", taskID, result.Error)
 			} else {
-				log.Printf("任务 %s 文件 %s 执行成功", taskID, filePath)
-				allOutput = append(allOutput, result.Output...)
+				log.Printf("任务 %s 合并执行成功", taskID)
+			}
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if result.Success {
+					t.Status = "success"
+					out := strings.Join(result.Output, "\n")
+					if len(extraLines) > 0 {
+						out += "\n" + strings.Join(extraLines, "\n")
+					}
+					t.LastOutput = out
+				} else {
+					t.Status = "error"
+					t.LastError = result.Error
+					if len(result.Output) > 0 {
+						t.LastOutput = strings.Join(result.Output, "\n")
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
+				t.CurrentFile = ""
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+		} else {
+			var allOutput []string
+			var lastError string
+
+			for i, filePath := range job.InputFiles {
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					log.Printf("读取文件失败: %v", err)
+					lastError = "读取文件失败: " + err.Error()
+					continue
+				}
+				taskData["file_base64"] = base64.StdEncoding.EncodeToString(data)
+				taskData["file_name"] = filepath.Base(filePath)
+
+				// 更新进度
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					t.ProcessedFiles = i
+					t.Percent = (i * 100) / len(job.InputFiles)
+					t.CurrentFile = filepath.Base(filePath)
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+
+				// 执行单个文件
+				result := callGovRunner(taskData)
+				var extraLines []string
+				if len(result.OutputFiles) > 0 {
+					extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+				}
+				if !result.Success {
+					log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
+					lastError = result.Error
+				} else {
+					log.Printf("任务 %s 文件 %s 执行成功", taskID, filePath)
+					allOutput = append(allOutput, result.Output...)
+					if len(extraLines) > 0 {
+						allOutput = append(allOutput, extraLines...)
+					}
+				}
+
+				// 清理临时文件
+				os.Remove(filePath)
 			}
 
-			// 清理临时文件
-			os.Remove(filePath)
-		}
-		
-		// 更新任务状态
-		dataOntologyMu.Lock()
-		if t, ok := governanceTasks[taskID]; ok {
-			if lastError == "" {
-				t.Status = "success"
-				t.LastOutput = strings.Join(allOutput, "\n")
-			} else {
-				t.Status = "error"
-				t.LastError = lastError
-				if len(allOutput) > 0 {
+			// 更新任务状态
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if lastError == "" {
+					t.Status = "success"
 					t.LastOutput = strings.Join(allOutput, "\n")
+				} else {
+					t.Status = "error"
+					t.LastError = lastError
+					if len(allOutput) > 0 {
+						t.LastOutput = strings.Join(allOutput, "\n")
+					}
 				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
 			}
-			t.LastRunAt = time.Now().Format(time.RFC3339)
-			t.ProcessedFiles = len(job.InputFiles)
-			t.Percent = 100
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
 		}
-		dataOntologyMu.Unlock()
-		saveDataOntologyStore()
 	} else {
 		// 无文件，直接执行
 		result := callGovRunner(taskData)
@@ -8070,13 +8286,6 @@ func executeGovernanceJob(job *GovernanceJob) {
 		tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 		os.RemoveAll(tmpDir)
 	}
-}
-
-// GovRunnerResult gov-runner 执行结果
-type GovRunnerResult struct {
-	Success bool     `json:"success"`
-	Output  []string `json:"output"`
-	Error   string   `json:"error"`
 }
 
 // callGovRunner 调用 gov-runner 执行任务
@@ -8137,9 +8346,9 @@ func governanceScheduler() {
 
 		dataOntologyMu.RLock()
 		var tasksToRun []struct {
-			id     string
-			code   string
-			dbID   string
+			id   string
+			code string
+			dbID string
 		}
 		for _, task := range governanceTasks {
 			if task.Type == "scheduled" && task.Enabled && task.Status != "running" {
@@ -8694,7 +8903,7 @@ func main() {
 	// 加载配置
 	config := loadConfig()
 	port := config.Port
-	
+
 	// 命令行参数优先
 	if *portFlag != 0 {
 		port = *portFlag
@@ -8731,7 +8940,7 @@ func main() {
 	mux.HandleFunc("/api/ops/sftp/mkdir", handleSFTPMkdir)
 	mux.HandleFunc("/api/ops/sftp/delete", handleSFTPDelete)
 	mux.HandleFunc("/api/ops/sftp/rename", handleSFTPRename)
-	
+
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
 	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
@@ -8753,7 +8962,7 @@ func main() {
 			handleDatabaseDetail(w, r)
 		}
 	})
-	
+
 	// MCP 配置（总开关）
 	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
 	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
@@ -8768,20 +8977,20 @@ func main() {
 			handleApiDetail(w, r)
 		}
 	})
-	
+
 	// AI助手API路由
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
-	
+
 	// 模型管理API路由
 	mux.HandleFunc("/api/data-ontology/models/llm", handleLLMModels)
 	mux.HandleFunc("/api/data-ontology/models/llm/", handleLLMModelDetail)
 	mux.HandleFunc("/api/data-ontology/models/small", handleSmallModels)
 	mux.HandleFunc("/api/data-ontology/models/small/", handleSmallModelDetail)
-	
+
 	// 本体论API路由
 	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
 	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
@@ -8789,8 +8998,9 @@ func main() {
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
+	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
-	
+
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
 	mux.HandleFunc("/api/web-nav/links", handleWebNavLinks)
@@ -8802,7 +9012,7 @@ func main() {
 		}
 		handleWebNavLinkByID(w, r, id)
 	})
-	
+
 	// 静态资源（嵌入二进制，无需外置 apps/css/js/lib）
 	mux.Handle("/", newStaticFileHandler())
 
@@ -8830,4 +9040,3 @@ func main() {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
 }
-
