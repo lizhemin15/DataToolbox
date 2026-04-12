@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
-	"embed"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
