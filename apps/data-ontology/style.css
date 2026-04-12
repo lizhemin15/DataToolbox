@@ -397,6 +397,33 @@ body {
     min-height: 0;
 }
 
+/* 与 .container 同宽（max-width: 1400px），用于非侧栏布局的 tab 内容区 */
+.tab-content-wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.tab-content-wrap > .onto-workspace,
+.tab-content-wrap > .lineage-workspace {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+
+.tab-content-wrap > .mcp-container,
+.tab-content-wrap > .ai-assistant-container,
+.tab-content-wrap > .models-container {
+    flex: 1;
+    min-height: 0;
+}
+
 .container {
     max-width: 1400px;
     margin: 0 auto;
@@ -894,9 +921,7 @@ body {
 
 /* MCP 模块 */
 .mcp-container {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 24px;
+    padding: 0;
     overflow-y: auto;
     height: 100%;
 }
@@ -1594,7 +1619,7 @@ textarea#testApiParams {
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: 20px;
+    padding: 0;
     overflow: hidden;
 }
 
@@ -4964,7 +4989,9 @@ textarea#testApiParams {
 .models-container {
     display: flex;
     height: 100%;
+    min-height: 0;
     gap: 20px;
+    overflow: hidden;
 }
 
 .models-sidebar {
@@ -5006,6 +5033,7 @@ textarea#testApiParams {
 
 .models-main {
     flex: 1;
+    min-height: 0;
     overflow: auto;
 }
 
