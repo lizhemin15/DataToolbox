@@ -5873,13 +5873,14 @@ async function pollTaskProgress(taskId, runId) {
 
             // 如果任务完成，停止轮询
             if (status !== 'running') {
-                // 刷新任务详情
+                // 刷新任务详情与持久化执行日志（后端异步任务会写入 /logs）
                 await loadGovernanceTasks();
                 const task = govTasks.find(t => t.id === taskId);
                 if (task) {
                     currentGovTask = task;
                     showGovTaskDetail(task);
                 }
+                await loadGovTaskLogs();
                 return;
             }
 

@@ -608,6 +608,7 @@ type GovernanceTask struct {
 type GovernanceTaskLog struct {
 	ID        string `json:"id"`
 	TaskID    string `json:"task_id"`
+	RunID     string `json:"run_id,omitempty"` // 与 GovernanceJob.RunID 对应，用于异步执行更新同一条日志
 	StartTime string `json:"start_time"`
 	EndTime   string `json:"end_time,omitempty"`
 	Status    string `json:"status"` // "running" | "success" | "error"
@@ -8252,6 +8253,114 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 
 // ==================== 治理任务调度器 ====================
 
+// governanceJobInputSummary 生成异步任务输入摘要（供执行日志展示）
+func governanceJobInputSummary(job *GovernanceJob) string {
+	var parts []string
+	if strings.TrimSpace(job.InputText) != "" {
+		t := strings.TrimSpace(job.InputText)
+		runes := []rune(t)
+		if len(runes) > 200 {
+			t = string(runes[:200]) + "…"
+		}
+		parts = append(parts, "文本: "+t)
+	}
+	if len(job.InputFiles) > 0 {
+		names := make([]string, 0, len(job.InputFiles))
+		for _, p := range job.InputFiles {
+			names = append(names, filepath.Base(p))
+		}
+		parts = append(parts, "文件: "+strings.Join(names, ", "))
+	}
+	if len(parts) == 0 {
+		return "（无输入）"
+	}
+	return strings.Join(parts, "；")
+}
+
+// governanceAppendRunningLog 异步任务开始时写入一条「运行中」日志（便于刷新页面后仍能看到执行记录）
+func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt string) {
+	if startedAt == "" {
+		startedAt = time.Now().Format(time.RFC3339)
+	}
+	dataOntologyMu.Lock()
+	logEntry := &GovernanceTaskLog{
+		ID:        uuid.New().String(),
+		TaskID:    taskID,
+		RunID:     job.RunID,
+		StartTime: startedAt,
+		Status:    "running",
+		Input:     governanceJobInputSummary(job),
+	}
+	governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], logEntry)
+	if len(governanceTaskLogs[taskID]) > 50 {
+		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
+	}
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务运行中日志失败: %v", err)
+	}
+}
+
+// governanceFinalizeRunLog 将对应 run_id 的「运行中」日志更新为结束状态；若无则追加一条完成记录
+func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
+	if runID == "" {
+		runID = uuid.New().String()
+	}
+	now := time.Now().Format(time.RFC3339)
+	dataOntologyMu.Lock()
+	logs := governanceTaskLogs[taskID]
+	found := false
+	for _, l := range logs {
+		if l.RunID == runID && l.Status == "running" {
+			l.Status = status
+			l.Output = output
+			l.Error = errStr
+			l.EndTime = now
+			found = true
+			break
+		}
+	}
+	if !found {
+		governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], &GovernanceTaskLog{
+			ID:        uuid.New().String(),
+			TaskID:    taskID,
+			RunID:     runID,
+			StartTime: now,
+			EndTime:   now,
+			Status:    status,
+			Output:    output,
+			Error:     errStr,
+		})
+	}
+	if len(governanceTaskLogs[taskID]) > 50 {
+		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
+	}
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务完成日志失败: %v", err)
+	}
+}
+
+// governanceFinalizeRunLogFromTask 根据任务当前状态将本次 run 的执行日志落库
+func governanceFinalizeRunLogFromTask(taskID, runID string) {
+	dataOntologyMu.RLock()
+	var outStr, errStr string
+	status := "error"
+	if t, ok := governanceTasks[taskID]; ok {
+		if t.Status == "success" {
+			status = "success"
+		}
+		outStr = t.LastOutput
+		errStr = t.LastError
+	}
+	dataOntologyMu.RUnlock()
+	if status == "success" {
+		governanceFinalizeRunLog(taskID, runID, "success", outStr, "")
+	} else {
+		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
+	}
+}
+
 // governanceWorker 任务执行器，从队列取出任务并执行
 func governanceWorker() {
 	for job := range governanceJobQueue {
@@ -8371,7 +8480,7 @@ func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
 // executeGovernanceJob 执行单个治理任务
 func executeGovernanceJob(job *GovernanceJob) {
 	taskID := job.TaskID
-	_ = job.RunID // 用于日志追踪
+	runID := job.RunID
 
 	// 获取任务信息
 	dataOntologyMu.RLock()
@@ -8380,6 +8489,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 		dataOntologyMu.RUnlock()
 		return
 	}
+	startedAt := task.StartedAt
 	code := task.JsCode
 	dbID := task.DatabaseID
 	batchMode := task.FileBatchMode
@@ -8403,6 +8513,9 @@ func executeGovernanceJob(job *GovernanceJob) {
 		})
 	}
 	dataOntologyMu.RUnlock()
+
+	// 持久化「运行中」执行日志，避免任务状态为运行中但执行日志列表为空
+	governanceAppendRunningLog(taskID, job, startedAt)
 
 	// 准备任务参数
 	taskData := map[string]interface{}{
@@ -8432,6 +8545,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 					}
 					dataOntologyMu.Unlock()
 					saveDataOntologyStore()
+					governanceFinalizeRunLogFromTask(taskID, runID)
 					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 					os.RemoveAll(tmpDir)
 					return
@@ -8488,6 +8602,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTask(taskID, runID)
 		} else {
 			var allOutput []string
 			var lastError string
@@ -8552,6 +8667,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTask(taskID, runID)
 		}
 	} else {
 		// 无文件，直接执行
@@ -8576,6 +8692,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 		}
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
+		governanceFinalizeRunLogFromTask(taskID, runID)
 	}
 
 	// 清理临时目录
