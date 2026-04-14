@@ -5277,6 +5277,18 @@ async function loadGovernanceTasks() {
         const data = await response.json();
         if (data.success) {
             govTasks = data.tasks || [];
+            if (currentGovTask) {
+                const fresh = govTasks.find(t => t.id === currentGovTask.id);
+                if (fresh) {
+                    currentGovTask = fresh;
+                    showGovTaskDetail(currentGovTask);
+                    loadGovTaskLogs();
+                } else {
+                    currentGovTask = null;
+                    document.getElementById('govTaskDetailView').style.display = 'none';
+                    document.getElementById('govWelcomeView').style.display = '';
+                }
+            }
             renderGovTaskList();
         }
     } catch (error) {
@@ -5858,7 +5870,7 @@ async function pollTaskProgress(taskId, runId) {
 
             const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
 
-            // 更新进度显示
+            // 更新进度显示（有文件时显示进度条；无文件的后台任务仍显示状态与 last_output，便于看到 gov.log 汇总输出）
             if (total_files > 0) {
                 container.innerHTML = `
                     <div class="gov-log-entry">
@@ -5868,6 +5880,16 @@ async function pollTaskProgress(taskId, runId) {
                         </div>
                         ${current_file ? `<div class="gov-log-content">当前: ${escapeHtml(current_file)}</div>` : ''}
                         ${last_output ? `<div class="gov-log-content"><pre>${escapeHtml(last_output.substring(last_output.length - 500))}</pre></div>` : ''}
+                    </div>`;
+            } else {
+                container.innerHTML = `
+                    <div class="gov-log-entry">
+                        <div class="gov-log-header">
+                            <span>后台执行${status === 'running' ? '中…' : ''}</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
+                        </div>
+                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
+                        ${last_error ? `<div class="gov-log-error">${escapeHtml(last_error)}</div>` : ''}
                     </div>`;
             }
 

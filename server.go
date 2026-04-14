@@ -7787,6 +7787,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 
 	// 创建任务
 	runID := uuid.New().String()
+	startedAt := time.Now().Format(time.RFC3339)
 	job := &GovernanceJob{
 		TaskID:     taskID,
 		RunID:      runID,
@@ -7799,13 +7800,16 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 	dataOntologyMu.Lock()
 	task.Status = "running"
 	task.RunID = runID
-	task.StartedAt = time.Now().Format(time.RFC3339)
+	task.StartedAt = startedAt
 	task.TotalFiles = len(filePaths)
 	task.ProcessedFiles = 0
 	task.Percent = 0
 	task.CurrentFile = ""
 	dataOntologyMu.Unlock()
 	saveDataOntologyStore()
+
+	// 入队前即写入「运行中」日志，避免工作者尚未消费队列时刷新页面出现状态为运行中但执行记录为空
+	governanceAppendRunningLog(taskID, job, startedAt)
 
 	// 入队
 	select {
@@ -8489,7 +8493,6 @@ func executeGovernanceJob(job *GovernanceJob) {
 		dataOntologyMu.RUnlock()
 		return
 	}
-	startedAt := task.StartedAt
 	code := task.JsCode
 	dbID := task.DatabaseID
 	batchMode := task.FileBatchMode
@@ -8513,9 +8516,6 @@ func executeGovernanceJob(job *GovernanceJob) {
 		})
 	}
 	dataOntologyMu.RUnlock()
-
-	// 持久化「运行中」执行日志，避免任务状态为运行中但执行日志列表为空
-	governanceAppendRunningLog(taskID, job, startedAt)
 
 	// 准备任务参数
 	taskData := map[string]interface{}{
