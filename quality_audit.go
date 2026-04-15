@@ -324,7 +324,7 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func qaRulesGET(w http.ResponseWriter, username string) {
-	_, _ = username
+	_ = username
 	list, err := loadRulesFlat()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -335,7 +335,7 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 }
 
 func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
-	_, _ = username
+	_ = username
 	var body struct {
 		NM       string `json:"nm"`
 		XH       string `json:"xh"`
@@ -369,7 +369,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 }
 
 func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
-	_, _ = username
+	_ = username
 	nm = padNM(nm)
 	if nm == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "nm 无效"})
@@ -389,7 +389,7 @@ func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
 }
 
 func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
-	_, _ = username
+	_ = username
 	var body struct {
 		Rules []struct {
 			NM       string `json:"nm"`
@@ -445,7 +445,7 @@ type fillRow struct {
 }
 
 func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
-	_, _ = username
+	_ = username
 	db, err := openQualityAuditDB()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -750,7 +750,7 @@ func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{},
 }
 
 func qaReport(w http.ResponseWriter, r *http.Request, username string) {
-	_, _ = username
+	_ = username
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
