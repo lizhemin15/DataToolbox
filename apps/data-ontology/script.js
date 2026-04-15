@@ -5897,8 +5897,8 @@ async function pollTaskProgress(taskId, runId) {
                             <span>进度: ${processed_files}/${total_files} (${percent}%)</span>
                             <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
                         </div>
-                        ${current_file ? `<div class="gov-log-content">当前: ${escapeHtml(current_file)}</div>` : ''}
-                        ${last_output ? `<div class="gov-log-content"><pre>${escapeHtml(last_output.substring(last_output.length - 500))}</pre></div>` : ''}
+                        ${current_file ? `<div class="gov-log-input">当前: ${escapeHtml(current_file)}</div>` : ''}
+                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
                     </div>`;
             } else {
                 container.innerHTML = `

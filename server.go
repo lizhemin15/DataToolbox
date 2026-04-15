@@ -7721,20 +7721,40 @@ func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID str
 	if logs == nil {
 		logs = make([]*GovernanceTaskLog, 0)
 	}
-	// 运行中任务：把内存/持久化中的 last_output 合并进「运行中」日志条目，便于刷新后仍能看到 gov.log 累积输出
-	if hasTask && task != nil && task.Status == "running" && strings.TrimSpace(task.LastOutput) != "" {
-		out := make([]*GovernanceTaskLog, 0, len(logs))
-		for _, l := range logs {
-			if l == nil {
-				continue
+	// 运行中任务：把 last_output 合并进「运行中」日志条目；若尚无日志行（竞态或历史数据），则合成一条便于展示
+	if hasTask && task != nil && task.Status == "running" {
+		if len(logs) == 0 {
+			st := task.StartedAt
+			if st == "" {
+				st = time.Now().Format(time.RFC3339)
 			}
-			cp := *l
-			if cp.Status == "running" && (cp.RunID == "" || cp.RunID == task.RunID) {
-				cp.Output = task.LastOutput
+			in := "（无输入）"
+			if task.TotalFiles > 0 {
+				in = fmt.Sprintf("文件: %d 个", task.TotalFiles)
 			}
-			out = append(out, &cp)
+			logs = []*GovernanceTaskLog{{
+				ID:        uuid.New().String(),
+				TaskID:    taskID,
+				RunID:     task.RunID,
+				StartTime: st,
+				Status:    "running",
+				Output:    task.LastOutput,
+				Input:     in,
+			}}
+		} else if strings.TrimSpace(task.LastOutput) != "" {
+			out := make([]*GovernanceTaskLog, 0, len(logs))
+			for _, l := range logs {
+				if l == nil {
+					continue
+				}
+				cp := *l
+				if cp.Status == "running" && (cp.RunID == "" || cp.RunID == task.RunID) {
+					cp.Output = task.LastOutput
+				}
+				out = append(out, &cp)
+			}
+			logs = out
 		}
-		logs = out
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
 }
@@ -7825,9 +7845,8 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 	task.Percent = 0
 	task.CurrentFile = ""
 	dataOntologyMu.Unlock()
-	saveDataOntologyStore()
 
-	// 入队前即写入「运行中」日志，避免工作者尚未消费队列时刷新页面出现状态为运行中但执行记录为空
+	// 先入队前写入「运行中」日志并落库；勿在日志落库之前单独 save 任务，否则刷新页面可能只见 running 而无执行记录
 	governanceAppendRunningLog(taskID, job, startedAt)
 
 	// 入队
