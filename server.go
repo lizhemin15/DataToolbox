@@ -1236,6 +1236,8 @@ func initDataOntology() {
 	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
 
+	initQualityAuditDB()
+
 	// 进程重启后内存队列已清空，持久化仍为「运行中」的任务无法继续，需收尾以免状态与日志长期不一致
 	reconcileStuckGovernanceRuns()
 
@@ -9514,6 +9516,7 @@ func main() {
 	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
 	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
+	mux.HandleFunc("/api/data-ontology/quality-audit/", handleQualityAuditAPI)
 
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)

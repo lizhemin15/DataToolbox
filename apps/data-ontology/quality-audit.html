@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据质量审核</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .qa-page { max-width: 1400px; margin: 0 auto; padding: 16px; min-height: 100vh; }
+        .qa-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+        .qa-toolbar label { color: #fff; }
+        .qa-layout { display: grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 520px; }
+        @media (max-width: 960px) { .qa-layout { grid-template-columns: 1fr; } }
+        .qa-panel { background: #fff; border-radius: 8px; padding: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+        .qa-tree { overflow: auto; max-height: 70vh; font-size: 13px; }
+        .qa-tree details { margin-left: 8px; }
+        .qa-tree summary { cursor: pointer; list-style: none; padding: 4px 0; }
+        .qa-tree summary::-webkit-details-marker { display: none; }
+        .qa-tree .rule-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .qa-tree code { background: #edf2f7; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+        .qa-form label { display: block; margin-top: 8px; font-weight: 600; color: #2d3748; }
+        .qa-form input, .qa-form textarea, .qa-form select { width: 100%; box-sizing: border-box; margin-top: 4px; }
+        .qa-form textarea { min-height: 160px; font-family: ui-monospace, monospace; font-size: 12px; }
+        .qa-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
+        .qa-tab { padding: 8px 12px; cursor: pointer; border: none; background: none; color: #4a5568; }
+        .qa-tab.active { color: #667eea; border-bottom: 2px solid #667eea; font-weight: 600; }
+        .qa-fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .qa-fill-table th, .qa-fill-table td { border: 1px solid #e2e8f0; padding: 6px; text-align: left; }
+        .qa-fill-table input { width: 100%; border: none; box-sizing: border-box; padding: 4px; }
+        .qa-bottom { margin-top: 12px; padding: 12px; background: rgba(255,255,255,.95); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        .qa-msg { margin: 8px 0; padding: 8px; border-radius: 6px; font-size: 13px; display: none; }
+        .qa-msg.show { display: block; }
+        .qa-msg.err { background: #fff5f5; color: #c53030; }
+        .qa-msg.ok { background: #f0fff4; color: #276749; }
+    </style>
+</head>
+<body>
+    <div class="qa-page">
+        <div class="qa-toolbar">
+            <a href="index.html" class="btn btn-sm">← 返回数据本体池</a>
+            <span style="color:#fff;font-weight:600;">数据质量审核</span>
+        </div>
+        <div id="qaMsg" class="qa-msg"></div>
+        <div class="qa-layout">
+            <div class="qa-panel">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <strong>规则树</strong>
+                    <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
+                </div>
+                <div id="qaTree" class="qa-tree"></div>
+            </div>
+            <div>
+                <div class="qa-panel" style="margin-bottom:12px;">
+                    <strong>规则编辑</strong>
+                    <div class="qa-form">
+                        <label>NM（6位）</label>
+                        <input type="text" id="qaNm" maxlength="6" placeholder="010000">
+                        <label>层级编码 XH</label>
+                        <input type="text" id="qaXh" placeholder="01 / 0101 / 010101">
+                        <label>规则名称</label>
+                        <input type="text" id="qaName">
+                        <label>类别</label>
+                        <input type="text" id="qaCategory">
+                        <label>SQL（Oracle 方言，将自动转换）</label>
+                        <textarea id="qaSql" placeholder="SELECT ..."></textarea>
+                        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                            <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
+                            <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>
+                            <button type="button" class="btn btn-sm" id="qaPasteExcel">从 Excel 粘贴导入</button>
+                            <label class="btn btn-sm" style="margin:0;cursor:pointer;">Excel 文件导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
+                        </div>
+                    </div>
+                </div>
+                <div class="qa-panel">
+                    <strong>填报率配置</strong>
+                    <div class="qa-tabs">
+                        <button type="button" class="qa-tab active" data-fr="item">项填报率</button>
+                        <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
+                    </div>
+                    <div id="qaFillItem">
+                        <table class="qa-fill-table" id="qaTableItem">
+                            <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowItem">+ 行</button>
+                    </div>
+                    <div id="qaFillRecord" style="display:none;">
+                        <table class="qa-fill-table" id="qaTableRecord">
+                            <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowRecord">+ 行</button>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" id="qaSaveFill">保存填报率</button>
+                </div>
+            </div>
+        </div>
+        <div class="qa-bottom">
+            <label>目标数据库</label>
+            <select id="qaDbSelect" style="min-width:220px;padding:6px;"></select>
+            <button type="button" class="btn btn-primary" id="qaRun">一键审核</button>
+            <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
+        </div>
+    </div>
+    <script src="/lib/xlsx.full.min.js"></script>
+    <script>
+(function () {
+    var API_BASE = location.origin;
+    var PREFIX = API_BASE + '/api/data-ontology/quality-audit/';
+
+    function token() { return localStorage.getItem('dataOntologyToken'); }
+    if (!token()) { location.href = 'index.html'; return; }
+
+    function showMsg(text, isErr) {
+        var el = document.getElementById('qaMsg');
+        el.textContent = text || '';
+        el.className = 'qa-msg show ' + (isErr ? 'err' : 'ok');
+        if (!text) el.classList.remove('show');
+    }
+
+    function fetchWithAuth(path, opts) {
+        opts = opts || {};
+        var h = new Headers(opts.headers || {});
+        h.set('Authorization', 'Bearer ' + token());
+        if (!h.has('Content-Type') && opts.body && typeof opts.body === 'string') {
+            h.set('Content-Type', 'application/json');
+        }
+        return fetch(path, { method: opts.method || 'GET', headers: h, body: opts.body });
+    }
+
+    var ruleTree = [];
+    var flatRules = [];
+    var selectedNms = {};
+    var lastAudit = null;
+
+    function padNm(s) {
+        s = String(s || '').trim();
+        if (!s) return '';
+        while (s.length < 6) s = '0' + s;
+        return s.length > 6 ? s.slice(0, 6) : s;
+    }
+
+    function renderTree(nodes, container) {
+        container.innerHTML = '';
+        nodes.forEach(function (n) {
+            var hasKids = n.children && n.children.length;
+            if (hasKids) {
+                var det = document.createElement('details');
+                det.open = true;
+                var sum = document.createElement('summary');
+                var line = document.createElement('div');
+                line.className = 'rule-line';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.dataset.nm = n.nm;
+                cb.checked = !!selectedNms[n.nm];
+                cb.addEventListener('change', function () {
+                    if (cb.checked) selectedNms[n.nm] = true; else delete selectedNms[n.nm];
+                });
+                line.appendChild(cb);
+                line.appendChild(document.createTextNode(' ' + (n.name || '') + ' '));
+                var c = document.createElement('code');
+                c.textContent = n.nm + ' / ' + n.xh;
+                line.appendChild(c);
+                sum.appendChild(line);
+                sum.addEventListener('click', function (e) {
+                    if (e.target.tagName === 'INPUT') return;
+                    fillEditor(n);
+                });
+                det.appendChild(sum);
+                var inner = document.createElement('div');
+                renderTree(n.children, inner);
+                det.appendChild(inner);
+                container.appendChild(det);
+            } else {
+                var div = document.createElement('div');
+                div.className = 'rule-line';
+                div.style.padding = '4px 0 4px 8px';
+                var cb2 = document.createElement('input');
+                cb2.type = 'checkbox';
+                cb2.dataset.nm = n.nm;
+                cb2.checked = !!selectedNms[n.nm];
+                cb2.addEventListener('change', function () {
+                    if (cb2.checked) selectedNms[n.nm] = true; else delete selectedNms[n.nm];
+                });
+                div.appendChild(cb2);
+                div.appendChild(document.createTextNode(' ' + (n.name || '') + ' '));
+                var c2 = document.createElement('code');
+                c2.textContent = n.nm + ' / ' + n.xh;
+                div.appendChild(c2);
+                div.addEventListener('click', function (e) {
+                    if (e.target.tagName === 'INPUT') return;
+                    fillEditor(n);
+                });
+                container.appendChild(div);
+            }
+        });
+    }
+
+    function fillEditor(rule) {
+        document.getElementById('qaNm').value = rule.nm || '';
+        document.getElementById('qaXh').value = rule.xh || '';
+        document.getElementById('qaName').value = rule.name || '';
+        document.getElementById('qaCategory').value = rule.category || '';
+        document.getElementById('qaSql').value = rule.sql || '';
+    }
+
+    function loadRules() {
+        return fetchWithAuth(PREFIX + 'rules').then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '加载失败');
+            ruleTree = d.tree || [];
+            flatRules = d.flat || [];
+            renderTree(ruleTree, document.getElementById('qaTree'));
+        });
+    }
+
+    function loadDatabases() {
+        return fetchWithAuth(API_BASE + '/api/data-ontology/databases').then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '加载数据库失败');
+            var sel = document.getElementById('qaDbSelect');
+            sel.innerHTML = '<option value="">请选择</option>';
+            (d.databases || []).forEach(function (db) {
+                var sqlTypes = { mysql:1,mariadb:1,tidb:1,postgresql:1,timescaledb:1,cockroachdb:1,sqlserver:1,oracle:1,dm:1,sqlite:1 };
+                if (!sqlTypes[db.type]) return;
+                var o = document.createElement('option');
+                o.value = db.id;
+                o.textContent = db.name + ' (' + db.type + ')';
+                sel.appendChild(o);
+            });
+        });
+    }
+
+    function loadFillRates() {
+        return fetchWithAuth(PREFIX + 'fill-rates').then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '加载填报率失败');
+            fillTableRows('qaTableItem', d.item_fill_rate || []);
+            fillTableRows('qaTableRecord', d.record_fill_rate || []);
+        });
+    }
+
+    function fillTableRows(tableId, rows) {
+        var tb = document.querySelector('#' + tableId + ' tbody');
+        tb.innerHTML = '';
+        if (!rows.length) rows = [{ table_name: '', numerator: '', denominator: '' }];
+        rows.forEach(function (row) {
+            addRow(tb, row.table_name || '', row.numerator || '', row.denominator || '');
+        });
+    }
+
+    function addRow(tbody, a, b, c) {
+        var tr = document.createElement('tr');
+        ['t', 'n', 'd'].forEach(function (k, i) {
+            var td = document.createElement('td');
+            var inp = document.createElement('input');
+            inp.setAttribute('data-k', k);
+            inp.value = [a, b, c][i] || '';
+            td.appendChild(inp);
+            tr.appendChild(td);
+        });
+        var tdGo = document.createElement('td');
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn btn-sm qa-rm';
+        rm.textContent = '删除';
+        rm.addEventListener('click', function () {
+            if (tbody.children.length > 1) tr.remove();
+        });
+        tdGo.appendChild(rm);
+        tr.appendChild(tdGo);
+        tbody.appendChild(tr);
+    }
+
+    function collectFill(tableId) {
+        var rows = [];
+        document.querySelectorAll('#' + tableId + ' tbody tr').forEach(function (tr) {
+            var ins = tr.querySelectorAll('input[data-k]');
+            var t = ins[0] && ins[0].value.trim();
+            if (!t) return;
+            rows.push({
+                table_name: t,
+                numerator: ins[1] ? ins[1].value : '',
+                denominator: ins[2] ? ins[2].value : ''
+            });
+        });
+        return rows;
+    }
+
+    document.getElementById('qaSaveRule').addEventListener('click', function () {
+        var body = {
+            nm: padNm(document.getElementById('qaNm').value),
+            xh: document.getElementById('qaXh').value.trim(),
+            name: document.getElementById('qaName').value.trim(),
+            category: document.getElementById('qaCategory').value.trim(),
+            sql: document.getElementById('qaSql').value
+        };
+        fetchWithAuth(PREFIX + 'rules', { method: 'POST', body: JSON.stringify(body) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) throw new Error(d.message);
+                showMsg('已保存', false);
+                return loadRules();
+            })
+            .catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    document.getElementById('qaDelRule').addEventListener('click', function () {
+        var nm = padNm(document.getElementById('qaNm').value);
+        if (!nm || !confirm('确定删除 ' + nm + ' ?')) return;
+        fetchWithAuth(PREFIX + 'rules/' + encodeURIComponent(nm), { method: 'DELETE' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) throw new Error(d.message);
+                showMsg('已删除', false);
+                return loadRules();
+            })
+            .catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    document.getElementById('qaPasteExcel').addEventListener('click', function () {
+        var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：');
+        if (!raw) return;
+        var lines = raw.trim().split(/\r?\n/);
+        var rules = [];
+        lines.forEach(function (line) {
+            var p = line.split('\t');
+            if (p.length < 3) return;
+            rules.push({
+                nm: padNm(p[0]),
+                xh: (p[1] || '').trim(),
+                name: (p[2] || '').trim(),
+                sql: p[3] != null ? String(p[3]) : '',
+                category: (p[4] || '').trim()
+            });
+        });
+        if (!rules.length) { showMsg('未解析到有效行', true); return; }
+        fetchWithAuth(PREFIX + 'rules/import', { method: 'POST', body: JSON.stringify({ rules: rules }) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) throw new Error(d.message);
+                showMsg('导入 ' + (d.imported || rules.length) + ' 条', false);
+                return loadRules();
+            })
+            .catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    document.getElementById('qaXlsxFile').addEventListener('change', function (ev) {
+        var f = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!f || typeof XLSX === 'undefined') return;
+        var reader = new FileReader();
+        reader.onload = function () {
+            try {
+                var wb = XLSX.read(reader.result, { type: 'array' });
+                var sh = wb.Sheets[wb.SheetNames[0]];
+                var data = XLSX.utils.sheet_to_json(sh, { header: 1, raw: false });
+                var rules = [];
+                data.forEach(function (row) {
+                    if (!row || !row.length) return;
+                    var p = row;
+                    if ((p[0] + '').trim() === 'NM' || (p[0] + '').trim() === 'nm') return;
+                    rules.push({
+                        nm: padNm(p[0]),
+                        xh: (p[1] !== undefined ? String(p[1]) : '').trim(),
+                        name: (p[2] !== undefined ? String(p[2]) : '').trim(),
+                        sql: p[3] !== undefined ? String(p[3]) : '',
+                        category: p[4] !== undefined ? String(p[4]).trim() : ''
+                    });
+                });
+                rules = rules.filter(function (r) { return r.nm && r.xh && r.name; });
+                if (!rules.length) { showMsg('表中无有效数据', true); return; }
+                fetchWithAuth(PREFIX + 'rules/import', { method: 'POST', body: JSON.stringify({ rules: rules }) })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d.success) throw new Error(d.message);
+                        showMsg('导入 ' + (d.imported || rules.length) + ' 条', false);
+                        return loadRules();
+                    })
+                    .catch(function (e) { showMsg(e.message || String(e), true); });
+            } catch (e) {
+                showMsg(e.message || String(e), true);
+            }
+        };
+        reader.readAsArrayBuffer(f);
+    });
+
+    document.querySelectorAll('.qa-tab').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.qa-tab').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            var fr = btn.getAttribute('data-fr');
+            document.getElementById('qaFillItem').style.display = fr === 'item' ? 'block' : 'none';
+            document.getElementById('qaFillRecord').style.display = fr === 'record' ? 'block' : 'none';
+        });
+    });
+
+    document.getElementById('qaAddRowItem').addEventListener('click', function () {
+        addRow(document.querySelector('#qaTableItem tbody'), '', '', '');
+    });
+    document.getElementById('qaAddRowRecord').addEventListener('click', function () {
+        addRow(document.querySelector('#qaTableRecord tbody'), '', '', '');
+    });
+
+    document.getElementById('qaSaveFill').addEventListener('click', function () {
+        var body = {
+            item_fill_rate: collectFill('qaTableItem'),
+            record_fill_rate: collectFill('qaTableRecord')
+        };
+        fetchWithAuth(PREFIX + 'fill-rates', { method: 'POST', body: JSON.stringify(body) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) throw new Error(d.message);
+                showMsg('填报率已保存', false);
+            })
+            .catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    document.getElementById('qaExpandAll').addEventListener('click', function () {
+        document.querySelectorAll('.qa-tree details').forEach(function (d) { d.open = true; });
+    });
+
+    document.getElementById('qaRun').addEventListener('click', function () {
+        var dbId = document.getElementById('qaDbSelect').value;
+        var ruleNms = Object.keys(selectedNms);
+        if (!dbId) { showMsg('请选择数据库', true); return; }
+        if (!ruleNms.length) { showMsg('请勾选规则', true); return; }
+        showMsg('执行中…', false);
+        fetchWithAuth(PREFIX + 'execute', {
+            method: 'POST',
+            body: JSON.stringify({ database_id: dbId, rule_nms: ruleNms })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '执行失败');
+            lastAudit = d;
+            showMsg('审核完成：通过 ' + (d.summary && d.summary.passed) + '，不通过 ' + (d.summary && d.summary.failed), false);
+        }).catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    document.getElementById('qaReport').addEventListener('click', function () {
+        if (!lastAudit) { showMsg('请先执行一键审核', true); return; }
+        fetchWithAuth(PREFIX + 'report', {
+            method: 'POST',
+            body: JSON.stringify({ audit: lastAudit })
+        }).then(function (r) {
+            var ct = r.headers.get('Content-Type') || '';
+            if (!r.ok || ct.indexOf('json') !== -1) {
+                return r.json().then(function (j) { throw new Error((j && j.message) || r.statusText); });
+            }
+            return r.blob();
+        }).then(function (blob) {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'quality-audit-report.docx';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }).catch(function (e) { showMsg(e.message || String(e), true); });
+    });
+
+    loadRules().then(loadDatabases).then(loadFillRates).catch(function (e) {
+        showMsg(e.message || String(e), true);
+    });
+})();
+    </script>
+</body>
+</html>

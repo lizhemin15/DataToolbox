@@ -1,2 +1,3 @@
 # 数据本体池持久化存储文件
 data-store.json
+quality-audit.db
