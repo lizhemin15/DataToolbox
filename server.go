@@ -1236,6 +1236,9 @@ func initDataOntology() {
 	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
 
+	// 进程重启后内存队列已清空，持久化仍为「运行中」的任务无法继续，需收尾以免状态与日志长期不一致
+	reconcileStuckGovernanceRuns()
+
 	// 启动治理任务 worker（后台执行器）
 	go governanceWorker()
 
@@ -7712,10 +7715,26 @@ func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID str
 	}
 	dataOntologyMu.RLock()
 	logs := governanceTaskLogs[taskID]
+	task, hasTask := governanceTasks[taskID]
 	dataOntologyMu.RUnlock()
 
 	if logs == nil {
 		logs = make([]*GovernanceTaskLog, 0)
+	}
+	// 运行中任务：把内存/持久化中的 last_output 合并进「运行中」日志条目，便于刷新后仍能看到 gov.log 累积输出
+	if hasTask && task != nil && task.Status == "running" && strings.TrimSpace(task.LastOutput) != "" {
+		out := make([]*GovernanceTaskLog, 0, len(logs))
+		for _, l := range logs {
+			if l == nil {
+				continue
+			}
+			cp := *l
+			if cp.Status == "running" && (cp.RunID == "" || cp.RunID == task.RunID) {
+				cp.Output = task.LastOutput
+			}
+			out = append(out, &cp)
+		}
+		logs = out
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
 }
@@ -8257,6 +8276,43 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 
 // ==================== 治理任务调度器 ====================
 
+// reconcileStuckGovernanceRuns 服务启动时将仍处于 running 的任务视为已中断（队列与工作者状态不会在重启后保留）
+func reconcileStuckGovernanceRuns() {
+	dataOntologyMu.Lock()
+	changed := false
+	for id, t := range governanceTasks {
+		if t == nil || t.Status != "running" {
+			continue
+		}
+		t.Status = "idle"
+		if t.LastError == "" {
+			t.LastError = "上次执行未正常结束（服务重启或进程退出）"
+		}
+		rid := t.RunID
+		t.RunID = ""
+		t.TotalFiles = 0
+		t.ProcessedFiles = 0
+		t.Percent = 0
+		t.CurrentFile = ""
+		for _, l := range governanceTaskLogs[id] {
+			if l != nil && l.Status == "running" && (rid == "" || l.RunID == rid) {
+				l.Status = "error"
+				l.Error = "执行中断（服务重启或进程退出）"
+				l.EndTime = time.Now().Format(time.RFC3339)
+				changed = true
+				break
+			}
+		}
+		changed = true
+	}
+	dataOntologyMu.Unlock()
+	if changed {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("收尾中断中的治理任务失败: %v", err)
+		}
+	}
+}
+
 // governanceJobInputSummary 生成异步任务输入摘要（供执行日志展示）
 func governanceJobInputSummary(job *GovernanceJob) string {
 	var parts []string
@@ -8636,6 +8692,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 				if !result.Success {
 					log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
 					lastError = result.Error
+					if len(result.Output) > 0 {
+						allOutput = append(allOutput, result.Output...)
+					}
+					if len(extraLines) > 0 {
+						allOutput = append(allOutput, extraLines...)
+					}
 				} else {
 					log.Printf("任务 %s 文件 %s 执行成功", taskID, filePath)
 					allOutput = append(allOutput, result.Output...)
@@ -8646,6 +8708,19 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 				// 清理临时文件
 				os.Remove(filePath)
+
+				// 每处理完一个文件更新 last_output，便于轮询与合并到「运行中」日志
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					if len(allOutput) > 0 {
+						t.LastOutput = strings.Join(allOutput, "\n")
+					}
+					if lastError != "" {
+						t.LastError = lastError
+					}
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
 			}
 
 			// 更新任务状态
@@ -8733,23 +8808,25 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 		apiBase = "http://127.0.0.1:8080"
 	}
 	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE="+apiBase)
-	output, err := cmd.Output()
-	if err != nil {
-		return &GovRunnerResult{
-			Success: false,
-			Error:   "执行失败: " + err.Error(),
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	runErr := cmd.Run()
+	outBytes := bytes.TrimSpace(stdout.Bytes())
+
+	if len(outBytes) == 0 {
+		if runErr != nil {
+			return &GovRunnerResult{Success: false, Error: "执行失败: " + runErr.Error()}
 		}
+		return &GovRunnerResult{Success: false, Error: "gov-runner 无输出"}
 	}
 
-	// 解析结果
 	var result GovRunnerResult
-	if err := json.Unmarshal(output, &result); err != nil {
+	if err := json.Unmarshal(outBytes, &result); err != nil {
 		return &GovRunnerResult{
 			Success: false,
 			Error:   "解析结果失败: " + err.Error(),
 		}
 	}
-
 	return &result
 }
 

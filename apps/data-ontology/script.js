@@ -5283,10 +5283,27 @@ async function loadGovernanceTasks() {
                     currentGovTask = fresh;
                     showGovTaskDetail(currentGovTask);
                     loadGovTaskLogs();
+                    if (currentGovTask.status === 'running') {
+                        setTimeout(refreshGovTaskStatus, 3000);
+                    }
                 } else {
                     currentGovTask = null;
+                    try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
                     document.getElementById('govTaskDetailView').style.display = 'none';
                     document.getElementById('govWelcomeView').style.display = '';
+                }
+            } else {
+                const savedId = sessionStorage.getItem('govLastSelectedTaskId');
+                if (savedId) {
+                    const t = govTasks.find(x => x.id === savedId);
+                    if (t) {
+                        currentGovTask = t;
+                        showGovTaskDetail(currentGovTask);
+                        loadGovTaskLogs();
+                        if (currentGovTask.status === 'running') {
+                            setTimeout(refreshGovTaskStatus, 3000);
+                        }
+                    }
                 }
             }
             renderGovTaskList();
@@ -5347,6 +5364,7 @@ function filterGovByType(type) {
 async function selectGovTask(taskId) {
     const task = govTasks.find(t => t.id === taskId);
     if (!task) return;
+    try { sessionStorage.setItem('govLastSelectedTaskId', taskId); } catch (e) {}
     currentGovTask = task;
     renderGovTaskList();
     showGovTaskDetail(task);
@@ -5649,6 +5667,7 @@ async function deleteGovTask() {
         const data = await response.json();
         if (data.success) {
             currentGovTask = null;
+            try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
             document.getElementById('govTaskDetailView').style.display = 'none';
             document.getElementById('govWelcomeView').style.display = '';
             loadGovernanceTasks();

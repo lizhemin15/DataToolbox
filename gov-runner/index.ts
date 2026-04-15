@@ -180,16 +180,16 @@ async function runFromCLI() {
 
   // 输出 JSON 结果（Go 服务解析）
   console.log(JSON.stringify(result, null, 2));
-  
-  process.exit(result.success ? 0 : 1);
+  // 始终以 0 退出，便于 Go 的 cmd.Output 捕获 stdout；失败见 JSON 的 success/error/output
+  process.exit(0);
 }
 
 // ==================== 入口 ====================
 
 if (process.env.GOV_RUNNER_CLI === 'true' || process.argv.length > 2) {
   runFromCLI().catch(err => {
-    console.error(JSON.stringify({ success: false, error: err.message }));
-    process.exit(1);
+    console.log(JSON.stringify({ success: false, output: [], error: err.message || String(err) }));
+    process.exit(0);
   });
 } else {
   // HTTP 服务模式
