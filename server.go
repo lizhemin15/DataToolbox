@@ -34,7 +34,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
 	"go.mongodb.org/mongo-driver/bson"

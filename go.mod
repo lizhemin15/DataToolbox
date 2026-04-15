@@ -1,8 +1,6 @@
 module github.com/YOUR_USERNAME/DataToolbox
 
-go 1.23.0
-
-toolchain go1.23.4
+go 1.23
 
 require (
 	gitee.com/chunanyong/dm v1.8.14
@@ -11,7 +9,7 @@ require (
 	github.com/google/uuid v1.5.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/lib/pq v1.10.9
-	github.com/mattn/go-sqlite3 v1.14.24
+	modernc.org/sqlite v1.29.10
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/pkg/sftp v1.13.6
 	github.com/sijms/go-ora/v2 v2.8.0

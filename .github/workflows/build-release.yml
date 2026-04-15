@@ -69,17 +69,11 @@ jobs:
           go mod tidy
           go mod download
 
-      - name: Install Linux CGO build dependencies
-        if: matrix.goos == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc gcc-aarch64-linux-gnu
-
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: ${{ matrix.goos == 'linux' && '1' || '0' }}
+          CGO_ENABLED: 0
         run: |
           go mod tidy
           cd gov-runner
@@ -94,9 +88,6 @@ jobs:
             *) echo "Unknown matrix"; exit 1 ;;
           esac
           cd ..
-          if [[ "${{ matrix.goos }}" == "linux" && "${{ matrix.goarch }}" == "arm64" ]]; then
-            export CC=aarch64-linux-gnu-gcc
-          fi
           go build -ldflags="-s -w" -o ${{ matrix.output }} .
 
       - name: Prepare package files
