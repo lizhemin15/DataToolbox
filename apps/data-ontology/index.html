@@ -76,7 +76,7 @@
                         <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
                         <button class="nav-tab" data-tab="models">模型管理</button>
-                        <button type="button" class="nav-tab" onclick="location.href='quality-audit.html'" title="数据质量审核">数据质量审核</button>
+                        <button class="nav-tab" data-tab="quality" title="数据质量审核">数据质量审核</button>
                     </div>
                 </div>
                 <div class="header-right">
@@ -811,6 +811,74 @@
             </div>
             </div>
         </div>
+
+        <div id="qualityTab" class="tab-content">
+            <div class="tab-content-wrap">
+                <div class="qa-page">
+                    <div id="qaMsg" class="qa-msg"></div>
+                    <div class="qa-layout">
+                        <div class="qa-panel">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                <strong>规则树</strong>
+                                <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
+                            </div>
+                            <div id="qaTree" class="qa-tree"></div>
+                        </div>
+                        <div>
+                            <div class="qa-panel" style="margin-bottom:12px;">
+                                <strong>规则编辑</strong>
+                                <div class="qa-form">
+                                    <label>NM（6位）</label>
+                                    <input type="text" id="qaNm" maxlength="6" placeholder="010000">
+                                    <label>层级编码 XH</label>
+                                    <input type="text" id="qaXh" placeholder="01 / 0101 / 010101">
+                                    <label>规则名称</label>
+                                    <input type="text" id="qaName">
+                                    <label>类别</label>
+                                    <input type="text" id="qaCategory">
+                                    <label>SQL（Oracle 方言，将自动转换）</label>
+                                    <textarea id="qaSql" placeholder="SELECT ..."></textarea>
+                                    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                                        <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
+                                        <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>
+                                        <button type="button" class="btn btn-sm" id="qaPasteExcel">从 Excel 粘贴导入</button>
+                                        <label class="btn btn-sm" style="margin:0;cursor:pointer;">Excel 文件导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="qa-panel">
+                                <strong>填报率配置</strong>
+                                <div class="qa-tabs">
+                                    <button type="button" class="qa-tab active" data-fr="item">项填报率</button>
+                                    <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
+                                </div>
+                                <div id="qaFillItem">
+                                    <table class="qa-fill-table" id="qaTableItem">
+                                        <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
+                                        <tbody></tbody>
+                                    </table>
+                                    <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowItem">+ 行</button>
+                                </div>
+                                <div id="qaFillRecord" style="display:none;">
+                                    <table class="qa-fill-table" id="qaTableRecord">
+                                        <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
+                                        <tbody></tbody>
+                                    </table>
+                                    <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowRecord">+ 行</button>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" id="qaSaveFill">保存填报率</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="qa-bottom">
+                        <label>目标数据库</label>
+                        <select id="qaDbSelect" style="min-width:220px;padding:6px;"></select>
+                        <button type="button" class="btn btn-primary" id="qaRun">一键审核</button>
+                        <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 添加/编辑大模型弹窗 -->
@@ -1501,7 +1569,9 @@
 
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
+    <script src="/lib/xlsx.full.min.js"></script>
     <script src="script.js"></script>
+    <script src="quality-audit.js"></script>
     <script src="governance.js"></script>
 </body>
 </html>

@@ -83,6 +83,7 @@ function saveReturnUrlForLogin() {
 function handleUnauthorizedFromApi() {
     if (!localStorage.getItem('dataOntologyToken')) return;
     try { closeUserMgmtPanel(true); } catch (e) {}
+    try { window._qualityAuditDataLoaded = false; } catch (e) {}
     saveReturnUrlForLogin();
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
@@ -636,6 +637,7 @@ async function handleLogin(e) {
 function handleLogout() {
     closeUserMgmtPanel(true);
     try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
+    try { window._qualityAuditDataLoaded = false; } catch (e) {}
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -661,6 +663,11 @@ function showMainPage() {
     document.getElementById('mainPage').classList.add('active');
     document.getElementById('currentUser').textContent = currentUser;
     updateUserMgmtNavVisibility();
+    try {
+        if (location.hash === '#quality') {
+            switchTab('quality');
+        }
+    } catch (e) {}
 }
 
 function updateUserMgmtNavVisibility() {
@@ -728,6 +735,10 @@ function switchTab(tabName) {
             if (lineageSelectedDbId) {
                 loadLineageGraph();
             }
+        }
+    } else if (tabName === 'quality') {
+        if (typeof window.initQualityAuditTab === 'function') {
+            window.initQualityAuditTab();
         }
     }
 }

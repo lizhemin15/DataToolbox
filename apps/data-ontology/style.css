@@ -5214,3 +5214,69 @@ textarea#testApiParams {
     width: 700px;
     max-width: 90vw;
 }
+
+/* 数据质量审核（主应用内 tab） */
+.tab-content-wrap > .qa-page {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+.qa-layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 520px;
+    min-width: 0;
+}
+@media (max-width: 960px) {
+    .qa-layout { grid-template-columns: 1fr; }
+}
+.qa-panel {
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.1);
+}
+.qa-tree {
+    overflow: auto;
+    max-height: 70vh;
+    font-size: 13px;
+}
+.qa-tree details { margin-left: 8px; }
+.qa-tree summary { cursor: pointer; list-style: none; padding: 4px 0; }
+.qa-tree summary::-webkit-details-marker { display: none; }
+.qa-tree .rule-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qa-tree code { background: #edf2f7; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.qa-form label { display: block; margin-top: 8px; font-weight: 600; color: #2d3748; }
+.qa-form input, .qa-form textarea, .qa-form select {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 4px;
+}
+.qa-form textarea { min-height: 160px; font-family: ui-monospace, monospace; font-size: 12px; }
+.qa-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
+.qa-tab { padding: 8px 12px; cursor: pointer; border: none; background: none; color: #4a5568; }
+.qa-tab.active { color: #667eea; border-bottom: 2px solid #667eea; font-weight: 600; }
+.qa-fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.qa-fill-table th, .qa-fill-table td { border: 1px solid #e2e8f0; padding: 6px; text-align: left; }
+.qa-fill-table input { width: 100%; border: none; box-sizing: border-box; padding: 4px; }
+.qa-bottom {
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(255,255,255,.95);
+    border-radius: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+.qa-msg { margin: 8px 0; padding: 8px; border-radius: 6px; font-size: 13px; display: none; }
+.qa-msg.show { display: block; }
+.qa-msg.err { background: #fff5f5; color: #c53030; }
+.qa-msg.ok { background: #f0fff4; color: #276749; }
