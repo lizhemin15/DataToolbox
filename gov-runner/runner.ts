@@ -9,6 +9,69 @@ import mammoth from 'mammoth';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 
+function govExcelCellForValue(val: unknown): XLSX.CellObject | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'number' && !isNaN(val)) return { t: 'n', v: val };
+  if (val instanceof Date) return { t: 'd', v: val };
+  if (typeof val === 'boolean') return { t: 'b', v: val };
+  return { t: 's', v: String(val) };
+}
+
+function govExpandSheetRef(XLSX: typeof import('xlsx'), ws: XLSX.WorkSheet) {
+  let maxR = 0;
+  let maxC = 0;
+  let has = false;
+  for (const k of Object.keys(ws)) {
+    if (k[0] === '!') continue;
+    try {
+      const cell = XLSX.utils.decode_cell(k);
+      has = true;
+      maxR = Math.max(maxR, cell.r);
+      maxC = Math.max(maxC, cell.c);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (has) {
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
+  }
+}
+
+function govApplyCellMapToSheet(XLSX: typeof import('xlsx'), ws: XLSX.WorkSheet, cellMap: Record<string, unknown>) {
+  for (const [addr, val] of Object.entries(cellMap)) {
+    if (!addr || addr[0] === '!') continue;
+    try {
+      XLSX.utils.decode_cell(addr);
+    } catch {
+      continue;
+    }
+    const cellObj = govExcelCellForValue(val);
+    if (cellObj === null) delete (ws as Record<string, unknown>)[addr];
+    else (ws as Record<string, XLSX.CellObject>)[addr] = cellObj;
+  }
+  govExpandSheetRef(XLSX, ws);
+}
+
+function govDataIsFlatCellMap(XLSX: typeof import('xlsx'), data: Record<string, unknown>): boolean {
+  const keys = Object.keys(data);
+  if (keys.length === 0) return false;
+  return keys.every((k) => {
+    if (typeof k !== 'string') return false;
+    try {
+      XLSX.utils.decode_cell(k);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function govCsvEscapeCell(val: unknown): string {
+  const s = val === null || val === undefined ? '' : String(val);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
 export interface GovContext {
   apiBase: string;
   token: string;
@@ -42,6 +105,11 @@ export interface GovHelper {
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
   fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
+  writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
+  fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
+  writeCSV(filename: string, data: any[][]): void;
+  writeText(filename: string, content: string): void;
+  writeJSON(filename: string, data: any): void;
 }
 
 /**
@@ -151,6 +219,94 @@ export function createGovHelper(
       const name = /\.docx$/i.test(base) ? base : `${base}.docx`;
       outputFiles.push({ name, content_base64: out.toString('base64') });
       logLines.push(`已生成输出文件: ${name}`);
+    },
+
+    writeExcel(filename: string, data: any, options?: { sheetName?: string }) {
+      if (!filename) throw new Error('未提供文件名');
+      const opts = options || {};
+      const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
+      let ws: XLSX.WorkSheet;
+      if (!data || !data.length) {
+        ws = XLSX.utils.aoa_to_sheet([[]]);
+      } else if (Array.isArray(data[0])) {
+        ws = XLSX.utils.aoa_to_sheet(data);
+      } else {
+        ws = XLSX.utils.json_to_sheet(data);
+      }
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      const base = filename;
+      const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
+      const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      outputFiles.push({ name: outName, content_base64: out.toString('base64') });
+      logLines.push(`已生成输出文件: ${outName}`);
+    },
+
+    async fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string) {
+      if (!templateFile) throw new Error('未提供模板文件');
+      if (!data || typeof data !== 'object') throw new Error('data 须为对象');
+      const wb = await (async () => {
+        const arrayBuffer = await templateFile.arrayBuffer();
+        const u8 = new Uint8Array(arrayBuffer);
+        const w = XLSX.read(u8, { type: 'array' });
+        if (!w || !w.SheetNames || w.SheetNames.length === 0) {
+          throw new Error('Excel解析失败: 未检测到工作表');
+        }
+        return w;
+      })();
+      const flat = govDataIsFlatCellMap(XLSX, data as Record<string, unknown>);
+      if (flat) {
+        const sn = wb.SheetNames[0];
+        govApplyCellMapToSheet(XLSX, wb.Sheets[sn], data as Record<string, unknown>);
+      } else {
+        for (const [sheetName, cells] of Object.entries(data)) {
+          if (!cells || typeof cells !== 'object' || Array.isArray(cells)) continue;
+          const ws = wb.Sheets[sheetName];
+          if (!ws) throw new Error(`模板中不存在工作表「${sheetName}」`);
+          govApplyCellMapToSheet(XLSX, ws, cells as Record<string, unknown>);
+        }
+      }
+      const base = outputFilename || 'output.xlsx';
+      const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
+      const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      outputFiles.push({ name: outName, content_base64: out.toString('base64') });
+      logLines.push(`已生成输出文件: ${outName}`);
+    },
+
+    writeCSV(filename: string, data: any[][]) {
+      if (!filename) throw new Error('未提供文件名');
+      if (!Array.isArray(data)) throw new Error('data 须为二维数组');
+      const lines = data.map((row) => {
+        if (!Array.isArray(row)) throw new Error('CSV 每行须为数组');
+        return row.map(govCsvEscapeCell).join(',');
+      });
+      const csv = lines.join('\r\n');
+      const bom = '\uFEFF';
+      const buf = Buffer.from(bom + csv, 'utf8');
+      const base = filename;
+      const outName = /\.csv$/i.test(base) ? base : `${base}.csv`;
+      outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
+      logLines.push(`已生成输出文件: ${outName}`);
+    },
+
+    writeText(filename: string, content: string) {
+      if (!filename) throw new Error('未提供文件名');
+      const text = content === undefined || content === null ? '' : String(content);
+      const base = filename;
+      const outName = /\.txt$/i.test(base) ? base : `${base}.txt`;
+      const buf = Buffer.from(text, 'utf8');
+      outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
+      logLines.push(`已生成输出文件: ${outName}`);
+    },
+
+    writeJSON(filename: string, data: any) {
+      if (!filename) throw new Error('未提供文件名');
+      const text = JSON.stringify(data, null, 2);
+      const base = filename;
+      const outName = /\.json$/i.test(base) ? base : `${base}.json`;
+      const buf = Buffer.from(text, 'utf8');
+      outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
+      logLines.push(`已生成输出文件: ${outName}`);
     },
   };
 }
