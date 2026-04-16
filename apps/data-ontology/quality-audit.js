@@ -215,7 +215,7 @@
     }
 
     function parseExcelPasteMergedLines(raw) {
-        var lines = String(raw || '').split(/\n');
+        var lines = String(raw || '').split(/\n/);
         var rules = [];
         var cur = null;
         lines.forEach(function (line) {
@@ -274,7 +274,7 @@
     }
 
     function parseExcelPasteMergedLinesFill(raw) {
-        var lines = String(raw || '').split(/\n');
+        var lines = String(raw || '').split(/\n/);
         var rows = [];
         var cur = null;
         lines.forEach(function (line) {
