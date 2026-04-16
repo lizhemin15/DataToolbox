@@ -853,18 +853,20 @@
                                     <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
                                 </div>
                                 <div id="qaFillItem">
-                                    <table class="qa-fill-table" id="qaTableItem">
-                                        <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
-                                        <tbody></tbody>
-                                    </table>
-                                    <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowItem">+ 行</button>
+                                    <div class="qa-fill-toolbar">
+                                        <button type="button" class="btn btn-sm" id="qaFillItemAll">全选</button>
+                                        <button type="button" class="btn btn-sm" id="qaFillItemNone">全不选</button>
+                                    </div>
+                                    <div id="qaFillItemTree" class="qa-tree qa-fill-tree"></div>
+                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowItem">+ 行</button>
                                 </div>
                                 <div id="qaFillRecord" style="display:none;">
-                                    <table class="qa-fill-table" id="qaTableRecord">
-                                        <thead><tr><th>表名</th><th>分子 SQL</th><th>分母 SQL</th><th></th></tr></thead>
-                                        <tbody></tbody>
-                                    </table>
-                                    <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowRecord">+ 行</button>
+                                    <div class="qa-fill-toolbar">
+                                        <button type="button" class="btn btn-sm" id="qaFillRecordAll">全选</button>
+                                        <button type="button" class="btn btn-sm" id="qaFillRecordNone">全不选</button>
+                                    </div>
+                                    <div id="qaFillRecordTree" class="qa-tree qa-fill-tree"></div>
+                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowRecord">+ 行</button>
                                 </div>
                                 <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
                                     <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>

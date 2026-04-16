@@ -58,12 +58,14 @@ CREATE TABLE IF NOT EXISTS item_fill_rate (
   TABLE_NAME TEXT PRIMARY KEY,
   NUMERATOR TEXT NOT NULL,
   DENOMINATOR TEXT NOT NULL,
+  CHECKED INTEGER NOT NULL DEFAULT 1,
   UPDATED_AT TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS record_fill_rate (
   TABLE_NAME TEXT PRIMARY KEY,
   NUMERATOR TEXT NOT NULL,
   DENOMINATOR TEXT NOT NULL,
+  CHECKED INTEGER NOT NULL DEFAULT 1,
   UPDATED_AT TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
@@ -72,6 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
 			qualityAuditErr = err
 			return
 		}
+		migrateQualityAuditFillChecked(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -83,6 +86,15 @@ CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
 func initQualityAuditDB() {
 	if _, err := openQualityAuditDB(); err != nil {
 		log.Printf("数据质量审核库初始化失败: %v", err)
+	}
+}
+
+func migrateQualityAuditFillChecked(db *sql.DB) {
+	for _, t := range []string{"item_fill_rate", "record_fill_rate"} {
+		_, err := db.Exec(`ALTER TABLE ` + t + ` ADD COLUMN CHECKED INTEGER NOT NULL DEFAULT 1`)
+		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			log.Printf("quality-audit migrate %s CHECKED: %v", t, err)
+		}
 	}
 }
 
@@ -441,7 +453,22 @@ type fillRow struct {
 	TableName   string `json:"table_name"`
 	Numerator   string `json:"numerator"`
 	Denominator string `json:"denominator"`
+	Checked     bool   `json:"checked"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+type fillRowIn struct {
+	TableName   string `json:"table_name"`
+	Numerator   string `json:"numerator"`
+	Denominator string `json:"denominator"`
+	Checked     *bool  `json:"checked"`
+}
+
+func coalesceFillChecked(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
 }
 
 func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
@@ -452,8 +479,8 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		item, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME`)
-		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME`)
+		item, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME`)
+		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME`)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":             true,
 			"item_fill_rate":      item,
@@ -462,8 +489,8 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		return
 	}
 	var body struct {
-		ItemFill   []fillRow `json:"item_fill_rate"`
-		RecordFill []fillRow `json:"record_fill_rate"`
+		ItemFill   []fillRowIn `json:"item_fill_rate"`
+		RecordFill []fillRowIn `json:"record_fill_rate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
@@ -481,8 +508,12 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		if strings.TrimSpace(row.TableName) == "" {
 			continue
 		}
-		_, err = tx.Exec(`INSERT INTO item_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT) VALUES (?,?,?,?)`,
-			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, now)
+		ch := 0
+		if coalesceFillChecked(row.Checked) {
+			ch = 1
+		}
+		_, err = tx.Exec(`INSERT INTO item_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
+			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -493,8 +524,12 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		if strings.TrimSpace(row.TableName) == "" {
 			continue
 		}
-		_, err = tx.Exec(`INSERT INTO record_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT) VALUES (?,?,?,?)`,
-			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, now)
+		ch := 0
+		if coalesceFillChecked(row.Checked) {
+			ch = 1
+		}
+		_, err = tx.Exec(`INSERT INTO record_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
+			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -517,9 +552,11 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 	var out []fillRow
 	for rows.Next() {
 		var r fillRow
-		if err := rows.Scan(&r.TableName, &r.Numerator, &r.Denominator, &r.UpdatedAt); err != nil {
+		var ch int
+		if err := rows.Scan(&r.TableName, &r.Numerator, &r.Denominator, &ch, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
+		r.Checked = ch != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -621,8 +658,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	metaDB, _ := openQualityAuditDB()
-	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT FROM item_fill_rate`)
-	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, UPDATED_AT FROM record_fill_rate`)
+	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
+	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
 
 	itemStats := runFillStats(targetDB, dialect, itemRows)
 	recStats := runFillStats(targetDB, dialect, recRows)

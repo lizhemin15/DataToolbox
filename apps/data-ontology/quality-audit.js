@@ -487,56 +487,145 @@
         });
     }
 
+    var QA_FILL_ROWS_MIN = 2;
+    var QA_FILL_ROWS_MAX = 10;
+
+    function adjustQaFillTextarea(ta) {
+        if (!ta) return;
+        var s = String(ta.value || '');
+        var lineCount = s ? s.split('\n').length : 1;
+        var r = lineCount;
+        if (r < QA_FILL_ROWS_MIN) r = QA_FILL_ROWS_MIN;
+        if (r > QA_FILL_ROWS_MAX) r = QA_FILL_ROWS_MAX;
+        ta.rows = r;
+    }
+
+    function bindQaFillTextarea(ta) {
+        ta.addEventListener('input', function () {
+            adjustQaFillTextarea(ta);
+        });
+    }
+
+    function normalizeFillRow(row) {
+        row = row || {};
+        return {
+            table_name: row.table_name != null ? String(row.table_name) : '',
+            numerator: row.numerator != null ? String(row.numerator) : '',
+            denominator: row.denominator != null ? String(row.denominator) : '',
+            checked: row.checked !== false
+        };
+    }
+
+    function createFillNode(row) {
+        row = normalizeFillRow(row);
+        var wrap = document.createElement('div');
+        wrap.className = 'qa-fill-node';
+        var hd = document.createElement('div');
+        hd.className = 'rule-line qa-fill-node-hd';
+        var leafSp = document.createElement('span');
+        leafSp.className = 'qa-tree-leaf-spacer';
+        leafSp.setAttribute('aria-hidden', 'true');
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'qa-fill-cb';
+        cb.checked = row.checked;
+        cb.addEventListener('click', function (e) {
+            e.stopPropagation();
+        });
+        var nameIn = document.createElement('input');
+        nameIn.type = 'text';
+        nameIn.className = 'qa-fill-table-name';
+        nameIn.placeholder = '表名';
+        nameIn.value = row.table_name;
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn btn-sm qa-rm qa-fill-rm';
+        rm.textContent = '删除';
+        hd.appendChild(leafSp);
+        hd.appendChild(cb);
+        hd.appendChild(nameIn);
+        hd.appendChild(rm);
+        var bd = document.createElement('div');
+        bd.className = 'qa-fill-node-bd';
+        var ln = document.createElement('label');
+        ln.className = 'qa-fill-sql-label';
+        ln.textContent = '分子 SQL';
+        var taN = document.createElement('textarea');
+        taN.className = 'qa-fill-sql';
+        taN.setAttribute('data-k', 'n');
+        taN.placeholder = 'SELECT ...';
+        taN.value = row.numerator;
+        var ld = document.createElement('label');
+        ld.className = 'qa-fill-sql-label';
+        ld.textContent = '分母 SQL';
+        var taD = document.createElement('textarea');
+        taD.className = 'qa-fill-sql';
+        taD.setAttribute('data-k', 'd');
+        taD.placeholder = 'SELECT ...';
+        taD.value = row.denominator;
+        bd.appendChild(ln);
+        bd.appendChild(taN);
+        bd.appendChild(ld);
+        bd.appendChild(taD);
+        wrap.appendChild(hd);
+        wrap.appendChild(bd);
+        bindQaFillTextarea(taN);
+        bindQaFillTextarea(taD);
+        adjustQaFillTextarea(taN);
+        adjustQaFillTextarea(taD);
+        rm.addEventListener('click', function () {
+            var root = wrap.parentNode;
+            if (root && root.querySelectorAll('.qa-fill-node').length > 1) {
+                wrap.remove();
+            }
+        });
+        return wrap;
+    }
+
+    function renderFillTree(treeId, rows) {
+        var root = document.getElementById(treeId);
+        if (!root) return;
+        root.innerHTML = '';
+        if (!rows || !rows.length) {
+            rows = [{ table_name: '', numerator: '', denominator: '', checked: true }];
+        }
+        rows.forEach(function (r) {
+            root.appendChild(createFillNode(r));
+        });
+    }
+
+    function setFillTreeChecked(treeId, val) {
+        var root = document.getElementById(treeId);
+        if (!root) return;
+        root.querySelectorAll('.qa-fill-cb').forEach(function (cb) {
+            cb.checked = val;
+        });
+    }
+
     function loadFillRates() {
         return fetchWithAuth(PREFIX + 'fill-rates').then(function (r) { return r.json(); }).then(function (d) {
             if (!d.success) throw new Error(d.message || '加载填报率失败');
-            fillTableRows('qaTableItem', d.item_fill_rate || []);
-            fillTableRows('qaTableRecord', d.record_fill_rate || []);
+            renderFillTree('qaFillItemTree', d.item_fill_rate || []);
+            renderFillTree('qaFillRecordTree', d.record_fill_rate || []);
         });
     }
 
-    function fillTableRows(tableId, rows) {
-        var tb = document.querySelector('#' + tableId + ' tbody');
-        tb.innerHTML = '';
-        if (!rows.length) rows = [{ table_name: '', numerator: '', denominator: '' }];
-        rows.forEach(function (row) {
-            addRow(tb, row.table_name || '', row.numerator || '', row.denominator || '');
-        });
-    }
-
-    function addRow(tbody, a, b, c) {
-        var tr = document.createElement('tr');
-        ['t', 'n', 'd'].forEach(function (k, i) {
-            var td = document.createElement('td');
-            var inp = document.createElement('input');
-            inp.setAttribute('data-k', k);
-            inp.value = [a, b, c][i] || '';
-            td.appendChild(inp);
-            tr.appendChild(td);
-        });
-        var tdGo = document.createElement('td');
-        var rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'btn btn-sm qa-rm';
-        rm.textContent = '删除';
-        rm.addEventListener('click', function () {
-            if (tbody.children.length > 1) tr.remove();
-        });
-        tdGo.appendChild(rm);
-        tr.appendChild(tdGo);
-        tbody.appendChild(tr);
-    }
-
-    function collectFill(tableId) {
+    function collectFill(treeId) {
         var rows = [];
-        document.querySelectorAll('#' + tableId + ' tbody tr').forEach(function (tr) {
-            var ins = tr.querySelectorAll('input[data-k]');
-            var t = ins[0] && ins[0].value.trim();
+        var root = document.getElementById(treeId);
+        if (!root) return rows;
+        root.querySelectorAll('.qa-fill-node').forEach(function (node) {
+            var tIn = node.querySelector('.qa-fill-table-name');
+            var t = tIn && String(tIn.value || '').trim();
             if (!t) return;
+            var cb = node.querySelector('.qa-fill-cb');
+            var n = node.querySelector('textarea[data-k="n"]');
+            var d = node.querySelector('textarea[data-k="d"]');
             rows.push({
                 table_name: t,
-                numerator: ins[1] ? ins[1].value : '',
-                denominator: ins[2] ? ins[2].value : ''
+                numerator: n ? n.value : '',
+                denominator: d ? d.value : '',
+                checked: !!(cb && cb.checked)
             });
         });
         return rows;
@@ -636,17 +725,32 @@
             });
         });
 
+        document.getElementById('qaFillItemAll').addEventListener('click', function () {
+            setFillTreeChecked('qaFillItemTree', true);
+        });
+        document.getElementById('qaFillItemNone').addEventListener('click', function () {
+            setFillTreeChecked('qaFillItemTree', false);
+        });
+        document.getElementById('qaFillRecordAll').addEventListener('click', function () {
+            setFillTreeChecked('qaFillRecordTree', true);
+        });
+        document.getElementById('qaFillRecordNone').addEventListener('click', function () {
+            setFillTreeChecked('qaFillRecordTree', false);
+        });
+
         document.getElementById('qaAddRowItem').addEventListener('click', function () {
-            addRow(document.querySelector('#qaTableItem tbody'), '', '', '');
+            var root = document.getElementById('qaFillItemTree');
+            if (root) root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
         });
         document.getElementById('qaAddRowRecord').addEventListener('click', function () {
-            addRow(document.querySelector('#qaTableRecord tbody'), '', '', '');
+            var root = document.getElementById('qaFillRecordTree');
+            if (root) root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
         });
 
         document.getElementById('qaSaveFill').addEventListener('click', function () {
             var body = {
-                item_fill_rate: collectFill('qaTableItem'),
-                record_fill_rate: collectFill('qaTableRecord')
+                item_fill_rate: collectFill('qaFillItemTree'),
+                record_fill_rate: collectFill('qaFillRecordTree')
             };
             fetchWithAuth(PREFIX + 'fill-rates', { method: 'POST', body: JSON.stringify(body) })
                 .then(function (r) { return r.json(); })
@@ -663,8 +767,11 @@
             var parsed = parseExcelPasteFillRates(raw);
             if (!parsed.length) { showMsg('未解析到有效行', true); return; }
             var itemVisible = document.getElementById('qaFillItem').style.display !== 'none';
-            var tableId = itemVisible ? 'qaTableItem' : 'qaTableRecord';
-            fillTableRows(tableId, parsed);
+            var treeId = itemVisible ? 'qaFillItemTree' : 'qaFillRecordTree';
+            var withChecked = parsed.map(function (p) {
+                return normalizeFillRow(p);
+            });
+            renderFillTree(treeId, withChecked);
             showMsg('已填充 ' + parsed.length + ' 行（' + (itemVisible ? '项填报率' : '记录填报率') + '）', false);
         });
 
