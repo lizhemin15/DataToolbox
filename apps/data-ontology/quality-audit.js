@@ -519,67 +519,69 @@
     function createFillNode(row) {
         row = normalizeFillRow(row);
         var wrap = document.createElement('div');
-        wrap.className = 'qa-fill-node';
-        var hd = document.createElement('div');
-        hd.className = 'rule-line qa-fill-node-hd';
-        var leafSp = document.createElement('span');
-        leafSp.className = 'qa-tree-leaf-spacer';
-        leafSp.setAttribute('aria-hidden', 'true');
+        wrap.className = 'qa-fill-row';
         var cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'qa-fill-cb';
         cb.checked = row.checked;
         cb.addEventListener('click', function (e) {
             e.stopPropagation();
+            updateFillSelectAll();
         });
         var nameIn = document.createElement('input');
         nameIn.type = 'text';
         nameIn.className = 'qa-fill-table-name';
         nameIn.placeholder = '表名';
         nameIn.value = row.table_name;
-        var rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'btn btn-sm qa-rm qa-fill-rm';
-        rm.textContent = '删除';
-        hd.appendChild(leafSp);
-        hd.appendChild(cb);
-        hd.appendChild(nameIn);
-        hd.appendChild(rm);
-        var bd = document.createElement('div');
-        bd.className = 'qa-fill-node-bd';
-        var ln = document.createElement('label');
-        ln.className = 'qa-fill-sql-label';
-        ln.textContent = '分子 SQL';
         var taN = document.createElement('textarea');
         taN.className = 'qa-fill-sql';
         taN.setAttribute('data-k', 'n');
-        taN.placeholder = 'SELECT ...';
+        taN.placeholder = '分子 SQL';
         taN.value = row.numerator;
-        var ld = document.createElement('label');
-        ld.className = 'qa-fill-sql-label';
-        ld.textContent = '分母 SQL';
         var taD = document.createElement('textarea');
         taD.className = 'qa-fill-sql';
         taD.setAttribute('data-k', 'd');
-        taD.placeholder = 'SELECT ...';
+        taD.placeholder = '分母 SQL';
         taD.value = row.denominator;
-        bd.appendChild(ln);
-        bd.appendChild(taN);
-        bd.appendChild(ld);
-        bd.appendChild(taD);
-        wrap.appendChild(hd);
-        wrap.appendChild(bd);
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn btn-sm qa-fill-rm';
+        rm.textContent = '×';
+        rm.title = '删除';
+        wrap.appendChild(cb);
+        wrap.appendChild(nameIn);
+        wrap.appendChild(taN);
+        wrap.appendChild(taD);
+        wrap.appendChild(rm);
         bindQaFillTextarea(taN);
         bindQaFillTextarea(taD);
         adjustQaFillTextarea(taN);
         adjustQaFillTextarea(taD);
         rm.addEventListener('click', function () {
             var root = wrap.parentNode;
-            if (root && root.querySelectorAll('.qa-fill-node').length > 1) {
+            if (root && root.querySelectorAll('.qa-fill-row').length > 1) {
                 wrap.remove();
+                updateFillSelectAll();
             }
         });
         return wrap;
+    }
+
+    function updateFillSelectAll() {
+        var itemRoot = document.getElementById('qaFillItemTree');
+        var recRoot = document.getElementById('qaFillRecordTree');
+        var itemCb = document.getElementById('qaFillItemAll');
+        var recCb = document.getElementById('qaFillRecordAll');
+        if (itemRoot && itemCb) {
+            var cbs = itemRoot.querySelectorAll('.qa-fill-cb');
+            var all = cbs.length > 0 && Array.prototype.every.call(cbs, function (c) { return c.checked; });
+            itemCb.checked = all;
+        }
+        if (recRoot && recCb) {
+            var cbs2 = recRoot.querySelectorAll('.qa-fill-cb');
+            var all2 = cbs2.length > 0 && Array.prototype.every.call(cbs2, function (c) { return c.checked; });
+            recCb.checked = all2;
+        }
     }
 
     function renderFillTree(treeId, rows) {
@@ -592,6 +594,7 @@
         rows.forEach(function (r) {
             root.appendChild(createFillNode(r));
         });
+        updateFillSelectAll();
     }
 
     function setFillTreeChecked(treeId, val) {
@@ -600,6 +603,7 @@
         root.querySelectorAll('.qa-fill-cb').forEach(function (cb) {
             cb.checked = val;
         });
+        updateFillSelectAll();
     }
 
     function loadFillRates() {
@@ -725,26 +729,26 @@
             });
         });
 
-        document.getElementById('qaFillItemAll').addEventListener('click', function () {
-            setFillTreeChecked('qaFillItemTree', true);
+        document.getElementById('qaFillItemAll').addEventListener('change', function (e) {
+            setFillTreeChecked('qaFillItemTree', e.target.checked);
         });
-        document.getElementById('qaFillItemNone').addEventListener('click', function () {
-            setFillTreeChecked('qaFillItemTree', false);
-        });
-        document.getElementById('qaFillRecordAll').addEventListener('click', function () {
-            setFillTreeChecked('qaFillRecordTree', true);
-        });
-        document.getElementById('qaFillRecordNone').addEventListener('click', function () {
-            setFillTreeChecked('qaFillRecordTree', false);
+        document.getElementById('qaFillRecordAll').addEventListener('change', function (e) {
+            setFillTreeChecked('qaFillRecordTree', e.target.checked);
         });
 
         document.getElementById('qaAddRowItem').addEventListener('click', function () {
             var root = document.getElementById('qaFillItemTree');
-            if (root) root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
+            if (root) {
+                root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
+                updateFillSelectAll();
+            }
         });
         document.getElementById('qaAddRowRecord').addEventListener('click', function () {
             var root = document.getElementById('qaFillRecordTree');
-            if (root) root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
+            if (root) {
+                root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
+                updateFillSelectAll();
+            }
         });
 
         document.getElementById('qaSaveFill').addEventListener('click', function () {

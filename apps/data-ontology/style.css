@@ -5277,70 +5277,77 @@ textarea#testApiParams {
 .qa-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
 .qa-tab { padding: 8px 12px; cursor: pointer; border: none; background: none; color: #4a5568; }
 .qa-tab.active { color: #667eea; border-bottom: 2px solid #667eea; font-weight: 600; }
-.qa-fill-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
+.qa-fill-header {
     margin-bottom: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #e2e8f0;
 }
-.qa-fill-tree {
+.qa-fill-header label {
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+}
+.qa-fill-list {
     border: 1px solid #e2e8f0;
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 8px;
     background: #fafbfc;
+    max-height: 400px;
+    overflow-y: auto;
 }
-.qa-fill-tree .qa-fill-node {
-    margin-bottom: 12px;
-    padding-bottom: 12px;
+.qa-fill-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 0;
     border-bottom: 1px solid #edf2f7;
 }
-.qa-fill-tree .qa-fill-node:last-child {
-    margin-bottom: 0;
-    padding-bottom: 0;
+.qa-fill-row:last-child {
     border-bottom: none;
 }
-.qa-fill-node-hd .qa-fill-table-name {
-    flex: 1;
-    min-width: 0;
-    padding: 4px 8px;
+.qa-fill-cb {
+    flex-shrink: 0;
+    margin-top: 6px;
+    cursor: pointer;
+}
+.qa-fill-table-name {
+    flex-shrink: 0;
+    width: 140px;
+    padding: 6px 8px;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
     font-size: 13px;
     box-sizing: border-box;
 }
-.qa-fill-node-hd .qa-fill-cb {
-    flex-shrink: 0;
-    width: auto;
-    margin: 0;
-    cursor: pointer;
-}
-.qa-fill-node-bd {
-    margin-left: calc(1em + 6px);
-    margin-top: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.qa-fill-sql-label {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: #4a5568;
-    margin: 0;
-}
 .qa-fill-sql {
-    width: 100%;
-    box-sizing: border-box;
+    flex: 1;
+    min-width: 0;
     padding: 6px 8px;
     border: 1px solid #e2e8f0;
     border-radius: 4px;
     font-family: ui-monospace, Consolas, "Courier New", monospace;
     font-size: 12px;
-    line-height: 1.45;
+    line-height: 1.4;
     resize: vertical;
     min-height: 3em;
+    max-height: 12em;
     white-space: pre-wrap;
+    box-sizing: border-box;
+}
+.qa-fill-rm {
+    flex-shrink: 0;
+    margin-top: 2px;
+    padding: 4px 8px;
+    background: #fee2e2;
+    color: #dc2626;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+.qa-fill-rm:hover {
+    background: #fecaca;
 }
 .qa-fill-add { margin-top: 8px; }
 .qa-fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
