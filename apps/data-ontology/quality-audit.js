@@ -252,7 +252,7 @@
         });
     }
 
-    /** 填报率：列顺序 表名、分子、分母；续行无表名时并入上条分母（与规则导入续行逻辑一致，多行单元格优先用 Excel 引号粘贴） */
+    /** 填报率：列顺序 表名、分子、分母。多行单元格应用 Excel 引号粘贴，由 parseExcelTSVWithQuotes 解析；无引号续行时首列为空则按列并入分子/分母 */
     function mergeFillContinuationRows(parsedRows) {
         var out = [];
         var cur = null;
@@ -266,7 +266,14 @@
                     denominator: p[2] != null ? String(p[2]) : ''
                 };
             } else if (cur) {
-                cur.denominator += '\n' + p.join('\t');
+                if (p.length >= 3 && String(p[0] || '').trim() === '') {
+                    var ns = p[1] != null ? String(p[1]) : '';
+                    var ds = p[2] != null ? String(p[2]) : '';
+                    if (ns) cur.numerator += '\n' + ns;
+                    if (ds) cur.denominator += '\n' + ds;
+                } else {
+                    cur.numerator += '\n' + p.join('\t');
+                }
             }
         });
         if (cur) out.push(cur);
@@ -287,7 +294,15 @@
                     denominator: p[2] != null ? String(p[2]) : ''
                 };
             } else if (cur) {
-                cur.denominator += '\n' + line;
+                var pp = line.split('\t');
+                if (pp.length >= 3 && String(pp[0] || '').trim() === '') {
+                    var ns2 = pp[1] != null ? String(pp[1]) : '';
+                    var ds2 = pp[2] != null ? String(pp[2]) : '';
+                    if (ns2) cur.numerator += '\n' + ns2;
+                    if (ds2) cur.denominator += '\n' + ds2;
+                } else {
+                    cur.numerator += '\n' + line;
+                }
             }
         });
         if (cur) rows.push(cur);
@@ -295,7 +310,7 @@
     }
 
     function parseExcelPasteFillRates(raw) {
-        var trimmed = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        var trimmed = String(raw || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         var parsedRows = parseExcelTSVWithQuotes(trimmed);
         var rows = mergeFillContinuationRows(parsedRows);
         rows = rows.filter(function (r) {
@@ -722,5 +737,34 @@
             listenersBound: listenersBound,
             ids: { qaPasteExcel: !!pe, qaPasteFill: !!pf }
         };
+    };
+
+    /** 填报率粘贴解析自测（控制台：__qaRunPasteFillTests()） */
+    window.__qaRunPasteFillTests = function () {
+        var failures = [];
+        function fail(msg) { failures.push(msg); }
+        function assertEq(actual, expected, label) {
+            if (actual !== expected) fail(label + ': expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual));
+        }
+        var sample = '表名\t分子SQL\t分母SQL\ntable1\t"SELECT *\nFROM a"\t"SELECT *\nFROM b"\ntable2\tSELECT id\tSELECT *';
+        var rows = parseExcelPasteFillRates(sample);
+        if (rows.length !== 2) fail('rows.length should be 2, got ' + rows.length);
+        if (rows[0]) {
+            assertEq(rows[0].table_name, 'table1', 'row0 table_name');
+            assertEq(rows[0].numerator, 'SELECT *\nFROM a', 'row0 numerator multiline');
+            assertEq(rows[0].denominator, 'SELECT *\nFROM b', 'row0 denominator multiline');
+        }
+        if (rows[1]) {
+            assertEq(rows[1].table_name, 'table2', 'row1 table_name');
+            assertEq(rows[1].numerator, 'SELECT id', 'row1 numerator');
+            assertEq(rows[1].denominator, 'SELECT *', 'row1 denominator');
+        }
+        var tsv = parseExcelTSVWithQuotes('a\t"b\tc"\td');
+        if (!tsv.length || tsv[0].length !== 3 || tsv[0][1] !== 'b\tc') fail('quoted tab inside field');
+        var tsvNl = parseExcelTSVWithQuotes('t\t"x\ny"\tz');
+        if (!tsvNl.length || tsvNl[0][1] !== 'x\ny') fail('quoted newline inside field');
+        var cont = parseExcelPasteFillRates('t1\tA\tB\n\tC\tD');
+        if (cont.length !== 1 || cont[0].numerator !== 'A\nC' || cont[0].denominator !== 'B\nD') fail('continuation empty first column');
+        return { ok: failures.length === 0, failures: failures };
     };
 })();
