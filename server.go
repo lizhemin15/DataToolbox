@@ -1325,7 +1325,8 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		if path == "" {
 			return "", "", fmt.Errorf("SQLite 需要配置数据库文件路径（path 或 database）")
 		}
-		return "sqlite3", path, nil
+		// modernc.org/sqlite 注册的驱动名为 "sqlite"（非 mattn/go-sqlite3 的 sqlite3）
+		return "sqlite", path, nil
 
 	case "duckdb":
 		// DuckDB 需要CGO支持
@@ -7796,25 +7797,33 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		}
 		inputText = r.FormValue("input_text")
 
-		// 保存上传的文件
+		// 保存上传的文件（须在循环内立即 Close，勿 defer：否则返回响应后才会刷盘，
+		// 后台 governanceWorker 可能先读到未落盘的空/截断文件）
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
 			if err != nil {
 				continue
 			}
-			defer file.Close()
-
-			// 保存到临时目录
 			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 			os.MkdirAll(tmpDir, 0755)
 			tmpPath := filepath.Join(tmpDir, fileHeader.Filename)
 			dst, err := os.Create(tmpPath)
 			if err != nil {
+				file.Close()
 				continue
 			}
-			defer dst.Close()
-			io.Copy(dst, file)
+			_, copyErr := io.Copy(dst, file)
+			file.Close()
+			closeErr := dst.Close()
+			if copyErr != nil {
+				os.Remove(tmpPath)
+				continue
+			}
+			if closeErr != nil {
+				os.Remove(tmpPath)
+				continue
+			}
 			filePaths = append(filePaths, tmpPath)
 		}
 	} else {
