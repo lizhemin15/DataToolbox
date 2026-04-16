@@ -95,6 +95,8 @@ jobs:
           mkdir -p package
           cp ${{ matrix.output }} package/
           cp server.config.json package/
+          cp install.sh README_DEPLOY.md package/
+          chmod +x package/install.sh
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'
@@ -133,28 +135,6 @@ jobs:
           EOF
           chmod +x package/start.sh
           chmod +x package/datatoolbox-server
-
-      - name: Create systemd service for Linux
-        if: matrix.goos == 'linux'
-        run: |
-          cat > package/datatoolbox.service << 'EOF'
-          [Unit]
-          Description=DataToolbox Server
-          After=network.target
-
-          [Service]
-          Type=simple
-          WorkingDirectory=/opt/datatoolbox
-          ExecStart=/opt/datatoolbox/datatoolbox-server
-          Restart=always
-          RestartSec=3
-          StandardOutput=journal
-          StandardError=journal
-          SyslogIdentifier=datatoolbox
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
 
       - name: Create ZIP package (Windows)
         if: matrix.goos == 'windows'
@@ -210,6 +190,8 @@ jobs:
             - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
             
             ### 🚀 使用方法
+            
+            **交互式安装（推荐）：** 解压后执行 `chmod +x install.sh && ./install.sh`，详见包内 `README_DEPLOY.md`。
             
             **默认端口8080启动：**
             - Windows: 双击运行 `start.bat`
