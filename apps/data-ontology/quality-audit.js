@@ -529,8 +529,7 @@
 
     function bindListeners() {
         if (listenersBound) return;
-        listenersBound = true;
-
+        try {
         document.getElementById('qaSaveRule').addEventListener('click', function () {
             var body = {
                 nm: padNm(document.getElementById('qaNm').value),
@@ -694,6 +693,11 @@
                 URL.revokeObjectURL(a.href);
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });
+        listenersBound = true;
+        try { window.__qaPasteImportBound = true; } catch (e2) {}
+        } catch (e) {
+            try { console.error('quality-audit bindListeners:', e); } catch (e3) {}
+        }
     }
 
     window.initQualityAuditTab = function () {
@@ -703,5 +707,20 @@
         loadRules().then(loadDatabases).then(loadFillRates).catch(function (e) {
             showMsg(e.message || String(e), true);
         });
+    };
+
+    bindListeners();
+
+    window.__qaVerifyPasteImport = function () {
+        var pe = document.getElementById('qaPasteExcel');
+        var pf = document.getElementById('qaPasteFill');
+        if (!pe || !pf) {
+            return { ok: false, reason: 'missing #qaPasteExcel or #qaPasteFill' };
+        }
+        return {
+            ok: !!window.__qaPasteImportBound,
+            listenersBound: listenersBound,
+            ids: { qaPasteExcel: !!pe, qaPasteFill: !!pf }
+        };
     };
 })();
