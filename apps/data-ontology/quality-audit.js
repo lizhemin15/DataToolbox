@@ -24,23 +24,219 @@
         return s.length > 6 ? s.slice(0, 6) : s;
     }
 
-    function renderTree(nodes, container) {
+    /** Excel 剪贴板 TSV：支持引号内换行、制表符；与 Excel 多行单元格一致 */
+    function parseExcelTSVWithQuotes(text) {
+        var rows = [];
+        var row = [];
+        var field = '';
+        var inQuotes = false;
+        var i = 0;
+        text = String(text || '');
+        while (i < text.length) {
+            var c = text.charAt(i);
+            if (inQuotes) {
+                if (c === '"') {
+                    if (text.charAt(i + 1) === '"') {
+                        field += '"';
+                        i += 2;
+                        continue;
+                    }
+                    inQuotes = false;
+                    i++;
+                    continue;
+                }
+                field += c;
+                i++;
+                continue;
+            }
+            if (c === '"') {
+                inQuotes = true;
+                i++;
+                continue;
+            }
+            if (c === '\t') {
+                row.push(field);
+                field = '';
+                i++;
+                continue;
+            }
+            if (c === '\n') {
+                row.push(field);
+                field = '';
+                rows.push(row);
+                row = [];
+                i++;
+                continue;
+            }
+            if (c === '\r') {
+                if (text.charAt(i + 1) === '\n') i++;
+                row.push(field);
+                field = '';
+                rows.push(row);
+                row = [];
+                i++;
+                continue;
+            }
+            field += c;
+            i++;
+        }
+        row.push(field);
+        if (row.length > 1 || field !== '') rows.push(row);
+        return rows;
+    }
+
+    function looksLikeNmCell(s) {
+        s = String(s || '').trim();
+        return /^\d{1,6}$/.test(s);
+    }
+
+    /** 将「非新规则起始行」合并到上一条的 SQL（无引号粘贴时 SQL 换行会变成多物理行） */
+    function mergeRuleContinuationRows(parsedRows) {
+        var out = [];
+        var cur = null;
+        (parsedRows || []).forEach(function (p) {
+            if (!p || !p.length) return;
+            if (p.length >= 3 && looksLikeNmCell(p[0])) {
+                if (cur) out.push(cur);
+                cur = {
+                    nm: padNm(p[0]),
+                    xh: (p[1] || '').trim(),
+                    name: (p[2] || '').trim(),
+                    sql: p[3] != null ? String(p[3]) : '',
+                    category: p[4] != null ? String(p[4]).trim() : ''
+                };
+            } else if (cur) {
+                cur.sql += '\n' + p.join('\t');
+            }
+        });
+        if (cur) out.push(cur);
+        return out;
+    }
+
+    function parseExcelPasteMergedLines(raw) {
+        var lines = String(raw || '').split(/\n');
+        var rules = [];
+        var cur = null;
+        lines.forEach(function (line) {
+            var p = line.split('\t');
+            if (p.length >= 3 && looksLikeNmCell(p[0])) {
+                if (cur) rules.push(cur);
+                cur = {
+                    nm: padNm(p[0]),
+                    xh: (p[1] || '').trim(),
+                    name: (p[2] || '').trim(),
+                    sql: p[3] != null ? String(p[3]) : '',
+                    category: (p[4] || '').trim()
+                };
+            } else if (cur) {
+                cur.sql += '\n' + line;
+            }
+        });
+        if (cur) rules.push(cur);
+        return rules;
+    }
+
+    function parseExcelPasteRules(raw) {
+        var trimmed = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        var parsedRows = parseExcelTSVWithQuotes(trimmed);
+        var rules = mergeRuleContinuationRows(parsedRows);
+        rules = rules.filter(function (r) {
+            var h = String(r.nm || '').trim().toLowerCase();
+            if (h === 'nm' || h === '') return false;
+            return !!(r.nm && r.xh && r.name);
+        });
+        if (rules.length) return rules;
+        return parseExcelPasteMergedLines(trimmed).filter(function (r) {
+            return !!(r.nm && r.xh && r.name);
+        });
+    }
+
+    function collectSubtreeNms(node, out) {
+        out = out || [];
+        out.push(node.nm);
+        (node.children || []).forEach(function (ch) {
+            collectSubtreeNms(ch, out);
+        });
+        return out;
+    }
+
+    function isSubtreeFullySelected(node) {
+        if (!node.children || !node.children.length) {
+            return !!selectedNms[node.nm];
+        }
+        return node.children.every(function (ch) {
+            return isSubtreeFullySelected(ch);
+        });
+    }
+
+    function reconcileTree(nodes) {
+        nodes.forEach(function (n) {
+            if (n.children && n.children.length) {
+                reconcileTree(n.children);
+                if (n.children.every(function (ch) { return isSubtreeFullySelected(ch); })) {
+                    selectedNms[n.nm] = true;
+                } else {
+                    delete selectedNms[n.nm];
+                }
+            }
+        });
+    }
+
+    function captureOpenState(container) {
+        var state = {};
+        if (!container) return state;
+        container.querySelectorAll('details').forEach(function (d) {
+            var k = d.dataset.treeNm;
+            if (k) state[k] = d.open;
+        });
+        return state;
+    }
+
+    function bindRuleCheckbox(cb, n, hasKids) {
+        cb.addEventListener('click', function (e) {
+            e.stopPropagation();
+        });
+        cb.addEventListener('change', function () {
+            var treeEl = document.getElementById('qaTree');
+            if (hasKids) {
+                var nms = collectSubtreeNms(n);
+                if (cb.checked) {
+                    nms.forEach(function (nm) { selectedNms[nm] = true; });
+                } else {
+                    nms.forEach(function (nm) { delete selectedNms[nm]; });
+                }
+            } else {
+                if (cb.checked) selectedNms[n.nm] = true;
+                else delete selectedNms[n.nm];
+            }
+            reconcileTree(ruleTree);
+            var openState = captureOpenState(treeEl);
+            renderTree(ruleTree, treeEl, openState);
+        });
+    }
+
+    function renderTree(nodes, container, openState) {
+        openState = openState || {};
         container.innerHTML = '';
         nodes.forEach(function (n) {
             var hasKids = n.children && n.children.length;
             if (hasKids) {
                 var det = document.createElement('details');
-                det.open = true;
+                var nmKey = String(n.nm);
+                det.dataset.treeNm = nmKey;
+                det.open = openState[nmKey] !== undefined ? !!openState[nmKey] : true;
                 var sum = document.createElement('summary');
                 var line = document.createElement('div');
                 line.className = 'rule-line';
+                var toggle = document.createElement('span');
+                toggle.className = 'qa-tree-toggle';
+                toggle.setAttribute('aria-hidden', 'true');
                 var cb = document.createElement('input');
                 cb.type = 'checkbox';
                 cb.dataset.nm = n.nm;
-                cb.checked = !!selectedNms[n.nm];
-                cb.addEventListener('change', function () {
-                    if (cb.checked) selectedNms[n.nm] = true; else delete selectedNms[n.nm];
-                });
+                cb.checked = isSubtreeFullySelected(n);
+                bindRuleCheckbox(cb, n, true);
+                line.appendChild(toggle);
                 line.appendChild(cb);
                 line.appendChild(document.createTextNode(' ' + (n.name || '') + ' '));
                 var c = document.createElement('code');
@@ -53,20 +249,22 @@
                 });
                 det.appendChild(sum);
                 var inner = document.createElement('div');
-                renderTree(n.children, inner);
+                renderTree(n.children, inner, openState);
                 det.appendChild(inner);
                 container.appendChild(det);
             } else {
                 var div = document.createElement('div');
                 div.className = 'rule-line';
-                div.style.padding = '4px 0 4px 8px';
+                div.style.padding = '4px 0';
+                var leafSp = document.createElement('span');
+                leafSp.className = 'qa-tree-leaf-spacer';
+                leafSp.setAttribute('aria-hidden', 'true');
                 var cb2 = document.createElement('input');
                 cb2.type = 'checkbox';
                 cb2.dataset.nm = n.nm;
                 cb2.checked = !!selectedNms[n.nm];
-                cb2.addEventListener('change', function () {
-                    if (cb2.checked) selectedNms[n.nm] = true; else delete selectedNms[n.nm];
-                });
+                bindRuleCheckbox(cb2, n, false);
+                div.appendChild(leafSp);
                 div.appendChild(cb2);
                 div.appendChild(document.createTextNode(' ' + (n.name || '') + ' '));
                 var c2 = document.createElement('code');
@@ -207,19 +405,7 @@
         document.getElementById('qaPasteExcel').addEventListener('click', function () {
             var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：');
             if (!raw) return;
-            var lines = raw.trim().split(/\r?\n/);
-            var rules = [];
-            lines.forEach(function (line) {
-                var p = line.split('\t');
-                if (p.length < 3) return;
-                rules.push({
-                    nm: padNm(p[0]),
-                    xh: (p[1] || '').trim(),
-                    name: (p[2] || '').trim(),
-                    sql: p[3] != null ? String(p[3]) : '',
-                    category: (p[4] || '').trim()
-                });
-            });
+            var rules = parseExcelPasteRules(raw);
             if (!rules.length) { showMsg('未解析到有效行', true); return; }
             fetchWithAuth(PREFIX + 'rules/import', { method: 'POST', body: JSON.stringify({ rules: rules }) })
                 .then(function (r) { return r.json(); })
@@ -240,20 +426,15 @@
                 try {
                     var wb = XLSX.read(reader.result, { type: 'array' });
                     var sh = wb.Sheets[wb.SheetNames[0]];
-                    var data = XLSX.utils.sheet_to_json(sh, { header: 1, raw: false });
-                    var rules = [];
+                    var data = XLSX.utils.sheet_to_json(sh, { header: 1, raw: false, defval: '' });
+                    var rows = [];
                     data.forEach(function (row) {
                         if (!row || !row.length) return;
-                        var p = row;
-                        if ((p[0] + '').trim() === 'NM' || (p[0] + '').trim() === 'nm') return;
-                        rules.push({
-                            nm: padNm(p[0]),
-                            xh: (p[1] !== undefined ? String(p[1]) : '').trim(),
-                            name: (p[2] !== undefined ? String(p[2]) : '').trim(),
-                            sql: p[3] !== undefined ? String(p[3]) : '',
-                            category: p[4] !== undefined ? String(p[4]).trim() : ''
-                        });
+                        var r0 = String(row[0] != null ? row[0] : '').trim();
+                        if (r0.toLowerCase() === 'nm') return;
+                        rows.push(row.map(function (c) { return c == null ? '' : String(c); }));
                     });
+                    var rules = mergeRuleContinuationRows(rows);
                     rules = rules.filter(function (r) { return r.nm && r.xh && r.name; });
                     if (!rules.length) { showMsg('表中无有效数据', true); return; }
                     fetchWithAuth(PREFIX + 'rules/import', { method: 'POST', body: JSON.stringify({ rules: rules }) })

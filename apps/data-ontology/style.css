@@ -5251,6 +5251,19 @@ textarea#testApiParams {
 .qa-tree details { margin-left: 8px; }
 .qa-tree summary { cursor: pointer; list-style: none; padding: 4px 0; }
 .qa-tree summary::-webkit-details-marker { display: none; }
+.qa-tree-toggle {
+    display: inline-block;
+    width: 1em;
+    text-align: center;
+    flex-shrink: 0;
+    user-select: none;
+    font-size: 10px;
+    line-height: 1.2;
+    color: #4a5568;
+}
+.qa-tree details:not([open]) > summary .qa-tree-toggle::before { content: '▶'; }
+.qa-tree details[open] > summary .qa-tree-toggle::before { content: '▼'; }
+.qa-tree-leaf-spacer { display: inline-block; width: 1em; flex-shrink: 0; }
 .qa-tree .rule-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-tree code { background: #edf2f7; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
 .qa-form label { display: block; margin-top: 8px; font-weight: 600; color: #2d3748; }
@@ -5260,6 +5273,7 @@ textarea#testApiParams {
     margin-top: 4px;
 }
 .qa-form textarea { min-height: 160px; font-family: ui-monospace, monospace; font-size: 12px; }
+.qa-form textarea#qaSql { white-space: pre-wrap; }
 .qa-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
 .qa-tab { padding: 8px 12px; cursor: pointer; border: none; background: none; color: #4a5568; }
 .qa-tab.active { color: #667eea; border-bottom: 2px solid #667eea; font-weight: 600; }
