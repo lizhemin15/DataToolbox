@@ -97,6 +97,13 @@ jobs:
           cp server.config.json package/
           cp install.sh README_DEPLOY.md package/
           chmod +x package/install.sh
+          # 复制 gov-runner
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp gov-runner/gov-runner.exe package/
+          else
+            cp gov-runner/gov-runner package/
+            chmod +x package/gov-runner
+          fi
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'
