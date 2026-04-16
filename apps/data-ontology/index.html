@@ -866,7 +866,10 @@
                                     </table>
                                     <button type="button" class="btn btn-sm" style="margin-top:8px;" id="qaAddRowRecord">+ 行</button>
                                 </div>
-                                <button type="button" class="btn btn-primary btn-sm" style="margin-top:10px;" id="qaSaveFill">保存填报率</button>
+                                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+                                    <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>
+                                    <button type="button" class="btn btn-sm" id="qaPasteFill">粘贴导入</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -876,6 +879,7 @@
                         <button type="button" class="btn btn-primary" id="qaRun">一键审核</button>
                         <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
                     </div>
+                    <div id="qaAuditResult" class="qa-audit-result" style="display:none;" aria-live="polite"></div>
                 </div>
             </div>
         </div>

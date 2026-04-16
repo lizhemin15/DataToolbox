@@ -17,6 +17,107 @@
         if (!text) el.classList.remove('show');
     }
 
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function formatCellVal(v) {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object') return escapeHtml(JSON.stringify(v));
+        return escapeHtml(String(v));
+    }
+
+    function renderSampleRowsTable(sampleRows) {
+        if (!sampleRows || !sampleRows.length) return '';
+        var keys = Object.keys(sampleRows[0] || {});
+        if (!keys.length) return '';
+        var th = keys.map(function (k) { return '<th>' + escapeHtml(k) + '</th>'; }).join('');
+        var trs = sampleRows.map(function (row) {
+            var tds = keys.map(function (k) {
+                return '<td>' + formatCellVal(row[k]) + '</td>';
+            }).join('');
+            return '<tr>' + tds + '</tr>';
+        }).join('');
+        return '<table class="qa-sample-table"><thead><tr>' + th + '</tr></thead><tbody>' + trs + '</tbody></table>';
+    }
+
+    function renderAuditResult(audit) {
+        var wrap = document.getElementById('qaAuditResult');
+        if (!wrap) return;
+        if (!audit) {
+            wrap.style.display = 'none';
+            wrap.innerHTML = '';
+            return;
+        }
+        var hasRules = audit.rules && audit.rules.length;
+        var hasFill = (audit.item_fill_rates && audit.item_fill_rates.length) ||
+            (audit.record_fill_rates && audit.record_fill_rates.length);
+        if (!hasRules && !hasFill) {
+            wrap.style.display = 'none';
+            wrap.innerHTML = '';
+            return;
+        }
+        var sum = audit.summary || {};
+        var head =
+            '<div class="qa-audit-result-hd">审核结果' +
+            (hasRules && (sum.passed != null || sum.failed != null)
+                ? ' <span class="qa-audit-sum">通过 ' + escapeHtml(sum.passed) + ' / 不通过 ' + escapeHtml(sum.failed) + '</span>'
+                : '') +
+            '</div>';
+        var ruleRows = (audit.rules || []).map(function (r) {
+            var nm = escapeHtml(r.nm || '');
+            var name = escapeHtml(r.name || '');
+            var status;
+            var detail = '';
+            if (r.skipped) {
+                status = '<span class="qa-badge qa-badge-skip">跳过</span>';
+                detail = escapeHtml(r.message || '');
+            } else if (r.error) {
+                status = '<span class="qa-badge qa-badge-fail">错误</span>';
+                detail = escapeHtml(r.error);
+            } else if (r.passed === true) {
+                status = '<span class="qa-badge qa-badge-pass">通过</span>';
+                detail = '违规行数 0';
+            } else {
+                status = '<span class="qa-badge qa-badge-fail">不通过</span>';
+                var vc = r.violation_count;
+                detail = '违规行数 ' + escapeHtml(vc != null ? vc : '') + (r.sample_rows && r.sample_rows.length ? '（示例见下表）' : '');
+                if (r.sample_rows && r.sample_rows.length) {
+                    detail += '<div class="qa-detail-sample">' + renderSampleRowsTable(r.sample_rows) + '</div>';
+                }
+            }
+            return '<tr><td><code>' + nm + '</code></td><td>' + name + '</td><td>' + status + '</td><td class="qa-detail-cell">' + detail + '</td></tr>';
+        }).join('');
+
+        var fillBlocks = '';
+        function fillSection(title, rows) {
+            if (!rows || !rows.length) return '';
+            var thead = '<thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th><th>备注</th></tr></thead>';
+            var body = '<tbody>' + rows.map(function (x) {
+                var rate = x.rate_percent != null ? (Number(x.rate_percent).toFixed(2) + '%') : '—';
+                var note = '';
+                if (x.numerator_error) note += '分子: ' + x.numerator_error + ' ';
+                if (x.denominator_error) note += '分母: ' + x.denominator_error;
+                return '<tr><td>' + escapeHtml(x.table_name || '') + '</td><td>' + formatCellVal(x.numerator) + '</td><td>' + formatCellVal(x.denominator) + '</td><td>' + escapeHtml(rate) + '</td><td>' + escapeHtml(note.trim()) + '</td></tr>';
+            }).join('') + '</tbody>';
+            return '<div class="qa-fill-section"><strong>' + escapeHtml(title) + '</strong><table class="qa-result-table qa-fill-rate-table">' + thead + body + '</table></div>';
+        }
+        fillBlocks += fillSection('项填报率', audit.item_fill_rates);
+        fillBlocks += fillSection('记录填报率', audit.record_fill_rates);
+
+        var rulesTable = hasRules
+            ? '<table class="qa-result-table"><thead><tr><th>规则 NM</th><th>名称</th><th>结果</th><th>详情</th></tr></thead><tbody>' +
+                ruleRows +
+                '</tbody></table>'
+            : '';
+        wrap.innerHTML = head + rulesTable + fillBlocks;
+        wrap.style.display = 'block';
+    }
+
     function padNm(s) {
         s = String(s || '').trim();
         if (!s) return '';
@@ -148,6 +249,65 @@
         if (rules.length) return rules;
         return parseExcelPasteMergedLines(trimmed).filter(function (r) {
             return !!(r.nm && r.xh && r.name);
+        });
+    }
+
+    /** 填报率：列顺序 表名、分子、分母；续行无表名时并入上条分母（与规则导入续行逻辑一致，多行单元格优先用 Excel 引号粘贴） */
+    function mergeFillContinuationRows(parsedRows) {
+        var out = [];
+        var cur = null;
+        (parsedRows || []).forEach(function (p) {
+            if (!p || !p.length) return;
+            if (p.length >= 3 && String(p[0] || '').trim() !== '') {
+                if (cur) out.push(cur);
+                cur = {
+                    table_name: String(p[0] || '').trim(),
+                    numerator: p[1] != null ? String(p[1]) : '',
+                    denominator: p[2] != null ? String(p[2]) : ''
+                };
+            } else if (cur) {
+                cur.denominator += '\n' + p.join('\t');
+            }
+        });
+        if (cur) out.push(cur);
+        return out;
+    }
+
+    function parseExcelPasteMergedLinesFill(raw) {
+        var lines = String(raw || '').split(/\n');
+        var rows = [];
+        var cur = null;
+        lines.forEach(function (line) {
+            var p = line.split('\t');
+            if (p.length >= 3 && String(p[0] || '').trim() !== '') {
+                if (cur) rows.push(cur);
+                cur = {
+                    table_name: String(p[0] || '').trim(),
+                    numerator: p[1] != null ? String(p[1]) : '',
+                    denominator: p[2] != null ? String(p[2]) : ''
+                };
+            } else if (cur) {
+                cur.denominator += '\n' + line;
+            }
+        });
+        if (cur) rows.push(cur);
+        return rows;
+    }
+
+    function parseExcelPasteFillRates(raw) {
+        var trimmed = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        var parsedRows = parseExcelTSVWithQuotes(trimmed);
+        var rows = mergeFillContinuationRows(parsedRows);
+        rows = rows.filter(function (r) {
+            var h = String(r.table_name || '').trim().toLowerCase();
+            if (h === '表名' || h === 'table_name' || h === 'table' || h === '') return false;
+            return !!r.table_name;
+        });
+        if (rows.length) return rows;
+        return parseExcelPasteMergedLinesFill(trimmed).filter(function (r) {
+            var h = String(r.table_name || '').trim().toLowerCase();
+            if (h === '表名' || h === 'table_name' || h === 'table' || h === '') return false;
+            return !!r.table_name;
         });
     }
 
@@ -483,6 +643,17 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
+        document.getElementById('qaPasteFill').addEventListener('click', function () {
+            var raw = prompt('请从 Excel 复制多行（列顺序：表名, 分子, 分母），粘贴到此处：');
+            if (!raw) return;
+            var parsed = parseExcelPasteFillRates(raw);
+            if (!parsed.length) { showMsg('未解析到有效行', true); return; }
+            var itemVisible = document.getElementById('qaFillItem').style.display !== 'none';
+            var tableId = itemVisible ? 'qaTableItem' : 'qaTableRecord';
+            fillTableRows(tableId, parsed);
+            showMsg('已填充 ' + parsed.length + ' 行（' + (itemVisible ? '项填报率' : '记录填报率') + '）', false);
+        });
+
         document.getElementById('qaExpandAll').addEventListener('click', function () {
             document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = true; });
         });
@@ -496,10 +667,11 @@
             fetchWithAuth(PREFIX + 'execute', {
                 method: 'POST',
                 body: JSON.stringify({ database_id: dbId, rule_nms: ruleNms })
-            }).then(function (r) { return r.json(); }).then(function (d) {
+            }).then(function (r) { return r.json();             }).then(function (d) {
                 if (!d.success) throw new Error(d.message || '执行失败');
                 lastAudit = d;
                 showMsg('审核完成：通过 ' + (d.summary && d.summary.passed) + '，不通过 ' + (d.summary && d.summary.failed), false);
+                renderAuditResult(d);
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });
 

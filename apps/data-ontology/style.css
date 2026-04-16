@@ -5294,3 +5294,60 @@ textarea#testApiParams {
 .qa-msg.show { display: block; }
 .qa-msg.err { background: #fff5f5; color: #c53030; }
 .qa-msg.ok { background: #f0fff4; color: #276749; }
+
+.qa-audit-result {
+    margin-top: 12px;
+    padding: 12px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    max-height: min(70vh, 640px);
+    overflow: auto;
+}
+.qa-audit-result-hd {
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #2d3748;
+}
+.qa-audit-sum { font-weight: normal; color: #4a5568; font-size: 13px; }
+.qa-result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 12px;
+}
+.qa-result-table th,
+.qa-result-table td {
+    border: 1px solid #e2e8f0;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.qa-result-table th { background: #f7fafc; }
+.qa-detail-cell { min-width: 180px; }
+.qa-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.qa-badge-pass { background: #c6f6d5; color: #22543d; }
+.qa-badge-fail { background: #fed7d7; color: #822727; }
+.qa-badge-skip { background: #e2e8f0; color: #4a5568; }
+.qa-detail-sample { margin-top: 8px; overflow-x: auto; }
+.qa-sample-table {
+    border-collapse: collapse;
+    font-size: 11px;
+    width: 100%;
+    max-width: 100%;
+}
+.qa-sample-table th,
+.qa-sample-table td {
+    border: 1px solid #cbd5e0;
+    padding: 4px 6px;
+}
+.qa-sample-table th { background: #edf2f7; }
+.qa-fill-section { margin-top: 16px; }
+.qa-fill-section strong { display: block; margin-bottom: 6px; }
+.qa-fill-rate-table td { font-variant-numeric: tabular-nums; }
