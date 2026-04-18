@@ -669,6 +669,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaFillRates(w, r, username)
 	case path == "execute" && r.Method == http.MethodPost:
 		qaExecute(w, r, username)
+	case path == "execute/stream" && r.Method == http.MethodPost:
+		qaExecuteStream(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
 	case path == "preview" && r.Method == http.MethodPost:
@@ -1142,6 +1144,171 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 			"passed":      passed,
 			"failed":      failed,
 		},
+	})
+}
+
+// SSE 实时进度反馈
+func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
+	var req struct {
+		DatabaseID string   `json:"database_id"`
+		RuleNMs    []string `json:"rule_nms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		return
+	}
+	if req.DatabaseID == "" || len(req.RuleNMs) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 与 rule_nms 必填"})
+		return
+	}
+
+	// 设置 SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SSE 不支持"})
+		return
+	}
+
+	// 发送 SSE 事件
+	sendEvent := func(event string, data map[string]interface{}) {
+		dataJSON, _ := json.Marshal(data)
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(dataJSON))
+		flusher.Flush()
+	}
+
+	dataOntologyMu.RLock()
+	dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+	dataOntologyMu.RUnlock()
+	if !ok || !dataOntologyResourceVisible(dbConfig.Owner, username) {
+		sendEvent("error", map[string]interface{}{"message": "数据库不存在或无权访问"})
+		return
+	}
+
+	sendEvent("start", map[string]interface{}{
+		"database_id":   req.DatabaseID,
+		"total_rules":   len(req.RuleNMs),
+		"started_at":    time.Now().Format(time.RFC3339),
+	})
+
+	driver, dsn, dsnErr := buildDSN(dbConfig)
+	if dsnErr != nil {
+		sendEvent("error", map[string]interface{}{"message": dsnErr.Error()})
+		return
+	}
+	targetDB, err := sql.Open(driver, dsn)
+	if err != nil {
+		sendEvent("error", map[string]interface{}{"message": "连接失败: " + err.Error()})
+		return
+	}
+	defer targetDB.Close()
+
+	targetDB.SetMaxOpenConns(10)
+	targetDB.SetMaxIdleConns(5)
+	targetDB.SetConnMaxLifetime(30 * time.Minute)
+	targetDB.SetConnMaxIdleTime(5 * time.Minute)
+
+	flat, _ := loadRulesFlat()
+	byNM := map[string]qaRule{}
+	for _, x := range flat {
+		byNM[x.NM] = x
+	}
+
+	t0 := time.Now()
+	dialect := normalizeQualityDialect(dbConfig.Type)
+	metaDB, _ := openQualityAuditDB()
+
+	var ruleResults []map[string]interface{}
+	passed, failed := 0, 0
+
+	for i, nm := range req.RuleNMs {
+		nm = padNM(nm)
+		rule, exists := byNM[nm]
+		if !exists {
+			continue
+		}
+
+		// 发送进度
+		sendEvent("progress", map[string]interface{}{
+			"current":    i + 1,
+			"total":      len(req.RuleNMs),
+			"rule_nm":    nm,
+			"rule_name":  rule.Name,
+		})
+
+		orig := strings.TrimSpace(rule.SQL)
+		if orig == "" {
+			ruleResults = append(ruleResults, map[string]interface{}{
+				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "skipped": true, "message": "分类节点无 SQL",
+			})
+			continue
+		}
+
+		safeSQL, sqlErr := sanitizeSQLForQA(orig)
+		if sqlErr != nil {
+			entry := map[string]interface{}{
+				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "error": sqlErr.Error(), "passed": false,
+			}
+			ruleResults = append(ruleResults, entry)
+			failed++
+			continue
+		}
+
+		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
+		cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
+		entry := map[string]interface{}{
+			"nm":              rule.NM,
+			"xh":              rule.XH,
+			"name":            rule.Name,
+			"category":        rule.Category,
+			"violation_count": cnt,
+			"sample_rows":     sample,
+		}
+		if errExec != nil {
+			entry["error"] = errExec.Error()
+			entry["passed"] = false
+			failed++
+		} else {
+			entry["passed"] = cnt == 0
+			if entry["passed"].(bool) {
+				passed++
+			} else {
+				failed++
+			}
+		}
+		ruleResults = append(ruleResults, entry)
+
+		// 发送规则完成事件
+		sendEvent("rule_done", entry)
+	}
+
+	// 保存历史
+	summaryJSON, _ := json.Marshal(map[string]interface{}{
+		"total_rules": passed + failed,
+		"passed":      passed,
+		"failed":      failed,
+	})
+	duration := time.Since(t0).Milliseconds()
+	if metaDB != nil {
+		_, _ = metaDB.Exec(`INSERT INTO audit_history (database_id, database_type, executed_at, duration_ms, summary, created_by) VALUES (?,?,?,?,?,?)`,
+			req.DatabaseID, dbConfig.Type, t0.Format(time.RFC3339), duration, string(summaryJSON), username)
+	}
+
+	// 发送完成事件
+	sendEvent("done", map[string]interface{}{
+		"success":     true,
+		"database_id": req.DatabaseID,
+		"duration_ms": duration,
+		"summary": map[string]interface{}{
+			"total_rules": passed + failed,
+			"passed":      passed,
+			"failed":      failed,
+		},
+		"rules": ruleResults,
 	})
 }
 
