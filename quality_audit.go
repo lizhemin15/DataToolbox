@@ -872,6 +872,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaScheduleCreate(w, r, username)
 	case len(parts) == 2 && parts[0] == "schedule" && r.Method == http.MethodDelete:
 		qaScheduleDelete(w, parts[1], username)
+	case path == "stats" && r.Method == http.MethodGet:
+		qaStats(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
 	case path == "preview" && r.Method == http.MethodPost:
@@ -1586,6 +1588,102 @@ func qaScheduleDelete(w http.ResponseWriter, jobID string, username string) {
 		"success": true,
 		"message": "定时任务已删除",
 		"job_id":  jobID,
+	})
+}
+
+// 审核统计
+func qaStats(w http.ResponseWriter, r *http.Request, username string) {
+	databaseID := r.URL.Query().Get("database_id")
+	days := r.URL.Query().Get("days")
+	if days == "" {
+		days = "7"
+	}
+	daysInt, _ := strconv.Atoi(days)
+	if daysInt < 1 {
+		daysInt = 7
+	}
+
+	metaDB, _ := openQualityAuditDB()
+	if metaDB == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库错误"})
+		return
+	}
+
+	// 总审核次数
+	var totalAudits int
+	metaDB.QueryRow(`
+		SELECT COUNT(*) FROM audit_history 
+		WHERE database_id = ? AND executed_at >= datetime('now', ?)`,
+		databaseID, fmt.Sprintf("-%d days", daysInt)).Scan(&totalAudits)
+
+	// 总错误次数
+	var totalErrors int
+	metaDB.QueryRow(`
+		SELECT COUNT(*) FROM audit_errors 
+		WHERE database_id = ? AND executed_at >= datetime('now', ?)`,
+		databaseID, fmt.Sprintf("-%d days", daysInt)).Scan(&totalErrors)
+
+	// 平均执行时间
+	var avgDuration float64
+	metaDB.QueryRow(`
+		SELECT AVG(duration_ms) FROM audit_history 
+		WHERE database_id = ? AND executed_at >= datetime('now', ?)`,
+		databaseID, fmt.Sprintf("-%d days", daysInt)).Scan(&avgDuration)
+
+	// 每日审核次数
+	dailyRows, _ := metaDB.Query(`
+		SELECT date(executed_at) as day, COUNT(*) as count
+		FROM audit_history 
+		WHERE database_id = ? AND executed_at >= datetime('now', ?)
+		GROUP BY day ORDER BY day`,
+		databaseID, fmt.Sprintf("-%d days", daysInt))
+	var dailyStats []map[string]interface{}
+	if dailyRows != nil {
+		defer dailyRows.Close()
+		for dailyRows.Next() {
+			var day string
+			var count int
+			if err := dailyRows.Scan(&day, &count); err == nil {
+				dailyStats = append(dailyStats, map[string]interface{}{
+					"date":  day,
+					"count": count,
+				})
+			}
+		}
+	}
+
+	// 错误规则 Top 5
+	errorRuleRows, _ := metaDB.Query(`
+		SELECT rule_nm, rule_name, COUNT(*) as count
+		FROM audit_errors 
+		WHERE database_id = ? AND executed_at >= datetime('now', ?)
+		GROUP BY rule_nm ORDER BY count DESC LIMIT 5`,
+		databaseID, fmt.Sprintf("-%d days", daysInt))
+	var topErrorRules []map[string]interface{}
+	if errorRuleRows != nil {
+		defer errorRuleRows.Close()
+		for errorRuleRows.Next() {
+			var ruleNm, ruleName string
+			var count int
+			if err := errorRuleRows.Scan(&ruleNm, &ruleName, &count); err == nil {
+				topErrorRules = append(topErrorRules, map[string]interface{}{
+					"rule_nm":   ruleNm,
+					"rule_name": ruleName,
+					"count":     count,
+				})
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":        true,
+		"database_id":    databaseID,
+		"days":           daysInt,
+		"total_audits":   totalAudits,
+		"total_errors":   totalErrors,
+		"avg_duration_ms": avgDuration,
+		"daily_stats":    dailyStats,
+		"top_error_rules": topErrorRules,
 	})
 }
 
