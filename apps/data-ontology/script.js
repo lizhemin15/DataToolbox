@@ -1733,7 +1733,7 @@ async function loadDatabaseDetail(dbId) {
             listEl.innerHTML = `
                 <div style="text-align:center;padding:40px;color:#e53e3e;">
                     <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
-                    <div>加载失败：${data.message || '未知错误'}</div>
+                    <div>加载失败：${escapeHtml(data.message || '未知错误')}</div>
                 </div>
             `;
         }
@@ -2735,7 +2735,9 @@ function renderApiKeyUI() {
 
     if (currentApiKey) {
         const masked = currentApiKey.substring(0, 8) + '••••••••' + currentApiKey.substring(currentApiKey.length - 4);
-        contentEl.innerHTML = `<code class="apikey-value" title="${currentApiKey}">${masked}</code>`;
+        const safeKey = escapeHtml(currentApiKey);
+        const safeMasked = escapeHtml(masked);
+        contentEl.innerHTML = `<code class="apikey-value" title="${safeKey}">${safeMasked}</code>`;
         generateBtn.textContent = '重新生成';
         copyBtn.style.display = '';
         deleteBtn.style.display = '';
@@ -4757,6 +4759,25 @@ function toggleRetryDetails(retryId) {
     }
 }
 
+// 从 data-* 属性读取 SQL 数据并执行（安全的 XSS 防护方式）
+async function executeConfirmedSQLFromElement(confirmId, messageId) {
+    const confirmEl = document.getElementById(confirmId);
+    if (!confirmEl) return;
+    
+    const sqlData = confirmEl.dataset.sql;
+    const dbIdData = confirmEl.dataset.dbId;
+    
+    if (!sqlData || !dbIdData) {
+        console.error('Missing SQL or dbId data');
+        return;
+    }
+    
+    const sql = JSON.parse(decodeURIComponent(sqlData));
+    const dbId = JSON.parse(decodeURIComponent(dbIdData));
+    
+    await executeConfirmedSQL(confirmId, sql, dbId, messageId);
+}
+
 async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
     const confirmEl = document.getElementById(confirmId);
     if (!confirmEl) return;
@@ -4965,19 +4986,22 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
         case 'confirm_write':
             statusEl.innerHTML = '';
             const confirmId = 'confirm-' + messageId;
+            // 使用 data-* 属性存储 JSON 数据，避免 XSS
+            const confirmSqlData = encodeURIComponent(JSON.stringify(data.sql));
+            const confirmDbIdData = encodeURIComponent(JSON.stringify(data.dbId));
             let confirmHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             confirmHtml += `
                 <div style="margin-top: 6px;">
                     <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📝 待执行的SQL：</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
-                <div class="ai-confirm-write" id="${confirmId}">
+                <div class="ai-confirm-write" id="${confirmId}" data-sql="${confirmSqlData}" data-db-id="${confirmDbIdData}">
                     <div class="ai-confirm-warning">
                         <span class="ai-confirm-icon">⚠️</span>
                         <span>该操作将修改数据库数据，请确认是否执行？</span>
                     </div>
                     <div class="ai-confirm-actions">
-                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQL('${confirmId}', ${escapeHtml(JSON.stringify(data.sql))}, ${escapeHtml(JSON.stringify(data.dbId))}, '${messageId}')">✓ 确认执行</button>
+                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQLFromElement('${confirmId}', '${messageId}')">✓ 确认执行</button>
                         <button class="btn ai-confirm-btn-no" onclick="cancelConfirmedSQL('${confirmId}', '${messageId}')">✕ 取消</button>
                     </div>
                 </div>
@@ -8344,13 +8368,13 @@ async function doOntologyQuery() {
             }
             // 格式化回答
             let answer = data.answer || '';
-            answer = answer.replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
+            answer = escapeHtml(answer).replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
             resultEl.innerHTML = answer;
         } else {
-            resultEl.innerHTML = `<span style="color:#E17055">❌ ${data.message}</span>`;
+            resultEl.innerHTML = `<span style="color:#E17055">❌ ${escapeHtml(data.message)}</span>`;
         }
     } catch (e) {
-        resultEl.innerHTML = `<span style="color:#E17055">❌ 请求失败：${e.message}</span>`;
+        resultEl.innerHTML = `<span style="color:#E17055">❌ 请求失败：${escapeHtml(e.message)}</span>`;
     }
     btn.disabled = false;
     btn.innerHTML = '<span>🔍</span> 语义分析';

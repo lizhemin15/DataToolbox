@@ -17,3 +17,6 @@ package/
 # GitHub Actions artifacts
 artifacts/
 
+
+# 编译产物
+datatoolbox
