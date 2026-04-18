@@ -269,6 +269,35 @@ func getLocalIP() string {
 // 防止 SQL 注入：只允许字母、数字、下划线，且不能以数字开头
 var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
+// sanitizeFilename 清理文件名，防止路径遍历攻击
+// 返回清理后的安全文件名，如果文件名不合法则返回错误
+func sanitizeFilename(filename string) (string, error) {
+	if filename == "" {
+		return "", fmt.Errorf("文件名不能为空")
+	}
+	// 限制文件名长度
+	if len(filename) > 255 {
+		filename = filename[:255]
+	}
+	// 移除路径分隔符和危险字符
+	filename = filepath.Base(filename)
+	// 检查是否包含路径遍历
+	if strings.Contains(filename, "..") {
+		return "", fmt.Errorf("文件名包含非法字符")
+	}
+	// 移除控制字符
+	cleaned := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, filename)
+	if cleaned == "" {
+		return "", fmt.Errorf("文件名无效")
+	}
+	return cleaned, nil
+}
+
 func isValidIdentifier(name string) bool {
 	if name == "" || len(name) > 128 {
 		return false
@@ -7933,6 +7962,12 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		// 后台 governanceWorker 可能先读到未落盘的空/截断文件）
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
+			// 安全验证：清理文件名，防止路径遍历攻击
+			safeFilename, err := sanitizeFilename(fileHeader.Filename)
+			if err != nil {
+				log.Printf("[Governance] 文件名无效: %v", err)
+				continue
+			}
 			file, err := fileHeader.Open()
 			if err != nil {
 				continue
@@ -7942,7 +7977,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 				file.Close()
 				continue
 			}
-			tmpPath := filepath.Join(tmpDir, fileHeader.Filename)
+			tmpPath := filepath.Join(tmpDir, safeFilename)
 			dst, err := os.Create(tmpPath)
 			if err != nil {
 				file.Close()
@@ -9375,8 +9410,15 @@ func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// 安全验证：清理文件名，防止路径遍历攻击
+	safeFilename, err := sanitizeFilename(header.Filename)
+	if err != nil {
+		apiBadRequest(w, "文件名无效: "+err.Error())
+		return
+	}
+
 	// 使用正斜杠拼接远程路径
-	remoteFilePath := strings.TrimRight(remotePath, "/") + "/" + header.Filename
+	remoteFilePath := strings.TrimRight(remotePath, "/") + "/" + safeFilename
 	dst, err := s.SFTPClient.Create(remoteFilePath)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
