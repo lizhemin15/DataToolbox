@@ -5025,7 +5025,7 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 		var err error
 		bodyBytes, err = io.ReadAll(r.Body)
 		if err != nil {
-			apiBadRequest(w, "读取请求体失败: "+err.Error())
+			apiBadRequest(w, "读取请求体失败")
 			return
 		}
 	}
@@ -9414,14 +9414,14 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	sshClient, err := gossh.Dial("tcp", req.Host+":"+req.Port, sshConfig)
 	if err != nil {
 		log.Printf("[SFTP] SSH连接失败: host=%s, err=%v", req.Host, err)
-		apiBadRequest(w, "SSH 连接失败: "+err.Error())
+		apiBadRequest(w, "SSH 连接失败")
 		return
 	}
 	sftpClient, err := sftp.NewClient(sshClient)
 	if err != nil {
 		sshClient.Close()
 		log.Printf("[SFTP] SFTP初始化失败: host=%s, err=%v", req.Host, err)
-		apiBadRequest(w, "SFTP 初始化失败: "+err.Error())
+		apiBadRequest(w, "SFTP 初始化失败")
 		return
 	}
 
@@ -9468,7 +9468,7 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	entries, err := s.SFTPClient.ReadDir(remotePath)
 	if err != nil {
 		log.Printf("[SFTP] 读取目录失败: session=%s, path=%s, err=%v", sessionID, remotePath, err)
-		apiBadRequest(w, "读取目录失败: "+err.Error())
+		apiBadRequest(w, "读取目录失败")
 		return
 	}
 	files := make([]map[string]interface{}, 0, len(entries)+1)
@@ -9510,7 +9510,7 @@ func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(200 << 20) // 200MB
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		apiBadRequest(w, "读取上传文件失败: "+err.Error())
+		apiBadRequest(w, "读取上传文件失败")
 		return
 	}
 	defer file.Close()

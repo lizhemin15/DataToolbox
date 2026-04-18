@@ -131,18 +131,12 @@ func qaRunScheduledAudit(jobID string, job *qaScheduledJob) {
 		return
 	}
 
-	driver, dsn, err := buildDSN(dbConfig)
+	// 使用连接池获取数据库连接
+	targetDB, err := getDBFromPool(dbConfig)
 	if err != nil {
 		return
 	}
-	targetDB, err := sql.Open(driver, dsn)
-	if err != nil {
-		return
-	}
-	defer targetDB.Close()
-
-	targetDB.SetMaxOpenConns(5)
-	targetDB.SetMaxIdleConns(2)
+	// 注意：不关闭连接，由连接池管理
 
 	flat, _ := loadRulesFlat()
 	byNM := map[string]qaRule{}
@@ -1185,23 +1179,13 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	dialect := normalizeQualityDialect(dbConfig.Type)
 
-	driver, dsn, dsnErr := buildDSN(dbConfig)
-	if dsnErr != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": dsnErr.Error()})
-		return
-	}
-	targetDB, err := sql.Open(driver, dsn)
+	// 使用连接池获取数据库连接
+	targetDB, err := getDBFromPool(dbConfig)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败"})
 		return
 	}
-	defer targetDB.Close()
-
-	// 连接池参数优化
-	targetDB.SetMaxOpenConns(10)                  // 最大连接数
-	targetDB.SetMaxIdleConns(5)                   // 最大空闲连接数
-	targetDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
-	targetDB.SetConnMaxIdleTime(5 * time.Minute)  // 空闲连接最大存活时间
+	// 注意：不关闭连接，由连接池管理
 
 	// 检查缓存
 	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
@@ -1410,22 +1394,13 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 		"started_at":    time.Now().Format(time.RFC3339),
 	})
 
-	driver, dsn, dsnErr := buildDSN(dbConfig)
-	if dsnErr != nil {
-		sendEvent("error", map[string]interface{}{"message": dsnErr.Error()})
-		return
-	}
-	targetDB, err := sql.Open(driver, dsn)
+	// 使用连接池获取数据库连接
+	targetDB, err := getDBFromPool(dbConfig)
 	if err != nil {
-		sendEvent("error", map[string]interface{}{"message": "连接失败: " + err.Error()})
+		sendEvent("error", map[string]interface{}{"message": "连接失败"})
 		return
 	}
-	defer targetDB.Close()
-
-	targetDB.SetMaxOpenConns(10)
-	targetDB.SetMaxIdleConns(5)
-	targetDB.SetConnMaxLifetime(30 * time.Minute)
-	targetDB.SetConnMaxIdleTime(5 * time.Minute)
+	// 注意：不关闭连接，由连接池管理
 
 	flat, _ := loadRulesFlat()
 	byNM := map[string]qaRule{}
