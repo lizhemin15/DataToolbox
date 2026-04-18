@@ -333,8 +333,136 @@ function initDemoData() {
     mergeDemoDatabaseIntoList();
 }
 
+// ==================== 全局错误处理与 Toast 通知系统 ====================
+
+// Toast 通知系统（替代 alert，提升用户体验）
+let toastContainer = null;
+
+function initToastContainer() {
+    if (toastContainer) return;
+    toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    toastContainer.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+    `;
+    document.body.appendChild(toastContainer);
+}
+
+/**
+ * 显示 Toast 通知
+ * @param {string} message - 消息内容
+ * @param {string} type - 类型: 'success' | 'error' | 'warning' | 'info'
+ * @param {number} duration - 显示时长（毫秒），默认 3000
+ */
+function showToast(message, type = 'info', duration = 3000) {
+    if (!toastContainer) initToastContainer();
+    
+    const colors = {
+        success: { bg: '#10b981', icon: '✓' },
+        error: { bg: '#ef4444', icon: '✗' },
+        warning: { bg: '#f59e0b', icon: '⚠' },
+        info: { bg: '#3b82f6', icon: 'ℹ' }
+    };
+    const config = colors[type] || colors.info;
+    
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        background: ${config.bg};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-size: 14px;
+        max-width: 360px;
+        word-wrap: break-word;
+        pointer-events: auto;
+        cursor: pointer;
+        opacity: 0;
+        transform: translateX(100%);
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    toast.innerHTML = `<span style="font-size:16px">${config.icon}</span><span>${escapeHtml(message)}</span>`;
+    
+    toast.onclick = () => removeToast(toast);
+    toastContainer.appendChild(toast);
+    
+    // 触发动画
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(0)';
+    });
+    
+    // 自动消失
+    if (duration > 0) {
+        setTimeout(() => removeToast(toast), duration);
+    }
+    
+    return toast;
+}
+
+function removeToast(toast) {
+    if (!toast || !toast.parentNode) return;
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100%)';
+    setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
+}
+
+// 全局未捕获 Promise 异常处理
+window.addEventListener('unhandledrejection', function(event) {
+    console.error('Unhandled promise rejection:', event.reason);
+    showToast('系统错误: ' + (event.reason?.message || event.reason || '未知错误'), 'error', 5000);
+});
+
+// 全局 JavaScript 错误处理
+window.addEventListener('error', function(event) {
+    // 忽略资源加载错误
+    if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
+        return;
+    }
+    console.error('Global error:', event.message);
+    showToast('系统错误: ' + (event.message || '未知错误'), 'error', 5000);
+});
+
+// 全局未捕获 Promise 异常处理
+function setupGlobalErrorHandlers() {
+    // 处理未捕获的 Promise rejection
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('未捕获的 Promise 异常:', event.reason);
+        const msg = event.reason?.message || String(event.reason) || '未知错误';
+        showToast('操作失败: ' + msg, 'error', 5000);
+        event.preventDefault(); // 阻止默认的控制台错误输出
+    });
+    
+    // 处理全局 JavaScript 错误
+    window.addEventListener('error', function(event) {
+        // 忽略脚本加载错误（通常由网络问题引起）
+        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
+            return;
+        }
+        console.error('JavaScript 错误:', event.message);
+        // 仅在非开发环境显示用户友好提示
+        if (event.message && !event.message.includes('Script error')) {
+            showToast('页面出现错误，请刷新重试', 'error', 4000);
+        }
+    }, true);
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async function() {
+    // 初始化全局错误处理
+    setupGlobalErrorHandlers();
+    initToastContainer();
+    
     // 检测是否通过服务端运行
     if (!checkServerAvailability()) {
         return; // 如果服务端不可用，直接返回，不初始化应用
@@ -1010,10 +1138,10 @@ function renderUserMgmtList(users) {
                 if (data.success) {
                     loadUsers();
                 } else {
-                    alert(data.message || '生成失败');
+                    showToast(data.message || '生成失败', 'error');
                 }
             } catch (e) {
-                alert(e.message || '生成失败');
+                showToast(e.message || '生成失败', 'error');
             }
         };
         const passBtn = document.createElement('button');
@@ -1106,10 +1234,10 @@ async function userMgmtDelete(username) {
         if (data.success) {
             loadUsers();
         } else {
-            alert(data.message || '删除失败');
+            showToast(data.message || '删除失败', 'error');
         }
     } catch (e) {
-        alert(e.message);
+        showToast(e.message || '删除失败', 'error');
     }
 }
 
@@ -1709,12 +1837,12 @@ function updatePreviewHeader() {
 // 启用表格编辑模式
 function enableTableEditMode() {
     if (!currentPreviewTable) {
-        alert('请先选择一个表');
+        showToast('请先选择一个表', 'warning');
         return;
     }
-    
+
     if (!currentDb) {
-        alert('请先选择数据库');
+        showToast('请先选择数据库', 'warning');
         return;
     }
     
@@ -2001,7 +2129,7 @@ async function saveTableData() {
     
     // 检查是否有更改
     if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
-        alert('没有任何更改');
+        showToast('没有任何更改', 'info');
         return;
     }
     
@@ -2039,10 +2167,10 @@ async function saveTableData() {
                 previewTable(currentPreviewTable, true);
             }, 1500);
         } else {
-            alert('保存失败：' + (data.message || '未知错误'));
+            showToast('保存失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('保存失败：' + error.message);
+        showToast('保存失败：' + error.message, 'error');
     }
 }
 
@@ -2062,14 +2190,14 @@ async function dropTable() {
         const data = await response.json();
         
         if (data.success) {
-            alert('表删除成功！');
+            showToast('表删除成功！', 'success');
             closePreview();
             loadDatabaseDetail(currentDb.id);
         } else {
-            alert('删除失败：' + (data.message || '未知错误'));
+            showToast('删除失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
     }
 }
 
@@ -2090,7 +2218,7 @@ async function showEditStructureModal() {
         const data = await response.json();
         
         if (!data.success) {
-            alert('获取表结构失败：' + (data.message || '未知错误'));
+            showToast('获取表结构失败：' + (data.message || '未知错误'), 'error');
             return;
         }
         
@@ -2098,7 +2226,7 @@ async function showEditStructureModal() {
         renderEditStructure(data.columns || []);
         document.getElementById('editStructureModal').style.display = 'block';
     } catch (error) {
-        alert('获取表结构失败：' + error.message);
+        showToast('获取表结构失败：' + error.message, 'error');
     }
 }
 
@@ -2237,7 +2365,7 @@ async function saveTableStructure() {
     });
     
     if (newColumns.length === 0) {
-        alert('至少需要一个列');
+        showToast('至少需要一个列', 'warning');
         return;
     }
     
@@ -2257,14 +2385,14 @@ async function saveTableStructure() {
         const data = await response.json();
         
         if (data.success) {
-            alert('表结构修改成功！');
+            showToast('表结构修改成功！', 'success');
             closeEditStructureModal();
             previewTable(currentPreviewTable);
         } else {
-            alert('修改失败：' + (data.message || '未知错误'));
+            showToast('修改失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('修改失败：' + error.message);
+        showToast('修改失败：' + error.message, 'error');
     }
 }
 
@@ -2290,7 +2418,7 @@ async function submitRenameTable() {
     if (!currentDb || !currentPreviewTable) return;
     const newName = document.getElementById('renameTableNewName').value.trim();
     if (!newName) {
-        alert('请输入新表名');
+        showToast('请输入新表名', 'warning');
         return;
     }
     if (newName === currentPreviewTable) {
@@ -2312,10 +2440,10 @@ async function submitRenameTable() {
             updatePreviewHeader();
             loadDatabaseDetail(currentDb.id).then(() => previewTable(newName));
         } else {
-            alert('重命名失败：' + (data.message || '未知错误'));
+            showToast('重命名失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (e) {
-        alert('重命名失败：' + e.message);
+        showToast('重命名失败：' + e.message, 'error');
     }
 }
 
@@ -2342,10 +2470,10 @@ async function handleDeleteDatabase() {
             document.getElementById('tablePreview').style.display = 'none';
             loadDatabases();
         } else {
-            alert(data.message || '删除失败');
+            showToast(data.message || '删除失败', 'error');
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
     }
 }
 
@@ -3215,13 +3343,13 @@ async function quickFixSql() {
         const data = await response.json();
         
         if (data.success) {
-            alert('修复成功！');
+            showToast('修复成功！', 'success');
             loadApiDetail(currentApi.id);
         } else {
-            alert('修复失败：' + (data.message || '未知错误'));
+            showToast('修复失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('修复失败：' + error.message);
+        showToast('修复失败：' + error.message, 'error');
     }
 }
 
@@ -3534,10 +3662,10 @@ async function handleDeleteApi() {
             document.getElementById('apiDetailView').style.display = 'none';
             loadApis();
         } else {
-            alert(data.message || '删除失败');
+            showToast(data.message || '删除失败', 'error');
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
     }
 }
 
@@ -5030,7 +5158,7 @@ function editGovTaskDraftFromAI(messageId) {
 // 显示创建表弹窗
 function showCreateTableModal() {
     if (!currentDb) {
-        alert('请先选择数据库');
+        showToast('请先选择数据库', 'warning');
         return;
     }
     
@@ -5094,7 +5222,7 @@ function addTableColumn() {
 function removeTableColumn(btn) {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     if (columnsContainer.children.length <= 1) {
-        alert('至少需要保留一列');
+        showToast('至少需要保留一列', 'warning');
         return;
     }
     btn.parentElement.remove();
@@ -5631,7 +5759,7 @@ async function deleteGovTask() {
             loadGovernanceTasks();
         }
     } catch (error) {
-        alert('删除失败: ' + error.message);
+        showToast('删除失败: ' + error.message, 'error');
     }
 }
 
@@ -5653,7 +5781,7 @@ async function toggleGovTask() {
             renderGovTaskList();
         }
     } catch (error) {
-        alert('操作失败: ' + error.message);
+        showToast('操作失败: ' + error.message, 'error');
     }
 }
 
@@ -5726,18 +5854,18 @@ async function executeInteractiveTask() {
     const files = govSelectedFiles;
 
     if ((inputType === 'file' || inputType === 'both') && files.length === 0 && !inputText) {
-        alert('请选择文件或输入文本');
+        showToast('请选择文件或输入文本', 'warning');
         return;
     }
     if (inputType === 'text' && !inputText) {
-        alert('请输入文本内容');
+        showToast('请输入文本内容', 'warning');
         return;
     }
 
     const batchMode = currentGovTask.file_batch_mode || 'per_file';
     if (currentGovTask.type === 'interactive' && batchMode === 'single') {
         if (files.length < 2) {
-            alert('请至少上传 2 个文件：1 个综合日报 Word 模板 + 至少 1 份单位日报');
+            showToast('请至少上传 2 个文件：1 个综合日报 Word 模板 + 至少 1 份单位日报', 'warning');
             return;
         }
         await executeGovTaskAggregateInBrowser(files, inputText);
@@ -6318,7 +6446,7 @@ function generateImportCode() {
     const dbId = document.getElementById('govTaskDbSelect').value;
     const db = databases.find(d => d.id === dbId);
 
-    if (!tableName) { alert('请先选择目标表'); return; }
+    if (!tableName) { showToast('请先选择目标表', 'warning'); return; }
 
     const checks = document.querySelectorAll('.codegen-col-check');
     const srcs = document.querySelectorAll('.codegen-col-src');
@@ -6330,7 +6458,7 @@ function generateImportCode() {
         }
     });
 
-    if (mappings.length === 0) { alert('请至少勾选一个列'); return; }
+    if (mappings.length === 0) { showToast('请至少勾选一个列', 'warning'); return; }
 
     const q = (db && (db.type === 'mysql' || db.type === 'mariadb')) ? '`' : '"';
     const colList = mappings.map(m => `${q}${m.col}${q}`).join(', ');
@@ -6393,7 +6521,7 @@ async function generateImportCodeWithAI() {
     const db = databases.find(d => d.id === dbId);
 
     if (!dbId || !tableName) {
-        alert('请先选择关联数据库并选择目标表');
+        showToast('请先选择关联数据库并选择目标表', 'warning');
         return;
     }
     const checks = document.querySelectorAll('.codegen-col-check');
@@ -6410,13 +6538,13 @@ async function generateImportCodeWithAI() {
         }
     });
     if (mappings.length === 0) {
-        alert('请至少勾选一个要导入的列');
+        showToast('请至少勾选一个要导入的列', 'warning');
         return;
     }
 
     if (!aiConfig) await loadAiConfig();
     if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
-        alert('请先在「AI助手」中配置 AI 设置（AI服务URL、API Key、模型名称）后再使用 AI 辅助生成');
+        showToast('请先在「AI助手」中配置 AI 设置（AI服务URL、API Key、模型名称）后再使用 AI 辅助生成', 'warning');
         return;
     }
 
@@ -6450,10 +6578,10 @@ async function generateImportCodeWithAI() {
         if (data.success && data.code != null) {
             document.getElementById('govCodeInput').value = data.code;
         } else {
-            alert(data.message || 'AI 生成失败');
+            showToast(data.message || 'AI 生成失败', 'error');
         }
     } catch (e) {
-        alert('请求失败: ' + e.message);
+        showToast('请求失败: ' + e.message, 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -8650,10 +8778,10 @@ async function handleLLMModelSubmit(e) {
             hideLLMModelModal();
             loadLLMModels();
         } else {
-            alert(result.message || '保存失败');
+            showToast(result.message || '保存失败', 'error');
         }
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        showToast('保存失败: ' + e.message, 'error');
     }
 }
 
@@ -8663,9 +8791,9 @@ async function deleteLLMModel(id) {
         const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadLLMModels();
-        else alert(result.message || '删除失败');
+        else showToast(result.message || '删除失败', 'error');
     } catch (e) {
-        alert('删除失败: ' + e.message);
+        showToast('删除失败: ' + e.message, 'error');
     }
 }
 
@@ -8782,10 +8910,10 @@ async function handleSmallModelSubmit(e) {
             hideSmallModelModal();
             loadSmallModels();
         } else {
-            alert(result.message || '保存失败');
+            showToast(result.message || '保存失败', 'error');
         }
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        showToast('保存失败: ' + e.message, 'error');
     }
 }
 
@@ -8795,9 +8923,9 @@ async function deleteSmallModel(id) {
         const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadSmallModels();
-        else alert(result.message || '删除失败');
+        else showToast(result.message || '删除失败', 'error');
     } catch (e) {
-        alert('删除失败: ' + e.message);
+        showToast('删除失败: ' + e.message, 'error');
     }
 }
 
@@ -8816,11 +8944,11 @@ async function runSmallModel(id) {
         });
         const result = await resp.json();
         if (result.success) {
-            alert('运行结果:\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)));
+            showToast('运行结果:\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)), 'success', 10000);
         } else {
-            alert('运行失败: ' + result.message);
+            showToast('运行失败: ' + result.message, 'error');
         }
     } catch (e) {
-        alert('运行失败: ' + e.message);
+        showToast('运行失败: ' + e.message, 'error');
     }
 }
