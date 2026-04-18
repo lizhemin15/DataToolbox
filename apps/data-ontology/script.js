@@ -1232,6 +1232,7 @@ function renderUserMgmtList(users) {
                 });
                 const data = await response.json();
                 if (data.success) {
+                    showToast('密码已重置', 'success');
                     loadUsers();
                 } else {
                     showToast(data.message || '生成失败', 'error');
@@ -1308,6 +1309,7 @@ async function submitUserPasswordChange() {
         });
         const data = await response.json();
         if (data.success) {
+            showToast('密码修改成功', 'success');
             hideUserPasswordModal();
             if (userMgmtMode) loadUsers();
         } else {
@@ -1334,6 +1336,7 @@ async function userMgmtDelete(username) {
         });
         const data = await response.json();
         if (data.success) {
+            showToast('用户已删除', 'success');
             loadUsers();
         } else {
             showToast(data.message || '删除失败', 'error');
@@ -3603,12 +3606,30 @@ async function handleAddApi(e) {
     const apiType = document.querySelector('input[name="apiType"]:checked')?.value || 'query';
 
     const apiData = {
-        name: document.getElementById('apiNameInput').value,
-        path: document.getElementById('apiPathInput').value,
+        name: document.getElementById('apiNameInput').value.trim(),
+        path: document.getElementById('apiPathInput').value.trim(),
         method: document.getElementById('apiMethodInput').value,
         type: apiType,
-        description: document.getElementById('apiDescInput').value
+        description: document.getElementById('apiDescInput').value.trim()
     };
+
+    // 接口名称验证
+    if (!apiData.name) {
+        showApiFormError('请输入接口名称');
+        return;
+    }
+
+    // 路径验证
+    if (!apiData.path) {
+        showApiFormError('请输入接口路径');
+        return;
+    }
+
+    // 验证路径格式
+    if (!apiData.path.startsWith('/')) {
+        showApiFormError('接口路径必须以 / 开头');
+        return;
+    }
 
     if (apiType === 'forward') {
         apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
@@ -3616,9 +3637,22 @@ async function handleAddApi(e) {
             showApiFormError('请填写转发目标URL');
             return;
         }
+        // URL格式验证
+        try {
+            new URL(apiData.forward_url);
+        } catch {
+            showApiFormError('转发目标URL格式不正确');
+            return;
+        }
     } else {
         apiData.database_id = document.getElementById('apiDbSelect').value;
-        apiData.sql = document.getElementById('apiSqlInput').value;
+        apiData.sql = document.getElementById('apiSqlInput').value.trim();
+        
+        // SQL验证
+        if (!apiData.sql) {
+            showApiFormError('请输入SQL语句');
+            return;
+        }
     }
 
     // 处理默认参数
@@ -3630,12 +3664,6 @@ async function handleAddApi(e) {
             showApiFormError('默认参数格式错误，请输入有效的JSON格式');
             return;
         }
-    }
-
-    // 验证路径格式
-    if (!apiData.path.startsWith('/')) {
-        showApiFormError('接口路径必须以 / 开头');
-        return;
     }
 
     // query类型才验证SQL语法
@@ -5548,6 +5576,24 @@ async function handleCreateTable(e) {
     
     const tableName = document.getElementById('tableNameInput').value.trim();
     const columnItems = document.querySelectorAll('.table-column-item');
+    
+    // 表名验证
+    if (!tableName) {
+        showCreateTableError('请输入表名');
+        return;
+    }
+    
+    // 表名格式验证：只允许字母、数字、下划线，且以字母开头
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+        showCreateTableError('表名只能包含字母、数字、下划线，且必须以字母或下划线开头');
+        return;
+    }
+    
+    // 列数量验证
+    if (columnItems.length === 0) {
+        showCreateTableError('请至少添加一个列');
+        return;
+    }
     
     const columns = [];
     for (const item of columnItems) {
