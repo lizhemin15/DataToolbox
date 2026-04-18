@@ -1371,7 +1371,8 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 				encodedUser, encodedPassword, host, port, config.Database)
 		}
 
-		log.Printf("DM最终DSN(已编码): %s", dsn)
+	// 安全：不在日志中输出包含密码的 DSN
+		log.Printf("DM最终DSN(已编码): driver=dm, host=%s, port=%d, database=%s", host, port, config.Database)
 		return "dm", dsn, nil
 
 	case "sqlite":
@@ -2348,8 +2349,8 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调试日志：打印生成的 DSN
-	log.Printf("生成的 DSN: driver=%s, dsn=%s", driver, dsn)
+	// 安全：不在日志中输出包含密码的 DSN
+	log.Printf("生成的 DSN: driver=%s, host=%s, port=%d, database=%s", driver, config.Host, config.Port, config.Database)
 
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
