@@ -1313,50 +1313,81 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 }
 
 func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]interface{} {
-	var out []map[string]interface{}
-	for _, row := range rows {
-		numSQLRaw := strings.TrimSpace(row.Numerator)
-		denSQLRaw := strings.TrimSpace(row.Denominator)
-		// SQL 安全校验
-		numSQL, e0 := sanitizeSQLForQA(numSQLRaw)
-		if e0 != nil {
-			out = append(out, map[string]interface{}{
-				"table_name": row.TableName, "numerator_error": e0.Error(),
-			})
-			continue
-		}
-		denSQL, e0 := sanitizeSQLForQA(denSQLRaw)
-		if e0 != nil {
-			out = append(out, map[string]interface{}{
-				"table_name": row.TableName, "denominator_error": e0.Error(),
-			})
-			continue
-		}
-		numSQL = convertOracleSQLForDialect(numSQL, dialect)
-		denSQL = convertOracleSQLForDialect(denSQL, dialect)
-		n, e1 := execScalarFloat(db, numSQL)
-		d, e2 := execScalarFloat(db, denSQL)
-		m := map[string]interface{}{
-			"table_name":  row.TableName,
-			"numerator":   n,
-			"denominator": d,
-		}
-		if e1 != nil {
-			m["numerator_error"] = e1.Error()
-		}
-		if e2 != nil {
-			m["denominator_error"] = e2.Error()
-		}
-		if e1 == nil && e2 == nil && d != 0 {
-			m["rate_percent"] = (n / d) * 100
-		}
-		out = append(out, m)
+	type fillResult struct {
+		idx   int
+		entry map[string]interface{}
 	}
-	return out
+
+	resultChan := make(chan fillResult, len(rows))
+	var wg sync.WaitGroup
+
+	for i, row := range rows {
+		wg.Add(1)
+		go func(idx int, r fillRow) {
+			defer wg.Done()
+
+			numSQLRaw := strings.TrimSpace(r.Numerator)
+			denSQLRaw := strings.TrimSpace(r.Denominator)
+
+			// SQL 安全校验
+			numSQL, e0 := sanitizeSQLForQA(numSQLRaw)
+			if e0 != nil {
+				resultChan <- fillResult{idx: idx, entry: map[string]interface{}{
+					"table_name": r.TableName, "numerator_error": e0.Error(),
+				}}
+				return
+			}
+			denSQL, e0 := sanitizeSQLForQA(denSQLRaw)
+			if e0 != nil {
+				resultChan <- fillResult{idx: idx, entry: map[string]interface{}{
+					"table_name": r.TableName, "denominator_error": e0.Error(),
+				}}
+				return
+			}
+
+			numSQL = convertOracleSQLForDialect(numSQL, dialect)
+			denSQL = convertOracleSQLForDialect(denSQL, dialect)
+			n, e1 := execScalarFloat(db, numSQL)
+			d, e2 := execScalarFloat(db, denSQL)
+
+			m := map[string]interface{}{
+				"table_name":  r.TableName,
+				"numerator":   n,
+				"denominator": d,
+			}
+			if e1 != nil {
+				m["numerator_error"] = e1.Error()
+			}
+			if e2 != nil {
+				m["denominator_error"] = e2.Error()
+			}
+			if e1 == nil && e2 == nil && d != 0 {
+				m["rate_percent"] = (n / d) * 100
+			}
+			resultChan <- fillResult{idx: idx, entry: m}
+		}(i, row)
+	}
+
+	// 等待所有 goroutine 完成
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果并保持顺序
+	results := make([]map[string]interface{}, len(rows))
+	for res := range resultChan {
+		results[res.idx] = res.entry
+	}
+	return results
 }
 
 func execScalarFloat(db *sql.DB, sqlStr string) (float64, error) {
-	row := db.QueryRow(sqlStr)
+	// 添加超时控制
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	row := db.QueryRowContext(ctx, sqlStr)
 	var v interface{}
 	if err := row.Scan(&v); err != nil {
 		return 0, err
