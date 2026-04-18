@@ -3339,21 +3339,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 
 	// 首先查询所有数据以获取主键
 	quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
-	var query string
-	switch config.Type {
-	case "postgresql", "timescaledb", "cockroachdb":
-		query = fmt.Sprintf(`SELECT * FROM %s`, quotedTable)
-	case "oracle", "dm":
-		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
-	case "sqlserver":
-		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
-	case "duckdb":
-		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
-	case "clickhouse":
-		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
-	default:
-		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
-	}
+	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -4569,10 +4555,7 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -4605,19 +4588,13 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			apiList = append(apiList, apiInfo)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"apis":    apiList,
-		})
+		jsonSuccess(w, map[string]interface{}{"apis": apiList})
 
 	case http.MethodPost:
 		// 添加新接口
 		var apiConfig ApiConfig
 		if err := json.NewDecoder(r.Body).Decode(&apiConfig); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
@@ -4628,26 +4605,17 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 
 		// 验证必填字段
 		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "缺少必填字段",
-			})
+			apiInvalidInput(w, "缺少必填字段")
 			return
 		}
 		if apiConfig.Type == "forward" {
 			if apiConfig.ForwardURL == "" {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发类型接口必须填写转发URL",
-				})
+				apiInvalidInput(w, "转发类型接口必须填写转发URL")
 				return
 			}
 		} else {
 			if apiConfig.DatabaseID == "" || apiConfig.SQL == "" {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "缺少必填字段",
-				})
+				apiInvalidInput(w, "缺少必填字段")
 				return
 			}
 			// 验证数据库是否存在
@@ -4655,10 +4623,7 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			_, dbExists := dataOntologyDatabases[apiConfig.DatabaseID]
 			dataOntologyMu.RUnlock()
 			if !dbExists {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "数据库不存在",
-				})
+				apiNotFound(w, "数据库不存在")
 				return
 			}
 		}
@@ -4676,16 +4641,10 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			log.Printf("保存接口配置失败: %v", err)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     apiConfig,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": apiConfig})
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "不支持的请求方法",
-		})
+		apiMethodNotAllowed(w, "不支持的请求方法")
 	}
 }
 
@@ -4694,20 +4653,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	// 提取接口ID
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "缺少接口ID",
-		})
+		apiBadRequest(w, "缺少接口ID")
 		return
 	}
 	apiID := pathParts[0]
@@ -4719,10 +4672,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		api, exists := dataOntologyApis[apiID]
 		if !exists {
 			dataOntologyMu.RUnlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -4748,19 +4698,13 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		dataOntologyMu.RUnlock()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     apiInfo,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": apiInfo})
 
 	case http.MethodPut:
 		// 更新接口
 		var apiUpdate ApiConfig
 		if err := json.NewDecoder(r.Body).Decode(&apiUpdate); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
@@ -4768,10 +4712,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		api, exists := dataOntologyApis[apiID]
 		if !exists {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -4788,10 +4729,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		if updateType == "query" && apiUpdate.DatabaseID != "" {
 			if _, dbExists := dataOntologyDatabases[apiUpdate.DatabaseID]; !dbExists {
 				dataOntologyMu.Unlock()
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "数据库不存在",
-				})
+				apiNotFound(w, "数据库不存在")
 				return
 			}
 		}
@@ -4830,20 +4768,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存接口配置失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     api,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": api})
 
 	case http.MethodDelete:
 		// 删除接口
 		dataOntologyMu.Lock()
 		if _, exists := dataOntologyApis[apiID]; !exists {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -4855,15 +4787,10 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 			log.Printf("保存接口配置失败: %v", err)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-		})
+		jsonSuccess(w, nil)
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "不支持的请求方法",
-		})
+		apiMethodNotAllowed(w, "不支持的请求方法")
 	}
 }
 
@@ -5078,28 +5005,19 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		apiMethodNotAllowed(w, "只支持POST请求")
 		return
 	}
 
 	// 提取接口ID
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
 	if len(pathParts) < 2 || pathParts[0] == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "缺少接口ID",
-		})
+		apiBadRequest(w, "缺少接口ID")
 		return
 	}
 	apiID := pathParts[0]
@@ -5109,10 +5027,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 		Params map[string]interface{} `json:"params"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&testReq); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 
@@ -5121,18 +5036,12 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	api, exists := dataOntologyApis[apiID]
 	if !exists {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "接口不存在",
-		})
+		apiNotFound(w, "接口不存在")
 		return
 	}
 	if api.Enabled != nil && !*api.Enabled {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "该接口已关闭",
-		})
+		apiBadRequest(w, "该接口已关闭")
 		return
 	}
 	apiType := api.Type
@@ -5162,19 +5071,13 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			}
 			proxyReq, err := http.NewRequest(apiMethod, targetURL, nil)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "构建转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "构建转发请求失败: "+err.Error())
 				return
 			}
 			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "转发请求失败: "+err.Error())
 				return
 			}
 			defer resp.Body.Close()
@@ -5183,30 +5086,20 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(respBody, &respData); err != nil {
 				respData = string(respBody)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     true,
-				"status_code": resp.StatusCode,
-				"data":        respData,
-			})
+			jsonSuccess(w, map[string]interface{}{"status_code": resp.StatusCode, "data": respData})
 		} else {
 			// POST/PUT/PATCH 将参数作为 JSON body 传递
 			bodyBytes, _ := json.Marshal(testReq.Params)
 			proxyReq, err := http.NewRequest(apiMethod, targetURL, bytes.NewReader(bodyBytes))
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "构建转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "构建转发请求失败: "+err.Error())
 				return
 			}
 			proxyReq.Header.Set("Content-Type", "application/json")
 			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "转发请求失败: "+err.Error())
 				return
 			}
 			defer resp.Body.Close()
@@ -5215,11 +5108,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(respBody, &respData); err != nil {
 				respData = string(respBody)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     true,
-				"status_code": resp.StatusCode,
-				"data":        respData,
-			})
+			jsonSuccess(w, map[string]interface{}{"status_code": resp.StatusCode, "data": respData})
 		}
 		return
 	}
@@ -5228,10 +5117,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	dbConfig, dbExists := dataOntologyDatabases[api.DatabaseID]
 	if !dbExists {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "数据库不存在",
-		})
+		apiNotFound(w, "数据库不存在")
 		return
 	}
 	dataOntologyMu.RUnlock()
@@ -5239,27 +5125,18 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	// 解析MyBatis风格的SQL并替换参数
 	finalSQL, args, err := parseMyBatisSQL(api.SQL, testReq.Params)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "SQL解析失败: " + err.Error(),
-		})
+		apiBadRequest(w, "SQL解析失败: "+err.Error())
 		return
 	}
 
 	// 执行SQL查询
 	result, err := executeSQLQuery(dbConfig, finalSQL, args)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "查询失败: " + err.Error(),
-		})
+		apiInternalError(w, "查询失败: "+err.Error())
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data":    result,
-	})
+	jsonSuccess(w, map[string]interface{}{"data": result})
 }
 
 // parseMyBatisSQL 解析MyBatis风格的SQL语句
@@ -5446,10 +5323,7 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -5459,9 +5333,8 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		config := dataOntologyAIConfig
 		dataOntologyMu.RUnlock()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"config":  config,
+		jsonSuccess(w, map[string]interface{}{
+			"config": config,
 		})
 		return
 	}
@@ -5470,19 +5343,13 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		// 保存AI配置
 		var config AIConfig
 		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
 		// 验证配置
 		if config.URL == "" || config.APIKey == "" || config.Model == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请填写完整的配置信息",
-			})
+			apiInvalidInput(w, "请填写完整的配置信息")
 			return
 		}
 
@@ -5494,24 +5361,17 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		// 持久化
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存AI配置失败: %v", err)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "保存失败",
-			})
+			apiInternalError(w, "保存失败")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
+		jsonSuccess(w, map[string]interface{}{
 			"message": "配置保存成功",
 		})
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": false,
-		"message": "不支持的请求方法",
-	})
+	apiMethodNotAllowed(w, "不支持的请求方法")
 }
 
 // ========== 大模型管理 API ==========
@@ -5520,7 +5380,7 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 func handleLLMModels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -5532,16 +5392,16 @@ func handleLLMModels(w http.ResponseWriter, r *http.Request) {
 			list = append(list, m)
 		}
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "models": list})
+		jsonSuccess(w, map[string]interface{}{"models": list})
 
 	case http.MethodPost:
 		var model LLMModelConfig
 		if err := json.NewDecoder(r.Body).Decode(&model); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if model.Name == "" || model.Type == "" || model.URL == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "名称、类型和URL不能为空"})
+			apiInvalidInput(w, "名称、类型和URL不能为空")
 			return
 		}
 		model.ID = uuid.New().String()
@@ -5550,10 +5410,10 @@ func handleLLMModels(w http.ResponseWriter, r *http.Request) {
 		llmModels[model.ID] = &model
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+		jsonSuccess(w, map[string]interface{}{"model": model})
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		apiMethodNotAllowed(w, "不支持的方法")
 	}
 }
 
@@ -5561,13 +5421,13 @@ func handleLLMModels(w http.ResponseWriter, r *http.Request) {
 func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/llm/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少模型ID"})
+		apiBadRequest(w, "缺少模型ID")
 		return
 	}
 	modelID := pathParts[0]
@@ -5578,22 +5438,22 @@ func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
 		model, exists := llmModels[modelID]
 		dataOntologyMu.RUnlock()
 		if !exists {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			apiNotFound(w, "模型不存在")
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+		jsonSuccess(w, map[string]interface{}{"model": model})
 
 	case http.MethodPut:
 		var update LLMModelConfig
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		dataOntologyMu.Lock()
 		model, exists := llmModels[modelID]
 		if !exists {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			apiNotFound(w, "模型不存在")
 			return
 		}
 		if update.Name != "" {
@@ -5617,17 +5477,17 @@ func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
 		model.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+		jsonSuccess(w, map[string]interface{}{"model": model})
 
 	case http.MethodDelete:
 		dataOntologyMu.Lock()
 		delete(llmModels, modelID)
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "删除成功"})
+		jsonSuccess(w, map[string]interface{}{"message": "删除成功"})
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		apiMethodNotAllowed(w, "不支持的方法")
 	}
 }
 
