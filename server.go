@@ -1332,6 +1332,49 @@ func verifyPassword(password, hashedPassword string) bool {
 	return false
 }
 
+// safeErrorMessage 返回安全的错误消息，避免泄露敏感信息
+// 对于数据库错误、连接错误等，返回通用消息；对于用户输入错误，返回具体提示
+func safeErrorMessage(err error, defaultMsg string) string {
+	if err == nil {
+		return defaultMsg
+	}
+	errStr := err.Error()
+	
+	// 检测敏感关键词，返回通用错误消息
+	sensitivePatterns := []string{
+		"password", "passwd", "secret", "token", "key", "credential",
+		"connection string", "dsn", "sql:", "driver:",
+		"access denied", "authentication", "permission",
+	}
+	lowerErr := strings.ToLower(errStr)
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(lowerErr, pattern) {
+			log.Printf("安全过滤错误消息: %s", errStr)
+			return defaultMsg
+		}
+	}
+	
+	// 对于已知的安全错误类型，可以返回具体消息
+	// 如：唯一约束冲突、外键约束等
+	if strings.Contains(errStr, "UNIQUE constraint") ||
+		strings.Contains(errStr, "duplicate key") ||
+		strings.Contains(errStr, "already exists") {
+		return "记录已存在"
+	}
+	if strings.Contains(errStr, "FOREIGN KEY constraint") ||
+		strings.Contains(errStr, "foreign key") {
+		return "关联数据不存在"
+	}
+	if strings.Contains(errStr, "NOT NULL constraint") ||
+		strings.Contains(errStr, "cannot be null") {
+		return "必填字段不能为空"
+	}
+	
+	// 其他错误返回默认消息，但记录详细日志
+	log.Printf("错误详情: %s", errStr)
+	return defaultMsg
+}
+
 // 生成Token
 func generateToken() string {
 	return uuid.New().String()

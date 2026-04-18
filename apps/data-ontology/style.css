@@ -1605,7 +1605,9 @@ body {
     margin-top: 16px;
 }
 
-.success-message {
+/* API 表单成功消息样式 */
+#apiFormSuccess,
+.success-message.api-form {
     background: #c6f6d5;
     color: #22543d;
     padding: 12px 16px;
@@ -1614,7 +1616,8 @@ body {
     margin-top: 16px;
 }
 
-.success-message.show {
+#apiFormSuccess.show,
+.success-message.api-form.show {
     display: block;
 }
 
@@ -2973,7 +2976,8 @@ textarea#testApiParams {
     margin-bottom: 8px;
 }
 
-.error-message {
+/* SQL 语法错误提示内的错误消息 */
+.sql-syntax-error .error-message {
     font-size: 14px;
     color: #742a2a;
     line-height: 1.6;
@@ -5705,4 +5709,69 @@ textarea#testApiParams {
         flex: 1 1 auto;
         min-height: 240px;
     }
+}
+
+/* ==================== 通用 Toast 通知样式 ==================== */
+/* Toast 容器 - 右上角固定定位 */
+#toastContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+/* 单个 Toast 项 */
+#toastContainer > div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    font-size: 14px;
+    font-weight: 500;
+    max-width: 400px;
+    word-wrap: break-word;
+    pointer-events: auto;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+}
+
+/* Toast 类型样式 */
+#toastContainer > div.toast-success {
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    color: white;
+}
+
+#toastContainer > div.toast-error {
+    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+    color: white;
+}
+
+#toastContainer > div.toast-warning {
+    background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+    color: white;
+}
+
+#toastContainer > div.toast-info {
+    background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+    color: white;
+}
+
+/* Toast 显示状态 */
+#toastContainer > div.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Toast 隐藏状态 */
+#toastContainer > div.hide {
+    opacity: 0;
+    transform: translateX(100%);
 }

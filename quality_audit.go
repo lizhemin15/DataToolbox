@@ -740,11 +740,13 @@ type qaRule struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// qaRuleTree 规则树节点，用于构建层级结构的规则显示
 type qaRuleTree struct {
 	qaRule
 	Children []*qaRuleTree `json:"children,omitempty"`
 }
 
+// MarshalJSON 自定义 JSON 序列化，仅在有子节点时输出 children 字段
 func (n *qaRuleTree) MarshalJSON() ([]byte, error) {
 	m := map[string]interface{}{
 		"nm": n.NM, "xh": n.XH, "name": n.Name, "sql": n.SQL, "category": n.Category, "updated_at": n.UpdatedAt,
@@ -755,6 +757,8 @@ func (n *qaRuleTree) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// padNM 将 NM 补齐为 6 位数字，不足前面补 0，超过则截取前 6 位
+// 例如: "1" -> "000001", "1234567" -> "123456"
 func padNM(nm string) string {
 	nm = strings.TrimSpace(nm)
 	if nm == "" {
@@ -769,6 +773,8 @@ func padNM(nm string) string {
 	return nm
 }
 
+// parentXH 根据当前序号获取父级序号
+// 例如: "0102" -> "01", "01" -> ""
 func parentXH(xh string) string {
 	xh = strings.TrimSpace(xh)
 	if len(xh) <= 2 {
@@ -899,7 +905,8 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 	_ = username
 	list, err := loadRulesFlat()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("加载规则列表失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "加载规则列表失败"})
 		return
 	}
 	tree := buildRuleTree(list)
@@ -927,7 +934,8 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	now := time.Now().Format(time.RFC3339)
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("打开数据库失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
 		return
 	}
 
@@ -939,7 +947,8 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		(SELECT name FROM rules WHERE nm = ?),
 		(SELECT category FROM rules WHERE nm = ?)`, body.NM, body.NM, body.NM, body.NM).Scan(&currentVersion, &oldSQL, &oldName, &oldCategory)
 	if err != nil && err != sql.ErrNoRows {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("查询规则版本失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "查询规则失败"})
 		return
 	}
 
@@ -948,7 +957,8 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
     ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, UPDATED_AT=excluded.UPDATED_AT`,
 		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), now)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("保存规则失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存规则失败"})
 		return
 	}
 
@@ -971,12 +981,14 @@ func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
 	}
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("打开数据库失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
 		return
 	}
 	_, err = db.Exec(`DELETE FROM rules WHERE NM=?`, nm)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("删除规则失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "删除规则失败"})
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
@@ -999,7 +1011,8 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		log.Printf("打开数据库失败: %v", err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
 		return
 	}
 	tx, err := db.Begin()
