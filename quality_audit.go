@@ -25,7 +25,50 @@ var (
 	qualityAuditDB   *sql.DB
 	qualityAuditOpen sync.Once
 	qualityAuditErr  error
+
+	// 审核结果缓存
+	qaCacheMu    sync.RWMutex
+	qaCache      = make(map[string]qaCacheEntry)
+	qaCacheTTL   = 10 * time.Minute // 缓存有效期
 )
+
+type qaCacheEntry struct {
+	result    []map[string]interface{}
+	timestamp time.Time
+}
+
+// 生成缓存 key: database_id + 规则列表 hash
+func qaCacheKey(databaseID string, ruleNMs []string) string {
+	h := databaseID + "|"
+	for _, nm := range ruleNMs {
+		h += nm + ","
+	}
+	return h
+}
+
+// 从缓存获取结果
+func qaCacheGet(key string) ([]map[string]interface{}, bool) {
+	qaCacheMu.RLock()
+	defer qaCacheMu.RUnlock()
+	entry, ok := qaCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.timestamp) > qaCacheTTL {
+		return nil, false
+	}
+	return entry.result, true
+}
+
+// 写入缓存
+func qaCacheSet(key string, result []map[string]interface{}) {
+	qaCacheMu.Lock()
+	defer qaCacheMu.Unlock()
+	qaCache[key] = qaCacheEntry{
+		result:    result,
+		timestamp: time.Now(),
+	}
+}
 
 func getQualityAuditDBPath() string {
 	storePath := getDataOntologyStorePath()
@@ -943,6 +986,19 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	targetDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
 	targetDB.SetConnMaxIdleTime(5 * time.Minute)  // 空闲连接最大存活时间
 
+	// 检查缓存
+	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
+	if cached, hit := qaCacheGet(cacheKey); hit {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"cached":    true,
+			"message":   "结果来自缓存 (10分钟内有效)",
+			"rules":     cached,
+			"database_id": req.DatabaseID,
+		})
+		return
+	}
+
 	flat, err := loadRulesFlat()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -1048,6 +1104,9 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		}
 		ruleResults = append(ruleResults, result.entry)
 	}
+
+	// 写入缓存
+	qaCacheSet(cacheKey, ruleResults)
 
 	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
 	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
