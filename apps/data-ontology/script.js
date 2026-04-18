@@ -1625,7 +1625,17 @@ function renderDatabaseList() {
         return;
     }
 
-    listEl.innerHTML = databases.map(db => {
+    // 排序：达梦(dm)和Oracle优先显示
+    const priorityTypes = ['dm', 'oracle'];
+    const sortedDatabases = [...databases].sort((a, b) => {
+        const aIsPriority = priorityTypes.includes(a.type);
+        const bIsPriority = priorityTypes.includes(b.type);
+        if (aIsPriority && !bIsPriority) return -1;
+        if (!aIsPriority && bIsPriority) return 1;
+        return 0;
+    });
+
+    listEl.innerHTML = sortedDatabases.map(db => {
         const typeIcon = dbTypeIcons[db.type] || '🗄️';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
