@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -1128,7 +1129,11 @@ func ifaceToFloat(v interface{}) (float64, error) {
 }
 
 func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{}, error) {
-	rows, err := db.Query(sqlStr)
+	// 设置 30 秒超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, sqlStr)
 	if err != nil {
 		return 0, nil, err
 	}
