@@ -55,6 +55,18 @@ CREATE TABLE IF NOT EXISTS rules (
   CATEGORY TEXT,
   UPDATED_AT TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS rule_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nm TEXT NOT NULL,
+  xh TEXT NOT NULL,
+  name TEXT NOT NULL,
+  sql TEXT,
+  category TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  changed_at TEXT NOT NULL,
+  changed_by TEXT,
+  change_reason TEXT
+);
 CREATE TABLE IF NOT EXISTS item_fill_rate (
   TABLE_NAME TEXT PRIMARY KEY,
   NUMERATOR TEXT NOT NULL,
@@ -101,6 +113,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_history_db ON audit_history(database_id);
 CREATE INDEX IF NOT EXISTS idx_audit_history_time ON audit_history(executed_at);
 CREATE INDEX IF NOT EXISTS idx_audit_errors_db ON audit_errors(database_id);
 CREATE INDEX IF NOT EXISTS idx_audit_errors_time ON audit_errors(executed_at);
+CREATE INDEX IF NOT EXISTS idx_rule_versions_nm ON rule_versions(nm);
+CREATE INDEX IF NOT EXISTS idx_rule_versions_time ON rule_versions(changed_at);
 `); err != nil {
 			_ = db.Close()
 			qualityAuditErr = err
@@ -625,6 +639,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaHistoryGET(w, r, username)
 	case path == "errors" && r.Method == http.MethodGet:
 		qaErrorsGET(w, r, username)
+	case len(parts) == 2 && parts[0] == "rules" && parts[1] == "versions" && r.Method == http.MethodGet:
+		qaRuleVersionsGET(w, r)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "接口不存在"})
@@ -643,13 +659,13 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 }
 
 func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
-	_ = username
 	var body struct {
-		NM       string `json:"nm"`
-		XH       string `json:"xh"`
-		Name     string `json:"name"`
-		SQL      string `json:"sql"`
-		Category string `json:"category"`
+		NM           string `json:"nm"`
+		XH           string `json:"xh"`
+		Name         string `json:"name"`
+		SQL          string `json:"sql"`
+		Category     string `json:"category"`
+		ChangeReason string `json:"change_reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
@@ -666,6 +682,20 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
 		return
 	}
+
+	// 检查是否已存在，获取当前版本
+	var currentVersion int
+	var oldSQL, oldName, oldCategory sql.NullString
+	err = db.QueryRow(`SELECT COALESCE((SELECT MAX(version) FROM rule_versions WHERE nm = ?), 0), 
+		(SELECT sql FROM rules WHERE nm = ?),
+		(SELECT name FROM rules WHERE nm = ?),
+		(SELECT category FROM rules WHERE nm = ?)`, body.NM, body.NM, body.NM, body.NM).Scan(&currentVersion, &oldSQL, &oldName, &oldCategory)
+	if err != nil && err != sql.ErrNoRows {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+
+	// 保存规则
 	_, err = db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, UPDATED_AT) VALUES (?,?,?,?,?,?)
     ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, UPDATED_AT=excluded.UPDATED_AT`,
 		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), now)
@@ -673,6 +703,14 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
 		return
 	}
+
+	// 记录版本历史（仅当 SQL 或名称变更时）
+	if oldSQL.String != body.SQL || oldName.String != strings.TrimSpace(body.Name) {
+		newVersion := currentVersion + 1
+		_, _ = db.Exec(`INSERT INTO rule_versions (nm, xh, name, sql, category, version, changed_at, changed_by, change_reason) VALUES (?,?,?,?,?,?,?,?,?)`,
+			body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), newVersion, now, username, body.ChangeReason)
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
