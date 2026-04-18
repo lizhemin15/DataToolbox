@@ -937,6 +937,12 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	defer targetDB.Close()
 
+	// 连接池参数优化
+	targetDB.SetMaxOpenConns(10)                  // 最大连接数
+	targetDB.SetMaxIdleConns(5)                   // 最大空闲连接数
+	targetDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
+	targetDB.SetConnMaxIdleTime(5 * time.Minute)  // 空闲连接最大存活时间
+
 	flat, err := loadRulesFlat()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -948,10 +954,19 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	t0 := time.Now()
-	var ruleResults []map[string]interface{}
-	passed, failed := 0, 0
-
 	metaDB, _ := openQualityAuditDB()
+
+	// 并行执行规则审核
+	type ruleResult struct {
+		nm    string
+		entry map[string]interface{}
+	}
+
+	resultChan := make(chan ruleResult, len(req.RuleNMs))
+	var wg sync.WaitGroup
+
+	// 限制并发数，避免数据库连接耗尽
+	semaphore := make(chan struct{}, 5) // 最多 5 个并发
 
 	for _, nm := range req.RuleNMs {
 		nm = padNM(nm)
@@ -959,58 +974,79 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		if !exists {
 			continue
 		}
-		orig := strings.TrimSpace(rule.SQL)
-		if orig == "" {
-			ruleResults = append(ruleResults, map[string]interface{}{
-				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "skipped": true, "message": "分类节点无 SQL",
-			})
-			continue
-		}
-		// SQL 安全校验
-		safeSQL, sqlErr := sanitizeSQLForQA(orig)
-		if sqlErr != nil {
-			ruleResults = append(ruleResults, map[string]interface{}{
-				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "error": sqlErr.Error(), "passed": false,
-			})
-			failed++
-			// 记录错误日志
-			if metaDB != nil {
-				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-					req.DatabaseID, rule.NM, rule.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
+
+		wg.Add(1)
+		go func(r qaRule) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
+
+			orig := strings.TrimSpace(r.SQL)
+			if orig == "" {
+				resultChan <- ruleResult{nm: r.NM, entry: map[string]interface{}{
+					"nm": r.NM, "xh": r.XH, "name": r.Name, "skipped": true, "message": "分类节点无 SQL",
+				}}
+				return
 			}
-			continue
-		}
-		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
-		cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
-		entry := map[string]interface{}{
-			"nm":              rule.NM,
-			"xh":              rule.XH,
-			"name":            rule.Name,
-			"category":        rule.Category,
-			"sql_original":    orig,
-			"sql_executed":    execSQL,
-			"violation_count": cnt,
-			"sample_rows":     sample,
-		}
-		if errExec != nil {
-			entry["error"] = errExec.Error()
-			entry["passed"] = false
-			failed++
-			// 记录错误日志
-			if metaDB != nil {
-				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-					req.DatabaseID, rule.NM, rule.Name, errExec.Error(), t0.Format(time.RFC3339), username)
+
+			// SQL 安全校验
+			safeSQL, sqlErr := sanitizeSQLForQA(orig)
+			if sqlErr != nil {
+				entry := map[string]interface{}{
+					"nm": r.NM, "xh": r.XH, "name": r.Name, "error": sqlErr.Error(), "passed": false,
+				}
+				if metaDB != nil {
+					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+						req.DatabaseID, r.NM, r.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
+				}
+				resultChan <- ruleResult{nm: r.NM, entry: entry}
+				return
 			}
-		} else {
-			passedRule := cnt == 0
-			entry["passed"] = passedRule
+
+			execSQL := convertOracleSQLForDialect(safeSQL, dialect)
+			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
+			entry := map[string]interface{}{
+				"nm":              r.NM,
+				"xh":              r.XH,
+				"name":            r.Name,
+				"category":        r.Category,
+				"sql_original":    orig,
+				"sql_executed":    execSQL,
+				"violation_count": cnt,
+				"sample_rows":     sample,
+			}
+			if errExec != nil {
+				entry["error"] = errExec.Error()
+				entry["passed"] = false
+				if metaDB != nil {
+					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+						req.DatabaseID, r.NM, r.Name, errExec.Error(), t0.Format(time.RFC3339), username)
+				}
+			} else {
+				entry["passed"] = cnt == 0
+			}
+			resultChan <- ruleResult{nm: r.NM, entry: entry}
+		}(rule)
+	}
+
+	// 等待所有 goroutine 完成后关闭 channel
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果
+	var ruleResults []map[string]interface{}
+	passed, failed := 0, 0
+	for result := range resultChan {
+		if passedRule, ok := result.entry["passed"].(bool); ok {
 			if passedRule {
 				passed++
 			} else {
 				failed++
 			}
 		}
-		ruleResults = append(ruleResults, entry)
+		ruleResults = append(ruleResults, result.entry)
 	}
 
 	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
