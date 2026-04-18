@@ -87,9 +87,20 @@ CREATE TABLE IF NOT EXISTS audit_history (
   summary TEXT,
   created_by TEXT
 );
+CREATE TABLE IF NOT EXISTS audit_errors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  database_id TEXT NOT NULL,
+  rule_nm TEXT NOT NULL,
+  rule_name TEXT,
+  error_message TEXT NOT NULL,
+  executed_at TEXT NOT NULL,
+  created_by TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
 CREATE INDEX IF NOT EXISTS idx_audit_history_db ON audit_history(database_id);
 CREATE INDEX IF NOT EXISTS idx_audit_history_time ON audit_history(executed_at);
+CREATE INDEX IF NOT EXISTS idx_audit_errors_db ON audit_errors(database_id);
+CREATE INDEX IF NOT EXISTS idx_audit_errors_time ON audit_errors(executed_at);
 `); err != nil {
 			_ = db.Close()
 			qualityAuditErr = err
@@ -612,6 +623,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaTemplatesDELETE(w, parts[1], username)
 	case path == "history" && r.Method == http.MethodGet:
 		qaHistoryGET(w, r, username)
+	case path == "errors" && r.Method == http.MethodGet:
+		qaErrorsGET(w, r, username)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "接口不存在"})
@@ -899,6 +912,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	var ruleResults []map[string]interface{}
 	passed, failed := 0, 0
 
+	metaDB, _ := openQualityAuditDB()
+
 	for _, nm := range req.RuleNMs {
 		nm = padNM(nm)
 		rule, exists := byNM[nm]
@@ -919,6 +934,11 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "error": sqlErr.Error(), "passed": false,
 			})
 			failed++
+			// 记录错误日志
+			if metaDB != nil {
+				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+					req.DatabaseID, rule.NM, rule.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
+			}
 			continue
 		}
 		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
@@ -937,6 +957,11 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 			entry["error"] = errExec.Error()
 			entry["passed"] = false
 			failed++
+			// 记录错误日志
+			if metaDB != nil {
+				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+					req.DatabaseID, rule.NM, rule.Name, errExec.Error(), t0.Format(time.RFC3339), username)
+			}
 		} else {
 			passedRule := cnt == 0
 			entry["passed"] = passedRule
@@ -949,7 +974,6 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		ruleResults = append(ruleResults, entry)
 	}
 
-	metaDB, _ := openQualityAuditDB()
 	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
 	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
 
