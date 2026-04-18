@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +11,7 @@ func qaHistoryGET(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 
@@ -34,7 +33,7 @@ func qaHistoryGET(w http.ResponseWriter, r *http.Request, username string) {
 		rows, err = db.Query(`SELECT id, database_id, database_type, executed_at, duration_ms, summary, created_by FROM audit_history ORDER BY executed_at DESC LIMIT ?`, limit)
 	}
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -59,14 +58,14 @@ func qaHistoryGET(w http.ResponseWriter, r *http.Request, username string) {
 		history = append(history, entry)
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "history": history})
+	jsonSuccess(w, map[string]interface{}{"history": history})
 }
 
 func qaErrorsGET(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 
@@ -88,7 +87,7 @@ func qaErrorsGET(w http.ResponseWriter, r *http.Request, username string) {
 		rows, err = db.Query(`SELECT id, database_id, rule_nm, rule_name, error_message, executed_at, created_by FROM audit_errors ORDER BY executed_at DESC LIMIT ?`, limit)
 	}
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -112,13 +111,13 @@ func qaErrorsGET(w http.ResponseWriter, r *http.Request, username string) {
 		errors = append(errors, entry)
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "errors": errors})
+	jsonSuccess(w, map[string]interface{}{"errors": errors})
 }
 
 func qaRuleVersionsGET(w http.ResponseWriter, r *http.Request) {
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 
@@ -140,7 +139,7 @@ func qaRuleVersionsGET(w http.ResponseWriter, r *http.Request) {
 		rows, err = db.Query(`SELECT id, nm, xh, name, sql, category, version, changed_at, changed_by, change_reason FROM rule_versions ORDER BY changed_at DESC LIMIT ?`, limit)
 	}
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -167,5 +166,5 @@ func qaRuleVersionsGET(w http.ResponseWriter, r *http.Request) {
 		versions = append(versions, entry)
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "versions": versions})
+	jsonSuccess(w, map[string]interface{}{"versions": versions})
 }

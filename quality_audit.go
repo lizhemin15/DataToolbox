@@ -927,7 +927,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	db, err := openQualityAuditDB()
 	if err != nil {
 		log.Printf("打开数据库失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
+		apiInternalError(w, "数据库连接失败")
 		return
 	}
 
@@ -1349,11 +1349,11 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 		RuleNMs    []string `json:"rule_nms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	if req.DatabaseID == "" || len(req.RuleNMs) == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 与 rule_nms 必填"})
+		apiBadRequest(w, "database_id 与 rule_nms 必填")
 		return
 	}
 
@@ -1365,7 +1365,7 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SSE 不支持"})
+		apiInternalError(w, "SSE 不支持")
 		return
 	}
 
@@ -1504,17 +1504,16 @@ func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 		DatabaseID string `json:"database_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	if req.DatabaseID == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 必填"})
+		apiBadRequest(w, "database_id 必填")
 		return
 	}
 
 	qaCancel(req.DatabaseID)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
+	jsonSuccess(w, map[string]interface{}{
 		"message":     "已发送取消信号",
 		"database_id": req.DatabaseID,
 	})
@@ -1539,11 +1538,11 @@ func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
 		IntervalMinutes int      `json:"interval_minutes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	if req.DatabaseID == "" || len(req.RuleNMs) == 0 || req.IntervalMinutes < 1 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "参数不完整或无效"})
+		apiBadRequest(w, "参数不完整或无效")
 		return
 	}
 	if req.JobID == "" {
@@ -1552,12 +1551,11 @@ func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
 
 	err := qaScheduleJob(req.JobID, req.DatabaseID, req.RuleNMs, req.IntervalMinutes, username)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
+	jsonSuccess(w, map[string]interface{}{
 		"message":  "定时任务创建成功",
 		"job_id":   req.JobID,
 		"next_run": time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute).Format(time.RFC3339),
@@ -1567,8 +1565,7 @@ func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
 // 删除定时任务
 func qaScheduleDelete(w http.ResponseWriter, jobID string, username string) {
 	qaStopScheduleJob(jobID)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
+	jsonSuccess(w, map[string]interface{}{
 		"message": "定时任务已删除",
 		"job_id":  jobID,
 	})
@@ -1588,7 +1585,7 @@ func qaStats(w http.ResponseWriter, r *http.Request, username string) {
 
 	metaDB, _ := openQualityAuditDB()
 	if metaDB == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库错误"})
+		apiInternalError(w, "数据库错误")
 		return
 	}
 
@@ -1679,14 +1676,14 @@ func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	if databaseID == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 必填"})
+		apiBadRequest(w, "database_id 必填")
 		return
 	}
 
 	// 获取最近的审核历史
 	metaDB, _ := openQualityAuditDB()
 	if metaDB == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库错误"})
+		apiInternalError(w, "数据库错误")
 		return
 	}
 
@@ -1700,7 +1697,7 @@ func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
 		ORDER BY executed_at DESC LIMIT 1`,
 		databaseID).Scan(&historyID, &executedAt, &durationMs, &summaryJSON)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未找到审核记录"})
+		apiBadRequest(w, "未找到审核记录")
 		return
 	}
 
@@ -1934,8 +1931,7 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	audit, _ := body["audit"].(map[string]interface{})
@@ -1960,8 +1956,7 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	doc, err := buildQualityAuditDocx(audit, styles)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -2313,12 +2308,12 @@ func qaTemplatesGET(w http.ResponseWriter, username string) {
 	_ = username
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	rows, err := db.Query(`SELECT id, name, template_type, content, is_default, created_at, updated_at FROM report_templates ORDER BY is_default DESC, updated_at DESC`)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -2327,13 +2322,13 @@ func qaTemplatesGET(w http.ResponseWriter, username string) {
 		var r qaReportTemplateRow
 		var isDef int
 		if err := rows.Scan(&r.ID, &r.Name, &r.TemplateType, &r.Content, &isDef, &r.CreatedAt, &r.UpdatedAt); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			apiInternalError(w, err.Error())
 			return
 		}
 		r.IsDefault = isDef != 0
 		list = append(list, r)
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "templates": list})
+	jsonSuccess(w, map[string]interface{}{"templates": list})
 }
 
 func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
@@ -2346,17 +2341,17 @@ func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		IsDefault    *bool  `json:"is_default"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	id := strings.TrimSpace(body.ID)
 	if id == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "id 不能为空"})
+		apiBadRequest(w, "id 不能为空")
 		return
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "name 不能为空"})
+		apiBadRequest(w, "name 不能为空")
 		return
 	}
 	ttyp := strings.TrimSpace(body.TemplateType)
@@ -2370,7 +2365,7 @@ func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	now := time.Now().Format(time.RFC3339)
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	var createdAt string
@@ -2384,13 +2379,13 @@ func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	if isDef == 1 {
 		if _, err := tx.Exec(`UPDATE report_templates SET is_default=0`); err != nil {
 			_ = tx.Rollback()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			apiInternalError(w, err.Error())
 			return
 		}
 	}
@@ -2399,41 +2394,40 @@ ON CONFLICT(id) DO UPDATE SET name=excluded.name, template_type=excluded.templat
 		id, name, ttyp, content, isDef, createdAt, now)
 	if err != nil {
 		_ = tx.Rollback()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	jsonSuccess(w, nil)
 }
 
 func qaTemplatesDELETE(w http.ResponseWriter, id string, username string) {
 	_ = username
 	id = strings.TrimSpace(id)
 	if id == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "id 无效"})
+		apiBadRequest(w, "id 无效")
 		return
 	}
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	if _, err := db.Exec(`DELETE FROM report_templates WHERE id=?`, id); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	jsonSuccess(w, nil)
 }
 
 func qaPreviewPOST(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	var body map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	audit, _ := body["audit"].(map[string]interface{})

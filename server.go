@@ -1212,7 +1212,7 @@ func checkWebNavAdmin(username, password string) bool {
 func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		apiMethodNotAllowed(w, "只支持POST")
 		return
 	}
 	var req struct {
@@ -1220,18 +1220,18 @@ func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 	if !checkWebNavAdmin(req.Username, req.Password) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名或密码错误"})
+		apiUnauthorized(w, "用户名或密码错误")
 		return
 	}
 	token := generateToken()
 	webNavMu.Lock()
 	webNavAdminToken = token
 	webNavMu.Unlock()
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": token})
+	jsonSuccess(w, map[string]interface{}{"token": token})
 }
 
 func checkWebNavAuth(r *http.Request) bool {
@@ -1257,20 +1257,20 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 		webNavMu.RLock()
 		links := append([]WebNavLink(nil), webNavLinks...)
 		webNavMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "links": links})
+		jsonSuccess(w, map[string]interface{}{"links": links})
 		return
 	case http.MethodPost:
 		if !checkWebNavAuth(r) {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+			apiUnauthorized(w, "需要管理员权限")
 			return
 		}
 		var link WebNavLink
 		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if link.Title == "" || link.URL == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			apiBadRequest(w, "标题和链接不能为空")
 			return
 		}
 		link.ID = uuid.New().String()
@@ -1280,10 +1280,10 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+		jsonSuccess(w, map[string]interface{}{"link": link})
 		return
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+		apiMethodNotAllowed(w, "方法不允许")
 		return
 	}
 }
@@ -1291,7 +1291,7 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 	w.Header().Set("Content-Type", "application/json")
 	if !checkWebNavAuth(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+		apiUnauthorized(w, "需要管理员权限")
 		return
 	}
 	webNavMu.Lock()
@@ -1304,7 +1304,7 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if idx < 0 {
 		webNavMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "链接不存在"})
+		apiBadRequest(w, "链接不存在")
 		return
 	}
 	switch r.Method {
@@ -1312,11 +1312,11 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 		var link WebNavLink
 		webNavMu.Unlock()
 		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if link.Title == "" || link.URL == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			apiBadRequest(w, "标题和链接不能为空")
 			return
 		}
 		link.ID = id
@@ -1326,17 +1326,17 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+		jsonSuccess(w, map[string]interface{}{"link": link})
 	case http.MethodDelete:
 		webNavLinks = append(webNavLinks[:idx], webNavLinks[idx+1:]...)
 		webNavMu.Unlock()
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		jsonSuccess(w, nil)
 	default:
 		webNavMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+		apiMethodNotAllowed(w, "方法不允许")
 	}
 }
 
