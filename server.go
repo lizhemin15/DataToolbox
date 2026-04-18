@@ -1777,19 +1777,25 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	return tables, nil
 }
 
+// oracleEscapeIdentifier 安全转义 Oracle/DM 标识符用于 SQL 字符串字面量
+// 标识符已通过 isValidIdentifierWithSchema 验证，这里只需转义单引号
+func oracleEscapeIdentifier(name string) string {
+	return strings.ReplaceAll(strings.ToUpper(name), "'", "''")
+}
+
 // oracleTableColumnsSQL 返回 Oracle 查询表列的 SQL，支持 owner.table 形式
 func oracleTableColumnsSQL(tableName string, withDefault bool) string {
-	tbl := strings.ToUpper(tableName)
 	sel := "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE"
 	if withDefault {
 		sel = "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT"
 	}
-	if idx := strings.Index(tbl, "."); idx >= 0 {
-		owner := strings.ReplaceAll(tbl[:idx], "'", "''")
-		tblPart := strings.ReplaceAll(tbl[idx+1:], "'", "''")
+	// 处理 owner.table 形式
+	if idx := strings.Index(tableName, "."); idx >= 0 {
+		owner := oracleEscapeIdentifier(tableName[:idx])
+		tblPart := oracleEscapeIdentifier(tableName[idx+1:])
 		return fmt.Sprintf("%s FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, owner, tblPart)
 	}
-	tableEsc := strings.ReplaceAll(tableName, "'", "''")
+	tableEsc := oracleEscapeIdentifier(tableName)
 	return fmt.Sprintf("%s FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, tableEsc)
 }
 
@@ -1867,10 +1873,9 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		// 验证后的表名可以直接使用
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tbl))
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 	case "dm":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tableName))
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tableName))
 	case "clickhouse":
 		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
 		query = fmt.Sprintf("DESCRIBE TABLE %s", quotedTable)
@@ -3529,7 +3534,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			SELECT a.NAME
 			FROM SYS.SYSCOLUMNS a, sys.sysobjects b
 			WHERE b.id = a.id AND b.name = '%s' AND (a.INFO2 & 0x01) = 0x01
-		`, strings.ToUpper(tableName))
+		`, oracleEscapeIdentifier(tableName))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -3548,7 +3553,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			tbl = tbl[idx+1:]
 		}
 		// 安全验证已确保表名合法
-		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", strings.ToUpper(tbl))
+		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", oracleEscapeIdentifier(tbl))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -3809,11 +3814,10 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
 		// owner.table 时只用表名部分查 USER_TAB_COLUMNS（避免需要 ALL_TAB_COLUMNS 权限）
 		if idx := strings.Index(tableName, "."); idx >= 0 {
-			tblPart := strings.ReplaceAll(strings.ToUpper(tableName[idx+1:]), "'", "''")
+			tblPart := oracleEscapeIdentifier(tableName[idx+1:])
 			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblPart)
 		} else {
-			tableEsc := strings.ReplaceAll(strings.ToUpper(tableName), "'", "''")
-			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
+			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tableName))
 		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
@@ -3826,8 +3830,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 		rows, err = db.Query(fallbackQuery)
 	}
 	if err != nil {
@@ -3907,8 +3910,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 		rows2, err2 := db.Query(fallbackQuery)
 		if err2 == nil {
 			defer rows2.Close()
@@ -4002,7 +4004,7 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
-		`, strings.ToUpper(tableName))
+		`, oracleEscapeIdentifier(tableName))
 		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
@@ -4054,7 +4056,7 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	// 达梦：查询自增列，修改表结构时不得 MODIFY 自增列（否则报 -2664）
 	identityColumns := make(map[string]bool)
 	if config.Type == "dm" {
-		tblUpper := strings.ToUpper(tableName)
+		tblUpper := oracleEscapeIdentifier(tableName)
 		identQuery := fmt.Sprintf(`
 			SELECT a.NAME FROM SYS.SYSCOLUMNS a, SYS.SYSOBJECTS b
 			WHERE b.ID = a.ID AND b.NAME = '%s' AND (a.INFO2 & 0x01) = 0x01
