@@ -3565,6 +3565,15 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 
 // handleTableStructure 获取或修改表结构
 func handleTableStructure(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名",
+		})
+		return
+	}
+
 	// 只支持SQL数据库
 	if config.Type == "mongodb" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -9242,6 +9251,10 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 // handleSFTPConnect POST /api/ops/sftp/connect
 func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
@@ -9308,6 +9321,10 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 // handleSFTPList GET /api/ops/sftp/list?session=xxx&path=/
 func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	if remotePath == "" {
@@ -9346,6 +9363,10 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 // handleSFTPUpload POST /api/ops/sftp/upload?session=xxx&path=/remote/dir
 func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
@@ -9387,6 +9408,10 @@ func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleSFTPDownload GET /api/ops/sftp/download?session=xxx&path=/file
 func handleSFTPDownload(w http.ResponseWriter, r *http.Request) {
+	if !verifyToken(r) {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	s := getSFTPSession(sessionID)
@@ -9414,6 +9439,10 @@ func handleSFTPDownload(w http.ResponseWriter, r *http.Request) {
 // handleSFTPDisconnect POST /api/ops/sftp/disconnect
 func handleSFTPDisconnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
 	var sessionID string
 	sessionID = r.URL.Query().Get("session")
 	if sessionID == "" {

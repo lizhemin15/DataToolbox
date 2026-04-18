@@ -1616,7 +1616,7 @@ async function previewTable(tableName, keepEditMode = false) {
     } catch (error) {
         console.error('预览表数据失败：', error);
         const previewContent = document.getElementById('previewContent');
-        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + error.message + '</div>';
+        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + escapeHtml(error.message) + '</div>';
     }
 }
 
