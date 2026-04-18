@@ -323,27 +323,133 @@ func mustSafeQuote(name, dbType string) (string, error) {
 	return quoted, nil
 }
 
-// jsonSuccess 写入成功 JSON 响应
-func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+// ============================================================
+// API 响应辅助函数
+// 统一 API 响应格式，确保一致性
+// ============================================================
+
+// APIResponse 标准 API 响应结构
+type APIResponse struct {
+	Success   bool        `json:"success"`
+	Message   string      `json:"message,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	ErrorCode string      `json:"error_code,omitempty"` // 错误码，便于前端国际化
 }
 
-// jsonError 写入错误 JSON 响应
-func jsonError(w http.ResponseWriter, message string, statusCode int) {
+// 标准错误码定义
+const (
+	ErrCodeBadRequest    = "BAD_REQUEST"
+	ErrCodeUnauthorized  = "UNAUTHORIZED"
+	ErrCodeForbidden     = "FORBIDDEN"
+	ErrCodeNotFound      = "NOT_FOUND"
+	ErrCodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
+	ErrCodeInternalError = "INTERNAL_ERROR"
+	ErrCodeInvalidInput  = "INVALID_INPUT"
+)
+
+// jsonResponse 写入 JSON 响应（内部函数）
+func jsonResponse(w http.ResponseWriter, data interface{}, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	if statusCode > 0 {
 		w.WriteHeader(statusCode)
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": message})
+	json.NewEncoder(w).Encode(data)
+}
+
+// jsonSuccess 写入成功 JSON 响应
+func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
+	jsonResponse(w, data, 0)
+}
+
+// jsonError 写入错误 JSON 响应
+func jsonError(w http.ResponseWriter, message string, errorCode string) {
+	jsonResponse(w, map[string]interface{}{"success": false, "message": message, "errorCode": errorCode}, 0)
 }
 
 // jsonErrorWithLog 写入错误 JSON 响应并记录日志
-func jsonErrorWithLog(w http.ResponseWriter, message string, statusCode int, logMsg string, logArgs ...interface{}) {
+func jsonErrorWithLog(w http.ResponseWriter, message string, errorCode string, logMsg string, logArgs ...interface{}) {
 	if logMsg != "" {
 		log.Printf(logMsg, logArgs...)
 	}
-	jsonError(w, message, statusCode)
+	jsonError(w, message, errorCode)
+}
+
+// apiSuccess 返回成功响应（标准格式）
+func apiSuccess(w http.ResponseWriter, data interface{}) {
+	jsonResponse(w, APIResponse{
+		Success: true,
+		Data:    data,
+	}, 0)
+}
+
+// apiSuccessWithMessage 返回带消息的成功响应
+func apiSuccessWithMessage(w http.ResponseWriter, message string, data interface{}) {
+	jsonResponse(w, APIResponse{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, 0)
+}
+
+// apiError 返回错误响应（标准格式）
+func apiError(w http.ResponseWriter, message string, statusCode int, errorCode string) {
+	jsonResponse(w, APIResponse{
+		Success:   false,
+		Message:   message,
+		ErrorCode: errorCode,
+	}, statusCode)
+}
+
+// apiBadRequest 返回 400 错误
+func apiBadRequest(w http.ResponseWriter, message string) {
+	apiError(w, message, http.StatusBadRequest, ErrCodeBadRequest)
+}
+
+// apiUnauthorized 返回 401 错误
+func apiUnauthorized(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "未授权"
+	}
+	apiError(w, message, http.StatusUnauthorized, ErrCodeUnauthorized)
+}
+
+// apiForbidden 返回 403 错误
+func apiForbidden(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "权限不足"
+	}
+	apiError(w, message, http.StatusForbidden, ErrCodeForbidden)
+}
+
+// apiNotFound 返回 404 错误
+func apiNotFound(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "资源不存在"
+	}
+	apiError(w, message, http.StatusNotFound, ErrCodeNotFound)
+}
+
+// apiMethodNotAllowed 返回 405 错误
+func apiMethodNotAllowed(w http.ResponseWriter, message ...string) {
+	msg := "方法不允许"
+	if len(message) > 0 && message[0] != "" {
+		msg = message[0]
+	}
+	apiError(w, msg, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed)
+}
+
+// apiInternalError 返回 500 错误
+func apiInternalError(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "服务器内部错误"
+	}
+	apiError(w, message, http.StatusInternalServerError, ErrCodeInternalError)
+}
+
+// apiInvalidInput 返回输入验证错误
+func apiInvalidInput(w http.ResponseWriter, message string) {
+	apiError(w, message, http.StatusBadRequest, ErrCodeInvalidInput)
 }
 
 // loggingMiddleware 日志中间件 - 记录请求方法和响应时间
@@ -2055,10 +2161,7 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		jsonError(w, "只支持POST请求", ErrCodeMethodNotAllowed)
 		return
 	}
 
@@ -2068,10 +2171,7 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		jsonError(w, "请求格式错误", ErrCodeBadRequest)
 		return
 	}
 
@@ -2081,10 +2181,8 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	user, exists := dataOntologyUsers[loginReq.Username]
 	// 使用 verifyPassword 比较 bcrypt 哈希（bcrypt 每次生成不同的哈希，不能用 == 比较）
 	if !exists || !verifyPassword(loginReq.Password, user.Password) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "用户名或密码错误",
-		})
+		log.Printf("[Auth] 登录失败: username=%s, reason=%v", loginReq.Username, map[bool]string{true: "密码错误", false: "用户不存在"}[exists])
+		jsonError(w, "用户名或密码错误", ErrCodeUnauthorized)
 		return
 	}
 
@@ -2092,10 +2190,8 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	token := generateToken()
 	user.Token = token
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"token":   token,
-	})
+	log.Printf("[Auth] 登录成功: username=%s", loginReq.Username)
+	jsonSuccess(w, map[string]interface{}{"success": true, "token": token})
 }
 
 // handleApiKey 管理ApiKey（GET获取/POST生成/DELETE删除）
@@ -2104,7 +2200,7 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	loginToken := strings.TrimPrefix(authHeader, "Bearer ")
@@ -2120,16 +2216,13 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if currentUser == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api_key": currentUser.ApiKey,
-		})
+		jsonSuccess(w, map[string]interface{}{"success": true, "api_key": currentUser.ApiKey})
 	case http.MethodPost:
 		var target *User = currentUser
 		var body struct {
@@ -2137,33 +2230,30 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		targetName := strings.TrimSpace(body.Username)
-		log.Printf("[apikey] POST body.Username=%q targetName=%q currentUser=%s", body.Username, targetName, currentUser.Username)
+		log.Printf("[APIKey] POST body.Username=%q targetName=%q currentUser=%s", body.Username, targetName, currentUser.Username)
 		if targetName != "" && currentUser.Username == "admin" {
 			if u, ok := dataOntologyUsers[targetName]; ok && u != nil {
 				target = u
-				log.Printf("[apikey] target switched to %s", target.Username)
+				log.Printf("[APIKey] target switched to %s", target.Username)
 			} else {
-				log.Printf("[apikey] user %q not found in map, keeping currentUser", targetName)
+				log.Printf("[APIKey] user %q not found in map, keeping currentUser", targetName)
 			}
 		}
 		target.ApiKey = "dok_" + uuid.New().String()
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api_key": target.ApiKey,
-		})
+		log.Printf("[APIKey] 生成新API Key: user=%s", target.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true, "api_key": target.ApiKey})
 	case http.MethodDelete:
 		currentUser.ApiKey = ""
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-		})
+		log.Printf("[APIKey] 删除API Key: user=%s", currentUser.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true})
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		apiMethodNotAllowed(w, "不支持的方法")
 	}
 }
 
@@ -2171,15 +2261,11 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 func requireDataOntologyAdmin(w http.ResponseWriter, r *http.Request) (string, bool) {
 	u, ok := getDataOntologyUserFromRequest(r)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return "", false
 	}
 	if u != "admin" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+		apiForbidden(w, "需要管理员权限")
 		return "", false
 	}
 	return u, true
@@ -2304,50 +2390,49 @@ func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 && parts[1] == "password" && r.Method == http.MethodPut {
 		caller, ok := getDataOntologyUserFromRequest(r)
 		if !ok {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+			apiUnauthorized(w, "未授权")
 			return
 		}
 		if caller != "admin" && caller != targetName {
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只能修改自己的密码"})
+			apiForbidden(w, "只能修改自己的密码")
 			return
 		}
 		var body struct {
 			Password string `json:"password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if strings.TrimSpace(body.Password) == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "密码不能为空"})
+			apiInvalidInput(w, "密码不能为空")
 			return
 		}
 		dataOntologyMu.Lock()
 		user, exists := dataOntologyUsers[targetName]
 		if !exists || user == nil {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户不存在"})
+			apiNotFound(w, "用户不存在")
 			return
 		}
 		user.Password = hashPassword(body.Password)
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
-			log.Printf("保存用户失败: %v", err)
+			log.Printf("[User] 保存用户密码失败: user=%s, err=%v", targetName, err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		log.Printf("[User] 密码已更新: user=%s, by=%s", targetName, caller)
+		jsonSuccess(w, map[string]interface{}{"success": true})
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效路径"})
+	apiNotFound(w, "无效路径")
 }
 
 // handleMCPConfig MCP 总开关：GET 返回当前状态，PUT 更新（需授权）
 func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	switch r.Method {
@@ -2355,25 +2440,26 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 		dataOntologyMu.RLock()
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
+		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
 	case http.MethodPut:
 		var body struct {
 			Enabled *bool `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		dataOntologyMu.Lock()
 		dataOntologyMCPEnabled = body.Enabled
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
-			log.Printf("保存 MCP 配置失败: %v", err)
+			log.Printf("[MCP] 保存配置失败: err=%v", err)
 		}
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
+		log.Printf("[MCP] 配置已更新: enabled=%v", enabled)
+		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		apiMethodNotAllowed(w)
 	}
 }
 
@@ -2382,32 +2468,23 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		apiBadRequest(w, "只支持POST请求")
 		return
 	}
 
 	var config DatabaseConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 
 	// 调试日志：打印接收到的配置
-	log.Printf("测试连接配置: Type=%s, Host=%s, Port=%d, User=%s, Database=%s",
+	log.Printf("[DB] 测试连接: type=%s, host=%s, port=%d, user=%s, database=%s",
 		config.Type, config.Host, config.Port, config.User, config.Database)
 
 	// MongoDB 特殊处理
@@ -2418,26 +2495,20 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] MongoDB 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer client.Disconnect(ctx)
 
 		if err := client.Ping(ctx, nil); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] MongoDB Ping 失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] MongoDB 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -2446,18 +2517,14 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		url := fmt.Sprintf("http://%s:%d", config.Host, config.Port)
 		resp, err := http.Get(url)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Elasticsearch 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer resp.Body.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Elasticsearch 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -2466,38 +2533,29 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		url := fmt.Sprintf("http://%s:%d/ping", config.Host, config.Port)
 		resp, err := http.Get(url)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] InfluxDB 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer resp.Body.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] InfluxDB 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
 	// Redis 特殊处理
 	if config.Type == "redis" {
-		// Redis 连接测试 - 简化处理，使用tcp连接
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Redis 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Redis 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -2505,38 +2563,29 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	if config.Type == "memcached" {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Memcached 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Memcached 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
 	// Neo4j 特殊处理
 	if config.Type == "neo4j" {
-		// Neo4j 驱动在某些构建版本中可能不可用
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Neo4j 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功 (基础端口测试)",
-		})
+		log.Printf("[DB] Neo4j 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功 (基础端口测试)"})
 		return
 	}
 
@@ -2544,45 +2593,35 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	if config.Type == "cassandra" || config.Type == "hbase" {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] %s 连接失败: err=%v", config.Type, err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功 (基础端口测试)",
-		})
+		log.Printf("[DB] %s 连接成功: host=%s", config.Type, config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功 (基础端口测试)"})
 		return
 	}
 
 	// SQL数据库通用处理 - 使用连接池
-	log.Printf("连接数据库: host=%s, port=%d, database=%s", config.Host, config.Port, config.Database)
+	log.Printf("[DB] 连接数据库: host=%s, port=%d, database=%s", config.Host, config.Port, config.Database)
 
 	db, err := getDBFromPool(&config)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "连接失败: " + err.Error(),
-		})
+		log.Printf("[DB] SQL数据库连接失败: type=%s, err=%v", config.Type, err)
+		jsonError(w, "连接失败: "+err.Error(), "")
 		return
 	}
 
 	if err := db.Ping(); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "连接失败: " + err.Error(),
-		})
+		log.Printf("[DB] SQL数据库Ping失败: type=%s, err=%v", config.Type, err)
+		jsonError(w, "连接失败: "+err.Error(), "")
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "连接成功",
-	})
+	log.Printf("[DB] SQL数据库连接成功: type=%s, host=%s", config.Type, config.Host)
+	jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 }
 
 // 数据库管理
@@ -2591,10 +2630,7 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -4856,22 +4892,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		if matchedTask != nil {
 			// 找到匹配的任务，执行任务
 			if !matchedTask.Enabled {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "该任务已禁用",
-				})
+				apiForbidden(w, "该任务已禁用")
 				return
 			}
 
 			if !verifyToken(r) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "未授权，请提供有效的 API Key 或 Token",
-				})
+				apiUnauthorized(w, "未授权，请提供有效的 API Key 或 Token")
 				return
 			}
 
@@ -4895,16 +4921,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			result, err := executeGovernanceTaskForAPI(matchedTask, params)
 			w.Header().Set("Content-Type", "application/json")
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "任务执行失败: " + err.Error(),
-				})
+				log.Printf("[API] 任务执行失败: task=%s, err=%v", matchedTask.Name, err)
+				jsonError(w, "任务执行失败: "+err.Error(), "")
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": true,
-				"data":    result,
-			})
+			log.Printf("[API] 任务执行成功: task=%s, path=%s", matchedTask.Name, reqPath)
+			jsonSuccess(w, map[string]interface{}{"success": true, "data": result})
 			return
 		}
 
@@ -4945,22 +4967,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		}
 
 		if matchedApi.Enabled != nil && !*matchedApi.Enabled {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "该接口已关闭",
-			})
+			apiForbidden(w, "该接口已关闭")
 			return
 		}
 
 		if !verifyToken(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "未授权，请提供有效的 API Key 或 Token",
-			})
+			apiUnauthorized(w, "未授权，请提供有效的 API Key 或 Token")
 			return
 		}
 
@@ -4989,26 +5001,20 @@ func handleApiDispatch(next http.Handler) http.Handler {
 
 		finalSQL, args, err := parseMyBatisSQL(matchedApi.SQL, params)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "SQL解析失败: " + err.Error(),
-			})
+			log.Printf("[API] SQL解析失败: api=%s, err=%v", matchedApi.Name, err)
+			jsonError(w, "SQL解析失败: "+err.Error(), "")
 			return
 		}
 
 		result, err := executeSQLQuery(matchedDb, finalSQL, args)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "查询失败: " + err.Error(),
-			})
+			log.Printf("[API] 查询失败: api=%s, db=%s, err=%v", matchedApi.Name, matchedDb.Name, err)
+			jsonError(w, "查询失败: "+err.Error(), "")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"data":    result,
-		})
+		log.Printf("[API] 查询成功: api=%s, path=%s", matchedApi.Name, reqPath)
+		jsonSuccess(w, map[string]interface{}{"success": true, "data": result})
 	})
 }
 
@@ -5019,24 +5025,17 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 		var err error
 		bodyBytes, err = io.ReadAll(r.Body)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "读取请求体失败: " + err.Error(),
-			})
+			apiBadRequest(w, "读取请求体失败: "+err.Error())
 			return
 		}
 	}
 
 	proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewReader(bodyBytes))
 	if err != nil {
+		log.Printf("[API] 构建转发请求失败: target=%s, err=%v", targetURL, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "构建转发请求失败: " + err.Error(),
-		})
+		jsonError(w, "构建转发请求失败: "+err.Error(), "")
 		return
 	}
 
@@ -5056,12 +5055,10 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 	client := &http.Client{Timeout: HTTPClientTimeout}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
+		log.Printf("[API] 转发请求失败: target=%s, err=%v", targetURL, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "转发请求失败: " + err.Error(),
-		})
+		jsonError(w, "转发请求失败: "+err.Error(), "")
 		return
 	}
 	defer resp.Body.Close()
@@ -9386,12 +9383,11 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		apiMethodNotAllowed(w, "仅支持 POST")
 		return
 	}
 	var req struct {
@@ -9402,8 +9398,7 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Host == "" || req.User == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "host 和 user 不能为空"})
+		apiBadRequest(w, "host 和 user 不能为空")
 		return
 	}
 	if req.Port == "" {
@@ -9418,15 +9413,15 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	sshClient, err := gossh.Dial("tcp", req.Host+":"+req.Port, sshConfig)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SSH 连接失败: " + err.Error()})
+		log.Printf("[SFTP] SSH连接失败: host=%s, err=%v", req.Host, err)
+		apiBadRequest(w, "SSH 连接失败: "+err.Error())
 		return
 	}
 	sftpClient, err := sftp.NewClient(sshClient)
 	if err != nil {
 		sshClient.Close()
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SFTP 初始化失败: " + err.Error()})
+		log.Printf("[SFTP] SFTP初始化失败: host=%s, err=%v", req.Host, err)
+		apiBadRequest(w, "SFTP 初始化失败: "+err.Error())
 		return
 	}
 
@@ -9445,7 +9440,8 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 		homePath = wd
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	log.Printf("[SFTP] 连接成功: host=%s, user=%s, session=%s", req.Host, req.User, sessionID)
+	jsonSuccess(w, map[string]interface{}{
 		"success":     true,
 		"sessionId":   sessionID,
 		"currentPath": homePath,
@@ -9456,7 +9452,7 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	sessionID := r.URL.Query().Get("session")
@@ -9466,14 +9462,13 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	}
 	s := getSFTPSession(sessionID)
 	if s == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期，请重新连接"})
+		apiBadRequest(w, "会话不存在或已过期，请重新连接")
 		return
 	}
 	entries, err := s.SFTPClient.ReadDir(remotePath)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取目录失败: " + err.Error()})
+		log.Printf("[SFTP] 读取目录失败: session=%s, path=%s, err=%v", sessionID, remotePath, err)
+		apiBadRequest(w, "读取目录失败: "+err.Error())
 		return
 	}
 	files := make([]map[string]interface{}, 0, len(entries)+1)
@@ -9491,34 +9486,31 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 			"permissions": e.Mode().String(),
 		})
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": remotePath, "files": files})
+	jsonSuccess(w, map[string]interface{}{"success": true, "path": remotePath, "files": files})
 }
 
 // handleSFTPUpload POST /api/ops/sftp/upload?session=xxx&path=/remote/dir
 func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		apiMethodNotAllowed(w, "仅支持 POST")
 		return
 	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	s := getSFTPSession(sessionID)
 	if s == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		apiBadRequest(w, "会话不存在或已过期")
 		return
 	}
 	r.ParseMultipartForm(200 << 20) // 200MB
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取上传文件失败: " + err.Error()})
+		apiBadRequest(w, "读取上传文件失败: "+err.Error())
 		return
 	}
 	defer file.Close()
