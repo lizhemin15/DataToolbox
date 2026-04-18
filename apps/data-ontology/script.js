@@ -1334,10 +1334,13 @@ function renderDatabaseList() {
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
         
         const isActive = !userMgmtMode && currentDb && currentDb.id === db.id;
+        const safeDbId = escapeHtml(db.id);
+        const safeName = escapeHtml(db.name);
+        const safeInfo = escapeHtml(info);
         return `
-            <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
-                <div class="db-item-name">${typeIcon} ${db.name}</div>
-                <div class="db-item-info">${info}</div>
+            <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${safeDbId}')">
+                <div class="db-item-name">${typeIcon} ${safeName}</div>
+                <div class="db-item-info">${safeInfo}</div>
             </div>
         `;
     }).join('');
@@ -1477,8 +1480,8 @@ function renderTablesList(tables) {
     }
 
     const tablesHtml = tables.map(table => `
-        <div class="table-item" onclick="previewTable('${table}')">
-            ${table}
+        <div class="table-item" onclick="previewTable('${escapeHtml(table)}')">
+            ${escapeHtml(table)}
         </div>
     `).join('');
     
@@ -2693,15 +2696,18 @@ function renderApiList() {
             'DELETE': '#f56565'
         }[api.method] || '#718096';
         const enabled = api.enabled !== false;
+        const safeApiId = escapeHtml(api.id);
+        const safeApiName = escapeHtml(api.name);
+        const safeApiPath = escapeHtml(api.path);
         return `
-            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${api.id}')">
+            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${safeApiId}')">
                 <div class="db-item-main">
-                    <div class="db-item-name">${api.name}</div>
+                    <div class="db-item-name">${safeApiName}</div>
                     <div class="db-item-info">
-                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
+                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${safeApiPath}
                     </div>
                 </div>
-                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${api.id}')" title="${enabled ? '关闭接口' : '开启接口'}" style="flex-shrink:0;">
+                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${safeApiId}')" title="${enabled ? '关闭接口' : '开启接口'}" style="flex-shrink:0;">
                     <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
                     <span class="switch-slider"></span>
                 </label>
@@ -3822,15 +3828,19 @@ function showDbSuggestions(searchTerm) {
 
     if (matchedModules.length > 0) {
         html += '<div class="ai-suggestion-group-title">功能模块</div>';
-        html += matchedModules.map(m => `
+        html += matchedModules.map(m => {
+            const safeMId = escapeHtml(m.id);
+            const safeMName = escapeHtml(m.name);
+            const safeMDesc = escapeHtml(m.description);
+            return `
             <div class="ai-db-suggestion ai-module-suggestion"
-                 onclick="selectSuggestion('module','${m.id}')"
-                 data-type="module" data-id="${m.id}">
+                 onclick="selectSuggestion('module','${safeMId}')"
+                 data-type="module" data-id="${safeMId}">
                 <span class="ai-db-suggestion-icon">${m.icon}</span>
-                <span class="ai-db-suggestion-name">${m.name}</span>
-                <span class="ai-db-suggestion-info">${m.description}</span>
+                <span class="ai-db-suggestion-name">${safeMName}</span>
+                <span class="ai-db-suggestion-info">${safeMDesc}</span>
             </div>
-        `).join('');
+        `}).join('');
     }
 
     if (matchedDbs.length > 0) {
@@ -3839,13 +3849,16 @@ function showDbSuggestions(searchTerm) {
             const typeIcon = dbTypeIcons[db.type] || '🗄️';
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
             const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+            const safeDbId = escapeHtml(db.id);
+            const safeDbName = escapeHtml(db.name);
+            const safeInfo = escapeHtml(info);
             return `
                 <div class="ai-db-suggestion"
-                     onclick="selectSuggestion('db','${db.id}')"
-                     data-type="db" data-id="${db.id}">
+                     onclick="selectSuggestion('db','${safeDbId}')"
+                     data-type="db" data-id="${safeDbId}">
                     <span class="ai-db-suggestion-icon">${typeIcon}</span>
-                    <span class="ai-db-suggestion-name">${db.name}</span>
-                    <span class="ai-db-suggestion-info">${info}</span>
+                    <span class="ai-db-suggestion-name">${safeDbName}</span>
+                    <span class="ai-db-suggestion-info">${safeInfo}</span>
                 </div>
             `;
         }).join('');
@@ -5472,11 +5485,6 @@ function renderGovLogs(logs) {
     `).join('');
 }
 
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 // 新建/编辑任务
 function showAddGovTaskModal() {
     isEditGovMode = false;
@@ -5605,7 +5613,7 @@ function populateGovDbSelect() {
     const select = document.getElementById('govTaskDbSelect');
     select.innerHTML = '<option value="">不关联数据库</option>';
     databases.forEach(db => {
-        select.innerHTML += `<option value="${db.id}">${escapeHtml(db.name)} (${db.type})</option>`;
+        select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
     });
 }
 
@@ -8799,7 +8807,7 @@ function populateSmallModelDbSelect() {
     const select = document.getElementById('smallDbSelect');
     select.innerHTML = '<option value="">不关联数据库</option>';
     databases.forEach(db => {
-        select.innerHTML += `<option value="${db.id}">${escapeHtml(db.name)} (${db.type})</option>`;
+        select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
     });
 }
 

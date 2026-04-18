@@ -140,6 +140,63 @@ func getLocalIP() string {
 	return localAddr.IP.String()
 }
 
+// isValidIdentifier 检查标识符（表名、列名）是否安全
+// 防止 SQL 注入：只允许字母、数字、下划线，且不能以数字开头
+var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func isValidIdentifier(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	return validIdentifierRegex.MatchString(name)
+}
+
+// isValidIdentifierWithSchema 检查带 schema 的标识符（如 owner.table）
+func isValidIdentifierWithSchema(name string) bool {
+	if name == "" || len(name) > 256 {
+		return false
+	}
+	// 允许 schema.table 格式
+	parts := strings.Split(name, ".")
+	for _, part := range parts {
+		if !isValidIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// safeQuoteIdentifier 安全地引用标识符，防止 SQL 注入
+// 如果标识符合法，返回带引号的标识符；否则返回空字符串和错误
+func safeQuoteIdentifier(name, dbType string) (string, error) {
+	// 先验证标识符合法性
+	if !isValidIdentifierWithSchema(name) {
+		return "", fmt.Errorf("无效的标识符: %s", name)
+	}
+
+	switch dbType {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return `"` + name + `"`, nil
+	case "sqlserver":
+		return "[" + name + "]", nil
+	case "oracle", "dm":
+		// Oracle/DM 通常不需要引号，直接返回大写形式
+		return strings.ToUpper(name), nil
+	default:
+		// MySQL, SQLite, DuckDB, ClickHouse 等
+		return "`" + name + "`", nil
+	}
+}
+
+// mustSafeQuote 安全引用标识符，如果无效则 panic（用于内部已验证的场景）
+func mustSafeQuote(name, dbType string) string {
+	quoted, err := safeQuoteIdentifier(name, dbType)
+	if err != nil {
+		panic(err)
+	}
+	return quoted
+}
+
 // loggingMiddleware 日志中间件
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1519,6 +1576,11 @@ func oracleTableColumnsSQL(tableName string, withDefault bool) string {
 func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]interface{}, error) {
 	var columns []map[string]interface{}
 
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		return nil, fmt.Errorf("无效的表名: %s", tableName)
+	}
+
 	// MongoDB 特殊处理 - 通过采样文档推断字段
 	if config.Type == "mongodb" {
 		uri := buildMongoURI(config)
@@ -1574,30 +1636,41 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	var query string
 	switch config.Type {
 	case "mysql", "mariadb", "tidb":
-		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("SHOW COLUMNS FROM %s", quotedTable)
 	case "postgresql", "timescaledb", "cockroachdb":
-		query = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+		// 使用参数化查询代替字符串拼接
+		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position"
 	case "sqlserver":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' ORDER BY ORDINAL_POSITION", tableName)
+		query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @p1 ORDER BY ORDINAL_POSITION"
 	case "sqlite", "duckdb":
-		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("PRAGMA table_info(%s)", quotedTable)
 	case "oracle":
 		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
 		tbl := tableName
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tableEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
+		// 验证后的表名可以直接使用
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tbl))
 	case "dm":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tableName))
 	case "clickhouse":
-		query = fmt.Sprintf("DESCRIBE TABLE %s", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("DESCRIBE TABLE %s", quotedTable)
 	default:
 		return nil, fmt.Errorf("不支持的数据库类型: %s", config.Type)
 	}
 
-	rows, err := db.Query(query)
+	var rows *sql.Rows
+	if config.Type == "postgresql" || config.Type == "timescaledb" || config.Type == "cockroachdb" {
+		rows, err = db.Query(query, tableName)
+	} else if config.Type == "sqlserver" {
+		rows, err = db.Query(query, tableName)
+	} else {
+		rows, err = db.Query(query)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -2980,6 +3053,15 @@ type TableDataSaveRequest struct {
 
 // handleTableDataSave 处理表格数据保存（更新、插入、删除）
 func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名: " + tableName,
+		})
+		return
+	}
+
 	// 解析请求体
 	var req TableDataSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3023,20 +3105,21 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	defer db.Close()
 
 	// 首先查询所有数据以获取主键
+	quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
 	var query string
 	switch config.Type {
 	case "postgresql", "timescaledb", "cockroachdb":
-		query = fmt.Sprintf(`SELECT * FROM "%s"`, tableName)
+		query = fmt.Sprintf(`SELECT * FROM %s`, quotedTable)
 	case "oracle", "dm":
-		query = fmt.Sprintf("SELECT * FROM %s", tableName)
+		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	case "sqlserver":
-		query = fmt.Sprintf("SELECT * FROM [%s]", tableName)
+		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	case "duckdb":
-		query = fmt.Sprintf("SELECT * FROM %s", tableName)
+		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	case "clickhouse":
-		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
+		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	default:
-		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
+		query = fmt.Sprintf("SELECT * FROM %s", quotedTable)
 	}
 
 	rows, err := db.Query(query)
@@ -3106,6 +3189,11 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	}
 
 	quoteIdentifier := func(name string) string {
+		// 安全验证：检查标识符是否合法
+		if !isValidIdentifier(name) {
+			log.Printf("警告：无效的标识符被拒绝: %s", name)
+			return "INVALID_IDENTIFIER"
+		}
 		if quoteChar == "[" {
 			return "[" + name + "]"
 		} else if quoteChar == "" {
@@ -3244,11 +3332,12 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	// 对于达梦/Oracle 数据库，需要先查询自增列并排除
 	identityColumns := make(map[string]bool)
 	if config.Type == "dm" {
+		// 安全验证已确保 tableName 合法
 		identQuery := fmt.Sprintf(`
 			SELECT a.NAME
 			FROM SYS.SYSCOLUMNS a, sys.sysobjects b
 			WHERE b.id = a.id AND b.name = '%s' AND (a.INFO2 & 0x01) = 0x01
-		`, tableName)
+		`, strings.ToUpper(tableName))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -3266,8 +3355,8 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", tblEsc)
+		// 安全验证已确保表名合法
+		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", strings.ToUpper(tbl))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -4181,6 +4270,11 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	}
 
 	quoteIdentifier := func(name string) string {
+		// 安全验证：检查标识符是否合法
+		if !isValidIdentifier(name) {
+			log.Printf("警告：无效的标识符被拒绝: %s", name)
+			return "INVALID_IDENTIFIER"
+		}
 		if quoteChar == "[" {
 			return "[" + name + "]"
 		} else if quoteChar == "" {

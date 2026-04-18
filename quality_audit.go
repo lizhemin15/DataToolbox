@@ -380,6 +380,7 @@ func migrateQualityAuditReportTemplates(db *sql.DB) {
 	if err != nil {
 		return
 	}
+	defer rows.Close()
 	hasTemplateType := false
 	for rows.Next() {
 		var cid int
@@ -387,7 +388,6 @@ func migrateQualityAuditReportTemplates(db *sql.DB) {
 		var notnull, pk int
 		var dflt sql.NullString
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			rows.Close()
 			return
 		}
 		if strings.EqualFold(name, "template_type") {
@@ -395,7 +395,6 @@ func migrateQualityAuditReportTemplates(db *sql.DB) {
 			break
 		}
 	}
-	rows.Close()
 	if hasTemplateType {
 		return
 	}
