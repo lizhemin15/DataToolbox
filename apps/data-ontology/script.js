@@ -455,6 +455,40 @@ function removeToast(toast) {
 }
 
 /**
+ * 模态框辅助函数
+ * @param {string} modalId - 模态框元素ID
+ * @param {boolean} show - true显示，false隐藏
+ */
+function toggleModal(modalId, show) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        if (show) {
+            modal.classList.add('show');
+        } else {
+            modal.classList.remove('show');
+        }
+    }
+}
+
+/**
+ * 显示模态框并清除错误/成功提示
+ * @param {string} modalId - 模态框ID
+ * @param {string[]} clearIds - 需要隐藏的错误/成功提示元素ID数组
+ */
+function showModal(modalId, clearIds = []) {
+    toggleModal(modalId, true);
+    clearIds.forEach(id => toggleModal(id, false));
+}
+
+/**
+ * 隐藏模态框
+ * @param {string} modalId - 模态框ID
+ */
+function hideModal(modalId) {
+    toggleModal(modalId, false);
+}
+
+/**
  * 复制文本到剪贴板，并更新按钮状态
  * @param {string} text - 要复制的文本
  * @param {HTMLElement} btnEl - 按钮元素（可选，用于显示复制状态）
@@ -1377,6 +1411,14 @@ async function testConnection() {
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
 
+    // 显示加载状态
+    const testBtn = document.getElementById('testConnectionBtn');
+    const originalText = testBtn ? testBtn.textContent : '';
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = '测试中...';
+    }
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/test-connection`, {
             method: 'POST',
@@ -1398,6 +1440,12 @@ async function testConnection() {
     } catch (error) {
         errorEl.textContent = '连接失败：' + error.message;
         errorEl.classList.add('show');
+    } finally {
+        // 恢复按钮状态
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.textContent = originalText || '测试连接';
+        }
     }
 }
 
@@ -1406,17 +1454,57 @@ async function handleAddDatabase(e) {
     e.preventDefault();
 
     const dbType = document.getElementById('dbTypeInput').value;
+    const dbName = document.getElementById('dbNameInput').value.trim();
+    
+    const errorEl = document.getElementById('dbFormError');
+    const successEl = document.getElementById('dbFormSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    // 表单验证
+    if (!dbName) {
+        errorEl.textContent = '请输入数据库名称';
+        errorEl.classList.add('show');
+        return;
+    }
+    
     const config = {
         type: dbType,
-        name: document.getElementById('dbNameInput').value
+        name: dbName
     };
 
     if (dbTypeDefaults[dbType].isFile) {
-        config.path = document.getElementById('dbPathInput').value;
+        const dbPath = document.getElementById('dbPathInput').value.trim();
+        if (!dbPath) {
+            errorEl.textContent = '请输入数据库文件路径';
+            errorEl.classList.add('show');
+            return;
+        }
+        config.path = dbPath;
     } else {
-        config.host = document.getElementById('dbHostInput').value;
-        config.port = parseInt(document.getElementById('dbPortInput').value);
-        config.user = document.getElementById('dbUserInput').value;
+        const dbHost = document.getElementById('dbHostInput').value.trim();
+        const dbPort = document.getElementById('dbPortInput').value.trim();
+        const dbUser = document.getElementById('dbUserInput').value.trim();
+        
+        if (!dbHost) {
+            errorEl.textContent = '请输入主机地址';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbPort || isNaN(parseInt(dbPort)) || parseInt(dbPort) <= 0) {
+            errorEl.textContent = '请输入有效的端口号';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbUser) {
+            errorEl.textContent = '请输入用户名';
+            errorEl.classList.add('show');
+            return;
+        }
+        
+        config.host = dbHost;
+        config.port = parseInt(dbPort);
+        config.user = dbUser;
         const password = document.getElementById('dbPasswordInput').value;
         
         // 编辑模式下，如果密码为空则不更新密码
@@ -1427,14 +1515,15 @@ async function handleAddDatabase(e) {
         }
         
         if (dbTypeDefaults[dbType].requiresDb) {
-            config.database = document.getElementById('dbDatabaseInput').value;
+            const dbDatabase = document.getElementById('dbDatabaseInput').value.trim();
+            if (!dbDatabase) {
+                errorEl.textContent = '请输入数据库名';
+                errorEl.classList.add('show');
+                return;
+            }
+            config.database = dbDatabase;
         }
     }
-
-    const errorEl = document.getElementById('dbFormError');
-    const successEl = document.getElementById('dbFormSuccess');
-    errorEl.classList.remove('show');
-    successEl.classList.remove('show');
 
     try {
         const url = isEditMode 
@@ -1502,6 +1591,7 @@ async function loadDatabases() {
         }
     } catch (error) {
         console.error('加载数据库列表失败：', error);
+        showToast('加载数据库列表失败', 'error');
     }
 }
 
@@ -2549,6 +2639,7 @@ async function loadApiKey() {
         }
     } catch (e) {
         console.error('加载ApiKey失败：', e);
+        showToast('加载 API Key 失败', 'error');
     }
 }
 
@@ -2562,9 +2653,12 @@ async function generateApiKey() {
             currentApiKey = data.api_key;
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
+        } else {
+            showToast(data.message || '生成失败', 'error');
         }
     } catch (e) {
         console.error('生成ApiKey失败：', e);
+        showToast('生成 API Key 失败', 'error');
     }
 }
 
@@ -2579,9 +2673,12 @@ async function deleteApiKey() {
             currentApiKey = '';
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
+        } else {
+            showToast(data.message || '删除失败', 'error');
         }
     } catch (e) {
         console.error('删除ApiKey失败：', e);
+        showToast('删除 API Key 失败', 'error');
     }
 }
 
@@ -2781,6 +2878,7 @@ async function loadApis() {
         }
     } catch (error) {
         console.error('加载接口列表失败：', error);
+        showToast('加载接口列表失败', 'error');
     }
 }
 
@@ -2868,6 +2966,7 @@ async function toggleApiEnabled(apiId, forceEnabled) {
         }
     } catch (e) {
         console.error('切换接口状态失败', e);
+        showToast('切换接口状态失败', 'error');
     }
 }
 
@@ -2926,6 +3025,7 @@ async function loadApiDetail(apiId) {
         }
     } catch (error) {
         console.error('加载接口详情失败：', error);
+        showToast('加载接口详情失败', 'error');
     }
 }
 
@@ -3073,7 +3173,12 @@ function generateCodeExamples(api) {
     ];
 }
 
-function genJavaScript(ctx) {
+/**
+ * 生成 JavaScript/Node.js 代码示例（两者语法相同）
+ * @param {Object} ctx - 代码上下文
+ * @returns {string} 生成的代码
+ */
+function genJavaScriptOrNode(ctx) {
     if (ctx.isBodyMethod && ctx.hasParams) {
         const bodyJson = JSON.stringify(ctx.params, null, 4);
         return `const response = await fetch("${ctx.baseUrl}", {
@@ -3108,6 +3213,10 @@ console.log(data);`;
 const data = await response.json();
 console.log(data);`;
 }
+
+// JavaScript 和 Node.js 使用相同的语法
+const genJavaScript = genJavaScriptOrNode;
+const genNode = genJavaScriptOrNode;
 
 function genPython(ctx) {
     const lines = [];
@@ -3216,42 +3325,6 @@ function genGolang(ctx) {
     lines.push('    fmt.Println(string(data))');
     lines.push('}');
     return lines.join('\n');
-}
-
-function genNode(ctx) {
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyJson = JSON.stringify(ctx.params, null, 4);
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer ${ctx.token}"
-    },
-    body: JSON.stringify(${bodyJson})
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    if (ctx.isBodyMethod) {
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    return `const response = await fetch("${ctx.fullUrl}", {
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
 }
 
 function genPhp(ctx) {
@@ -5592,6 +5665,7 @@ async function loadGovernanceTasks() {
         }
     } catch (error) {
         console.error('加载治理任务失败:', error);
+        showToast('加载治理任务失败', 'error');
     }
 }
 
@@ -5722,6 +5796,7 @@ async function loadGovTaskLogs() {
         }
     } catch (error) {
         console.error('加载任务日志失败:', error);
+        showToast('加载任务日志失败', 'error');
     }
 }
 
