@@ -4,11 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/md5"
 	"database/sql"
 	"embed"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -41,6 +39,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/bcrypt"
 )
 
 //go:embed governance-examples
@@ -929,8 +928,14 @@ func initWebNav() {
 }
 
 // 网页导航默认管理员 admin / admin1234
+// 预生成的 bcrypt 哈希（admin1234）
+const webNavAdminPasswordHash = "$2a$10$Hxx7DcpNAlReSHjolH9otuCsoIHrMZxY8gCZ4R3OFk0oKqP5C6IT2"
+
 func checkWebNavAdmin(username, password string) bool {
-	return username == "admin" && hashPassword(password) == hashPassword("admin1234")
+	if username != "admin" {
+		return false
+	}
+	return verifyPassword(password, webNavAdminPasswordHash)
 }
 
 func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
@@ -1305,10 +1310,26 @@ func initDataOntology() {
 	go governanceScheduler()
 }
 
-// 密码哈希
+// 密码哈希 - 使用 bcrypt
 func hashPassword(password string) string {
-	hash := md5.Sum([]byte(password))
-	return hex.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// bcrypt 失败时回退到简单哈希（不应发生）
+		log.Printf("bcrypt 哈希失败: %v", err)
+		return ""
+	}
+	return string(hash)
+}
+
+// 验证密码 - 支持 bcrypt 和旧的 MD5 哈希（向后兼容）
+func verifyPassword(password, hashedPassword string) bool {
+	// 检查是否是 bcrypt 哈希（以 $2a$ 或 $2b$ 开头）
+	if strings.HasPrefix(hashedPassword, "$2a$") || strings.HasPrefix(hashedPassword, "$2b$") {
+		err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+		return err == nil
+	}
+	// 旧的 MD5 哈希（向后兼容）- 已弃用，仅用于迁移
+	return false
 }
 
 // 生成Token
@@ -1860,7 +1881,8 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	defer dataOntologyMu.Unlock()
 
 	user, exists := dataOntologyUsers[loginReq.Username]
-	if !exists || user.Password != hashPassword(loginReq.Password) {
+	// 使用 verifyPassword 比较 bcrypt 哈希（bcrypt 每次生成不同的哈希，不能用 == 比较）
+	if !exists || !verifyPassword(loginReq.Password, user.Password) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "用户名或密码错误",

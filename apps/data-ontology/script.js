@@ -1499,7 +1499,6 @@ async function previewTable(tableName, keepEditMode = false) {
         return;
     }
 
-    console.log('预览表:', tableName, '保持编辑模式:', keepEditMode, '当前编辑模式:', isTableEditMode);
     currentPreviewTable = tableName;
     
     // 如果不是保持编辑模式，则重置
@@ -1709,23 +1708,16 @@ function updatePreviewHeader() {
 
 // 启用表格编辑模式
 function enableTableEditMode() {
-    console.log('enableTableEditMode被调用');
-    console.log('currentPreviewTable:', currentPreviewTable);
-    console.log('currentDb:', currentDb);
-    
     if (!currentPreviewTable) {
-        console.error('没有选中的表');
         alert('请先选择一个表');
         return;
     }
     
     if (!currentDb) {
-        console.error('没有选中数据库');
         alert('请先选择数据库');
         return;
     }
     
-    console.log('启用编辑模式，当前表:', currentPreviewTable);
     isTableEditMode = true;
     
     // 显示加载提示
@@ -1919,19 +1911,13 @@ function addTableRow() {
 
 // 删除表格行
 function deleteTableRow(rowId) {
-    console.log('删除行被调用，rowId:', rowId);
     const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
     if (!row) {
-        console.error('找不到行，rowId:', rowId);
         return;
     }
     
-    console.log('找到行:', row);
-    console.log('行数据 - isNew:', row.dataset.isNew, 'deleted:', row.dataset.deleted, 'rowIndex:', row.dataset.rowIndex);
-    
     // 如果是新增行，直接删除DOM
     if (row.dataset.isNew === 'true') {
-        console.log('删除新增行');
         row.remove();
         
         // 如果删除后没有行了，显示空行提示
@@ -1952,7 +1938,6 @@ function deleteTableRow(rowId) {
         
         if (row.dataset.deleted === 'true') {
             // 取消删除标记
-            console.log('取消删除标记');
             row.dataset.deleted = 'false';
             row.classList.remove('row-deleted');
             if (deleteBtn) {
@@ -1961,7 +1946,6 @@ function deleteTableRow(rowId) {
             }
         } else {
             // 标记为删除
-            console.log('标记为删除，rowIndex:', row.dataset.rowIndex);
             row.dataset.deleted = 'true';
             row.classList.add('row-deleted');
             if (deleteBtn) {
@@ -1982,8 +1966,6 @@ async function saveTableData() {
     const table = document.getElementById('dataTable');
     const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
     
-    console.log('总行数（不包括空行）:', rows.length);
-    
     const updates = [];
     const inserts = [];
     const deletes = [];
@@ -1994,21 +1976,10 @@ async function saveTableData() {
         const isNew = row.dataset.isNew === 'true';
         const isDeleted = row.dataset.deleted === 'true';
         
-        console.log(`行 ${index}:`, {
-            rowId,
-            rowIndex,
-            isNew,
-            isDeleted,
-            hasDeletedClass: row.classList.contains('row-deleted')
-        });
-        
         if (isDeleted) {
             // 只有非新增的行才需要删除
             if (!isNew && rowIndex !== undefined) {
-                console.log(`添加到删除列表: rowIndex=${rowIndex}`);
                 deletes.push(parseInt(rowIndex));
-            } else {
-                console.log('跳过删除（新增行或无索引）');
             }
         } else {
             const rowData = {};
@@ -2021,20 +1992,12 @@ async function saveTableData() {
             });
             
             if (isNew) {
-                console.log('添加到插入列表:', rowData);
                 inserts.push(rowData);
             } else if (rowIndex !== undefined) {
-                console.log(`添加到更新列表: rowIndex=${rowIndex}`, rowData);
                 updates.push({ index: parseInt(rowIndex), data: rowData });
             }
         }
     });
-    
-    // 调试日志
-    console.log('准备保存数据：');
-    console.log('- 更新:', updates.length, '条', updates);
-    console.log('- 插入:', inserts.length, '条', inserts);
-    console.log('- 删除:', deletes.length, '条', deletes);
     
     // 检查是否有更改
     if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
@@ -2050,13 +2013,6 @@ async function saveTableData() {
     
     // 发送保存请求
     try {
-        console.log('发送保存请求到后端：', {
-            url: `${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`,
-            updates,
-            inserts,
-            deletes
-        });
-        
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
             headers: {
@@ -2070,24 +2026,8 @@ async function saveTableData() {
         });
         
         const data = await response.json();
-        console.log('后端响应:', data);
         
         if (data.success) {
-            console.log('✅ 后端返回成功');
-            console.log('📊 后端处理结果:', {
-                affected: data.affected || 'N/A',
-                updated: data.updated || 'N/A',
-                inserted: data.inserted || 'N/A',
-                deleted: data.deleted || 'N/A'
-            });
-            
-            // 检查后端是否真正处理了删除
-            if (deletes.length > 0) {
-                if (data.deleted !== undefined && data.deleted !== deletes.length) {
-                    console.warn('⚠️ 警告：请求删除 ' + deletes.length + ' 条，但后端只删除了 ' + data.deleted + ' 条');
-                }
-            }
-            
             // 显示成功提示
             const successMsg = `保存成功！\n✓ 更新: ${updates.length} 条\n✓ 插入: ${inserts.length} 条\n✓ 删除: ${deletes.length} 条`;
             
@@ -2096,15 +2036,12 @@ async function saveTableData() {
             
             // 延迟重新加载，确保提示显示
             setTimeout(() => {
-                console.log('🔄 开始重新加载表格，isTableEditMode:', isTableEditMode);
                 previewTable(currentPreviewTable, true);
             }, 1500);
         } else {
-            console.error('❌ 保存失败:', data.message);
             alert('保存失败：' + (data.message || '未知错误'));
         }
     } catch (error) {
-        console.error('保存异常:', error);
         alert('保存失败：' + error.message);
     }
 }
