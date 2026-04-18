@@ -120,6 +120,43 @@ async function fetchWithAuth(input, init) {
     return response;
 }
 
+/**
+ * 统一的 API 请求封装函数
+ * @param {string} endpoint - API 端点路径（不含 API_BASE）
+ * @param {Object} options - 请求选项
+ * @param {string} options.method - HTTP 方法（默认 GET）
+ * @param {Object} options.body - 请求体（会自动 JSON 序列化）
+ * @param {string} options.errorPrefix - 错误消息前缀（默认 '操作失败'）
+ * @param {boolean} options.showToastOnError - 是否在错误时显示 toast（默认 true）
+ * @returns {Promise<{success: boolean, data?: any, error?: string}>}
+ */
+async function apiRequest(endpoint, options = {}) {
+    const { method = 'GET', body, errorPrefix = '操作失败', showToastOnError = true } = options;
+    
+    const init = { method };
+    if (body) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
+    }
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}${endpoint}`, init);
+        const data = await response.json();
+        
+        if (!data.success && showToastOnError) {
+            showToast(`${errorPrefix}：${data.message || '未知错误'}`, 'error');
+        }
+        
+        return { success: data.success, data, error: data.success ? null : (data.message || '未知错误') };
+    } catch (error) {
+        const errorMsg = error.message || '网络错误';
+        if (showToastOnError) {
+            showToast(`${errorPrefix}：${errorMsg}`, 'error');
+        }
+        return { success: false, error: errorMsg };
+    }
+}
+
 // ---- 演示库（前端模拟 SQLite 内存库；后端未持久化该 ID）----
 const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
 
@@ -417,23 +454,32 @@ function removeToast(toast) {
     setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
 }
 
-// 全局未捕获 Promise 异常处理
-window.addEventListener('unhandledrejection', function(event) {
-    console.error('Unhandled promise rejection:', event.reason);
-    showToast('系统错误: ' + (event.reason?.message || event.reason || '未知错误'), 'error', 5000);
-});
+/**
+ * 复制文本到剪贴板，并更新按钮状态
+ * @param {string} text - 要复制的文本
+ * @param {HTMLElement} btnEl - 按钮元素（可选，用于显示复制状态）
+ * @param {string} successText - 成功时的文本（默认 '已复制'）
+ * @param {number} duration - 状态恢复时间（毫秒，默认 1500）
+ */
+function copyToClipboard(text, btnEl, successText = '已复制', duration = 1500) {
+    if (!text) return Promise.resolve(false);
+    return navigator.clipboard.writeText(text).then(() => {
+        if (btnEl) {
+            const originalText = btnEl.textContent;
+            btnEl.textContent = successText;
+            setTimeout(() => { btnEl.textContent = originalText; }, duration);
+        }
+        return true;
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showToast('复制失败', 'error');
+        return false;
+    });
+}
 
-// 全局 JavaScript 错误处理
-window.addEventListener('error', function(event) {
-    // 忽略资源加载错误
-    if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
-        return;
-    }
-    console.error('Global error:', event.message);
-    showToast('系统错误: ' + (event.message || '未知错误'), 'error', 5000);
-});
+// 全局错误处理（统一在 setupGlobalErrorHandlers 中初始化）
 
-// 全局未捕获 Promise 异常处理
+// 初始化全局错误处理器
 function setupGlobalErrorHandlers() {
     // 处理未捕获的 Promise rejection
     window.addEventListener('unhandledrejection', function(event) {
@@ -446,7 +492,7 @@ function setupGlobalErrorHandlers() {
     // 处理全局 JavaScript 错误
     window.addEventListener('error', function(event) {
         // 忽略脚本加载错误（通常由网络问题引起）
-        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) {
+        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
             return;
         }
         console.error('JavaScript 错误:', event.message);
@@ -635,13 +681,12 @@ function initEventListeners() {
     // MCP 模块事件
     const mcpCopyBaseUrlBtn = document.getElementById('mcpCopyBaseUrlBtn');
     if (mcpCopyBaseUrlBtn) mcpCopyBaseUrlBtn.addEventListener('click', function() {
-        const url = (API_BASE || window.location.origin);
-        navigator.clipboard.writeText(url).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+        copyToClipboard(API_BASE || window.location.origin, this);
     });
     const mcpCopyKeyBtn = document.getElementById('mcpCopyKeyBtn');
     if (mcpCopyKeyBtn) mcpCopyKeyBtn.addEventListener('click', function() {
         if (!currentApiKey) return;
-        navigator.clipboard.writeText(currentApiKey).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+        copyToClipboard(currentApiKey, this);
     });
     const mcpGenerateKeyBtn = document.getElementById('mcpGenerateKeyBtn');
     if (mcpGenerateKeyBtn) mcpGenerateKeyBtn.addEventListener('click', async function() {
@@ -652,7 +697,7 @@ function initEventListeners() {
     if (mcpCopyConfigBtn) mcpCopyConfigBtn.addEventListener('click', function() {
         const pre = document.getElementById('mcpConfigPre');
         if (!pre) return;
-        navigator.clipboard.writeText(pre.textContent).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制配置'; }, 1500); });
+        copyToClipboard(pre.textContent, this, '已复制');
     });
     
     // 测试接口事件
@@ -676,6 +721,17 @@ function initEventListeners() {
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
+    
+    // 设置弹窗事件
+    document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
+    document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);
+    document.getElementById('settingsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideSettingsModal();
+        }
+    });
+    document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
+    document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
     
     // 清除AI上下文按钮（稍后会动态添加）
 
@@ -791,6 +847,8 @@ function showMainPage() {
     document.getElementById('mainPage').classList.add('active');
     document.getElementById('currentUser').textContent = currentUser;
     updateUserMgmtNavVisibility();
+    // 应用标签页可见性设置
+    applyTabVisibility();
     try {
         if (location.hash === '#quality') {
             switchTab('quality');
@@ -2529,11 +2587,7 @@ async function deleteApiKey() {
 
 function copyApiKey() {
     if (!currentApiKey) return;
-    navigator.clipboard.writeText(currentApiKey).then(() => {
-        const btn = document.getElementById('copyApikeyBtn');
-        btn.textContent = '已复制';
-        setTimeout(() => { btn.textContent = '复制'; }, 1500);
-    });
+    copyToClipboard(currentApiKey, document.getElementById('copyApikeyBtn'));
 }
 
 function renderApiKeyUI() {
@@ -3807,6 +3861,145 @@ function showAiSettingsModal() {
 // 隐藏AI设置弹窗
 function hideAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.remove('show');
+}
+
+// ========== 设置弹窗功能 ==========
+const TAB_VISIBILITY_KEY = 'tabVisibilitySettings';
+const ALL_TABS = [
+    { id: 'database', name: '数据库管理' },
+    { id: 'governance', name: '数据治理' },
+    { id: 'ontology', name: '本体论抽象' },
+    { id: 'lineage', name: '数据血缘' },
+    { id: 'api', name: '接口分发' },
+    { id: 'mcp', name: 'MCP' },
+    { id: 'ai', name: 'AI助手' },
+    { id: 'models', name: '模型管理' },
+    { id: 'quality', name: '数据质量审核' }
+];
+
+// 显示设置弹窗
+function showSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+    loadTabSettings();
+}
+
+// 隐藏设置弹窗
+function hideSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+}
+
+// 加载标签页可见性设置
+function loadTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    // 从 localStorage 加载设置
+    let settings = null;
+    try {
+        const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
+        if (stored) {
+            settings = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.error('加载标签页设置失败：', e);
+    }
+
+    // 应用设置到复选框
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        const tabId = cb.dataset.tab;
+        if (settings && settings.hasOwnProperty(tabId)) {
+            cb.checked = settings[tabId];
+        } else {
+            cb.checked = true; // 默认显示
+        }
+    });
+}
+
+// 保存标签页可见性设置
+function saveTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    const settings = {};
+    let visibleCount = 0;
+
+    checkboxes.forEach(cb => {
+        const tabId = cb.dataset.tab;
+        settings[tabId] = cb.checked;
+        if (cb.checked) visibleCount++;
+    });
+
+    // 至少保留一个标签页
+    if (visibleCount < 1) {
+        showToast('至少需要保留一个标签页显示', 'warning');
+        return false;
+    }
+
+    try {
+        localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
+        applyTabVisibility(settings);
+        showToast('设置已保存', 'success');
+        hideSettingsModal();
+        return true;
+    } catch (e) {
+        console.error('保存标签页设置失败：', e);
+        showToast('保存设置失败', 'error');
+        return false;
+    }
+}
+
+// 重置标签页设置为默认（全部显示）
+function resetTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+    });
+}
+
+// 应用标签页可见性
+function applyTabVisibility(settings) {
+    if (!settings) {
+        // 如果没有设置，加载保存的设置
+        try {
+            const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
+            if (stored) {
+                settings = JSON.parse(stored);
+            }
+        } catch (e) {
+            console.error('加载标签页设置失败：', e);
+            return;
+        }
+    }
+
+    // 如果还是没有设置，默认全部显示
+    if (!settings) return;
+
+    // 应用到标签页按钮
+    const tabs = document.querySelectorAll('.nav-tab');
+    tabs.forEach(tab => {
+        const tabId = tab.dataset.tab;
+        if (settings.hasOwnProperty(tabId)) {
+            tab.style.display = settings[tabId] ? '' : 'none';
+        }
+    });
+
+    // 检查当前激活的标签页是否被隐藏，如果是则切换到第一个可见的标签页
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (activeTab) {
+        const activeTabId = activeTab.dataset.tab;
+        if (settings[activeTabId] === false) {
+            // 找到第一个可见的标签页并激活
+            const firstVisibleTab = document.querySelector('.nav-tab:not([style*="display: none"])');
+            if (firstVisibleTab) {
+                switchTab(firstVisibleTab.dataset.tab);
+            }
+        }
+    }
 }
 
 // 保存AI配置

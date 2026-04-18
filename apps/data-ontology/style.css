@@ -385,6 +385,86 @@ body {
     box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
+.settings-header-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.settings-header-btn:hover {
+    border-color: #667eea;
+    background: #edf2f7;
+}
+
+/* 设置弹窗样式 */
+.settings-section {
+    margin-bottom: 24px;
+}
+
+.settings-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.settings-section-desc {
+    font-size: 13px;
+    color: #718096;
+    margin-bottom: 16px;
+}
+
+.settings-checkbox-group {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.settings-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.settings-checkbox-item:hover {
+    border-color: #cbd5e0;
+    background: #edf2f7;
+}
+
+.settings-checkbox-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #667eea;
+}
+
+.settings-checkbox-item span {
+    font-size: 14px;
+    color: #2d3748;
+    user-select: none;
+}
+
+.settings-checkbox-item input:checked + span {
+    font-weight: 500;
+}
+
 /* 标签页内容 */
 .tab-content {
     display: none;
