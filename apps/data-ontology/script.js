@@ -1322,6 +1322,12 @@ async function submitUserPasswordChange() {
 
 async function userMgmtDelete(username) {
     if (!confirm('确定删除用户「' + username + '」？')) return;
+    
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '删除中...';
+    
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
             method: 'DELETE',
@@ -1331,9 +1337,13 @@ async function userMgmtDelete(username) {
             loadUsers();
         } else {
             showToast(data.message || '删除失败', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
         }
     } catch (e) {
         showToast(e.message || '删除失败', 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 
@@ -2611,6 +2621,11 @@ async function handleDeleteDatabase() {
         return;
     }
 
+    const deleteBtn = document.getElementById('deleteDbBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
             method: 'DELETE'
@@ -2627,9 +2642,13 @@ async function handleDeleteDatabase() {
             loadDatabases();
         } else {
             showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (error) {
         showToast('删除失败：' + error.message, 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
@@ -2672,6 +2691,12 @@ async function generateApiKey() {
 
 async function deleteApiKey() {
     if (!confirm('删除后，使用此 API Key 的外部调用将全部失效，确认删除？')) return;
+    
+    const deleteBtn = document.getElementById('deleteApikeyBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+    
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
             method: 'DELETE',
@@ -2683,10 +2708,14 @@ async function deleteApiKey() {
             if (currentApi) renderCodeExamples(currentApi);
         } else {
             showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (e) {
         console.error('删除ApiKey失败：', e);
         showToast('删除 API Key 失败', 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
@@ -3784,6 +3813,11 @@ async function handleDeleteApi() {
         return;
     }
 
+    const deleteBtn = document.getElementById('deleteApiBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
             method: 'DELETE'
@@ -3798,9 +3832,13 @@ async function handleDeleteApi() {
             loadApis();
         } else {
             showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (error) {
         showToast('删除失败：' + error.message, 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
@@ -6026,6 +6064,14 @@ async function handleGovTaskSubmit(e) {
 async function deleteGovTask() {
     if (!currentGovTask) return;
     if (!confirm(`确定删除任务「${currentGovTask.name}」？`)) return;
+    
+    const deleteBtn = document.getElementById('deleteGovTaskBtn');
+    const originalText = deleteBtn ? deleteBtn.textContent : '';
+    if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = '删除中...';
+    }
+    
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
             method: 'DELETE'
@@ -6037,9 +6083,19 @@ async function deleteGovTask() {
             document.getElementById('govTaskDetailView').style.display = 'none';
             document.getElementById('govWelcomeView').style.display = '';
             loadGovernanceTasks();
+        } else {
+            showToast(data.message || '删除失败', 'error');
+            if (deleteBtn) {
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = originalText;
+            }
         }
     } catch (error) {
         showToast('删除失败: ' + error.message, 'error');
+        if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
+        }
     }
 }
 

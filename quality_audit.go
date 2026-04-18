@@ -836,8 +836,7 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "")
 		return
 	}
 
@@ -890,8 +889,7 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 2 && parts[0] == "rules" && parts[1] == "versions" && r.Method == http.MethodGet:
 		qaRuleVersionsGET(w, r)
 	default:
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "接口不存在"})
+		apiNotFound(w, "接口不存在")
 	}
 }
 
@@ -900,11 +898,11 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 	list, err := loadRulesFlat()
 	if err != nil {
 		log.Printf("加载规则列表失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "加载规则列表失败"})
+		apiInternalError(w, "加载规则列表失败")
 		return
 	}
 	tree := buildRuleTree(list)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "tree": tree, "flat": list})
+	jsonSuccess(w, map[string]interface{}{"tree": tree, "flat": list})
 }
 
 func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
@@ -917,12 +915,12 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		ChangeReason string `json:"change_reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	body.NM = padNM(body.NM)
 	if body.NM == "" || strings.TrimSpace(body.XH) == "" || strings.TrimSpace(body.Name) == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "nm、xh、name 不能为空"})
+		apiInvalidInput(w, "nm、xh、name 不能为空")
 		return
 	}
 	now := time.Now().Format(time.RFC3339)
@@ -942,7 +940,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		(SELECT category FROM rules WHERE nm = ?)`, body.NM, body.NM, body.NM, body.NM).Scan(&currentVersion, &oldSQL, &oldName, &oldCategory)
 	if err != nil && err != sql.ErrNoRows {
 		log.Printf("查询规则版本失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "查询规则失败"})
+		apiInternalError(w, "查询规则失败")
 		return
 	}
 
@@ -952,7 +950,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), now)
 	if err != nil {
 		log.Printf("保存规则失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存规则失败"})
+		apiInternalError(w, "保存规则失败")
 		return
 	}
 
@@ -963,29 +961,29 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 			body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), newVersion, now, username, body.ChangeReason)
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	jsonSuccess(w, nil)
 }
 
 func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
 	_ = username
 	nm = padNM(nm)
 	if nm == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "nm 无效"})
+		apiInvalidInput(w, "nm 无效")
 		return
 	}
 	db, err := openQualityAuditDB()
 	if err != nil {
 		log.Printf("打开数据库失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
+		apiInternalError(w, "数据库连接失败")
 		return
 	}
 	_, err = db.Exec(`DELETE FROM rules WHERE NM=?`, nm)
 	if err != nil {
 		log.Printf("删除规则失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "删除规则失败"})
+		apiInternalError(w, "删除规则失败")
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	jsonSuccess(w, nil)
 }
 
 func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
@@ -1000,18 +998,18 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 		} `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Rules) == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请提供 rules 数组"})
+		apiInvalidInput(w, "请提供 rules 数组")
 		return
 	}
 	db, err := openQualityAuditDB()
 	if err != nil {
 		log.Printf("打开数据库失败: %v", err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库连接失败"})
+		apiInternalError(w, "数据库连接失败")
 		return
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	now := time.Now().Format(time.RFC3339)
@@ -1026,16 +1024,16 @@ ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.S
 			nm, strings.TrimSpace(row.XH), strings.TrimSpace(row.Name), row.SQL, strings.TrimSpace(row.Category), now)
 		if err != nil {
 			_ = tx.Rollback()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			apiInternalError(w, err.Error())
 			return
 		}
 		n++
 	}
 	if err := tx.Commit(); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "imported": n})
+	jsonSuccess(w, map[string]interface{}{"imported": n})
 }
 
 type fillRow struct {
@@ -1064,16 +1062,15 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	db, err := openQualityAuditDB()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	if r.Method == http.MethodGet {
 		item, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME`)
 		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME`)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":             true,
-			"item_fill_rate":      item,
-			"record_fill_rate":    rec,
+		jsonSuccess(w, map[string]interface{}{
+			"item_fill_rate":   item,
+			"record_fill_rate": rec,
 		})
 		return
 	}
@@ -1082,12 +1079,12 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		RecordFill []fillRowIn `json:"record_fill_rate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	_, _ = tx.Exec(`DELETE FROM item_fill_rate`)
@@ -1105,7 +1102,7 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			apiInternalError(w, err.Error())
 			return
 		}
 	}
@@ -1121,15 +1118,15 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			apiInternalError(w, err.Error())
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	jsonSuccess(w, nil)
 }
 
 func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
@@ -1157,24 +1154,24 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		RuleNMs    []string `json:"rule_nms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
 	if req.DatabaseID == "" || len(req.RuleNMs) == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 与 rule_nms 必填"})
+		apiInvalidInput(w, "database_id 与 rule_nms 必填")
 		return
 	}
 	dataOntologyMu.RLock()
 	dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
 	dataOntologyMu.RUnlock()
 	if !ok || !dataOntologyResourceVisible(dbConfig.Owner, username) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在或无权访问"})
+		apiNotFound(w, "数据库不存在或无权访问")
 		return
 	}
 	switch dbConfig.Type {
 	case "mysql", "mariadb", "tidb", "postgresql", "timescaledb", "cockroachdb", "sqlserver", "oracle", "dm", "sqlite":
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该数据库类型不支持 SQL 审核"})
+		apiBadRequest(w, "该数据库类型不支持 SQL 审核")
 		return
 	}
 	dialect := normalizeQualityDialect(dbConfig.Type)
@@ -1182,7 +1179,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	// 使用连接池获取数据库连接
 	targetDB, err := getDBFromPool(dbConfig)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败"})
+		apiInternalError(w, "连接失败")
 		return
 	}
 	// 注意：不关闭连接，由连接池管理
@@ -1190,11 +1187,10 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	// 检查缓存
 	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
 	if cached, hit := qaCacheGet(cacheKey); hit {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   true,
-			"cached":    true,
-			"message":   "结果来自缓存 (10分钟内有效)",
-			"rules":     cached,
+		jsonSuccess(w, map[string]interface{}{
+			"cached":      true,
+			"message":     "结果来自缓存 (10分钟内有效)",
+			"rules":       cached,
 			"database_id": req.DatabaseID,
 		})
 		return
@@ -1202,7 +1198,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 
 	flat, err := loadRulesFlat()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		apiInternalError(w, err.Error())
 		return
 	}
 	byNM := map[string]qaRule{}
