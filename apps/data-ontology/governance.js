@@ -4,7 +4,7 @@ async function govDownloadExampleSingle(path) {
     const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(safe)}`;
     const response = await fetchWithAuth(url);
     if (!response.ok) {
-        alert('下载失败');
+        showToast('下载失败', 'error');
         return;
     }
     const blob = await response.blob();
@@ -25,9 +25,9 @@ async function govDownloadExampleZip(files) {
     if (!response.ok || ct.includes('application/json')) {
         try {
             const j = await response.json();
-            alert((j && j.message) || '下载失败');
+            showToast((j && j.message) || '下载失败', 'error');
         } catch (e) {
-            alert('下载失败');
+            showToast('下载失败', 'error');
         }
         return;
     }
@@ -59,7 +59,7 @@ async function govReloadExamplesFromEmbed() {
         });
         const data = await response.json();
         if (!data.success) {
-            alert(data.message || '刷新失败');
+            showToast(data.message || '刷新失败', 'error');
             return;
         }
         await loadGovernanceTasks();
@@ -71,8 +71,8 @@ async function govReloadExamplesFromEmbed() {
             }
         }
         const n = data.updated_tasks != null ? data.updated_tasks : 0;
-        alert(n > 0 ? `已同步 ${n} 个预置任务的示例元数据` : '已是最新，无需更新');
+        showToast(n > 0 ? `已同步 ${n} 个预置任务的示例元数据` : '已是最新，无需更新', 'success');
     } catch (e) {
-        alert('刷新失败');
+        showToast('刷新失败', 'error');
     }
 }

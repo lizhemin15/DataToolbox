@@ -48,6 +48,30 @@ var governanceExamplesFS embed.FS
 // 条件编译：仅在支持CGO时导入这些驱动
 // SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
 
+// 应用配置常量
+const (
+	// WebSocket 配置
+	WebSocketReadTimeout  = 60 * time.Second // WebSocket 读取超时
+	WebSocketWriteTimeout = 10 * time.Second // WebSocket 写入超时
+	WebSocketPingInterval = 54 * time.Second // WebSocket Ping 间隔
+
+	// HTTP 客户端配置
+	HTTPClientTimeout = 30 * time.Second // HTTP 客户端默认超时
+
+	// SSH 配置
+	SSHConnectTimeout = 15 * time.Second // SSH 连接超时
+	SFTPSessionTTL    = 30 * time.Minute // SFTP 会话过期时间
+	SFTPCleanInterval = 5 * time.Minute  // SFTP 会话清理间隔
+
+	// 治理任务配置
+	GovernanceSchedulerInterval = 30 * time.Second // 治理任务调度器检查间隔
+	GovernanceJobQueueSize      = 100             // 治理任务队列大小
+
+	// 数据库连接池默认配置
+	DefaultDBMaxOpenConns = 10
+	DefaultDBMaxIdleConns = 5
+)
+
 // Config 服务器配置
 type Config struct {
 	Port int    `json:"port"`
@@ -100,6 +124,108 @@ var hub = &Hub{
 	broadcast:  make(chan []byte),
 	register:   make(chan *Client),
 	unregister: make(chan *Client),
+}
+
+// ============================================================
+// 数据库连接池管理器
+// 用于复用数据库连接，避免每次请求都创建新连接
+// ============================================================
+
+// dbPool 全局数据库连接池
+var dbPool = struct {
+	sync.RWMutex
+	connections map[string]*sql.DB // key: 数据库配置ID
+}{
+	connections: make(map[string]*sql.DB),
+}
+
+// dbPoolConfig 连接池配置
+const (
+	maxOpenConns    = 10               // 最大打开连接数
+	maxIdleConns    = 5                // 最大空闲连接数
+	connMaxLifetime = 30 * time.Minute // 连接最大生命周期
+	connMaxIdleTime = 5 * time.Minute  // 空闲连接最大存活时间
+)
+
+// getDBFromPool 从连接池获取数据库连接，如果不存在则创建
+func getDBFromPool(config *DatabaseConfig) (*sql.DB, error) {
+	// 先尝试读锁获取
+	dbPool.RLock()
+	if db, ok := dbPool.connections[config.ID]; ok {
+		dbPool.RUnlock()
+		// 验证连接是否有效
+		if err := db.Ping(); err == nil {
+			return db, nil
+		}
+		// 连接无效，需要重建
+	} else {
+		dbPool.RUnlock()
+	}
+
+	// 需要创建新连接
+	dbPool.Lock()
+	defer dbPool.Unlock()
+
+	// 双重检查
+	if db, ok := dbPool.connections[config.ID]; ok {
+		if err := db.Ping(); err == nil {
+			return db, nil
+		}
+		// 关闭无效连接
+		db.Close()
+		delete(dbPool.connections, config.ID)
+	}
+
+	// 创建新连接
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	// 设置连接池参数
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
+
+	// 验证连接
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	dbPool.connections[config.ID] = db
+	log.Printf("[DBPool] 创建新连接: id=%s, type=%s, host=%s", config.ID, config.Type, config.Host)
+	return db, nil
+}
+
+// closeDBPool 关闭所有数据库连接池
+func closeDBPool() {
+	dbPool.Lock()
+	defer dbPool.Unlock()
+	for id, db := range dbPool.connections {
+		if err := db.Close(); err != nil {
+			log.Printf("[DBPool] 关闭连接失败: id=%s, err=%v", id, err)
+		}
+	}
+	dbPool.connections = make(map[string]*sql.DB)
+	log.Printf("[DBPool] 所有连接已关闭")
+}
+
+// removeDBFromPool 从连接池移除指定数据库连接
+func removeDBFromPool(dbID string) {
+	dbPool.Lock()
+	defer dbPool.Unlock()
+	if db, ok := dbPool.connections[dbID]; ok {
+		db.Close()
+		delete(dbPool.connections, dbID)
+		log.Printf("[DBPool] 移除连接: id=%s", dbID)
+	}
 }
 
 // loadConfig 加载配置文件
@@ -187,21 +313,60 @@ func safeQuoteIdentifier(name, dbType string) (string, error) {
 	}
 }
 
-// mustSafeQuote 安全引用标识符，如果无效则 panic（用于内部已验证的场景）
-func mustSafeQuote(name, dbType string) string {
+// mustSafeQuote 安全引用标识符，如果无效则返回空字符串和错误
+// 注意：调用方应处理错误情况，不要忽略返回的错误
+func mustSafeQuote(name, dbType string) (string, error) {
 	quoted, err := safeQuoteIdentifier(name, dbType)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return quoted
+	return quoted, nil
 }
 
-// loggingMiddleware 日志中间件
+// jsonSuccess 写入成功 JSON 响应
+func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+// jsonError 写入错误 JSON 响应
+func jsonError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	if statusCode > 0 {
+		w.WriteHeader(statusCode)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": message})
+}
+
+// jsonErrorWithLog 写入错误 JSON 响应并记录日志
+func jsonErrorWithLog(w http.ResponseWriter, message string, statusCode int, logMsg string, logArgs ...interface{}) {
+	if logMsg != "" {
+		log.Printf(logMsg, logArgs...)
+	}
+	jsonError(w, message, statusCode)
+}
+
+// loggingMiddleware 日志中间件 - 记录请求方法和响应时间
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s - %s %s", r.RemoteAddr, r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
+		start := time.Now()
+		// 使用自定义 ResponseWriter 捕获状态码
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+		duration := time.Since(start)
+		log.Printf("[HTTP] %s %s %s - %d (%v)", r.RemoteAddr, r.Method, r.URL.Path, wrapped.statusCode, duration)
 	})
+}
+
+// responseWriter 包装 http.ResponseWriter 以捕获状态码
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
 
 // corsMiddleware CORS中间件
@@ -398,9 +563,9 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
-	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetReadDeadline(time.Now().Add(WebSocketReadTimeout))
 	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.Conn.SetReadDeadline(time.Now().Add(WebSocketReadTimeout))
 		return nil
 	})
 
@@ -459,7 +624,7 @@ func (c *Client) readPump() {
 
 // 向客户端写入消息
 func (c *Client) writePump() {
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(WebSocketPingInterval)
 	defer func() {
 		ticker.Stop()
 		c.Conn.Close()
@@ -468,7 +633,7 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.Conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -480,7 +645,7 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.Conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -1560,21 +1725,12 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 		return []string{}, nil
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(config)
+	// SQL数据库通用处理 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		return nil, err
-	}
+	// 注意：不再 defer db.Close()，因为连接池管理连接生命周期
 
 	// 获取表列表
 	query := getTablesQuery(config)
@@ -1686,17 +1842,11 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		return []map[string]interface{}{}, nil
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(config)
+	// SQL数据库通用处理 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
 
 	var query string
 	switch config.Type {
@@ -2404,20 +2554,10 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(&config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
+	// SQL数据库通用处理 - 使用连接池
+	log.Printf("连接数据库: host=%s, port=%d, database=%s", config.Host, config.Port, config.Database)
 
-	// 安全：不在日志中输出包含密码的 DSN
-	log.Printf("生成的 DSN: driver=%s, host=%s, port=%d, database=%s", driver, config.Host, config.Port, config.Database)
-
-	db, err := sql.Open(driver, dsn)
+	db, err := getDBFromPool(&config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2425,7 +2565,6 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	defer db.Close()
 
 	if err := db.Ping(); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2615,33 +2754,29 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				tables = []string{}
 			}
 		} else {
-			// SQL数据库通用处理
-			driver, dsn, err := buildDSN(config)
+			// SQL数据库通用处理 - 使用连接池
+			db, err := getDBFromPool(config)
 			if err == nil {
-				db, err := sql.Open(driver, dsn)
-				if err == nil {
-					defer db.Close()
-					if err := db.Ping(); err == nil {
-						connected = true
-						// 获取表列表
-						query := getTablesQuery(config)
-						log.Printf("执行查询表列表: %s", query)
-						rows, err := db.Query(query)
-						if err != nil {
-							log.Printf("查询表列表失败: %v", err)
-						} else {
-							defer rows.Close()
-							for rows.Next() {
-								var tableName string
-								if err := rows.Scan(&tableName); err == nil {
-									tables = append(tables, tableName)
-									log.Printf("找到表: %s", tableName)
-								} else {
-									log.Printf("扫描表名失败: %v", err)
-								}
+				if err := db.Ping(); err == nil {
+					connected = true
+					// 获取表列表
+					query := getTablesQuery(config)
+					log.Printf("执行查询表列表: %s", query)
+					rows, err := db.Query(query)
+					if err != nil {
+						log.Printf("查询表列表失败: %v", err)
+					} else {
+						defer rows.Close()
+						for rows.Next() {
+							var tableName string
+							if err := rows.Scan(&tableName); err == nil {
+								tables = append(tables, tableName)
+								log.Printf("找到表: %s", tableName)
+							} else {
+								log.Printf("扫描表名失败: %v", err)
 							}
-							log.Printf("共找到 %d 个表", len(tables))
 						}
+						log.Printf("共找到 %d 个表", len(tables))
 					}
 				}
 			}
@@ -2821,15 +2956,8 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2837,7 +2965,6 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	defer db.Close()
 
 	edges, warn := queryForeignKeyLineage(db, config, tables)
 	edges = dedupeLineageEdges(edges)
@@ -3159,17 +3286,8 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		return
 	}
 
-	// 建立数据库连接
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 建立数据库连接 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3177,7 +3295,6 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		})
 		return
 	}
-	defer db.Close()
 
 	// 首先查询所有数据以获取主键
 	quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
@@ -3538,17 +3655,8 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			}
 		}
 	} else {
-		// SQL数据库通用处理
-		driver, dsn, err := buildDSN(config)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-
-		db, err := sql.Open(driver, dsn)
+		// SQL数据库通用处理 - 使用连接池
+		db, err := getDBFromPool(config)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -3556,7 +3664,6 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			})
 			return
 		}
-		defer db.Close()
 
 		// 查询数据（限制100条）
 		var query string
@@ -3660,16 +3767,8 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3677,7 +3776,6 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		})
 		return
 	}
-	defer db.Close()
 
 	// 根据数据库类型查询表结构
 	var query string
@@ -3864,16 +3962,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3881,7 +3971,6 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 		})
 		return
 	}
-	defer db.Close()
 
 	// 获取当前表结构
 	var query string
@@ -4182,17 +4271,12 @@ func handleTableRename(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名与当前表名相同"})
 		return
 	}
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
-		return
-	}
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var renameSQL string
 	switch config.Type {
@@ -4227,16 +4311,8 @@ func handleTableDrop(w http.ResponseWriter, r *http.Request, config *DatabaseCon
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4244,7 +4320,6 @@ func handleTableDrop(w http.ResponseWriter, r *http.Request, config *DatabaseCon
 		})
 		return
 	}
-	defer db.Close()
 
 	// 构建DROP TABLE语句
 	var dropQuery string
@@ -4345,16 +4420,8 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		}
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -4362,7 +4429,6 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		})
 		return
 	}
-	defer db.Close()
 
 	// 构建CREATE TABLE语句
 	// 根据数据库类型选择标识符引用符
@@ -4948,7 +5014,17 @@ func handleApiDispatch(next http.Handler) http.Handler {
 func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
 	var bodyBytes []byte
 	if r.Body != nil {
-		bodyBytes, _ = io.ReadAll(r.Body)
+		var err error
+		bodyBytes, err = io.ReadAll(r.Body)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "读取请求体失败: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewReader(bodyBytes))
@@ -4975,7 +5051,7 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: HTTPClientTimeout}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -5093,7 +5169,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			client := &http.Client{Timeout: 30 * time.Second}
+			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
 				json.NewEncoder(w).Encode(map[string]interface{}{
@@ -5125,7 +5201,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			proxyReq.Header.Set("Content-Type", "application/json")
-			client := &http.Client{Timeout: 30 * time.Second}
+			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
 				json.NewEncoder(w).Encode(map[string]interface{}{
@@ -5294,17 +5370,11 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 		return nil, fmt.Errorf("%s 暂不支持SQL查询", dbConfig.Type)
 	}
 
-	// SQL数据库
-	driver, dsn, err := buildDSN(dbConfig)
+	// SQL数据库 - 使用连接池
+	db, err := getDBFromPool(dbConfig)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
 
 	// 写操作使用 Exec
 	if isWriteOperation(sqlQuery) {
@@ -8009,7 +8079,10 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 				continue
 			}
 			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
-			os.MkdirAll(tmpDir, 0755)
+			if err := os.MkdirAll(tmpDir, 0755); err != nil {
+				file.Close()
+				continue
+			}
 			tmpPath := filepath.Join(tmpDir, fileHeader.Filename)
 			dst, err := os.Create(tmpPath)
 			if err != nil {
@@ -8445,18 +8518,12 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	driver, dsn, dsnErr := buildDSN(dbConfig)
-	if dsnErr != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的数据库类型: " + dbConfig.Type})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(dbConfig)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败: " + err.Error()})
 		return
 	}
-	defer db.Close()
 
 	sqlUpper := strings.TrimSpace(strings.ToUpper(req.SQL))
 	if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") || strings.HasPrefix(sqlUpper, "DESCRIBE") || strings.HasPrefix(sqlUpper, "EXPLAIN") {
@@ -9175,15 +9242,15 @@ func getSFTPSession(id string) *SFTPSession {
 	return s
 }
 
-// startSFTPSessionCleaner 定期清理 30 分钟未使用的 SFTP 会话
+// startSFTPSessionCleaner 定期清理未使用的 SFTP 会话
 func startSFTPSessionCleaner() {
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(SFTPCleanInterval)
 		defer ticker.Stop()
 		for range ticker.C {
 			sftpSessionsMu.Lock()
 			for id, s := range sftpSessionsMap {
-				if time.Since(s.LastUsed) > 30*time.Minute {
+				if time.Since(s.LastUsed) > SFTPSessionTTL {
 					s.SFTPClient.Close()
 					s.SSHClient.Close()
 					delete(sftpSessionsMap, id)
@@ -9245,7 +9312,7 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 		User:            user,
 		Auth:            []gossh.AuthMethod{gossh.Password(password)},
 		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
-		Timeout:         15 * time.Second,
+		Timeout:         SSHConnectTimeout,
 	}
 
 	sshClient, err := gossh.Dial("tcp", host+":"+portStr, sshConfig)
@@ -9345,7 +9412,7 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 		User:            req.User,
 		Auth:            []gossh.AuthMethod{gossh.Password(req.Password)},
 		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
-		Timeout:         15 * time.Second,
+		Timeout:         SSHConnectTimeout,
 	}
 	sshClient, err := gossh.Dial("tcp", req.Host+":"+req.Port, sshConfig)
 	if err != nil {

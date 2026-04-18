@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -46,7 +45,7 @@ func newMCPClient() (*mcpClient, error) {
 	return &mcpClient{
 		baseURL: baseURL,
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}, nil
 }
 
@@ -341,7 +340,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 	cli := &mcpClient{
 		baseURL: mcpLoopbackAddr,
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}
 
 	switch rpcReq.Method {
