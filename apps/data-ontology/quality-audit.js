@@ -8,6 +8,244 @@
     var selectedNms = {};
     var lastAudit = null;
     var listenersBound = false;
+    var qaReportTemplateId = '';
+    var qaTplPreviewTimer = null;
+    var qaTplModalBound = false;
+
+    var QA_SAMPLE_AUDIT = {
+        summary: { total_rules: 3, passed: 2, failed: 1 },
+        rules: [
+            {
+                nm: '010101',
+                name: '主键完整性',
+                sql_executed: 'SELECT * FROM demo_table WHERE id IS NULL',
+                violation_count: 0,
+                passed: true
+            },
+            {
+                nm: '010102',
+                name: '枚举值校验',
+                sql_executed: 'SELECT * FROM demo_table WHERE status NOT IN (1,2)',
+                violation_count: 2,
+                passed: false,
+                sample_rows: [{ id: 101, status: 'invalid' }, { id: 102, status: 'bad' }]
+            },
+            {
+                nm: '020201',
+                name: '重复记录检查',
+                violation_count: 0,
+                passed: true
+            }
+        ],
+        item_fill_rates: [
+            {
+                table_name: '用户信息表',
+                numerator: 'SELECT COUNT(*) FROM 用户信息表 WHERE 姓名 IS NOT NULL',
+                denominator: 'SELECT COUNT(*) FROM 用户信息表',
+                rate_percent: 96.12
+            },
+            {
+                table_name: '订单表',
+                numerator: 'SELECT COUNT(*) FROM 订单表 WHERE 订单号 IS NOT NULL',
+                denominator: 'SELECT COUNT(*) FROM 订单表',
+                rate_percent: 88.5
+            }
+        ],
+        record_fill_rates: [
+            {
+                table_name: '明细表',
+                numerator: 'SELECT SUM(cnt) FROM t',
+                denominator: 'SELECT COUNT(*) FROM t',
+                rate_percent: 72.33
+            }
+        ]
+    };
+
+    function qaHex6FromCssColor(s) {
+        s = String(s || '').trim();
+        if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s.toLowerCase();
+        if (/^#[0-9A-Fa-f]{3}$/.test(s)) {
+            var h = s.slice(1);
+            return ('#' + h[0] + h[0] + h[1] + h[1] + h[2] + h[2]).toLowerCase();
+        }
+        return '#000000';
+    }
+
+    function qaParseTplContent(raw) {
+        var def = {
+            doc_title: '数据质量审核报告',
+            title: { font_family: 'Microsoft YaHei, SimHei, sans-serif', font_size: '24px', color: '#1a202c' },
+            section: { font_family: 'Microsoft YaHei, SimHei, sans-serif', font_size: '16px', color: '#2d3748' },
+            table: { border: '1px solid #cbd5e1', header_bg: '#edf2f7', row_alt: '#f8fafc' },
+            page_header: '',
+            page_footer: ''
+        };
+        try {
+            var m = JSON.parse(String(raw || '{}'));
+            if (m && typeof m === 'object') {
+                if (m.doc_title != null && String(m.doc_title).trim() !== '') def.doc_title = String(m.doc_title);
+                if (m.title && typeof m.title === 'object') {
+                    if (m.title.font_family != null) def.title.font_family = String(m.title.font_family);
+                    if (m.title.font_size != null) def.title.font_size = String(m.title.font_size);
+                    if (m.title.color != null) def.title.color = String(m.title.color);
+                }
+                if (m.section && typeof m.section === 'object') {
+                    if (m.section.font_family != null) def.section.font_family = String(m.section.font_family);
+                    if (m.section.font_size != null) def.section.font_size = String(m.section.font_size);
+                    if (m.section.color != null) def.section.color = String(m.section.color);
+                }
+                if (m.table && typeof m.table === 'object') {
+                    if (m.table.border != null) def.table.border = String(m.table.border);
+                    if (m.table.header_bg != null) def.table.header_bg = String(m.table.header_bg);
+                    if (m.table.row_alt != null) def.table.row_alt = String(m.table.row_alt);
+                }
+                if (m.page_header != null) def.page_header = String(m.page_header);
+                if (m.page_footer != null) def.page_footer = String(m.page_footer);
+            }
+        } catch (e) {}
+        return def;
+    }
+
+    function qaApplyTplFormFromRow(row) {
+        var c = qaParseTplContent(row && row.content);
+        document.getElementById('qaTplId').value = row && row.id ? row.id : 'default';
+        document.getElementById('qaTplName').value = row && row.name ? row.name : '默认报告模板';
+        document.getElementById('qaTplType').value = (row && row.template_type) ? row.template_type : 'html';
+        document.getElementById('qaTplIsDefault').checked = row ? !!row.is_default : true;
+        document.getElementById('qaTplDocTitle').value = c.doc_title;
+        document.getElementById('qaTplTitleFont').value = c.title.font_family;
+        document.getElementById('qaTplTitleSize').value = c.title.font_size;
+        document.getElementById('qaTplTitleColor').value = qaHex6FromCssColor(c.title.color);
+        document.getElementById('qaTplSectionFont').value = c.section.font_family;
+        document.getElementById('qaTplSectionSize').value = c.section.font_size;
+        document.getElementById('qaTplSectionColor').value = qaHex6FromCssColor(c.section.color);
+        document.getElementById('qaTplTblBorder').value = c.table.border;
+        document.getElementById('qaTplTblHead').value = qaHex6FromCssColor(c.table.header_bg);
+        document.getElementById('qaTplTblAlt').value = qaHex6FromCssColor(c.table.row_alt);
+        document.getElementById('qaTplHeader').value = c.page_header;
+        document.getElementById('qaTplFooter').value = c.page_footer;
+    }
+
+    function qaCollectTplContent() {
+        return {
+            doc_title: document.getElementById('qaTplDocTitle').value.trim() || '数据质量审核报告',
+            title: {
+                font_family: document.getElementById('qaTplTitleFont').value.trim() || 'Microsoft YaHei, SimHei, sans-serif',
+                font_size: document.getElementById('qaTplTitleSize').value.trim() || '24px',
+                color: document.getElementById('qaTplTitleColor').value
+            },
+            section: {
+                font_family: document.getElementById('qaTplSectionFont').value.trim() || 'Microsoft YaHei, SimHei, sans-serif',
+                font_size: document.getElementById('qaTplSectionSize').value.trim() || '16px',
+                color: document.getElementById('qaTplSectionColor').value
+            },
+            table: {
+                border: document.getElementById('qaTplTblBorder').value.trim() || '1px solid #cbd5e1',
+                header_bg: document.getElementById('qaTplTblHead').value,
+                row_alt: document.getElementById('qaTplTblAlt').value
+            },
+            page_header: document.getElementById('qaTplHeader').value,
+            page_footer: document.getElementById('qaTplFooter').value
+        };
+    }
+
+    function syncQaReportTemplateIdFromServer() {
+        return fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success || !d.templates || !d.templates.length) return;
+            var def = d.templates.find(function (t) { return t.is_default; });
+            var pick = def || d.templates[0];
+            if (pick && pick.id) qaReportTemplateId = pick.id;
+        }).catch(function () {});
+    }
+
+    function bindQaTplModalOnce() {
+        if (qaTplModalBound) return;
+        var modal = document.getElementById('qaTplModal');
+        var iframe = document.getElementById('qaTplPreviewFrame');
+        if (!modal || !iframe) return;
+        qaTplModalBound = true;
+
+        function scheduleQaTplPreview(immediate) {
+            clearTimeout(qaTplPreviewTimer);
+            var run = function () {
+                if (!modal.classList.contains('is-open')) return;
+                var body = { audit: QA_SAMPLE_AUDIT, content: qaCollectTplContent() };
+                fetchWithAuth(PREFIX + 'preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                }).then(function (r) {
+                    var ct = r.headers.get('Content-Type') || '';
+                    if (!r.ok || ct.indexOf('json') !== -1) {
+                        return r.json().then(function (j) { throw new Error((j && j.message) || r.statusText); });
+                    }
+                    return r.text();
+                }).then(function (html) {
+                    iframe.srcdoc = html;
+                }).catch(function (e) {
+                    iframe.srcdoc = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head><body style="font-family:system-ui,sans-serif;padding:16px;color:#c53030;">预览失败：' +
+                        escapeHtml(e.message || String(e)) + '</body></html>';
+                });
+            };
+            if (immediate) run();
+            else qaTplPreviewTimer = setTimeout(run, 260);
+        }
+
+        function openQaTplModal() {
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
+                if (!d.success) throw new Error(d.message || '加载模板失败');
+                var list = d.templates || [];
+                var row = list.find(function (t) { return t.is_default; }) || list[0];
+                if (row) qaApplyTplFormFromRow(row);
+                else qaApplyTplFormFromRow(null);
+                scheduleQaTplPreview(true);
+            }).catch(function () {
+                qaApplyTplFormFromRow(null);
+                scheduleQaTplPreview(true);
+            });
+        }
+
+        function closeQaTplModal() {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            clearTimeout(qaTplPreviewTimer);
+        }
+
+        modal.addEventListener('input', function () { scheduleQaTplPreview(false); });
+        modal.addEventListener('change', function () { scheduleQaTplPreview(false); });
+
+        var openBtn = document.getElementById('qaOpenReportTpl');
+        if (openBtn) openBtn.addEventListener('click', openQaTplModal);
+        document.getElementById('qaTplBackdrop').addEventListener('click', closeQaTplModal);
+        document.getElementById('qaTplCloseX').addEventListener('click', closeQaTplModal);
+        document.getElementById('qaTplCloseBtn').addEventListener('click', closeQaTplModal);
+        document.getElementById('qaTplSaveBtn').addEventListener('click', function () {
+            var id = document.getElementById('qaTplId').value.trim();
+            if (!id) { showMsg('模板 ID 不能为空', true); return; }
+            var payload = {
+                id: id,
+                name: document.getElementById('qaTplName').value.trim() || id,
+                template_type: document.getElementById('qaTplType').value,
+                content: JSON.stringify(qaCollectTplContent()),
+                is_default: document.getElementById('qaTplIsDefault').checked
+            };
+            fetchWithAuth(PREFIX + 'templates', { method: 'POST', body: JSON.stringify(payload) })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.success) throw new Error(d.message);
+                    qaReportTemplateId = id;
+                    showMsg('报告模板已保存', false);
+                    closeQaTplModal();
+                })
+                .catch(function (e) { showMsg(e.message || String(e), true); });
+        });
+
+        document.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Escape' && modal.classList.contains('is-open')) closeQaTplModal();
+        });
+    }
 
     function showMsg(text, isErr) {
         var el = document.getElementById('qaMsg');
@@ -638,6 +876,7 @@
     function bindListeners() {
         if (listenersBound) return;
         try {
+        bindQaTplModalOnce();
         document.getElementById('qaSaveRule').addEventListener('click', function () {
             var body = {
                 nm: padNm(document.getElementById('qaNm').value),
@@ -802,9 +1041,11 @@
 
         document.getElementById('qaReport').addEventListener('click', function () {
             if (!lastAudit) { showMsg('请先执行一键审核', true); return; }
+            var repPayload = { audit: lastAudit };
+            if (qaReportTemplateId) repPayload.template_id = qaReportTemplateId;
             fetchWithAuth(PREFIX + 'report', {
                 method: 'POST',
-                body: JSON.stringify({ audit: lastAudit })
+                body: JSON.stringify(repPayload)
             }).then(function (r) {
                 var ct = r.headers.get('Content-Type') || '';
                 if (!r.ok || ct.indexOf('json') !== -1) {
@@ -830,7 +1071,9 @@
         bindListeners();
         if (window._qualityAuditDataLoaded) return;
         window._qualityAuditDataLoaded = true;
-        loadRules().then(loadDatabases).then(loadFillRates).catch(function (e) {
+        loadRules().then(loadDatabases).then(loadFillRates).then(function () {
+            return syncQaReportTemplateIdFromServer();
+        }).catch(function (e) {
             showMsg(e.message || String(e), true);
         });
     };

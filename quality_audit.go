@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -68,13 +69,34 @@ CREATE TABLE IF NOT EXISTS record_fill_rate (
   CHECKED INTEGER NOT NULL DEFAULT 1,
   UPDATED_AT TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS report_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  template_type TEXT NOT NULL DEFAULT 'html',
+  content TEXT NOT NULL DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  database_id TEXT NOT NULL,
+  database_type TEXT,
+  executed_at TEXT NOT NULL,
+  duration_ms INTEGER,
+  summary TEXT,
+  created_by TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
+CREATE INDEX IF NOT EXISTS idx_audit_history_db ON audit_history(database_id);
+CREATE INDEX IF NOT EXISTS idx_audit_history_time ON audit_history(executed_at);
 `); err != nil {
 			_ = db.Close()
 			qualityAuditErr = err
 			return
 		}
 		migrateQualityAuditFillChecked(db)
+		migrateQualityAuditReportTemplates(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -84,8 +106,229 @@ CREATE INDEX IF NOT EXISTS idx_rules_xh ON rules(XH);
 }
 
 func initQualityAuditDB() {
-	if _, err := openQualityAuditDB(); err != nil {
+	db, err := openQualityAuditDB()
+	if err != nil {
 		log.Printf("数据质量审核库初始化失败: %v", err)
+		return
+	}
+	seedQualityAuditSampleData(db)
+	seedQualityAuditReportTemplates(db)
+}
+
+func migrateQualityAuditReportTemplates(db *sql.DB) {
+	rows, err := db.Query(`PRAGMA table_info(report_templates)`)
+	if err != nil {
+		return
+	}
+	hasTemplateType := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return
+		}
+		if strings.EqualFold(name, "template_type") {
+			hasTemplateType = true
+			break
+		}
+	}
+	rows.Close()
+	if hasTemplateType {
+		return
+	}
+	_, _ = db.Exec(`DROP TABLE IF EXISTS report_templates__legacy`)
+	if _, err := db.Exec(`ALTER TABLE report_templates RENAME TO report_templates__legacy`); err != nil {
+		_, _ = db.Exec(`DROP TABLE IF EXISTS report_templates`)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS report_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  template_type TEXT NOT NULL DEFAULT 'html',
+  content TEXT NOT NULL DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`); err != nil {
+		log.Printf("quality-audit report_templates 迁移创建失败: %v", err)
+		return
+	}
+	_, _ = db.Exec(`DROP TABLE IF EXISTS report_templates__legacy`)
+}
+
+func nmFromXH(xh string) string {
+	xh = strings.TrimSpace(xh)
+	if xh == "" {
+		return ""
+	}
+	if len(xh) >= 6 {
+		return xh[:6]
+	}
+	return xh + strings.Repeat("0", 6-len(xh))
+}
+
+func seedQualityAuditReportTemplates(db *sql.DB) {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM report_templates`).Scan(&n); err != nil || n > 0 {
+		return
+	}
+	now := time.Now().Format(time.RFC3339)
+	def := defaultQATemplateContentJSON()
+	_, err := db.Exec(`INSERT INTO report_templates (id, name, template_type, content, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
+		"default", "默认报告模板", "html", def, 1, now, now)
+	if err != nil {
+		log.Printf("quality-audit 插入默认报告模板失败: %v", err)
+	}
+}
+
+func defaultQATemplateContentJSON() string {
+	m := map[string]interface{}{
+		"doc_title": "数据质量审核报告",
+		// 页面设置（公文格式）
+		"page": map[string]string{
+			"paper_size": "A4",
+			"margin_top":    "3.7cm",
+			"margin_bottom": "3.5cm",
+			"margin_left":   "2.8cm",
+			"margin_right":  "2.6cm",
+		},
+		// 报告标题（方正小标宋，居中，二号字）
+		"title": map[string]string{
+			"font_family": "FZXiaoBiaoSong-B05S, FangSong, SimSun, serif",
+			"font_size":   "22pt",
+			"font_weight": "normal",
+			"color":       "#000000",
+			"align":       "center",
+			"line_height": "1.5",
+		},
+		// 一级标题（黑体，三号字）
+		"h1": map[string]string{
+			"font_family": "SimHei, Heiti SC, sans-serif",
+			"font_size":   "16pt",
+			"font_weight": "normal",
+			"color":       "#000000",
+			"margin_top":  "0.8em",
+		},
+		// 二级标题（楷体，三号字，加粗）
+		"h2": map[string]string{
+			"font_family": "KaiTi, KaiTi_GB2312, STKaiti, serif",
+			"font_size":   "16pt",
+			"font_weight": "bold",
+			"color":       "#000000",
+			"margin_top":  "0.6em",
+		},
+		// 正文（仿宋，三号字，首行缩进2字符）
+		"body": map[string]string{
+			"font_family": "FangSong, FangSong_GB2312, STFangsong, serif",
+			"font_size":   "16pt",
+			"line_height": "28pt",
+			"text_indent": "2em",
+			"color":       "#000000",
+		},
+		// 章节标题（兼容旧字段）
+		"section": map[string]string{
+			"font_family": "SimHei, Heiti SC, sans-serif",
+			"font_size":   "16pt",
+			"color":       "#2d3748",
+		},
+		// 表格样式
+		"table": map[string]string{
+			"border":        "1px solid #000000",
+			"border_collapse": "collapse",
+			"header_bg":     "#f0f0f0",
+			"header_weight": "bold",
+			"row_alt":       "#fafafa",
+			"cell_padding":  "8px",
+		},
+		// 页眉页脚（宋体，小五号）
+		"header_footer": map[string]string{
+			"font_family": "SimSun, Songti SC, serif",
+			"font_size":   "9pt",
+			"align":       "center",
+		},
+		"page_header": "",
+		"page_footer": "",
+		// 编号格式
+		"numbering": map[string]string{
+			"h1_style": "一、二、三、",
+			"h2_style": "（一）（二）（三）",
+			"h3_style": "1. 2. 3.",
+		},
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+func seedQualityAuditSampleData(db *sql.DB) {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM rules`).Scan(&n); err != nil {
+		log.Printf("quality-audit 检查 rules 表: %v", err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	now := time.Now().Format(time.RFC3339)
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("quality-audit 示例数据事务开始失败: %v", err)
+		return
+	}
+	rollback := func() { _ = tx.Rollback() }
+
+	ruleRows := []struct {
+		xh, name string
+		sql      interface{}
+	}{
+		{"01", "完整性规则", nil},
+		{"0101", "主键非空检查", `SELECT * FROM  WHERE  IS NULL`},
+		{"0102", "外键完整性检查", `SELECT a.* FROM  a LEFT JOIN  b ON a.=b. WHERE b. IS NULL`},
+		{"02", "唯一性规则", nil},
+		{"0201", "重复记录检查", `SELECT , COUNT(*) as cnt FROM  GROUP BY  HAVING COUNT(*) > 1`},
+		{"03", "值域规则", nil},
+		{"0301", "空值率检查", `SELECT COUNT(*) as null_count FROM  WHERE  IS NULL`},
+		{"0302", "枚举值检查", `SELECT * FROM  WHERE  NOT IN ()`},
+	}
+	for _, r := range ruleRows {
+		nm := nmFromXH(r.xh)
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO rules (NM, XH, NAME, SQL, CATEGORY, UPDATED_AT) VALUES (?,?,?,?,?,?)`,
+			nm, r.xh, r.name, r.sql, "", now); err != nil {
+			rollback()
+			log.Printf("quality-audit 插入规则示例失败: %v", err)
+			return
+		}
+	}
+
+	itemRows := []struct{ tableName, num, den string }{
+		{"用户信息表", `SELECT COUNT(*) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(*) FROM 用户信息表`},
+		{"订单表", `SELECT COUNT(*) FROM 订单表 WHERE 订单号 IS NOT NULL AND 金额 IS NOT NULL`, `SELECT COUNT(*) FROM 订单表`},
+	}
+	for _, r := range itemRows {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO item_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
+			r.tableName, r.num, r.den, 1, now); err != nil {
+			rollback()
+			log.Printf("quality-audit 插入 item_fill_rate 示例失败: %v", err)
+			return
+		}
+	}
+
+	recRows := []struct{ tableName, num, den string }{
+		{"用户信息表", `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表`},
+		{"订单表", `SELECT COUNT(*) FROM 订单表 WHERE 状态 = '已完成'`, `SELECT COUNT(*) FROM 订单表`},
+	}
+	for _, r := range recRows {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO record_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
+			r.tableName, r.num, r.den, 1, now); err != nil {
+			rollback()
+			log.Printf("quality-audit 插入 record_fill_rate 示例失败: %v", err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		rollback()
+		log.Printf("quality-audit 示例数据提交失败: %v", err)
 	}
 }
 
@@ -96,6 +339,36 @@ func migrateQualityAuditFillChecked(db *sql.DB) {
 			log.Printf("quality-audit migrate %s CHECKED: %v", t, err)
 		}
 	}
+}
+
+// --- SQL 安全校验（只允许 SELECT 查询） ---
+
+var qaAllowedSQLPrefixes = []string{"SELECT", "WITH"}
+
+func validateQASQL(sqlStr string) error {
+	s := strings.ToUpper(strings.TrimSpace(sqlStr))
+	if s == "" {
+		return nil // 空SQL允许（分类节点）
+	}
+	for _, prefix := range qaAllowedSQLPrefixes {
+		if strings.HasPrefix(s, prefix) {
+			// 额外检查：禁止多语句注入
+			if strings.Contains(s, ";") && !strings.HasSuffix(strings.TrimSpace(s), ";") {
+				return fmt.Errorf("SQL 不允许包含分号（防止多语句注入）")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("只允许 SELECT 或 WITH 查询，禁止 INSERT/UPDATE/DELETE/DDL")
+}
+
+func sanitizeSQLForQA(sqlStr string) (string, error) {
+	if err := validateQASQL(sqlStr); err != nil {
+		return "", err
+	}
+	// 移除尾部多余分号
+	s := strings.TrimRight(strings.TrimSpace(sqlStr), ";")
+	return s, nil
 }
 
 // --- Oracle 方言转换为目标库（规则 SQL 默认按 Oracle 书写） ---
@@ -329,6 +602,16 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaExecute(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
+	case path == "preview" && r.Method == http.MethodPost:
+		qaPreviewPOST(w, r, username)
+	case path == "templates" && r.Method == http.MethodGet:
+		qaTemplatesGET(w, username)
+	case path == "templates" && r.Method == http.MethodPost:
+		qaTemplatesPOST(w, r, username)
+	case len(parts) == 2 && parts[0] == "templates" && r.Method == http.MethodDelete:
+		qaTemplatesDELETE(w, parts[1], username)
+	case path == "history" && r.Method == http.MethodGet:
+		qaHistoryGET(w, r, username)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "接口不存在"})
@@ -629,7 +912,16 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 			})
 			continue
 		}
-		execSQL := convertOracleSQLForDialect(orig, dialect)
+		// SQL 安全校验
+		safeSQL, sqlErr := sanitizeSQLForQA(orig)
+		if sqlErr != nil {
+			ruleResults = append(ruleResults, map[string]interface{}{
+				"nm": rule.NM, "xh": rule.XH, "name": rule.Name, "error": sqlErr.Error(), "passed": false,
+			})
+			failed++
+			continue
+		}
+		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
 		cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
 		entry := map[string]interface{}{
 			"nm":              rule.NM,
@@ -664,6 +956,18 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	itemStats := runFillStats(targetDB, dialect, itemRows)
 	recStats := runFillStats(targetDB, dialect, recRows)
 
+	// 保存审核历史
+	summaryJSON, _ := json.Marshal(map[string]interface{}{
+		"total_rules": passed + failed,
+		"passed":      passed,
+		"failed":      failed,
+	})
+	duration := time.Since(t0).Milliseconds()
+	if metaDB != nil {
+		_, _ = metaDB.Exec(`INSERT INTO audit_history (database_id, database_type, executed_at, duration_ms, summary, created_by) VALUES (?,?,?,?,?,?)`,
+			req.DatabaseID, dbConfig.Type, t0.Format(time.RFC3339), duration, string(summaryJSON), username)
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":           true,
 		"database_id":       req.DatabaseID,
@@ -671,6 +975,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		"dialect":           dialect,
 		"started_at":        t0.Format(time.RFC3339),
 		"finished_at":       time.Now().Format(time.RFC3339),
+		"duration_ms":       duration,
 		"rules":             ruleResults,
 		"item_fill_rates":   itemStats,
 		"record_fill_rates": recStats,
@@ -685,8 +990,25 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]interface{} {
 	var out []map[string]interface{}
 	for _, row := range rows {
-		numSQL := convertOracleSQLForDialect(strings.TrimSpace(row.Numerator), dialect)
-		denSQL := convertOracleSQLForDialect(strings.TrimSpace(row.Denominator), dialect)
+		numSQLRaw := strings.TrimSpace(row.Numerator)
+		denSQLRaw := strings.TrimSpace(row.Denominator)
+		// SQL 安全校验
+		numSQL, e0 := sanitizeSQLForQA(numSQLRaw)
+		if e0 != nil {
+			out = append(out, map[string]interface{}{
+				"table_name": row.TableName, "numerator_error": e0.Error(),
+			})
+			continue
+		}
+		denSQL, e0 := sanitizeSQLForQA(denSQLRaw)
+		if e0 != nil {
+			out = append(out, map[string]interface{}{
+				"table_name": row.TableName, "denominator_error": e0.Error(),
+			})
+			continue
+		}
+		numSQL = convertOracleSQLForDialect(numSQL, dialect)
+		denSQL = convertOracleSQLForDialect(denSQL, dialect)
 		n, e1 := execScalarFloat(db, numSQL)
 		d, e2 := execScalarFloat(db, denSQL)
 		m := map[string]interface{}{
@@ -736,6 +1058,8 @@ func ifaceToFloat(v interface{}) (float64, error) {
 		return strconv.ParseFloat(string(t), 64)
 	case string:
 		return strconv.ParseFloat(strings.TrimSpace(t), 64)
+	case json.Number:
+		return t.Float64()
 	default:
 		return 0, fmt.Errorf("无法转为数字: %v", v)
 	}
@@ -798,7 +1122,23 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	if audit == nil {
 		audit = body
 	}
-	doc, err := buildQualityAuditDocx(audit)
+	tid, _ := body["template_id"].(string)
+	tid = strings.TrimSpace(tid)
+	var styles *qaTemplateStyles
+	if tid != "" {
+		if row, err := loadReportTemplateByID(tid); err == nil && row != nil {
+			styles = parseQATemplateContent(row.Content)
+		}
+	}
+	if styles == nil {
+		if row, err := loadDefaultReportTemplate(); err == nil && row != nil {
+			styles = parseQATemplateContent(row.Content)
+		}
+	}
+	if styles == nil {
+		styles = parseQATemplateContent("{}")
+	}
+	doc, err := buildQualityAuditDocx(audit, styles)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
@@ -809,7 +1149,166 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	_, _ = io.Copy(w, bytes.NewReader(doc))
 }
 
-func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
+type qaReportTemplateRow struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	TemplateType string `json:"template_type"`
+	Content      string `json:"content"`
+	IsDefault    bool   `json:"is_default"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type qaTemplateStyles struct {
+	DocTitle   string            `json:"doc_title"`
+	Title      qaTemplateTextSt  `json:"title"`
+	Section    qaTemplateTextSt  `json:"section"`
+	Table      qaTemplateTableSt `json:"table"`
+	PageHeader string            `json:"page_header"`
+	PageFooter string            `json:"page_footer"`
+}
+
+type qaTemplateTextSt struct {
+	FontFamily string `json:"font_family"`
+	FontSize    string `json:"font_size"`
+	Color       string `json:"color"`
+}
+
+type qaTemplateTableSt struct {
+	Border    string `json:"border"`
+	HeaderBg  string `json:"header_bg"`
+	RowAlt    string `json:"row_alt"`
+}
+
+func parseQATemplateContent(raw string) *qaTemplateStyles {
+	out := &qaTemplateStyles{
+		DocTitle: "数据质量审核报告",
+		Title: qaTemplateTextSt{
+			FontFamily: "Microsoft YaHei, SimHei, sans-serif",
+			FontSize:   "24px",
+			Color:      "#1a202c",
+		},
+		Section: qaTemplateTextSt{
+			FontFamily: "Microsoft YaHei, SimHei, sans-serif",
+			FontSize:   "16px",
+			Color:      "#2d3748",
+		},
+		Table: qaTemplateTableSt{
+			Border:   "1px solid #cbd5e1",
+			HeaderBg: "#edf2f7",
+			RowAlt:   "#f8fafc",
+		},
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return out
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return out
+	}
+	if v, ok := m["doc_title"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out.DocTitle = s
+		}
+	}
+	if v, ok := m["title"]; ok {
+		_ = json.Unmarshal(v, &out.Title)
+	}
+	if v, ok := m["section"]; ok {
+		_ = json.Unmarshal(v, &out.Section)
+	}
+	if v, ok := m["table"]; ok {
+		_ = json.Unmarshal(v, &out.Table)
+	}
+	if v, ok := m["page_header"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out.PageHeader = s
+		}
+	}
+	if v, ok := m["page_footer"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out.PageFooter = s
+		}
+	}
+	return out
+}
+
+func wordColorVal(hex string) string {
+	hex = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(hex), "#"))
+	if len(hex) != 6 {
+		return ""
+	}
+	// Word w:color uses RRGGBB
+	return strings.ToUpper(hex)
+}
+
+func wordFontSizeHalfPoints(cssSize string) string {
+	raw := strings.TrimSpace(cssSize)
+	if raw == "" {
+		return "48"
+	}
+	low := strings.ToLower(raw)
+	isPt := strings.HasSuffix(low, "pt")
+	s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(low, "px"), "pt"))
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return "48"
+	}
+	if isPt {
+		return fmt.Sprintf("%.0f", n*2)
+	}
+	h := int(n*1.5*2 + 0.5)
+	if h < 8 {
+		h = 8
+	}
+	return strconv.Itoa(h)
+}
+
+func wordFirstFontFamily(ff string) string {
+	ff = strings.TrimSpace(ff)
+	if ff == "" {
+		return ""
+	}
+	if i := strings.IndexByte(ff, ','); i >= 0 {
+		ff = strings.TrimSpace(ff[:i])
+	}
+	return ff
+}
+
+func wordRPrXML(st qaTemplateTextSt) string {
+	var b strings.Builder
+	b.WriteString(`<w:rPr>`)
+	if ff := wordFirstFontFamily(st.FontFamily); ff != "" {
+		xf := xmlEscapeQA(ff)
+		b.WriteString(`<w:rFonts w:ascii="`)
+		b.WriteString(xf)
+		b.WriteString(`" w:hAnsi="`)
+		b.WriteString(xf)
+		b.WriteString(`"/>`)
+	}
+	if cv := wordColorVal(st.Color); cv != "" {
+		b.WriteString(`<w:color w:val="`)
+		b.WriteString(cv)
+		b.WriteString(`"/>`)
+	}
+	b.WriteString(`<w:sz w:val="`)
+	b.WriteString(wordFontSizeHalfPoints(st.FontSize))
+	b.WriteString(`"/>`)
+	b.WriteString(`<w:szCs w:val="`)
+	b.WriteString(wordFontSizeHalfPoints(st.FontSize))
+	b.WriteString(`"/>`)
+	b.WriteString(`</w:rPr>`)
+	return b.String()
+}
+
+func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyles) ([]byte, error) {
+	if styles == nil {
+		styles = parseQATemplateContent("{}")
+	}
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
 	sb.WriteString(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`)
@@ -820,8 +1319,22 @@ func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
 		sb.WriteString(xmlEscapeQA(text))
 		sb.WriteString(`</w:t></w:r></w:p>`)
 	}
+	addParaStyled := func(text string, st qaTemplateTextSt) {
+		sb.WriteString(`<w:p><w:r>`)
+		sb.WriteString(wordRPrXML(st))
+		sb.WriteString(`<w:t xml:space="preserve">`)
+		sb.WriteString(xmlEscapeQA(text))
+		sb.WriteString(`</w:t></w:r></w:p>`)
+	}
 
-	addPara("数据质量审核报告")
+	if strings.TrimSpace(styles.PageHeader) != "" {
+		addPara(styles.PageHeader)
+	}
+	title := styles.DocTitle
+	if strings.TrimSpace(title) == "" {
+		title = "数据质量审核报告"
+	}
+	addParaStyled(title, styles.Title)
 	addPara("生成时间：" + time.Now().Format("2006-01-02 15:04:05"))
 
 	summary, _ := audit["summary"].(map[string]interface{})
@@ -830,7 +1343,7 @@ func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
 	}
 
 	addPara("")
-	addPara("一、规则明细")
+	addParaStyled("一、规则明细", styles.Section)
 	rules, _ := audit["rules"].([]interface{})
 	for i, x := range rules {
 		row, _ := x.(map[string]interface{})
@@ -852,7 +1365,7 @@ func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
 	}
 
 	addPara("")
-	addPara("二、项填报率")
+	addParaStyled("二、项填报率", styles.Section)
 	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
@@ -861,13 +1374,18 @@ func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
 		addPara(fmt.Sprintf("表 %v：填报率 %v%%（分子 %v / 分母 %v）", m["table_name"], m["rate_percent"], m["numerator"], m["denominator"]))
 	}
 	addPara("")
-	addPara("三、记录填报率")
+	addParaStyled("三、记录填报率", styles.Section)
 	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
 			continue
 		}
 		addPara(fmt.Sprintf("表 %v：填报率 %v%%（分子 %v / 分母 %v）", m["table_name"], m["rate_percent"], m["numerator"], m["denominator"]))
+	}
+
+	if strings.TrimSpace(styles.PageFooter) != "" {
+		addPara("")
+		addPara(styles.PageFooter)
 	}
 
 	sb.WriteString(`</w:body></w:document>`)
@@ -899,9 +1417,13 @@ func buildQualityAuditDocx(audit map[string]interface{}) ([]byte, error) {
 	wwr, _ := z.Create("word/_rels/document.xml.rels")
 	_, _ = io.WriteString(wwr, `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`)
 
+	coreTitle := styles.DocTitle
+	if strings.TrimSpace(coreTitle) == "" {
+		coreTitle = "数据质量审核报告"
+	}
 	wc, _ := z.Create("docProps/core.xml")
 	_, _ = fmt.Fprintf(wc, `<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties">`+
-		`<dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">数据质量审核报告</dc:title><dcterms:created xmlns:dcterms="http://purl.org/dc/terms/">%s</dcterms:created></cp:coreProperties>`, xmlEscapeQA(now))
+		`<dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">%s</dc:title><dcterms:created xmlns:dcterms="http://purl.org/dc/terms/">%s</dcterms:created></cp:coreProperties>`, xmlEscapeQA(coreTitle), xmlEscapeQA(now))
 
 	_ = z.Close()
 	return buf.Bytes(), nil
@@ -923,4 +1445,347 @@ func xmlEscapeQA(s string) string {
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	return s
+}
+
+func loadReportTemplateByID(id string) (*qaReportTemplateRow, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	db, err := openQualityAuditDB()
+	if err != nil {
+		return nil, err
+	}
+	var out qaReportTemplateRow
+	var isDef int
+	err = db.QueryRow(`SELECT id, name, template_type, content, is_default, created_at, updated_at FROM report_templates WHERE id=?`, id).
+		Scan(&out.ID, &out.Name, &out.TemplateType, &out.Content, &isDef, &out.CreatedAt, &out.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.IsDefault = isDef != 0
+	return &out, nil
+}
+
+func loadDefaultReportTemplate() (*qaReportTemplateRow, error) {
+	db, err := openQualityAuditDB()
+	if err != nil {
+		return nil, err
+	}
+	var out qaReportTemplateRow
+	var isDef int
+	err = db.QueryRow(`SELECT id, name, template_type, content, is_default, created_at, updated_at FROM report_templates WHERE is_default=1 ORDER BY updated_at DESC LIMIT 1`).
+		Scan(&out.ID, &out.Name, &out.TemplateType, &out.Content, &isDef, &out.CreatedAt, &out.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.IsDefault = isDef != 0
+	return &out, nil
+}
+
+func qaTemplatesGET(w http.ResponseWriter, username string) {
+	_ = username
+	db, err := openQualityAuditDB()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	rows, err := db.Query(`SELECT id, name, template_type, content, is_default, created_at, updated_at FROM report_templates ORDER BY is_default DESC, updated_at DESC`)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+	var list []qaReportTemplateRow
+	for rows.Next() {
+		var r qaReportTemplateRow
+		var isDef int
+		if err := rows.Scan(&r.ID, &r.Name, &r.TemplateType, &r.Content, &isDef, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+		r.IsDefault = isDef != 0
+		list = append(list, r)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "templates": list})
+}
+
+func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
+	_ = username
+	var body struct {
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		TemplateType string `json:"template_type"`
+		Content      string `json:"content"`
+		IsDefault    *bool  `json:"is_default"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		return
+	}
+	id := strings.TrimSpace(body.ID)
+	if id == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "id 不能为空"})
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "name 不能为空"})
+		return
+	}
+	ttyp := strings.TrimSpace(body.TemplateType)
+	if ttyp == "" {
+		ttyp = "html"
+	}
+	content := strings.TrimSpace(body.Content)
+	if content == "" {
+		content = defaultQATemplateContentJSON()
+	}
+	now := time.Now().Format(time.RFC3339)
+	db, err := openQualityAuditDB()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	var createdAt string
+	_ = db.QueryRow(`SELECT created_at FROM report_templates WHERE id=?`, id).Scan(&createdAt)
+	if strings.TrimSpace(createdAt) == "" {
+		createdAt = now
+	}
+	isDef := 0
+	if body.IsDefault != nil && *body.IsDefault {
+		isDef = 1
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	if isDef == 1 {
+		if _, err := tx.Exec(`UPDATE report_templates SET is_default=0`); err != nil {
+			_ = tx.Rollback()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+	}
+	_, err = tx.Exec(`INSERT INTO report_templates (id, name, template_type, content, is_default, created_at, updated_at) VALUES (?,?,?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET name=excluded.name, template_type=excluded.template_type, content=excluded.content, is_default=excluded.is_default, updated_at=excluded.updated_at`,
+		id, name, ttyp, content, isDef, createdAt, now)
+	if err != nil {
+		_ = tx.Rollback()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func qaTemplatesDELETE(w http.ResponseWriter, id string, username string) {
+	_ = username
+	id = strings.TrimSpace(id)
+	if id == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "id 无效"})
+		return
+	}
+	db, err := openQualityAuditDB()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	if _, err := db.Exec(`DELETE FROM report_templates WHERE id=?`, id); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func qaPreviewPOST(w http.ResponseWriter, r *http.Request, username string) {
+	_ = username
+	var body map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		return
+	}
+	audit, _ := body["audit"].(map[string]interface{})
+	if audit == nil {
+		audit = body
+	}
+	var styles *qaTemplateStyles
+	if c, ok := body["content"]; ok && c != nil {
+		switch v := c.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				styles = parseQATemplateContent(v)
+			}
+		default:
+			b, err := json.Marshal(v)
+			if err == nil && len(b) > 0 {
+				styles = parseQATemplateContent(string(b))
+			}
+		}
+	}
+	if styles == nil {
+		if tid, _ := body["template_id"].(string); strings.TrimSpace(tid) != "" {
+			if row, err := loadReportTemplateByID(strings.TrimSpace(tid)); err == nil && row != nil {
+				styles = parseQATemplateContent(row.Content)
+			}
+		}
+	}
+	if styles == nil {
+		styles = parseQATemplateContent("{}")
+	}
+	htmlDoc := buildQualityAuditHTML(audit, styles)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(htmlDoc))
+}
+
+func buildQualityAuditHTML(audit map[string]interface{}, styles *qaTemplateStyles) string {
+	if styles == nil {
+		styles = parseQATemplateContent("{}")
+	}
+	title := styles.DocTitle
+	if strings.TrimSpace(title) == "" {
+		title = "数据质量审核报告"
+	}
+	tFont := html.EscapeString(styles.Title.FontFamily)
+	tSize := html.EscapeString(styles.Title.FontSize)
+	tCol := html.EscapeString(styles.Title.Color)
+	sFont := html.EscapeString(styles.Section.FontFamily)
+	sSize := html.EscapeString(styles.Section.FontSize)
+	sCol := html.EscapeString(styles.Section.Color)
+	tbBorder := html.EscapeString(styles.Table.Border)
+	tbHead := html.EscapeString(styles.Table.HeaderBg)
+	tbAlt := html.EscapeString(styles.Table.RowAlt)
+	var b strings.Builder
+	b.WriteString("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>")
+	b.WriteString(html.EscapeString(title))
+	b.WriteString(`</title><style>
+body{font-family:system-ui,sans-serif;margin:24px;color:#1a202c;}
+.qa-ph{margin-bottom:12px;color:#64748b;font-size:13px;}
+.qa-doc-title{font-family:` + tFont + `;font-size:` + tSize + `;color:` + tCol + `;margin:0 0 8px;}
+.qa-time{color:#64748b;font-size:14px;margin-bottom:20px;}
+.qa-sec{font-family:` + sFont + `;font-size:` + sSize + `;color:` + sCol + `;margin:20px 0 10px;}
+table.qa-tbl{border-collapse:collapse;width:100%;font-size:13px;}
+table.qa-tbl th,table.qa-tbl td{border:` + tbBorder + `;padding:8px;text-align:left;}
+table.qa-tbl thead th{background:` + tbHead + `;}
+table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
+.qa-rule{margin:10px 0;padding-left:12px;border-left:3px solid #e2e8f0;}
+.qa-mono{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;background:#f8fafc;padding:8px;border-radius:4px;}
+</style></head><body>`)
+	if strings.TrimSpace(styles.PageHeader) != "" {
+		b.WriteString(`<div class="qa-ph">`)
+		b.WriteString(html.EscapeString(styles.PageHeader))
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`<h1 class="qa-doc-title">`)
+	b.WriteString(html.EscapeString(title))
+	b.WriteString(`</h1><div class="qa-time">生成时间：`)
+	b.WriteString(html.EscapeString(time.Now().Format("2006-01-02 15:04:05")))
+	b.WriteString(`</div>`)
+	if summary, ok := audit["summary"].(map[string]interface{}); ok && summary != nil {
+		b.WriteString(`<p>总规则数：`)
+		b.WriteString(html.EscapeString(fmt.Sprint(summary["total_rules"])))
+		b.WriteString(`　通过：`)
+		b.WriteString(html.EscapeString(fmt.Sprint(summary["passed"])))
+		b.WriteString(`　不通过：`)
+		b.WriteString(html.EscapeString(fmt.Sprint(summary["failed"])))
+		b.WriteString(`</p>`)
+	}
+	b.WriteString(`<h2 class="qa-sec">一、规则明细</h2>`)
+	rules, _ := audit["rules"].([]interface{})
+	for i, x := range rules {
+		row, _ := x.(map[string]interface{})
+		if row == nil {
+			continue
+		}
+		b.WriteString(`<div class="qa-rule"><strong>`)
+		b.WriteString(html.EscapeString(fmt.Sprintf("%d. %v（%v）", i+1, row["name"], row["nm"])))
+		b.WriteString(`</strong>`)
+		if s, ok := row["sql_executed"].(string); ok && s != "" {
+			b.WriteString(`<div>执行 SQL：</div><div class="qa-mono">`)
+			b.WriteString(html.EscapeString(s))
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`<div>结果：违规数 `)
+		b.WriteString(html.EscapeString(fmt.Sprint(row["violation_count"])))
+		b.WriteString(`　通过：`)
+		b.WriteString(html.EscapeString(fmt.Sprint(row["passed"])))
+		b.WriteString(`</div>`)
+		if e, ok := row["error"].(string); ok && e != "" {
+			b.WriteString(`<div style="color:#c53030;">错误：` + html.EscapeString(e) + `</div>`)
+		}
+		if sr, ok := row["sample_rows"].([]interface{}); ok && len(sr) > 0 {
+			jb, _ := json.MarshalIndent(sr, "", "  ")
+			b.WriteString(`<div class="qa-mono">`)
+			b.WriteString(html.EscapeString(string(jb)))
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`<h2 class="qa-sec">二、项填报率</h2>`)
+	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th></tr></thead><tbody>`)
+	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
+		m, _ := x.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		rate := "—"
+		if v, ok := m["rate_percent"]; ok && v != nil {
+			if f, err := ifaceToFloat(v); err == nil {
+				rate = fmt.Sprintf("%.2f%%", f)
+			}
+		}
+		b.WriteString(`<tr><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["numerator"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["denominator"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(rate))
+		b.WriteString(`</td></tr>`)
+	}
+	b.WriteString(`</tbody></table>`)
+	b.WriteString(`<h2 class="qa-sec">三、记录填报率</h2>`)
+	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th></tr></thead><tbody>`)
+	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
+		m, _ := x.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		rate := "—"
+		if v, ok := m["rate_percent"]; ok && v != nil {
+			if f, err := ifaceToFloat(v); err == nil {
+				rate = fmt.Sprintf("%.2f%%", f)
+			}
+		}
+		b.WriteString(`<tr><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["numerator"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(fmt.Sprint(m["denominator"])))
+		b.WriteString(`</td><td>`)
+		b.WriteString(html.EscapeString(rate))
+		b.WriteString(`</td></tr>`)
+	}
+	b.WriteString(`</tbody></table>`)
+	if strings.TrimSpace(styles.PageFooter) != "" {
+		b.WriteString(`<div class="qa-ph" style="margin-top:32px;">`)
+		b.WriteString(html.EscapeString(styles.PageFooter))
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`</body></html>`)
+	return b.String()
 }

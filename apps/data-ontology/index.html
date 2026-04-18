@@ -816,6 +816,9 @@
             <div class="tab-content-wrap">
                 <div class="qa-page">
                     <div id="qaMsg" class="qa-msg"></div>
+                    <div class="qa-topbar">
+                        <button type="button" class="btn btn-sm qa-tpl-open-btn" id="qaOpenReportTpl" title="配置报告样式与页眉页脚">报告模板</button>
+                    </div>
                     <div class="qa-layout">
                         <div class="qa-panel">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -1567,6 +1570,123 @@
                     <button type="button" id="submitUserPasswordBtn" class="btn btn-primary">保存</button>
                 </div>
                 <div id="userPasswordModalErr" class="error-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 质量审核：报告模板配置（默认仅通过「报告模板」按钮打开） -->
+    <div id="qaTplModal" class="qa-tpl-modal" aria-hidden="true">
+        <div class="qa-tpl-backdrop" id="qaTplBackdrop"></div>
+        <div class="qa-tpl-shell" role="dialog" aria-labelledby="qaTplModalTitle" aria-modal="true">
+            <div class="qa-tpl-head">
+                <div class="qa-tpl-head-text">
+                    <span class="qa-tpl-head-badge">报告</span>
+                    <h2 id="qaTplModalTitle" class="qa-tpl-title">报告模板</h2>
+                    <p class="qa-tpl-sub">左侧调整样式，右侧实时预览示例报告</p>
+                </div>
+                <button type="button" class="qa-tpl-icon-close" id="qaTplCloseX" aria-label="关闭">×</button>
+            </div>
+            <div class="qa-tpl-body">
+                <aside class="qa-tpl-config">
+                    <div class="qa-tpl-scroll">
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">基本信息</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplId">模板 ID</label>
+                                <input type="text" id="qaTplId" autocomplete="off" placeholder="default">
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplName">名称</label>
+                                <input type="text" id="qaTplName" autocomplete="off" placeholder="默认报告模板">
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplType">类型</label>
+                                <select id="qaTplType">
+                                    <option value="html">HTML</option>
+                                    <option value="docx">Word（导出）</option>
+                                </select>
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplDocTitle">报告标题</label>
+                                <input type="text" id="qaTplDocTitle" placeholder="数据质量审核报告">
+                            </div>
+                            <label class="qa-tpl-switch">
+                                <input type="checkbox" id="qaTplIsDefault" checked>
+                                <span>设为默认模板（生成报告时优先使用）</span>
+                            </label>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">标题样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplTitleFont">字体</label>
+                                <input type="text" id="qaTplTitleFont" placeholder="Microsoft YaHei, sans-serif">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field">
+                                    <label for="qaTplTitleSize">大小</label>
+                                    <input type="text" id="qaTplTitleSize" placeholder="24px">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTitleColor">颜色</label>
+                                    <input type="color" id="qaTplTitleColor" value="#1a202c" title="标题颜色">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">章节样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplSectionFont">字体</label>
+                                <input type="text" id="qaTplSectionFont" placeholder="Microsoft YaHei, sans-serif">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field">
+                                    <label for="qaTplSectionSize">大小</label>
+                                    <input type="text" id="qaTplSectionSize" placeholder="16px">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplSectionColor">颜色</label>
+                                    <input type="color" id="qaTplSectionColor" value="#2d3748" title="章节颜色">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">表格样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplTblBorder">边框（CSS）</label>
+                                <input type="text" id="qaTplTblBorder" placeholder="1px solid #cbd5e1">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTblHead">表头背景</label>
+                                    <input type="color" id="qaTplTblHead" value="#edf2f7" title="表头背景">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTblAlt">交替行</label>
+                                    <input type="color" id="qaTplTblAlt" value="#f8fafc" title="交替行背景">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">页眉页脚</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplHeader">页眉文本</label>
+                                <textarea id="qaTplHeader" rows="2" placeholder="可选，显示在报告顶部"></textarea>
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplFooter">页脚文本</label>
+                                <textarea id="qaTplFooter" rows="2" placeholder="可选，显示在报告底部"></textarea>
+                            </div>
+                        </section>
+                    </div>
+                </aside>
+                <div class="qa-tpl-preview-wrap">
+                    <div class="qa-tpl-preview-label">实时预览</div>
+                    <iframe id="qaTplPreviewFrame" class="qa-tpl-preview-frame" title="报告预览"></iframe>
+                </div>
+            </div>
+            <div class="qa-tpl-foot">
+                <button type="button" class="btn btn-sm" id="qaTplCloseBtn">关闭</button>
+                <button type="button" class="btn btn-sm btn-primary" id="qaTplSaveBtn">保存</button>
             </div>
         </div>
     </div>
