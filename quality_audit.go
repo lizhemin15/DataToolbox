@@ -701,6 +701,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaExecuteStream(w, r, username)
 	case len(parts) == 2 && parts[0] == "execute" && parts[1] == "cancel" && r.Method == http.MethodPost:
 		qaExecuteCancel(w, r, username)
+	case path == "export" && r.Method == http.MethodGet:
+		qaExportReport(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
 	case path == "preview" && r.Method == http.MethodPost:
@@ -1362,6 +1364,108 @@ func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 		"message":     "已发送取消信号",
 		"database_id": req.DatabaseID,
 	})
+}
+
+// 导出审核报告
+func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
+	databaseID := r.URL.Query().Get("database_id")
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	if databaseID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 必填"})
+		return
+	}
+
+	// 获取最近的审核历史
+	metaDB, _ := openQualityAuditDB()
+	if metaDB == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库错误"})
+		return
+	}
+
+	var historyID int
+	var executedAt, summaryJSON string
+	var durationMs int
+	err := metaDB.QueryRow(`
+		SELECT id, executed_at, duration_ms, summary 
+		FROM audit_history 
+		WHERE database_id = ? 
+		ORDER BY executed_at DESC LIMIT 1`,
+		databaseID).Scan(&historyID, &executedAt, &durationMs, &summaryJSON)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未找到审核记录"})
+		return
+	}
+
+	var summary map[string]interface{}
+	json.Unmarshal([]byte(summaryJSON), &summary)
+
+	// 获取错误记录
+	errorRows, _ := metaDB.Query(`
+		SELECT rule_nm, rule_name, error_message, executed_at 
+		FROM audit_errors 
+		WHERE database_id = ? 
+		ORDER BY executed_at DESC`,
+		databaseID)
+	var errors []map[string]interface{}
+	if errorRows != nil {
+		defer errorRows.Close()
+		for errorRows.Next() {
+			var ruleNm, ruleName, errorMsg, errTime string
+			if err := errorRows.Scan(&ruleNm, &ruleName, &errorMsg, &errTime); err == nil {
+				errors = append(errors, map[string]interface{}{
+					"rule_nm":      ruleNm,
+					"rule_name":    ruleName,
+					"error":        errorMsg,
+					"executed_at":  errTime,
+				})
+			}
+		}
+	}
+
+	report := map[string]interface{}{
+		"database_id":   databaseID,
+		"executed_at":   executedAt,
+		"duration_ms":   durationMs,
+		"summary":       summary,
+		"errors":        errors,
+		"exported_at":   time.Now().Format(time.RFC3339),
+		"exported_by":   username,
+	}
+
+	switch format {
+	case "csv":
+		// CSV 格式导出
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=audit_report_%s_%s.csv", databaseID, executedAt))
+		fmt.Fprintf(w, "规则编号,规则名称,状态,违规数,错误信息\n")
+		if rules, ok := summary["rules"].([]map[string]interface{}); ok {
+			for _, rule := range rules {
+				status := "通过"
+				if passed, ok := rule["passed"].(bool); ok && !passed {
+					status = "失败"
+				}
+				violationCount := 0
+				if vc, ok := rule["violation_count"].(int); ok {
+					violationCount = vc
+				}
+				errorMsg := ""
+				if e, ok := rule["error"].(string); ok {
+					errorMsg = e
+				}
+				fmt.Fprintf(w, "%s,%s,%s,%d,%s\n",
+					rule["nm"], rule["name"], status, violationCount, errorMsg)
+			}
+		}
+	default:
+		// JSON 格式导出
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=audit_report_%s_%s.json", databaseID, executedAt))
+		json.NewEncoder(w).Encode(report)
+	}
 }
 
 func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]interface{} {
