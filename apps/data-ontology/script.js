@@ -5353,9 +5353,11 @@ function renderGovTaskList() {
         return;
     }
 
-    container.innerHTML = filtered.map(t => `
+    container.innerHTML = filtered.map(t => {
+        const safeTId = escapeHtml(t.id);
+        return `
         <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
-             onclick="selectGovTask('${t.id}')">
+             onclick="selectGovTask('${safeTId}')">
             <div class="gov-task-item-icon">${t.type === 'scheduled' ? '⏰' : '📤'}</div>
             <div class="gov-task-item-info">
                 <div class="gov-task-item-name">
@@ -5368,9 +5370,9 @@ function renderGovTaskList() {
                     <span>${t.status === 'idle' ? '空闲' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '错误'}</span>
                 </div>
             </div>
-            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${t.id}')">下载示例</button>` : ''}
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">下载示例</button>` : ''}
         </div>
-    `).join('');
+    `;}).join('');
 }
 
 function filterGovTaskList() {
@@ -8629,7 +8631,9 @@ function renderLLMModels() {
     const typeIcons = { llm: '🤖', rerank: '🔄', embedding: '📊', asr: '🎤', tts: '🔊' };
     const typeLabels = { llm: 'LLM', rerank: 'Rerank', embedding: 'Embedding', asr: 'ASR', tts: 'TTS' };
     
-    container.innerHTML = llmModels.map(m => `
+    container.innerHTML = llmModels.map(m => {
+        const safeMId = escapeHtml(m.id);
+        return `
         <div class="model-card ${m.enabled ? '' : 'disabled'}">
             <div class="model-card-header">
                 <span class="model-icon">${typeIcons[m.type] || '🤖'}</span>
@@ -8645,12 +8649,12 @@ function renderLLMModels() {
             <div class="model-card-footer">
                 <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
                 <div class="model-actions">
-                    <button class="btn btn-sm" onclick="editLLMModel('${m.id}')">编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${m.id}')">删除</button>
+                    <button class="btn btn-sm" onclick="editLLMModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${safeMId}')">删除</button>
                 </div>
             </div>
         </div>
-    `).join('');
+    `;}).join('');
 }
 
 function showAddLLMModelModal() {
@@ -8750,7 +8754,9 @@ function renderSmallModels() {
         return;
     }
     
-    container.innerHTML = smallModels.map(m => `
+    container.innerHTML = smallModels.map(m => {
+        const safeMId = escapeHtml(m.id);
+        return `
         <div class="model-card ${m.enabled ? '' : 'disabled'}">
             <div class="model-card-header">
                 <span class="model-icon">📝</span>
@@ -8764,13 +8770,13 @@ function renderSmallModels() {
             <div class="model-card-footer">
                 <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
                 <div class="model-actions">
-                    <button class="btn btn-sm" onclick="runSmallModel('${m.id}')">运行</button>
-                    <button class="btn btn-sm" onclick="editSmallModel('${m.id}')">编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${m.id}')">删除</button>
+                    <button class="btn btn-sm" onclick="runSmallModel('${safeMId}')">运行</button>
+                    <button class="btn btn-sm" onclick="editSmallModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${safeMId}')">删除</button>
                 </div>
             </div>
         </div>
-    `).join('');
+    `;}).join('');
 }
 
 function showAddSmallModelModal() {

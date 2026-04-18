@@ -2997,6 +2997,15 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 
 	tableName := parts[6]
 
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名",
+		})
+		return
+	}
+
 	// 检查是否是特殊路径
 	if strings.HasSuffix(path, "/structure") {
 		// 获取表结构
@@ -4089,6 +4098,11 @@ func handleTableRename(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名不能为空"})
 		return
 	}
+	// 安全验证：检查新表名是否合法
+	if !isValidIdentifier(newName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效的新表名"})
+		return
+	}
 	if newName == tableName {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名与当前表名相同"})
 		return
@@ -4234,6 +4248,26 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 			"message": "表名和字段不能为空",
 		})
 		return
+	}
+
+	// 安全验证：检查表名是否合法
+	if !isValidIdentifier(req.Name) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名",
+		})
+		return
+	}
+
+	// 安全验证：检查列名是否合法
+	for _, col := range req.Columns {
+		if !isValidIdentifier(col.Name) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的列名: " + col.Name,
+			})
+			return
+		}
 	}
 
 	driver, dsn, err := buildDSN(config)
