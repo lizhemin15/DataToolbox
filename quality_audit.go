@@ -34,7 +34,23 @@ var (
 	// 审核取消控制
 	qaCancelMu    sync.Mutex
 	qaCancelFuncs = make(map[string]context.CancelFunc)
+
+	// 定时审核任务
+	qaSchedulerMu    sync.Mutex
+	qaSchedulerJobs  = make(map[string]*qaScheduledJob)
 )
+
+type qaScheduledJob struct {
+	DatabaseID string
+	RuleNMs    []string
+	CronExpr   string       // cron 表达式
+	Enabled    bool
+	LastRun    time.Time
+	NextRun    time.Time
+	CreatedBy  string
+	CreatedAt  time.Time
+	stopChan   chan struct{}
+}
 
 // 取消正在执行的审核
 func qaCancel(databaseID string) {
@@ -58,6 +74,153 @@ func qaClearCancel(databaseID string) {
 	qaCancelMu.Lock()
 	defer qaCancelMu.Unlock()
 	delete(qaCancelFuncs, databaseID)
+}
+
+// 简单定时调度器 (不支持复杂 cron，只支持分钟间隔)
+func qaScheduleJob(jobID, databaseID string, ruleNMs []string, intervalMinutes int, username string) error {
+	qaSchedulerMu.Lock()
+	defer qaSchedulerMu.Unlock()
+
+	// 停止已存在的任务
+	if existing, ok := qaSchedulerJobs[jobID]; ok {
+		close(existing.stopChan)
+	}
+
+	job := &qaScheduledJob{
+		DatabaseID: databaseID,
+		RuleNMs:    ruleNMs,
+		CronExpr:   fmt.Sprintf("every %d minutes", intervalMinutes),
+		Enabled:    true,
+		CreatedBy:  username,
+		CreatedAt:  time.Now(),
+		NextRun:    time.Now().Add(time.Duration(intervalMinutes) * time.Minute),
+		stopChan:   make(chan struct{}),
+	}
+	qaSchedulerJobs[jobID] = job
+
+	// 启动定时任务
+	go func() {
+		ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-job.stopChan:
+				return
+			case <-ticker.C:
+				if !job.Enabled {
+					continue
+				}
+				// 执行审核
+				qaRunScheduledAudit(jobID, job)
+				job.LastRun = time.Now()
+				job.NextRun = time.Now().Add(time.Duration(intervalMinutes) * time.Minute)
+			}
+		}
+	}()
+
+	return nil
+}
+
+// 执行定时审核
+func qaRunScheduledAudit(jobID string, job *qaScheduledJob) {
+	dataOntologyMu.RLock()
+	dbConfig, ok := dataOntologyDatabases[job.DatabaseID]
+	dataOntologyMu.RUnlock()
+	if !ok {
+		return
+	}
+
+	driver, dsn, err := buildDSN(dbConfig)
+	if err != nil {
+		return
+	}
+	targetDB, err := sql.Open(driver, dsn)
+	if err != nil {
+		return
+	}
+	defer targetDB.Close()
+
+	targetDB.SetMaxOpenConns(5)
+	targetDB.SetMaxIdleConns(2)
+
+	flat, _ := loadRulesFlat()
+	byNM := map[string]qaRule{}
+	for _, x := range flat {
+		byNM[x.NM] = x
+	}
+
+	dialect := normalizeQualityDialect(dbConfig.Type)
+	metaDB, _ := openQualityAuditDB()
+
+	for _, nm := range job.RuleNMs {
+		nm = padNM(nm)
+		rule, exists := byNM[nm]
+		if !exists {
+			continue
+		}
+		orig := strings.TrimSpace(rule.SQL)
+		if orig == "" {
+			continue
+		}
+		safeSQL, sqlErr := sanitizeSQLForQA(orig)
+		if sqlErr != nil {
+			continue
+		}
+		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
+		cnt, _, errExec := executeRuleQuery(targetDB, execSQL)
+		if errExec != nil {
+			if metaDB != nil {
+				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+					job.DatabaseID, rule.NM, rule.Name, errExec.Error(), time.Now().Format(time.RFC3339), "scheduler")
+			}
+		} else {
+			// 记录结果
+			if metaDB != nil {
+				summaryJSON, _ := json.Marshal(map[string]interface{}{
+					"job_id":        jobID,
+					"rule_nm":       rule.NM,
+					"rule_name":     rule.Name,
+					"violation_count": cnt,
+					"passed":        cnt == 0,
+				})
+				_, _ = metaDB.Exec(`INSERT INTO audit_history (database_id, database_type, executed_at, duration_ms, summary, created_by) VALUES (?,?,?,?,?,?)`,
+					job.DatabaseID, dbConfig.Type, time.Now().Format(time.RFC3339), 0, string(summaryJSON), "scheduler")
+			}
+		}
+	}
+}
+
+// 停止定时任务
+func qaStopScheduleJob(jobID string) {
+	qaSchedulerMu.Lock()
+	defer qaSchedulerMu.Unlock()
+	if job, ok := qaSchedulerJobs[jobID]; ok {
+		close(job.stopChan)
+		delete(qaSchedulerJobs, jobID)
+	}
+}
+
+// 获取所有定时任务
+func qaListScheduleJobs() []map[string]interface{} {
+	qaSchedulerMu.Lock()
+	defer qaSchedulerMu.Unlock()
+
+	var jobs []map[string]interface{}
+	for id, job := range qaSchedulerJobs {
+		jobs = append(jobs, map[string]interface{}{
+			"job_id":     id,
+			"database_id": job.DatabaseID,
+			"rule_nms":   job.RuleNMs,
+			"cron_expr":  job.CronExpr,
+			"enabled":    job.Enabled,
+			"last_run":   job.LastRun.Format(time.RFC3339),
+			"next_run":   job.NextRun.Format(time.RFC3339),
+			"created_by": job.CreatedBy,
+			"created_at": job.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return jobs
 }
 
 type qaCacheEntry struct {
@@ -703,6 +866,12 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaExecuteCancel(w, r, username)
 	case path == "export" && r.Method == http.MethodGet:
 		qaExportReport(w, r, username)
+	case path == "schedule" && r.Method == http.MethodGet:
+		qaScheduleList(w, r, username)
+	case path == "schedule" && r.Method == http.MethodPost:
+		qaScheduleCreate(w, r, username)
+	case len(parts) == 2 && parts[0] == "schedule" && r.Method == http.MethodDelete:
+		qaScheduleDelete(w, parts[1], username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
 	case path == "preview" && r.Method == http.MethodPost:
@@ -1363,6 +1532,60 @@ func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 		"success":     true,
 		"message":     "已发送取消信号",
 		"database_id": req.DatabaseID,
+	})
+}
+
+// 定时任务列表
+func qaScheduleList(w http.ResponseWriter, r *http.Request, username string) {
+	jobs := qaListScheduleJobs()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"jobs":    jobs,
+		"count":   len(jobs),
+	})
+}
+
+// 创建定时任务
+func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
+	var req struct {
+		JobID           string   `json:"job_id"`
+		DatabaseID      string   `json:"database_id"`
+		RuleNMs         []string `json:"rule_nms"`
+		IntervalMinutes int      `json:"interval_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		return
+	}
+	if req.DatabaseID == "" || len(req.RuleNMs) == 0 || req.IntervalMinutes < 1 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "参数不完整或无效"})
+		return
+	}
+	if req.JobID == "" {
+		req.JobID = fmt.Sprintf("job_%s_%d", req.DatabaseID, time.Now().Unix())
+	}
+
+	err := qaScheduleJob(req.JobID, req.DatabaseID, req.RuleNMs, req.IntervalMinutes, username)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"message":  "定时任务创建成功",
+		"job_id":   req.JobID,
+		"next_run": time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute).Format(time.RFC3339),
+	})
+}
+
+// 删除定时任务
+func qaScheduleDelete(w http.ResponseWriter, jobID string, username string) {
+	qaStopScheduleJob(jobID)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "定时任务已删除",
+		"job_id":  jobID,
 	})
 }
 
