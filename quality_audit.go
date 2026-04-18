@@ -30,7 +30,35 @@ var (
 	qaCacheMu    sync.RWMutex
 	qaCache      = make(map[string]qaCacheEntry)
 	qaCacheTTL   = 10 * time.Minute // 缓存有效期
+
+	// 审核取消控制
+	qaCancelMu    sync.Mutex
+	qaCancelFuncs = make(map[string]context.CancelFunc)
 )
+
+// 取消正在执行的审核
+func qaCancel(databaseID string) {
+	qaCancelMu.Lock()
+	defer qaCancelMu.Unlock()
+	if cancel, ok := qaCancelFuncs[databaseID]; ok {
+		cancel()
+		delete(qaCancelFuncs, databaseID)
+	}
+}
+
+// 注册取消函数
+func qaRegisterCancel(databaseID string, cancel context.CancelFunc) {
+	qaCancelMu.Lock()
+	defer qaCancelMu.Unlock()
+	qaCancelFuncs[databaseID] = cancel
+}
+
+// 清理取消函数
+func qaClearCancel(databaseID string) {
+	qaCancelMu.Lock()
+	defer qaCancelMu.Unlock()
+	delete(qaCancelFuncs, databaseID)
+}
 
 type qaCacheEntry struct {
 	result    []map[string]interface{}
@@ -671,6 +699,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaExecute(w, r, username)
 	case path == "execute/stream" && r.Method == http.MethodPost:
 		qaExecuteStream(w, r, username)
+	case len(parts) == 2 && parts[0] == "execute" && parts[1] == "cancel" && r.Method == http.MethodPost:
+		qaExecuteCancel(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
 		qaReport(w, r, username)
 	case path == "preview" && r.Method == http.MethodPost:
@@ -1309,6 +1339,28 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 			"failed":      failed,
 		},
 		"rules": ruleResults,
+	})
+}
+
+// 取消审核
+func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
+	var req struct {
+		DatabaseID string `json:"database_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "JSON 解析失败"})
+		return
+	}
+	if req.DatabaseID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 必填"})
+		return
+	}
+
+	qaCancel(req.DatabaseID)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"message":     "已发送取消信号",
+		"database_id": req.DatabaseID,
 	})
 }
 
