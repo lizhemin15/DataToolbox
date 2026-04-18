@@ -1835,7 +1835,6 @@ body {
     border-radius: 14px; z-index: 10;
 }
 .dg-overlay-box { text-align: center; padding: 24px; }
-.dg-word-choice { }
 .dg-choice-hint { font-size: 15px; color: #555; margin-bottom: 16px; font-weight: 500; }
 .dg-word-btns { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 .dg-word-btn {
@@ -1844,10 +1843,8 @@ body {
     cursor: pointer; transition: all 0.2s;
 }
 .dg-word-btn:hover { background: #07c160; color: #fff; transform: scale(1.05); }
-.dg-round-end { }
 .dg-round-msg { font-size: 18px; font-weight: 600; color: #333; margin-bottom: 8px; }
 .dg-round-next { font-size: 14px; color: #888; }
-.dg-final { }
 .dg-final-title { font-size: 32px; font-weight: 700; margin-bottom: 12px; }
 .dg-final-score { font-size: 16px; color: #555; margin-bottom: 20px; }
 .dg-final-close-btn {

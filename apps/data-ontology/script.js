@@ -688,12 +688,16 @@ function initEventListeners() {
             popover.style.top = rect.top + 'px';
         }
     });
-    document.addEventListener('click', function(e) {
-        const popover = document.getElementById('apikeyPopover');
-        if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
-            popover.classList.remove('show');
-        }
-    });
+    // API Key 弹出层关闭处理器（保存引用避免重复添加）
+    if (!window._apikeyPopoverClickHandler) {
+        window._apikeyPopoverClickHandler = function(e) {
+            const popover = document.getElementById('apikeyPopover');
+            if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
+                popover.classList.remove('show');
+            }
+        };
+        document.addEventListener('click', window._apikeyPopoverClickHandler);
+    }
     document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
     document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
     document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
@@ -1566,6 +1570,10 @@ async function handleAddDatabase(e) {
 }
 
 // 加载数据库列表
+/**
+ * 从后端获取数据库列表并更新 UI
+ * @returns {Promise<void>}
+ */
 async function loadDatabases() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
@@ -5626,6 +5634,10 @@ let govSelectedFiles = [];
     });
 })();
 
+/**
+ * 加载治理任务列表并恢复上次选中的任务状态
+ * @returns {Promise<void>}
+ */
 async function loadGovernanceTasks() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`);
@@ -6224,7 +6236,13 @@ async function executeGovTaskOnBackend(files, inputText) {
     }
 }
 
-// 轮询任务进度
+/**
+ * 轮询任务执行进度
+ * 每 2 秒查询一次后端进度接口，直到任务完成或出错
+ * @param {string} taskId - 任务 ID
+ * @param {string} runId - 执行 ID
+ * @returns {Promise<void>}
+ */
 async function pollTaskProgress(taskId, runId) {
     const container = document.getElementById('govTaskOutput');
 
@@ -6296,6 +6314,11 @@ async function pollTaskProgress(taskId, runId) {
 
 let govLibsLoaded = false;
 
+/**
+ * 动态加载治理任务所需的第三方库（XLSX, PapaParse, mammoth, PizZip, docxtemplater）
+ * 采用延迟加载策略，仅在首次执行治理任务时加载
+ * @returns {Promise<void>}
+ */
 async function ensureGovLibsLoaded() {
     if (govLibsLoaded) return;
     const libs = [

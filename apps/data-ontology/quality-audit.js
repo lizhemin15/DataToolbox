@@ -242,9 +242,16 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.addEventListener('keydown', function (ev) {
-            if (ev.key === 'Escape' && modal.classList.contains('is-open')) closeQaTplModal();
-        });
+        // 保存 keydown 处理器引用，避免重复添加监听器
+        if (!window._qaTplKeydownHandler) {
+            window._qaTplKeydownHandler = function (ev) {
+                var modal = document.getElementById('qaTplModal');
+                if (ev.key === 'Escape' && modal && modal.classList.contains('is-open')) {
+                    closeQaTplModal();
+                }
+            };
+            document.addEventListener('keydown', window._qaTplKeydownHandler);
+        }
     }
 
     function showMsg(text, isErr) {
