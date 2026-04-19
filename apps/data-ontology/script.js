@@ -4101,8 +4101,15 @@ function saveTabSettings() {
     // 保存嵌入模式设置
     const embedModeToggle = document.getElementById('embedModeToggle');
     const embedMode = embedModeToggle ? embedModeToggle.checked : false;
-    localStorage.setItem('embedMode', embedMode ? '1' : '0');
     applyEmbedMode(embedMode);
+
+    // 保存到服务器
+    (async () => {
+        const userSettings = await loadUserSettings();
+        userSettings.embedMode = embedMode;
+        userSettings.tabVisibility = settings;
+        await saveUserSettings(userSettings);
+    })();
 
     try {
         localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
@@ -4143,9 +4150,40 @@ function applyEmbedMode(enabled) {
     }
 }
 
+// 从服务器加载用户设置
+async function loadUserSettings() {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings');
+        const data = await resp.json();
+        if (data.success && data.settings) {
+            return data.settings;
+        }
+    } catch (e) {
+        console.error('加载用户设置失败：', e);
+    }
+    return {};
+}
+
+// 保存用户设置到服务器
+async function saveUserSettings(settings) {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: settings })
+        });
+        const data = await resp.json();
+        return data.success;
+    } catch (e) {
+        console.error('保存用户设置失败：', e);
+        return false;
+    }
+}
+
 // 初始化嵌入模式
-function initEmbedMode() {
-    const embedMode = localStorage.getItem('embedMode') === '1';
+async function initEmbedMode() {
+    const settings = await loadUserSettings();
+    const embedMode = settings.embedMode === true;
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = embedMode;

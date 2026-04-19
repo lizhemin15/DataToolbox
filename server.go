@@ -792,10 +792,11 @@ func (c *Client) writePump() {
 
 // User 用户
 type User struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Token    string `json:"token"`
-	ApiKey   string `json:"api_key,omitempty"`
+	Username string                 `json:"username"`
+	Password string                 `json:"password"`
+	Token    string                 `json:"token"`
+	ApiKey   string                 `json:"api_key,omitempty"`
+	Settings map[string]interface{} `json:"settings,omitempty"` // 用户设置（嵌入模式等）
 }
 
 // DatabaseConfig 数据库配置
@@ -2280,6 +2281,61 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
 		log.Printf("[APIKey] 删除API Key: user=%s", currentUser.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true})
+	default:
+		apiMethodNotAllowed(w, "不支持的方法")
+	}
+}
+
+// handleUserSettings 管理用户设置（GET获取/POST保存）
+func handleUserSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+	loginToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	var currentUser *User
+	for _, u := range dataOntologyUsers {
+		if u.Token == loginToken {
+			currentUser = u
+			break
+		}
+	}
+	if currentUser == nil {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		settings := currentUser.Settings
+		if settings == nil {
+			settings = map[string]interface{}{}
+		}
+		jsonSuccess(w, map[string]interface{}{"success": true, "settings": settings})
+	case http.MethodPost:
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			apiBadRequest(w, "无效的请求体")
+			return
+		}
+		if currentUser.Settings == nil {
+			currentUser.Settings = map[string]interface{}{}
+		}
+		for k, v := range body {
+			currentUser.Settings[k] = v
+		}
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		dataOntologyMu.Lock()
+		log.Printf("[Settings] 保存用户设置: user=%s", currentUser.Username)
 		jsonSuccess(w, map[string]interface{}{"success": true})
 	default:
 		apiMethodNotAllowed(w, "不支持的方法")
@@ -9653,6 +9709,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
 	mux.HandleFunc("/api/data-ontology/users/", handleDataOntologyUsersDetail)
 	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
+	mux.HandleFunc("/api/data-ontology/settings", handleUserSettings)
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
