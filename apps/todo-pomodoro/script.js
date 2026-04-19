@@ -324,7 +324,7 @@ function renderTaskTree(task, level, allTasks = null) {
                     🍅
                 </button>
                 <button class="task-action-btn" onclick="event.stopPropagation(); deleteTask('${task.id}')" title="删除">
-                    🗑️
+                    ❌
                 </button>
             </div>
         </div>

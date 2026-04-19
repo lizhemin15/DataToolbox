@@ -459,6 +459,9 @@ body {
     font-size: 14px;
     color: #2d3748;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .settings-checkbox-item input:checked + span {
@@ -1146,6 +1149,9 @@ body {
     border-radius: 8px;
     background: #f7fafc;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .detail-enabled-label {
@@ -2634,6 +2640,9 @@ textarea#testApiParams {
     font-style: italic;
     font-size: 12px;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .row-deleted {
@@ -2661,7 +2670,7 @@ textarea#testApiParams {
 }
 
 .row-deleted::after {
-    content: "🗑️ 将被删除";
+    content: "❌ 将被删除";
     position: absolute;
     left: -90px;
     top: 50%;
@@ -2758,6 +2767,9 @@ textarea#testApiParams {
     font-weight: 500;
     white-space: nowrap;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     padding: 6px 10px;
     border-radius: 6px;
     transition: background 0.2s ease;
@@ -2867,6 +2879,9 @@ textarea#testApiParams {
     cursor: pointer;
     font-weight: 500;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .structure-column-fields .form-group-inline input[type="checkbox"] {
@@ -4272,6 +4287,7 @@ textarea#testApiParams {
     justify-content: center;
     background: rgba(10, 14, 26, 0.82);
     backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
     z-index: 20;
 }
 
@@ -4683,12 +4699,18 @@ textarea#testApiParams {
 .onto-node-label {
     pointer-events: none;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     text-shadow: 0 1px 3px rgba(0,0,0,0.9);
 }
 
 .onto-link-label {
     pointer-events: none;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     text-shadow: 0 1px 3px rgba(0,0,0,0.8);
 }
 
@@ -5341,6 +5363,9 @@ textarea#testApiParams {
     text-align: center;
     flex-shrink: 0;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     font-size: 10px;
     line-height: 1.2;
     color: #4a5568;
@@ -5370,6 +5395,9 @@ textarea#testApiParams {
     font-size: 13px;
     cursor: pointer;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 .qa-fill-table-header {
     display: flex;
@@ -5586,6 +5614,7 @@ textarea#testApiParams {
     background: rgba(15, 23, 42, 0.48);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }
 .qa-tpl-shell {
     position: relative;
@@ -5763,6 +5792,9 @@ textarea#testApiParams {
     color: #475569;
     cursor: pointer;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 .qa-tpl-switch input {
     width: auto;

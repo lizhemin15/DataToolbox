@@ -63,7 +63,7 @@ const appsData = [
     {
         "id": "mybatis-learn",
         "name": "MyBatis语法学习",
-        "icon": "🗺️",
+        "icon": "📍",
         "description": "闯关式学习MyBatis XML Mapper语法，从基础CRUD到动态SQL",
         "keywords": ["MyBatis", "学习", "教程", "映射", "XML", "Mapper", "闯关"],
         "category": "learn",
@@ -90,7 +90,7 @@ const appsData = [
     {
         "id": "htmltool-learn",
         "name": "HTML工具开发学习",
-        "icon": "🛠️",
+        "icon": "🔧",
         "description": "闯关式学习用HTML+CSS+JS开发数据处理工具，从终端创建文件到完整工具开发",
         "keywords": ["HTML", "CSS", "JavaScript", "工具", "开发", "学习", "闯关", "数据处理"],
         "category": "learn",
@@ -135,7 +135,7 @@ const appsData = [
     {
         "id": "llm-learn",
         "name": "大模型使用教程",
-        "icon": "🧠",
+        "icon": "💡",
         "description": "闯关式学习大语言模型使用技巧，从API调用到提示词工程，再到Prompt攻防挑战",
         "keywords": ["大模型", "LLM", "AI", "提示词", "Prompt", "GPT", "学习", "闯关", "攻防"],
         "category": "learn",
@@ -144,7 +144,7 @@ const appsData = [
     {
         "id": "dsa-learn",
         "name": "数据结构与算法学习",
-        "icon": "🧮",
+        "icon": "🔢",
         "description": "闯关式学习JavaScript数据结构与算法，从数组基础到树与图的进阶挑战",
         "keywords": ["数据结构", "算法", "排序", "搜索", "栈", "队列", "链表", "树", "学习", "闯关"],
         "category": "learn",
@@ -171,7 +171,7 @@ const appsData = [
     {
         "id": "lowcode-dev",
         "name": "低代码开发（开发完善中）",
-        "icon": "🧩",
+        "icon": "🎮",
         "description": "可视化拖拽构建数据处理应用，支持Excel/Word/数据操作模块，编译为独立HTML应用",
         "keywords": ["低代码", "可视化", "拖拽", "编辑器", "编译", "应用开发"],
         "category": "tool",
@@ -252,7 +252,7 @@ const appsData = [
     {
         "id": "data-ontology",
         "name": "数据本体池",
-        "icon": "🗄️",
+        "icon": "📦",
         "description": "一体化数据平台，支持20+种数据库：MySQL、PostgreSQL、Oracle、达梦、SQL Server、SQLite、DuckDB、TiDB、CockroachDB、MongoDB、Redis、ClickHouse、Cassandra、InfluxDB、TimescaleDB、Elasticsearch、Neo4j等",
         "keywords": ["数据库", "MySQL", "PostgreSQL", "Oracle", "达梦", "MongoDB", "Redis", "ClickHouse", "TiDB", "Neo4j", "数据治理", "本体论", "接口", "AI", "数据管理", "联机"],
         "category": "online",

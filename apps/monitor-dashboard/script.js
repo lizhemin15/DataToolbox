@@ -20,7 +20,7 @@ const WIDGET_TYPES = {
     number:   { name: '数值卡片', icon: '🔢', w: 220, h: 150, ds: true },
     progress: { name: '进度条',   icon: '📊', w: 380, h: 80,  ds: true },
     table:    { name: '数据表格', icon: '📋', w: 480, h: 280, ds: true },
-    image:    { name: '图片',     icon: '🖼️', w: 300, h: 200, ds: false },
+    image:    { name: '图片',     icon: '📷', w: 300, h: 200, ds: false },
     iframe:   { name: '网页嵌入', icon: '🌐', w: 480, h: 360, ds: false },
     log:      { name: '日志流',   icon: '📜', w: 460, h: 260, ds: true }
 };
@@ -490,7 +490,7 @@ function renderPropsPanel() {
     if (!w) { propsContent.innerHTML = '<div class="props-empty">点击选中组件<br>以编辑属性</div>'; return; }
     const c = w.config;
     const T = WIDGET_TYPES[w.type];
-    let html = `<div class="props-header"><span>${T.icon} ${T.name}</span><div><button class="props-delete" onclick="duplicateWidget('${w.id}')" title="复制" style="margin-right:4px;border-color:var(--accent);color:var(--accent)">📋</button><button class="props-delete" onclick="deleteWidget('${w.id}')" title="删除">🗑️</button></div></div>`;
+    let html = `<div class="props-header"><span>${T.icon} ${T.name}</span><div><button class="props-delete" onclick="duplicateWidget('${w.id}')" title="复制" style="margin-right:4px;border-color:var(--accent);color:var(--accent)">📋</button><button class="props-delete" onclick="deleteWidget('${w.id}')" title="删除">❌</button></div></div>`;
 
     html += `<div class="props-section"><h4>位置与尺寸</h4>
         <div class="prop-row"><label>X</label><input type="number" data-prop="x" value="${w.x}" step="${state.dashboard.gridSize}"><label>Y</label><input type="number" data-prop="y" value="${w.y}" step="${state.dashboard.gridSize}"></div>
@@ -898,7 +898,7 @@ canvas.addEventListener('contextmenu', e => {
         <div class="ctx-item" onclick="duplicateWidget('${wid}');removeCtxMenu()">📋 复制组件</div>
         <div class="ctx-item" onclick="bringToFront('${wid}');removeCtxMenu()">⬆️ 置顶</div>
         <div class="ctx-sep"></div>
-        <div class="ctx-item" onclick="deleteWidget('${wid}');removeCtxMenu()" style="color:var(--danger)">🗑️ 删除</div>`;
+        <div class="ctx-item" onclick="deleteWidget('${wid}');removeCtxMenu()" style="color:var(--danger)">❌ 删除</div>`;
     ctxMenu.style.left = e.clientX + 'px';
     ctxMenu.style.top = e.clientY + 'px';
     document.body.appendChild(ctxMenu);
@@ -979,7 +979,7 @@ function onPaletteDragEnd(e) {
 // ==================== Templates ====================
 const TEMPLATES = [
     {
-        id: 'server', icon: '🖥️', name: '服务器监控', desc: 'CPU、内存、磁盘、网络流量与系统日志',
+        id: 'server', icon: '💻', name: '服务器监控', desc: 'CPU、内存、磁盘、网络流量与系统日志',
         build: () => ({
             dashboard: { name: '服务器监控中心', width: 1920, height: 1080, background: '#070b1a', gridSize: 20, showGrid: true },
             widgets: [

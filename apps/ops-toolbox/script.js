@@ -451,7 +451,7 @@ function escHtml(s) {
 function getFileIcon(name) {
     const ext = (name.split('.').pop() || '').toLowerCase();
     const icons = {
-        jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️',
+        jpg: '📷', jpeg: '📷', png: '📷', gif: '📷', svg: '📷', webp: '📷',
         mp4: '🎬', mov: '🎬', avi: '🎬', mkv: '🎬',
         mp3: '🎵', wav: '🎵', flac: '🎵',
         pdf: '📕', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊', ppt: '📊', pptx: '📊',

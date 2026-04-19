@@ -710,7 +710,7 @@ function renderPropertyPanel() {
         html += `
             <div class="property-group">
                 <button class="btn-secondary" style="width:100%;" onclick="deleteComponent('${comp.id}')">
-                    🗑️ 删除组件
+                    ❌ 删除组件
                 </button>
             </div>
         `;

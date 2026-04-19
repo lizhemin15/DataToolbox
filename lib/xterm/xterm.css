@@ -39,6 +39,9 @@
     cursor: text;
     position: relative;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     -ms-user-select: none;
     -webkit-user-select: none;
 }
@@ -158,6 +161,9 @@
 
 .xterm .xterm-accessibility-tree {
   user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
   white-space: pre;
 }
 

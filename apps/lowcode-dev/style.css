@@ -160,6 +160,9 @@ body {
     cursor: grab;
     transition: all 0.2s;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .component-item:hover {
@@ -1002,6 +1005,9 @@ body {
     font-size: 14px;
     color: #1d1d1f;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 /* 文件上传区域样式 */
@@ -1073,6 +1079,9 @@ body {
     cursor: pointer;
     transition: all 0.2s;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .component-control label:hover {
@@ -1135,6 +1144,7 @@ body {
     justify-content: center;
     z-index: 1000;
     backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
 }
 
 .modal-content {

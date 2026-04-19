@@ -57,10 +57,10 @@ let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
 const aiModules = [
-    { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '查询、写入、表结构操作' },
+    { id: 'db-manage', name: '数据库管理', icon: '📦', description: '查询、写入、表结构操作' },
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
     { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
-    { id: 'ontology', name: '本体论抽象', icon: '🧠', description: '开发中...' },
+    { id: 'ontology', name: '本体论抽象', icon: '💡', description: '开发中...' },
 ];
 
 let aiSessionContext = {
@@ -1638,7 +1638,7 @@ function renderDatabaseList() {
     });
 
     listEl.innerHTML = sortedDatabases.map(db => {
-        const typeIcon = dbTypeIcons[db.type] || '🗄️';
+        const typeIcon = dbTypeIcons[db.type] || '📦';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
         
@@ -1890,7 +1890,7 @@ async function previewTable(tableName, keepEditMode = false) {
                                         const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
                                         return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
                                     }).join('')}
-                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button></td>` : ''}
+                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">❌</button></td>` : ''}
                                 </tr>
                             `;
                         }).join('') : `
@@ -2198,7 +2198,7 @@ function addTableRow() {
         `<td data-column="${escapeHtml(col)}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
     ).join('') + `
         <td class="action-column">
-            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button>
+            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">❌</button>
         </td>
     `;
     
@@ -2250,7 +2250,7 @@ function deleteTableRow(rowId) {
             row.dataset.deleted = 'false';
             row.classList.remove('row-deleted');
             if (deleteBtn) {
-                deleteBtn.textContent = '🗑️';
+                deleteBtn.textContent = '❌';
                 deleteBtn.title = '删除行';
             }
         } else {
@@ -2422,7 +2422,7 @@ function renderEditStructure(columns) {
                 <div class="structure-column-header">
                     <span class="column-number">#${index + 1}</span>
                     <input type="text" class="form-control" value="${col.name}" data-field="name" placeholder="列名" />
-                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">❌</button>
                 </div>
                 <div class="structure-column-fields">
                     <div class="form-group">
@@ -2478,7 +2478,7 @@ function addStructureColumn() {
         <div class="structure-column-header">
             <span class="column-number">#${index + 1}</span>
             <input type="text" class="form-control" data-field="name" placeholder="列名" />
-            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">❌</button>
         </div>
         <div class="structure-column-fields">
             <div class="form-group">
@@ -4343,7 +4343,7 @@ function showDbSuggestions(searchTerm) {
     if (matchedDbs.length > 0) {
         html += '<div class="ai-suggestion-group-title">数据库</div>';
         html += matchedDbs.map(db => {
-            const typeIcon = dbTypeIcons[db.type] || '🗄️';
+            const typeIcon = dbTypeIcons[db.type] || '📦';
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
             const info = isFileDb ? db.path : `${db.host}:${db.port}`;
             const safeDbId = escapeHtml(db.id);
@@ -5338,7 +5338,7 @@ function updateAiContextDisplay() {
         }
         if (hasDbs) {
             tagsHtml += aiSessionContext.databases.map(db => {
-                const icon = dbTypeIcons[db.type] || '🗄️';
+                const icon = dbTypeIcons[db.type] || '📦';
                 return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
             }).join('');
         }
@@ -5638,7 +5638,7 @@ function showCreateTableModal() {
             <label><input type="checkbox" class="column-notnull" checked> NOT NULL</label>
             <label><input type="checkbox" class="column-primary" checked> 主键</label>
             <label><input type="checkbox" class="column-autoincrement" checked> 自增</label>
-            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">❌</button>
         </div>
     `;
 }
@@ -5667,7 +5667,7 @@ function addTableColumn() {
         <label><input type="checkbox" class="column-notnull"> NOT NULL</label>
         <label><input type="checkbox" class="column-primary"> 主键</label>
         <label><input type="checkbox" class="column-autoincrement"> 自增</label>
-        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">❌</button>
     `;
     columnsContainer.appendChild(newColumn);
 }
@@ -8430,7 +8430,7 @@ async function doOntologyQuery() {
 
     const resultEl = document.getElementById('ontoQueryResult');
     resultEl.style.display = '';
-    resultEl.innerHTML = '<span style="color:#667eea">🧠 AI正在进行语义推理...</span>';
+    resultEl.innerHTML = '<span style="color:#667eea">💡 AI正在进行语义推理...</span>';
 
     try {
         const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/query`, {
@@ -8509,7 +8509,7 @@ const DB_TYPE_ICONS = {
 };
 
 function getDbIcon(type) {
-    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '🗄️';
+    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '📦';
 }
 
 // ---- 自定义下拉：开关 ----

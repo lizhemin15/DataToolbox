@@ -29,6 +29,9 @@ body {
     overflow: hidden;
     height: 100vh;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 #app { display: flex; flex-direction: column; height: 100vh; }
@@ -415,6 +418,7 @@ body {
     align-items: center;
     justify-content: center;
     backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
 }
 .modal {
     background: var(--bg-panel);

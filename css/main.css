@@ -42,6 +42,7 @@ body {
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.15);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     color: white;
     outline: none;
     transition: all 0.3s ease;
@@ -85,6 +86,7 @@ body {
     cursor: pointer;
     transition: all 0.25s ease;
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .category-tab:hover {
@@ -130,6 +132,7 @@ body {
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     color: white;
     font-size: 14px;
     cursor: pointer;
@@ -163,6 +166,7 @@ body {
     max-width: 400px;
     background: rgba(255, 255, 255, 0.15);
     backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 12px;
     padding: 12px;
@@ -239,6 +243,7 @@ body {
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     color: white;
     font-size: 14px;
     cursor: pointer;
@@ -298,6 +303,7 @@ body {
 .app-card {
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
     padding: 28px;
@@ -327,6 +333,7 @@ body {
     margin-bottom: 18px;
     background: rgba(255, 255, 255, 0.2);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .app-name {

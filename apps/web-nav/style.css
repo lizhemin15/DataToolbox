@@ -98,6 +98,7 @@ body {
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     color: white;
     outline: none;
     transition: all 0.2s;
@@ -119,6 +120,7 @@ body {
 .app-card {
     background: rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 16px;
     padding: 24px;

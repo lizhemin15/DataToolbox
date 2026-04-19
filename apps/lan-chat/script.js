@@ -940,7 +940,7 @@ function showMultiFileConfirm(files, callback) {
     
     const fileListHTML = files.map((file, index) => `
         <div class="multi-file-item">
-            <div class="file-icon-small">${file.type.startsWith('image/') ? '🖼️' : '📎'}</div>
+            <div class="file-icon-small">${file.type.startsWith('image/') ? '📷' : '📎'}</div>
             <div class="file-info-small">
                 <div class="file-name-small">${escapeHtml(file.name)}</div>
                 <div class="file-size-small">${formatFileSize(file.size)}</div>
@@ -1188,7 +1188,7 @@ function showGameMenu() {
                         </div>
                     </div>
                     <div class="game-option" onclick="inviteGame('memory')">
-                        <div class="game-icon">🧠</div>
+                        <div class="game-icon">💡</div>
                         <div class="game-info">
                             <div class="game-name">记忆翻牌</div>
                             <div class="game-desc">考验记忆力</div>
@@ -2598,7 +2598,7 @@ function startMemory(opponentId, isHost) {
     game.innerHTML = `
         <div class="memory-game-content">
             <div class="memory-game-header">
-                <span>🧠 记忆翻牌 - 对战 ${peerName}</span>
+                <span>💡 记忆翻牌 - 对战 ${peerName}</span>
                 <button class="memory-game-close">×</button>
             </div>
             <div class="memory-game-body">

@@ -1083,7 +1083,7 @@ function showLevelSelect() {
             currentCategory = level.category;
             const catTitle = document.createElement('div');
             catTitle.className = 'category-title';
-            const catIcons = { '数据基础': '📐', '经典算法': '⚙️', '神经网络': '🧠', '数据制备实战': '🔧' };
+            const catIcons = { '数据基础': '📐', '经典算法': '⚙️', '神经网络': '💡', '数据制备实战': '🔧' };
             catTitle.textContent = (catIcons[currentCategory] || '📂') + ' ' + currentCategory;
             grid.appendChild(catTitle);
         }

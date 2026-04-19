@@ -605,6 +605,7 @@ body {
     justify-content: center;
     z-index: 1000;
     backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
 }
 
 .modal {

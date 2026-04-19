@@ -5,6 +5,9 @@ body {
   font-size: 13px;
   line-height: normal;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   -moz-user-select: none;
   font-family: 'Lato', 'Source Sans Pro', Roboto, Helvetica, Arial, sans-serif;
   box-sizing: content-box;
@@ -302,6 +305,9 @@ body {
 }
 .x-spreadsheet-item {
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   background: 0;
   border: 1px solid transparent;
   outline: none;
@@ -433,6 +439,9 @@ body {
   margin: 0;
   padding: 0;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 .x-spreadsheet-menu > li {
   float: left;
@@ -561,6 +570,9 @@ body {
   color: rgba(0, 0, 0, 0.65);
   background: #ffffff;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 .x-spreadsheet-calendar .calendar-header {
   font-weight: 700;
@@ -644,6 +656,9 @@ body {
   vertical-align: baseline;
   zoom: 1;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   transition: all 0.1s linear;
 }
 .x-spreadsheet-button.active,
@@ -697,6 +712,9 @@ body {
   cursor: pointer;
   color: rgba(0, 0, 0, 0.87);
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   box-shadow: inset 0 1px 2px hsla(0, 0%, 4%, 0.06);
 }
 .x-spreadsheet-form-select .input-text {
@@ -754,6 +772,9 @@ body {
   animation-duration: 0.5s;
   transition: background-color 0.5s linear;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   z-index: 1000;
 }
 .x-spreadsheet-dimmer.active {
@@ -843,6 +864,9 @@ form fieldset select {
   text-align: center;
   vertical-align: middle;
   user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   overflow: hidden;
   position: relative;
   display: inline-block;

@@ -2,9 +2,9 @@
 const PHASES = [
     { name: '文件与目录基础', icon: '📂' },
     { name: '网络诊断', icon: '🌐' },
-    { name: '服务器运维', icon: '🖥️' },
+    { name: '服务器运维', icon: '💻' },
     { name: 'Docker管理', icon: '🐳' },
-    { name: '数据库导入导出', icon: '🗄️' },
+    { name: '数据库导入导出', icon: '📦' },
     { name: 'Oracle数据库', icon: '🏛️' },
     { name: '达梦数据库', icon: '🐲' }
 ];

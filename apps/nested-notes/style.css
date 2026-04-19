@@ -166,6 +166,9 @@ body {
     cursor: pointer;
     flex-shrink: 0;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     border-radius: 3px;
     transition: color 0.15s;
 }
@@ -180,6 +183,9 @@ body {
     justify-content: center;
     flex-shrink: 0;
     user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
     cursor: default;
 }
 
