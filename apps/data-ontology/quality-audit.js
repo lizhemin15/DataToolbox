@@ -1032,8 +1032,23 @@
         // 规则树全选/取消全选
         document.getElementById('qaTreeSelectAll').addEventListener('change', function (e) {
             var checked = e.target.checked;
-            Object.keys(selectedNms).forEach(function (nm) { selectedNms[nm] = checked; });
+            // 从 flatRules 获取所有规则 NM
+            flatRules.forEach(function (r) {
+                if (r.sql && r.sql.trim()) { // 只选择有 SQL 的叶子规则
+                    selectedNms[r.nm] = checked;
+                }
+            });
+            // 更新所有复选框
             document.querySelectorAll('#qaTree .qa-rule-cb').forEach(function (cb) { cb.checked = checked; });
+            // 重新渲染树以更新父节点状态
+            var treeEl = document.getElementById('qaTree');
+            var openState = {};
+            treeEl.querySelectorAll('details').forEach(function (d) {
+                var k = d.dataset.treeNm;
+                if (k) openState[k] = d.open;
+            });
+            reconcileTree(ruleTree);
+            renderTree(ruleTree, treeEl, openState);
         });
 
         // 批量删除
