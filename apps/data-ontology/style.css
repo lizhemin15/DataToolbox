@@ -5855,3 +5855,40 @@ textarea#testApiParams {
     opacity: 0;
     transform: translateX(100%);
 }
+
+/* 嵌入模式样式 */
+body.embed-mode .header {
+    display: none !important;
+}
+
+body.embed-mode .main-content {
+    padding-top: 10px !important;
+}
+
+/* 嵌入模式浮动设置按钮 */
+.embed-settings-btn {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(102, 126, 234, 0.9);
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transition: all 0.2s ease;
+    display: none;
+}
+
+.embed-settings-btn:hover {
+    background: rgba(102, 126, 234, 1);
+    transform: scale(1.1);
+}
+
+body.embed-mode .embed-settings-btn {
+    display: block;
+}

@@ -887,6 +887,8 @@ function showMainPage() {
     updateUserMgmtNavVisibility();
     // 应用标签页可见性设置
     applyTabVisibility();
+    // 初始化嵌入模式
+    initEmbedMode();
     try {
         if (location.hash === '#quality') {
             switchTab('quality');
@@ -4096,6 +4098,12 @@ function saveTabSettings() {
         return false;
     }
 
+    // 保存嵌入模式设置
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    const embedMode = embedModeToggle ? embedModeToggle.checked : false;
+    localStorage.setItem('embedMode', embedMode ? '1' : '0');
+    applyEmbedMode(embedMode);
+
     try {
         localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
         applyTabVisibility(settings);
@@ -4118,6 +4126,37 @@ function resetTabSettings() {
     checkboxes.forEach(cb => {
         cb.checked = true;
     });
+    
+    // 同时重置嵌入模式
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = false;
+    }
+}
+
+// 应用嵌入模式
+function applyEmbedMode(enabled) {
+    if (enabled) {
+        document.body.classList.add('embed-mode');
+    } else {
+        document.body.classList.remove('embed-mode');
+    }
+}
+
+// 初始化嵌入模式
+function initEmbedMode() {
+    const embedMode = localStorage.getItem('embedMode') === '1';
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = embedMode;
+    }
+    applyEmbedMode(embedMode);
+    
+    // 嵌入模式下的浮动设置按钮
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (embedSettingsBtn) {
+        embedSettingsBtn.addEventListener('click', showSettingsModal);
+    }
 }
 
 // 应用标签页可见性
