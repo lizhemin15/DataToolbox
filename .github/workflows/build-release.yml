@@ -88,15 +88,18 @@ jobs:
             *) echo "Unknown matrix"; exit 1 ;;
           esac
           cd ..
-          go build -ldflags="-s -w" -o ${{ matrix.output }} .
+          # 使用 release 标签构建，不嵌入静态文件
+          go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
 
       - name: Prepare package files
         run: |
-          mkdir -p package
+          mkdir -p package/web
           cp ${{ matrix.output }} package/
           cp server.config.json package/
           cp install.sh README_DEPLOY.md package/
           chmod +x package/install.sh
+          # 复制静态文件到 web 目录
+          cp -r index.html apps css js lib package/web/
           # 复制 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
             cp gov-runner/gov-runner.exe package/
@@ -195,6 +198,23 @@ jobs:
             - **Linux (ARM64)**: `datatoolbox-linux-arm64.tar.gz`
             - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`
             - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
+            
+            ### 📁 目录结构
+            
+            解压后目录结构：
+            ```
+            datatoolbox/
+            ├── datatoolbox-server    # 可执行文件（体积小，不含静态资源）
+            ├── web/                  # 静态资源目录
+            │   ├── index.html
+            │   ├── apps/
+            │   ├── css/
+            │   ├── js/
+            │   └── lib/
+            ├── gov-runner           # 治理任务运行器
+            ├── server.config.json   # 配置文件
+            └── install.sh           # 安装脚本
+            ```
             
             ### 🚀 使用方法
             

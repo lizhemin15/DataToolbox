@@ -163,6 +163,10 @@ copy_package_to() {
       cp -f "$SCRIPT_DIR/$f" "$dest/"
     fi
   done
+  # 复制 web 目录（静态资源）
+  if [[ -d "$SCRIPT_DIR/web" ]]; then
+    cp -r "$SCRIPT_DIR/web" "$dest/"
+  fi
   chmod +x "$dest/$bin_name" 2>/dev/null || true
   [[ -f "$dest/start.sh" ]] && chmod +x "$dest/start.sh" 2>/dev/null || true
 }
