@@ -4143,10 +4143,13 @@ function resetTabSettings() {
 
 // 应用嵌入模式
 function applyEmbedMode(enabled) {
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
     if (enabled) {
         document.body.classList.add('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'block';
     } else {
         document.body.classList.remove('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'none';
     }
 }
 

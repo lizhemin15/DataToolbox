@@ -5857,7 +5857,11 @@ textarea#testApiParams {
 }
 
 /* 嵌入模式样式 */
-body.embed-mode .header {
+body.embed-mode .header-left h1 {
+    display: none !important;
+}
+
+body.embed-mode .header-right {
     display: none !important;
 }
 

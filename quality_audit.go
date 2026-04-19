@@ -832,6 +832,25 @@ func buildRuleTree(list []qaRule) []*qaRuleTree {
 	return roots
 }
 
+// qaRespondSuccess 返回与数据本体池其它接口一致的成功 JSON（含 success: true）。
+// jsonSuccess 仅序列化传入 map，历史上未写入 success，前端按 !d.success 会误判为失败。
+func qaRespondSuccess(w http.ResponseWriter, data map[string]interface{}) {
+	if data == nil {
+		jsonSuccess(w, map[string]interface{}{"success": true})
+		return
+	}
+	if _, ok := data["success"]; ok {
+		jsonSuccess(w, data)
+		return
+	}
+	out := make(map[string]interface{}, len(data)+1)
+	for k, v := range data {
+		out[k] = v
+	}
+	out["success"] = true
+	jsonSuccess(w, out)
+}
+
 func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -902,7 +921,7 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 		return
 	}
 	tree := buildRuleTree(list)
-	jsonSuccess(w, map[string]interface{}{"tree": tree, "flat": list})
+	qaRespondSuccess(w, map[string]interface{}{"tree": tree, "flat": list})
 }
 
 func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
@@ -961,7 +980,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 			body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), newVersion, now, username, body.ChangeReason)
 	}
 
-	jsonSuccess(w, nil)
+	qaRespondSuccess(w, nil)
 }
 
 func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
@@ -983,7 +1002,7 @@ func qaRulesDELETE(w http.ResponseWriter, nm string, username string) {
 		apiInternalError(w, "删除规则失败")
 		return
 	}
-	jsonSuccess(w, nil)
+	qaRespondSuccess(w, nil)
 }
 
 func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
@@ -1033,7 +1052,7 @@ ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.S
 		apiInternalError(w, err.Error())
 		return
 	}
-	jsonSuccess(w, map[string]interface{}{"imported": n})
+	qaRespondSuccess(w, map[string]interface{}{"imported": n})
 }
 
 type fillRow struct {
@@ -1068,7 +1087,7 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 	if r.Method == http.MethodGet {
 		item, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME`)
 		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME`)
-		jsonSuccess(w, map[string]interface{}{
+		qaRespondSuccess(w, map[string]interface{}{
 			"item_fill_rate":   item,
 			"record_fill_rate": rec,
 		})
@@ -1126,7 +1145,7 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		apiInternalError(w, err.Error())
 		return
 	}
-	jsonSuccess(w, nil)
+	qaRespondSuccess(w, nil)
 }
 
 func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
@@ -1187,7 +1206,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	// 检查缓存
 	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
 	if cached, hit := qaCacheGet(cacheKey); hit {
-		jsonSuccess(w, map[string]interface{}{
+		qaRespondSuccess(w, map[string]interface{}{
 			"cached":      true,
 			"message":     "结果来自缓存 (10分钟内有效)",
 			"rules":       cached,
@@ -1513,7 +1532,7 @@ func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	qaCancel(req.DatabaseID)
-	jsonSuccess(w, map[string]interface{}{
+	qaRespondSuccess(w, map[string]interface{}{
 		"message":     "已发送取消信号",
 		"database_id": req.DatabaseID,
 	})
@@ -1555,7 +1574,7 @@ func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
 		return
 	}
 
-	jsonSuccess(w, map[string]interface{}{
+	qaRespondSuccess(w, map[string]interface{}{
 		"message":  "定时任务创建成功",
 		"job_id":   req.JobID,
 		"next_run": time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute).Format(time.RFC3339),
@@ -1565,7 +1584,7 @@ func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
 // 删除定时任务
 func qaScheduleDelete(w http.ResponseWriter, jobID string, username string) {
 	qaStopScheduleJob(jobID)
-	jsonSuccess(w, map[string]interface{}{
+	qaRespondSuccess(w, map[string]interface{}{
 		"message": "定时任务已删除",
 		"job_id":  jobID,
 	})
@@ -2328,7 +2347,7 @@ func qaTemplatesGET(w http.ResponseWriter, username string) {
 		r.IsDefault = isDef != 0
 		list = append(list, r)
 	}
-	jsonSuccess(w, map[string]interface{}{"templates": list})
+	qaRespondSuccess(w, map[string]interface{}{"templates": list})
 }
 
 func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
@@ -2401,7 +2420,7 @@ ON CONFLICT(id) DO UPDATE SET name=excluded.name, template_type=excluded.templat
 		apiInternalError(w, err.Error())
 		return
 	}
-	jsonSuccess(w, nil)
+	qaRespondSuccess(w, nil)
 }
 
 func qaTemplatesDELETE(w http.ResponseWriter, id string, username string) {
@@ -2420,7 +2439,7 @@ func qaTemplatesDELETE(w http.ResponseWriter, id string, username string) {
 		apiInternalError(w, err.Error())
 		return
 	}
-	jsonSuccess(w, nil)
+	qaRespondSuccess(w, nil)
 }
 
 func qaPreviewPOST(w http.ResponseWriter, r *http.Request, username string) {
