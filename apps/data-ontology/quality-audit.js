@@ -1029,6 +1029,33 @@
             document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = true; });
         });
 
+        // 规则树全选/取消全选
+        document.getElementById('qaTreeSelectAll').addEventListener('change', function (e) {
+            var checked = e.target.checked;
+            Object.keys(selectedNms).forEach(function (nm) { selectedNms[nm] = checked; });
+            document.querySelectorAll('#qaTree .qa-rule-cb').forEach(function (cb) { cb.checked = checked; });
+        });
+
+        // 批量删除
+        document.getElementById('qaBatchDelete').addEventListener('click', function () {
+            var toDelete = Object.keys(selectedNms).filter(function (nm) { return selectedNms[nm]; });
+            if (!toDelete.length) { showMsg('请先勾选要删除的规则', true); return; }
+            if (!confirm('确定删除选中的 ' + toDelete.length + ' 条规则？此操作不可恢复。')) return;
+            var prom = Promise.resolve();
+            toDelete.forEach(function (nm) {
+                prom = prom.then(function () {
+                    return fetchWithAuth(PREFIX + 'rules/' + encodeURIComponent(nm), { method: 'DELETE' })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) { if (!d.success) throw new Error(d.message || '删除失败'); });
+                });
+            });
+            prom.then(function () {
+                showMsg('已删除 ' + toDelete.length + ' 条规则', false);
+                selectedNms = {};
+                return loadRules();
+            }).catch(function (e) { showMsg(e.message || String(e), true); });
+        });
+
         document.getElementById('qaRun').addEventListener('click', function () {
             var dbId = document.getElementById('qaDbSelect').value;
             var ruleNms = Object.keys(selectedNms);

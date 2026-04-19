@@ -5371,6 +5371,22 @@ textarea#testApiParams {
     cursor: pointer;
     user-select: none;
 }
+.qa-fill-table-header {
+    display: flex;
+    gap: 8px;
+    background: #f1f5f9;
+    padding: 8px;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+.qa-fill-th {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    flex: 1;
+    min-width: 80px;
+}
 .qa-fill-list {
     border: 1px solid #e2e8f0;
     border-radius: 6px;

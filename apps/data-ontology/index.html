@@ -826,8 +826,11 @@
                     <div class="qa-layout">
                         <div class="qa-panel">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                                <strong>规则树</strong>
-                                <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
+                                <label style="font-weight:bold;"><input type="checkbox" id="qaTreeSelectAll" style="margin-right:6px;">规则树</label>
+                                <div style="display:flex;gap:6px;">
+                                    <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
+                                    <button type="button" class="btn btn-sm btn-danger" id="qaBatchDelete" style="background:#dc3545;color:#fff;">批量删除</button>
+                                </div>
                             </div>
                             <div id="qaTree" class="qa-tree"></div>
                         </div>
@@ -860,6 +863,12 @@
                                     <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
                                 </div>
                                 <div id="qaFillItem">
+                                    <div class="qa-fill-header qa-fill-table-header">
+                                        <span class="qa-fill-th" style="width:30px;"></span>
+                                        <span class="qa-fill-th">表名</span>
+                                        <span class="qa-fill-th">分子</span>
+                                        <span class="qa-fill-th">分母</span>
+                                    </div>
                                     <div class="qa-fill-header">
                                         <label><input type="checkbox" id="qaFillItemAll"> 全选</label>
                                     </div>
@@ -867,6 +876,12 @@
                                     <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowItem">+ 行</button>
                                 </div>
                                 <div id="qaFillRecord" style="display:none;">
+                                    <div class="qa-fill-header qa-fill-table-header">
+                                        <span class="qa-fill-th" style="width:30px;"></span>
+                                        <span class="qa-fill-th">表名</span>
+                                        <span class="qa-fill-th">分子</span>
+                                        <span class="qa-fill-th">分母</span>
+                                    </div>
                                     <div class="qa-fill-header">
                                         <label><input type="checkbox" id="qaFillRecordAll"> 全选</label>
                                     </div>
