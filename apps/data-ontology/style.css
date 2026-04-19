@@ -5384,6 +5384,19 @@ textarea#testApiParams {
     font-size: 12px;
     font-weight: 600;
     color: #475569;
+    text-align: center;
+}
+.qa-fill-th:first-child {
+    width: 60px;
+    flex-shrink: 0;
+    text-align: left;
+}
+.qa-fill-th:nth-child(2) {
+    width: 140px;
+    flex-shrink: 0;
+}
+.qa-fill-th:nth-child(3),
+.qa-fill-th:nth-child(4) {
     flex: 1;
     min-width: 80px;
 }
@@ -5407,6 +5420,7 @@ textarea#testApiParams {
 }
 .qa-fill-cb {
     flex-shrink: 0;
+    width: 60px;
     margin-top: 6px;
     cursor: pointer;
 }
