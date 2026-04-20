@@ -9046,7 +9046,7 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 	defer os.Remove(tmpFile)
 
 	// 执行 gov-runner
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, runnerPath, tmpFile)
@@ -9055,14 +9055,20 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 		apiBase = "http://127.0.0.1:8080"
 	}
 	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE="+apiBase)
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	runErr := cmd.Run()
 	outBytes := bytes.TrimSpace(stdout.Bytes())
+	errBytes := bytes.TrimSpace(stderr.Bytes())
 
 	if len(outBytes) == 0 {
 		if runErr != nil {
-			return &GovRunnerResult{Success: false, Error: "执行失败: " + runErr.Error()}
+			errMsg := runErr.Error()
+			if len(errBytes) > 0 {
+				errMsg += " | stderr: " + string(errBytes)
+			}
+			return &GovRunnerResult{Success: false, Error: "执行失败: " + errMsg}
 		}
 		return &GovRunnerResult{Success: false, Error: "gov-runner 无输出"}
 	}
