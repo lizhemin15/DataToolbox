@@ -5304,6 +5304,49 @@ function escapeHtml(text) {
     return text.replace(/[&<>"']/g, m => map[m]);
 }
 
+// Render gov.showTable() output as HTML table
+function renderGovOutput(text) {
+    if (typeof text !== 'string') return escapeHtml(String(text));
+    
+    // Check for __TABLE__: prefix
+    if (text.startsWith('__TABLE__:')) {
+        const jsonStr = text.substring(10);
+        try {
+            const data = JSON.parse(jsonStr);
+            if (!Array.isArray(data) || data.length === 0) {
+                return '<div class="gov-table-empty">空表格</div>';
+            }
+            
+            // Get all unique keys from all objects
+            const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
+            
+            // Build HTML table
+            let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
+            keys.forEach(key => {
+                html += `<th>${escapeHtml(key)}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    const val = row[key];
+                    html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table></div>';
+            return html;
+        } catch (e) {
+            return escapeHtml(text);
+        }
+    }
+    
+    // Default: escape HTML
+    return escapeHtml(text);
+}
+
 function formatAIText(text) {
     let escaped = escapeHtml(text).trim();
     escaped = escaped.replace(/\n{2,}/g, '\n');
@@ -6024,7 +6067,7 @@ function renderGovLogs(logs) {
                 <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '错误' : '运行中'}</span>
             </div>
             ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
-            ${log.output ? `<div class="gov-log-output">${escapeHtml(log.output)}</div>` : ''}
+            ${log.output ? `<div class="gov-log-output">${renderGovOutput(log.output)}</div>` : ''}
             ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
         </div>
     `).join('');
@@ -6395,7 +6438,7 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
                 <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '错误'}</span>
             </div>
             ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
-            ${output ? `<div class="gov-log-output">${escapeHtml(output)}</div>` : ''}
+            ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
@@ -6486,7 +6529,7 @@ async function pollTaskProgress(taskId, runId) {
                             <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
                         </div>
                         ${current_file ? `<div class="gov-log-input">当前: ${escapeHtml(current_file)}</div>` : ''}
-                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
+                        ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
                     </div>`;
             } else {
                 container.innerHTML = `
@@ -6495,7 +6538,7 @@ async function pollTaskProgress(taskId, runId) {
                             <span>后台执行${status === 'running' ? '中…' : ''}</span>
                             <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
                         </div>
-                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
+                        ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
                         ${last_error ? `<div class="gov-log-error">${escapeHtml(last_error)}</div>` : ''}
                     </div>`;
             }
@@ -7205,7 +7248,7 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
                         <span class="gov-log-status ${r.status}">${r.status === 'success' ? '成功' : '错误'}</span>
                     </div>
                     ${r.inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(r.inputDesc)}</div>` : ''}
-                    ${r.output ? `<div class="gov-log-output">${escapeHtml(r.output)}</div>` : ''}
+                    ${r.output ? `<div class="gov-log-output">${renderGovOutput(r.output)}</div>` : ''}
                     ${r.errorMsg ? `<div class="gov-log-error">${escapeHtml(r.errorMsg)}</div>` : ''}
                 </div>
             `).join('')}
@@ -7238,7 +7281,7 @@ async function executeGovTaskInBrowser(code, file, inputText) {
                 <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '错误'}</span>
             </div>
             ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
-            ${output ? `<div class="gov-log-output">${escapeHtml(output)}</div>` : ''}
+            ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;

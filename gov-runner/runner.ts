@@ -94,6 +94,7 @@ export interface GovOutputFile {
 
 export interface GovHelper {
   log(msg: string): void;
+  showTable(data: any[]): void;
   getDbType(): string;
   getDatabases(): Array<{ id: string; name: string; type: string }>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -139,6 +140,19 @@ export function createGovHelper(
   return {
     log(msg: string) {
       logLines.push(String(msg));
+    },
+
+    showTable(data: any[]) {
+      if (!Array.isArray(data)) {
+        logLines.push('__TABLE__:[]');
+        return;
+      }
+      try {
+        const jsonStr = JSON.stringify(data);
+        logLines.push(`__TABLE__:${jsonStr}`);
+      } catch (e: any) {
+        logLines.push(`__TABLE__:[] // Error serializing data: ${e.message}`);
+      }
     },
 
     getDbType() {

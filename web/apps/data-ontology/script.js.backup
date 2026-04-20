@@ -60,8 +60,6 @@ const aiModules = [
     { id: 'db-manage', name: '数据库管理', icon: '📦', description: '查询、写入、表结构操作' },
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
     { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
-    { id: 'quality-audit', name: '数据质量审核', icon: '✅', description: '创建和管理审核规则' },
-    { id: 'small-model', name: '小模型', icon: '📝', description: '创建自定义数据处理模型' },
     { id: 'ontology', name: '本体论抽象', icon: '💡', description: '开发中...' },
 ];
 
@@ -3996,10 +3994,7 @@ async function loadAiConfig() {
 
         const data = await response.json();
 
-        // 兼容两种返回格式: {success, config} 或 {config}
-        if (data.config) {
-            aiConfig = data.config;
-        } else if (data.success && data.config) {
+        if (data.success && data.config) {
             aiConfig = data.config;
         }
     } catch (error) {
@@ -4178,7 +4173,7 @@ async function saveUserSettings(settings) {
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)  // 直接发送 settings 对象，避免嵌套
+            body: JSON.stringify({ settings: settings })
         });
         const data = await resp.json();
         return data.success;
@@ -4272,8 +4267,7 @@ async function handleSaveAiSettings(e) {
 
         const data = await response.json();
 
-        // 兼容两种返回格式: {success: true} 或 {message: "成功"}
-        if (data.success || data.message) {
+        if (data.success) {
             aiConfig = config;
             successEl.textContent = 'AI配置保存成功！';
             successEl.classList.add('show');
@@ -5237,64 +5231,6 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = govTaskHtml;
             attemptsEl.style.display = 'none';
             break;
-
-        case 'quality_rule_draft':
-            statusEl.innerHTML = '';
-            const qaRule = data.rule || {};
-            const qaRuleHtml = `
-                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
-                <div class="ai-api-config-preview">
-                    <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">数据质量审核规则</span>
-                    </div>
-                    <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">规则编号:</span> <span class="config-value">${escapeHtml(qaRule.nm || '')}</span></div>
-                        <div class="config-item"><span class="config-label">层级编码:</span> <span class="config-value">${escapeHtml(qaRule.xh || '')}</span></div>
-                        <div class="config-item"><span class="config-label">规则名称:</span> <span class="config-value">${escapeHtml(qaRule.name || '')}</span></div>
-                        <div class="config-item"><span class="config-label">类别:</span> <span class="config-value">${escapeHtml(qaRule.category || '')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;">
-                            <span class="config-label">SQL:</span>
-                            <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(qaRule.sql || '')}</div>
-                        </div>
-                    </div>
-                    <div class="ai-api-config-actions">
-                        <button class="btn btn-primary" onclick="confirmCreateQARuleFromAI(${escapeHtml(JSON.stringify(qaRule))})">✓ 确认创建</button>
-                        <button class="btn" onclick="cancelQARuleDraft('${messageId}')">✕ 取消</button>
-                    </div>
-                </div>
-            `;
-            contentEl.innerHTML = qaRuleHtml;
-            attemptsEl.style.display = 'none';
-            break;
-
-        case 'small_model_draft':
-            statusEl.innerHTML = '';
-            const smModel = data.model || {};
-            const smModelHtml = `
-                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
-                <div class="ai-api-config-preview">
-                    <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">小模型配置</span>
-                    </div>
-                    <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(smModel.name || '')}</span></div>
-                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(smModel.description || '')}</span></div>
-                        <div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${escapeHtml(smModel.input_type || 'json')}</span></div>
-                        <div class="config-item"><span class="config-label">输出类型:</span> <span class="config-value">${escapeHtml(smModel.output_type || 'json')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;">
-                            <span class="config-label">JS代码:</span>
-                            <div class="ai-sql-block" style="margin-top: 6px; max-height: 150px; overflow: auto;">${escapeHtml(smModel.js_code || '')}</div>
-                        </div>
-                    </div>
-                    <div class="ai-api-config-actions">
-                        <button class="btn btn-primary" onclick="confirmCreateSmallModelFromAI(${escapeHtml(JSON.stringify(smModel))})">✓ 确认创建</button>
-                        <button class="btn" onclick="cancelSmallModelDraft('${messageId}')">✕ 取消</button>
-                    </div>
-                </div>
-            `;
-            contentEl.innerHTML = smModelHtml;
-            attemptsEl.style.display = 'none';
-            break;
             
         case 'done':
             // 完成，不需要特别处理
@@ -5641,61 +5577,6 @@ function cancelGovTaskDraft(messageId) {
                 ℹ️ 已取消创建任务
             </div>
         `;
-    }
-}
-
-// 确认创建 AI 生成的数据质量审核规则
-async function confirmCreateQARuleFromAI(rule) {
-    if (!rule) return;
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/quality-audit/rules`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(rule)
-        });
-        const data = await response.json();
-        if (data.success) {
-            showToast('规则已创建', 'success');
-        } else {
-            showToast(data.message || '创建失败', 'error');
-        }
-    } catch (err) {
-        showToast('请求失败: ' + err.message, 'error');
-    }
-}
-
-function cancelQARuleDraft(messageId) {
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建规则</div>`;
-    }
-}
-
-// 确认创建 AI 生成的小模型
-async function confirmCreateSmallModelFromAI(model) {
-    if (!model) return;
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(model)
-        });
-        const data = await response.json();
-        if (data.success) {
-            showToast('小模型已创建', 'success');
-            if (typeof loadSmallModels === 'function') loadSmallModels();
-        } else {
-            showToast(data.message || '创建失败', 'error');
-        }
-    } catch (err) {
-        showToast('请求失败: ' + err.message, 'error');
-    }
-}
-
-function cancelSmallModelDraft(messageId) {
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建小模型</div>`;
     }
     if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
 }
@@ -6129,47 +6010,6 @@ async function loadGovTaskLogs() {
     }
 }
 
-// 解析 markdown 表格为 HTML（全局函数）
-function parseMarkdownTable(text) {
-    if (!text || typeof text !== 'string') return null;
-    const lines = text.split('\n');
-    const tableLines = [];
-    for (const line of lines) {
-        const trimmed = line.trim();
-        // 匹配表格行：以 | 开头和结尾
-        if (trimmed.startsWith('|')) {
-            // 跳过分隔行（只包含 - | : 和空格）
-            if (trimmed.match(/^\|[\s\-:|]+\|?$/)) continue;
-            tableLines.push(trimmed);
-        }
-    }
-    if (tableLines.length < 2) return null;
-
-    // 解析表格
-    const rows = tableLines.map(line => {
-        // 移除首尾的 |，然后按 | 分割
-        let cells = line;
-        if (cells.startsWith('|')) cells = cells.slice(1);
-        if (cells.endsWith('|')) cells = cells.slice(0, -1);
-        return cells.split('|').map(cell => cell.trim());
-    });
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
-
-    let html = '<div class="gov-result-table-wrap"><table class="gov-result-table"><thead><tr>';
-    headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
-    html += '</tr></thead><tbody>';
-    dataRows.forEach(row => {
-        html += '<tr>';
-        for (let i = 0; i < headers.length; i++) {
-            html += `<td>${escapeHtml(row[i] || '')}</td>`;
-        }
-        html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-    return html;
-}
-
 function renderGovLogs(logs) {
     const container = document.getElementById('govTaskOutput');
     if (logs.length === 0) {
@@ -6177,29 +6017,17 @@ function renderGovLogs(logs) {
         return;
     }
     const sorted = [...logs].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
-    container.innerHTML = sorted.map(log => {
-        let outputHtml = '';
-        if (log.output) {
-            // 检查是否包含 markdown 表格
-            const tableHtml = parseMarkdownTable(log.output);
-            if (tableHtml) {
-                outputHtml = `<div class="gov-log-output">${tableHtml}</div>`;
-            } else {
-                outputHtml = `<div class="gov-log-output">${escapeHtml(log.output)}</div>`;
-            }
-        }
-        return `
+    container.innerHTML = sorted.map(log => `
         <div class="gov-log-entry">
             <div class="gov-log-header">
                 <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' → ' + new Date(log.end_time).toLocaleString() : ''}</span>
                 <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '错误' : '运行中'}</span>
             </div>
             ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
-            ${outputHtml}
+            ${log.output ? `<div class="gov-log-output">${escapeHtml(log.output)}</div>` : ''}
             ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
         </div>
-    `;
-    }).join('');
+    `).join('');
 }
 
 // 新建/编辑任务
@@ -6243,8 +6071,6 @@ function editGovTask() {
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
     const fb = document.getElementById('govFileBatchModeSelect');
     if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
-    const rt = document.getElementById('govRuntimeSelect');
-    if (rt) rt.value = currentGovTask.runtime || 'backend';
     // API 字段
     document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
     document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
@@ -6352,7 +6178,6 @@ async function handleGovTaskSubmit(e) {
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
-        runtime: type === 'interactive' && document.getElementById('govRuntimeSelect') ? document.getElementById('govRuntimeSelect').value : 'backend',
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
@@ -6534,20 +6359,16 @@ async function executeInteractiveTask() {
     }
 
     const batchMode = currentGovTask.file_batch_mode || 'per_file';
-    const runtime = currentGovTask.runtime || 'backend';
-
-    // 根据 runtime 选择执行环境
-    if (runtime === 'frontend') {
-        // 前端执行（浏览器）
-        if (batchMode === 'single' && files.length >= 2) {
-            await executeGovTaskAggregateInBrowser(files, inputText);
-        } else {
-            await executeGovTaskInBrowser(currentGovTask.js_code, files.length > 0 ? files[0] : null, inputText);
+    if (currentGovTask.type === 'interactive' && batchMode === 'single') {
+        if (files.length < 2) {
+            showToast('请至少上传 2 个文件：1 个综合日报 Word 模板 + 至少 1 份单位日报', 'warning');
+            return;
         }
-    } else {
-        // 后端执行（gov-runner）
-        await executeGovTaskOnBackend(files, inputText);
+        await executeGovTaskAggregateInBrowser(files, inputText);
+        return;
     }
+
+    await executeGovTaskOnBackend(files, inputText);
 }
 
 async function executeGovTaskAggregateInBrowser(files, inputText) {
@@ -6644,39 +6465,6 @@ async function pollTaskProgress(taskId, runId) {
     const pollInterval = 2000; // 2秒轮询一次
     let lastProcessed = 0;
 
-    // 渲染执行结果表格
-    function renderGovResultTable(container, output) {
-        if (!output) return;
-        // 尝试解析 JSON 表格数据
-        try {
-            const data = JSON.parse(output);
-            if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-                const headers = Object.keys(data[0]);
-                let html = '<div class="gov-result-table-wrap"><table class="gov-result-table"><thead><tr>';
-                headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
-                html += '</tr></thead><tbody>';
-                data.forEach(row => {
-                    html += '<tr>';
-                    headers.forEach(h => { html += `<td>${escapeHtml(row[h] ?? '')}</td>`; });
-                    html += '</tr>';
-                });
-                html += '</tbody></table></div>';
-                container.innerHTML = html;
-                return;
-            }
-        } catch (e) {}
-
-        // 尝试解析 markdown 表格
-        const tableHtml = parseMarkdownTable(output);
-        if (tableHtml) {
-            container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>执行成功</span><span class="gov-log-status success">成功</span></div><div class="gov-log-output">${tableHtml}</div></div>`;
-            return;
-        }
-
-        // 非 JSON，直接显示文本
-        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>执行成功</span><span class="gov-log-status success">成功</span></div><div class="gov-log-output"><pre>${escapeHtml(output)}</pre></div></div>`;
-    }
-
     const poll = async () => {
         try {
             const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`);
@@ -6721,13 +6509,7 @@ async function pollTaskProgress(taskId, runId) {
                     currentGovTask = task;
                     showGovTaskDetail(task);
                 }
-                // 显示执行结果表格（成功且有输出时，不再加载历史日志，避免覆盖表格）
-                if (status === 'success' && last_output) {
-                    renderGovResultTable(container, last_output);
-                } else {
-                    // 其他情况（错误或无输出）加载历史日志
-                    await loadGovTaskLogs();
-                }
+                await loadGovTaskLogs();
                 return;
             }
 
@@ -9381,7 +9163,19 @@ let editingSmallModelId = null;
 
 // 初始化模型管理
 function initModelsTab() {
+    loadLLMModels();
     loadSmallModels();
+    
+    // Tab 切换
+    document.querySelectorAll('.models-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.models-tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const tab = btn.dataset.modelTab;
+            document.getElementById('llmModelsPanel').style.display = tab === 'llm' ? '' : 'none';
+            document.getElementById('smallModelsPanel').style.display = tab === 'small' ? '' : 'none';
+        });
+    });
 }
 
 // ========== 大模型管理 ==========
@@ -9528,15 +9322,7 @@ async function loadSmallModels() {
 function renderSmallModels() {
     const container = document.getElementById('smallModelsList');
     if (smallModels.length === 0) {
-        container.innerHTML = `
-            <div class="models-empty">
-                <p>暂无小模型配置，点击"添加模型"创建</p>
-                <div style="margin-top:16px;padding:12px;background:#f7fafc;border-radius:6px;text-align:left;">
-                    <p style="font-size:12px;color:#718096;margin-bottom:8px;">📝 示例：JSON 数据转换</p>
-                    <p style="font-size:11px;color:#4a5568;"><strong>输入:</strong> <code>{"name": "test"}</code></p>
-                    <p style="font-size:11px;color:#4a5568;"><strong>输出:</strong> <code>{"name": "TEST", "processed": true}</code></p>
-                </div>
-            </div>`;
+        container.innerHTML = '<div class="models-empty">暂无小模型配置，点击"添加模型"创建</div>';
         return;
     }
     

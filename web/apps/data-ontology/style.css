@@ -5958,3 +5958,51 @@ body.embed-mode .main-content {
 body.embed-mode .embed-settings-btn {
     display: block;
 }
+
+/* gov.showTable() 表格样式 */
+.gov-table-wrapper {
+    overflow-x: auto;
+    margin: 10px 0;
+}
+
+.gov-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.gov-table thead {
+    background: #f7fafc;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.gov-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #2d3748;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.gov-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #4a5568;
+}
+
+.gov-table tbody tr:hover {
+    background: #f7fafc;
+}
+
+.gov-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.gov-table-empty {
+    padding: 20px;
+    text-align: center;
+    color: #a0aec0;
+    font-style: italic;
+}
