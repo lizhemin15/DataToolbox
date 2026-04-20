@@ -4173,7 +4173,7 @@ async function saveUserSettings(settings) {
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings: settings })
+            body: JSON.stringify(settings)  // 直接发送 settings 对象，避免嵌套
         });
         const data = await resp.json();
         return data.success;
