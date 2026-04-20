@@ -764,7 +764,7 @@
     function createFillNode(row) {
         row = normalizeFillRow(row);
         var wrap = document.createElement('div');
-        wrap.className = 'qa-fill-row';
+        wrap.className = 'qa-fill-node';
         var cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'qa-fill-cb';

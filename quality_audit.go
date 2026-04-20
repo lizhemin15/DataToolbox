@@ -1920,7 +1920,7 @@ func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{},
 		if err := rows.Scan(ptr...); err != nil {
 			return n - 1, sample, err
 		}
-		if len(sample) < 5 {
+		if len(sample) < 100 {  // 增加到 100 行示例数据
 			rowMap := map[string]interface{}{}
 			for i, col := range cols {
 				val := raw[i]
