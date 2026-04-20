@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>刷题练习 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="../../lib/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div class="logo-title">
+                <span class="app-logo">📝</span>
+                <h1>刷题练习</h1>
+            </div>
+        </header>
+
+        <main class="content">
+            <div id="uploadSection" class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <h3>拖拽或点击上传 Excel 题库文件</h3>
+                    <p>支持包含单选、多选、判断、填空、简答题型的 Excel 文件</p>
+                    <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+                    <div class="upload-buttons">
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+                        <button class="sample-btn" onclick="downloadSample()">下载示例题库</button>
+                    </div>
+                </div>
+                
+                <div class="config-section" id="configSection" style="display: none;">
+                    <div class="config-header">
+                        <h3>刷题设置</h3>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>选择题型:</label>
+                        <div class="checkbox-group" id="sheetCheckboxes"></div>
+                        <span class="hint">可以选择多个题型进行混合刷题</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="modeSelect">刷题模式:</label>
+                        <select id="modeSelect">
+                            <option value="random">随机刷题</option>
+                            <option value="order">顺序刷题</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="questionCount">刷题数量:</label>
+                        <input type="number" id="questionCount" min="1" value="10">
+                        <span class="hint">将从选中的题型中抽取指定数量的题目</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="similarityThreshold">简答题相似度阈值 (%):</label>
+                        <input type="number" id="similarityThreshold" min="0" max="100" value="60">
+                        <span class="hint">简答题相似度达到此阈值即判定为正确</span>
+                    </div>
+                    
+                    <div class="file-info" id="fileInfo"></div>
+                    <button class="process-btn" id="processBtn" onclick="startQuiz()">开始刷题</button>
+                </div>
+            </div>
+
+            <div id="quizContainer" class="quiz-container" style="display: none;">
+                <div class="progress-card">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text" id="progressText"></div>
+                </div>
+                
+                <div class="question-card">
+                    <div class="question-header">
+                        <span class="question-number" id="questionNumber"></span>
+                        <span class="question-type" id="questionType"></span>
+                    </div>
+                    <div class="question-text" id="questionText"></div>
+                    <div id="answerArea"></div>
+                    <div class="button-group">
+                        <button class="btn-prev" onclick="prevQuestion()" id="btnPrev">上一题</button>
+                        <button class="btn-next" onclick="nextQuestion()" id="btnNext">下一题</button>
+                        <button class="btn-submit" onclick="submitQuiz()" id="btnSubmit" style="display:none;">提交答案</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="resultContainer" class="result-container" style="display: none;">
+                <div class="result-header">
+                    <div class="result-icon" id="resultIcon"></div>
+                    <div class="result-score" id="resultScore"></div>
+                    <div class="result-text" id="resultText"></div>
+                </div>
+                
+                <div class="result-details">
+                    <h3>📊 答题统计</h3>
+                    <div class="detail-item">
+                        <span class="detail-label">总题数</span>
+                        <span class="detail-value" id="totalQuestions"></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">满分题数</span>
+                        <span class="detail-value correct" id="correctCount"></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">未满分题数</span>
+                        <span class="detail-value wrong" id="wrongCount"></span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">得分情况</span>
+                        <span class="detail-value" id="accuracy"></span>
+                    </div>
+                </div>
+
+                <div class="answer-review">
+                    <h3>📝 答题详情</h3>
+                    <div id="reviewContent"></div>
+                </div>
+
+                <button class="reset-btn" onclick="reset()">重新开始</button>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

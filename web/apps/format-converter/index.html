@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>格式万能转换</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <button class="back-btn" onclick="goBack()">← 返回</button>
+            <div>
+                <h1>🔄 格式万能转换</h1>
+                <p class="subtitle">完全离线的文件格式转换工具</p>
+            </div>
+        </header>
+
+        <div class="converter-section">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="image">图片转换</button>
+                <button class="tab-btn" data-tab="document">文档转换</button>
+                <button class="tab-btn" data-tab="media">音视频转换</button>
+            </div>
+
+            <div class="tab-content active" id="image-tab">
+                <div class="upload-area" id="image-upload-area">
+                    <div class="upload-icon">📷</div>
+                    <p>拖拽图片到此处或点击选择</p>
+                    <p class="file-info">支持: JPG, PNG, WebP, BMP, GIF</p>
+                    <input type="file" id="image-input" accept="image/*" multiple hidden>
+                </div>
+                
+                <div class="conversion-options" id="image-options" style="display: none;">
+                    <div class="file-list" id="image-file-list"></div>
+                    <div class="format-selector">
+                        <label>目标格式:</label>
+                        <select id="image-format">
+                            <option value="png">PNG</option>
+                            <option value="jpeg">JPEG</option>
+                            <option value="webp">WebP</option>
+                            <option value="bmp">BMP</option>
+                        </select>
+                    </div>
+                    <div class="quality-selector">
+                        <label>图片质量: <span id="quality-value">90</span>%</label>
+                        <input type="range" id="image-quality" min="1" max="100" value="90">
+                    </div>
+                    <button class="convert-btn" id="image-convert-btn">开始转换</button>
+                </div>
+            </div>
+
+            <div class="tab-content" id="document-tab">
+                <div class="upload-area" id="doc-upload-area">
+                    <div class="upload-icon">📄</div>
+                    <p>拖拽文档到此处或点击选择</p>
+                    <p class="file-info">支持: Excel, CSV, JSON, TXT, PDF, Word</p>
+                    <input type="file" id="doc-input" accept=".xlsx,.xls,.csv,.json,.txt,.pdf,.docx,.doc" multiple hidden>
+                </div>
+                
+                <div class="conversion-options" id="doc-options" style="display: none;">
+                    <div class="file-list" id="doc-file-list"></div>
+                    <div class="format-selector">
+                        <label>目标格式:</label>
+                        <select id="doc-format">
+                            <option value="xlsx">Excel (XLSX)</option>
+                            <option value="csv">CSV</option>
+                            <option value="json">JSON</option>
+                            <option value="txt">TXT</option>
+                            <option value="pdf">PDF</option>
+                            <option value="docx">Word (DOCX)</option>
+                        </select>
+                    </div>
+                    <button class="convert-btn" id="doc-convert-btn">开始转换</button>
+                </div>
+            </div>
+
+            <div class="tab-content" id="media-tab">
+                <div class="upload-area" id="media-upload-area">
+                    <div class="upload-icon">🎬</div>
+                    <p>拖拽音视频文件到此处或点击选择</p>
+                    <p class="file-info">支持: MP4, MP3, WAV, AVI, MOV, WebM, OGG等</p>
+                    <input type="file" id="media-input" accept="video/*,audio/*" multiple hidden>
+                </div>
+                
+                <div class="conversion-options" id="media-options" style="display: none;">
+                    <div class="file-list" id="media-file-list"></div>
+                    <div class="format-selector">
+                        <label>目标格式:</label>
+                        <select id="media-format">
+                            <optgroup label="视频格式">
+                                <option value="mp4">MP4</option>
+                                <option value="webm">WebM</option>
+                                <option value="avi">AVI</option>
+                                <option value="mov">MOV</option>
+                            </optgroup>
+                            <optgroup label="音频格式">
+                                <option value="mp3">MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="ogg">OGG</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <button class="convert-btn" id="media-convert-btn">开始转换</button>
+                    <p class="warning-text">⚠️ 音视频转换需要加载较大的库文件，首次使用可能需要等待</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-section" id="progress-section" style="display: none;">
+            <div class="progress-info">
+                <span id="progress-text">处理中...</span>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="results-section" id="results-section" style="display: none;">
+            <h3>转换完成</h3>
+            <div class="results-list" id="results-list"></div>
+        </div>
+    </div>
+
+    <script src="../../lib/xlsx.full.min.js"></script>
+    <script src="../../lib/papaparse.min.js"></script>
+    <script src="../../lib/jszip.min.js"></script>
+    <script src="../../lib/pdf-lib.min.js"></script>
+    <script src="../../lib/pdf.min.js"></script>
+    <script src="../../lib/mammoth.browser.min.js"></script>
+    <script src="../../lib/docx.iife.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

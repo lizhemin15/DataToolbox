@@ -945,6 +945,7 @@ type GovernanceTask struct {
 	APIPath       string                  `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
 	APIMethod     string                  `json:"api_method,omitempty"`      // API 方法（GET/POST）
 	FileBatchMode string                  `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
+	Runtime       string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境）
 	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
 	CreatedAt     string                  `json:"created_at"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`

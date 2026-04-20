@@ -6071,8 +6071,6 @@ function editGovTask() {
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
     const fb = document.getElementById('govFileBatchModeSelect');
     if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
-    const rt = document.getElementById('govRuntimeSelect');
-    if (rt) rt.value = currentGovTask.runtime || 'backend';
     // API 字段
     document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
     document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
@@ -6180,7 +6178,6 @@ async function handleGovTaskSubmit(e) {
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
-        runtime: type === 'interactive' && document.getElementById('govRuntimeSelect') ? document.getElementById('govRuntimeSelect').value : 'backend',
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
@@ -6362,20 +6359,16 @@ async function executeInteractiveTask() {
     }
 
     const batchMode = currentGovTask.file_batch_mode || 'per_file';
-    const runtime = currentGovTask.runtime || 'backend';
-
-    // 根据 runtime 选择执行环境
-    if (runtime === 'frontend') {
-        // 前端执行（浏览器）
-        if (batchMode === 'single' && files.length >= 2) {
-            await executeGovTaskAggregateInBrowser(files, inputText);
-        } else {
-            await executeGovTaskInBrowser(currentGovTask.js_code, files.length > 0 ? files[0] : null, inputText);
+    if (currentGovTask.type === 'interactive' && batchMode === 'single') {
+        if (files.length < 2) {
+            showToast('请至少上传 2 个文件：1 个综合日报 Word 模板 + 至少 1 份单位日报', 'warning');
+            return;
         }
-    } else {
-        // 后端执行（gov-runner）
-        await executeGovTaskOnBackend(files, inputText);
+        await executeGovTaskAggregateInBrowser(files, inputText);
+        return;
     }
+
+    await executeGovTaskOnBackend(files, inputText);
 }
 
 async function executeGovTaskAggregateInBrowser(files, inputText) {
