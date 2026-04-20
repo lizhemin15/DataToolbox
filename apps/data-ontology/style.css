@@ -5462,7 +5462,8 @@ textarea#testApiParams {
     border-radius: 4px;
     font-size: 13px;
     box-sizing: border-box;
-    min-height: 34px;
+    min-height: 3em;
+    height: 3em;
 }
 .qa-fill-sql {
     flex: 1;
