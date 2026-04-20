@@ -5232,6 +5232,35 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = govTaskHtml;
             attemptsEl.style.display = 'none';
             break;
+
+        case 'quality_rule_draft':
+            statusEl.innerHTML = '';
+            const qaRule = data.rule || {};
+            const qaRuleHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">数据质量审核规则</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">规则编号:</span> <span class="config-value">${escapeHtml(qaRule.nm || '')}</span></div>
+                        <div class="config-item"><span class="config-label">层级编码:</span> <span class="config-value">${escapeHtml(qaRule.xh || '')}</span></div>
+                        <div class="config-item"><span class="config-label">规则名称:</span> <span class="config-value">${escapeHtml(qaRule.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">类别:</span> <span class="config-value">${escapeHtml(qaRule.category || '')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">SQL:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(qaRule.sql || '')}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateQARuleFromAI(${escapeHtml(JSON.stringify(qaRule))})">✓ 确认创建</button>
+                        <button class="btn" onclick="cancelQARuleDraft('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = qaRuleHtml;
+            attemptsEl.style.display = 'none';
+            break;
             
         case 'done':
             // 完成，不需要特别处理
@@ -5578,6 +5607,35 @@ function cancelGovTaskDraft(messageId) {
                 ℹ️ 已取消创建任务
             </div>
         `;
+    }
+}
+
+// 确认创建 AI 生成的数据质量审核规则
+async function confirmCreateQARuleFromAI(rule) {
+    if (!rule) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/quality-audit/rules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rule)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('规则已创建', 'success');
+        } else {
+            showToast(data.message || '创建失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+function cancelQARuleDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建规则</div>`;
+    }
+}
     }
     if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
 }

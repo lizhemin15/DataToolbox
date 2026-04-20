@@ -5878,6 +5878,11 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if moduleSet["quality-audit"] {
+		handleAIQualityRule(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
 	if moduleSet["ontology"] {
 		handleAIOntologyQuery(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
@@ -7398,6 +7403,82 @@ func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryRe
 	sendSSE(w, "governance_task_draft", map[string]interface{}{
 		"message": "已根据您的需求生成任务草稿，请确认或编辑后再创建/更新。",
 		"task":    draft,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
+// handleAIQualityRule 处理AI创建数据质量审核规则
+func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在根据您的需求生成数据质量审核规则...",
+	})
+	flusher.Flush()
+
+	// 构建提示词
+	prompt := "你是数据质量审核专家。用户需要创建数据质量审核规则，请根据用户需求和以下数据库结构生成规则配置。\n\n"
+	prompt += "数据库结构：\n"
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("- 数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		if tables, ok := schema["tables"].([]string); ok {
+			prompt += fmt.Sprintf("  表: %s\n", strings.Join(tables, ", "))
+		}
+	}
+	prompt += "\n用户需求：" + queryReq.Message + "\n\n"
+	prompt += "请生成规则配置，JSON格式：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"nm\": \"010101\",\n"
+	prompt += "  \"xh\": \"0101\",\n"
+	prompt += "  \"name\": \"规则名称\",\n"
+	prompt += "  \"category\": \"完整性\",\n"
+	prompt += "  \"sql\": \"SELECT * FROM table WHERE field IS NULL\"\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "规则说明：\n"
+	prompt += "- nm: 6位规则编号\n"
+	prompt += "- xh: 层级编码\n"
+	prompt += "- sql: 查询违规数据的SQL（返回违规记录）\n"
+
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "AI服务调用失败: " + err.Error()})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 解析JSON
+	jsonStart := strings.Index(aiResponse, "```json")
+	if jsonStart != -1 {
+		jsonStart = strings.Index(aiResponse[jsonStart:], "{")
+		if jsonStart != -1 {
+			jsonStart += strings.Index(aiResponse, "```json")
+		}
+	}
+	if jsonStart == -1 {
+		jsonStart = strings.Index(aiResponse, "{")
+	}
+	jsonEnd := strings.LastIndex(aiResponse, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		sendSSE(w, "error", map[string]interface{}{"message": "未能解析规则配置", "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	var rule map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &rule); err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "quality_rule_draft", map[string]interface{}{
+		"message": "已生成数据质量审核规则，请确认后创建。",
+		"rule":    rule,
 	})
 	sendSSE(w, "done", map[string]interface{}{})
 	flusher.Flush()
