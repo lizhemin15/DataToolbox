@@ -2238,8 +2238,9 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 			addPara("错误：" + e)
 		}
 		// 用表格展示违规数据
-		if sr, ok := row["sample_rows"].([]interface{}); ok && len(sr) > 0 {
-			addPara("违规数据示例：")
+		sr := ifaceSlice(row["sample_rows"])
+		if len(sr) > 0 {
+			addPara(fmt.Sprintf("违规数据（共 %d 条）：", len(sr)))
 			// 收集所有字段名
 			fieldSet := make(map[string]bool)
 			tableRows := make([]map[string]interface{}, 0, len(sr))

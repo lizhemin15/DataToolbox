@@ -5432,20 +5432,20 @@ textarea#testApiParams {
 }
 .qa-fill-list {
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    border-radius: 0 0 6px 6px;
     padding: 8px;
     background: #fafbfc;
     max-height: 400px;
     overflow-y: auto;
 }
-.qa-fill-row {
+.qa-fill-node {
     display: flex;
     align-items: flex-start;
     gap: 8px;
     padding: 8px 0;
     border-bottom: 1px solid #edf2f7;
 }
-.qa-fill-row:last-child {
+.qa-fill-node:last-child {
     border-bottom: none;
 }
 .qa-fill-cb {
@@ -5462,6 +5462,7 @@ textarea#testApiParams {
     border-radius: 4px;
     font-size: 13px;
     box-sizing: border-box;
+    min-height: 34px;
 }
 .qa-fill-sql {
     flex: 1;
