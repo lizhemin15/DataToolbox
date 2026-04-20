@@ -5965,3 +5965,27 @@ body.embed-mode .main-content {
 body.embed-mode .embed-settings-btn {
     display: block;
 }
+
+/* 治理任务结果表格 */
+.gov-result-table-wrap {
+    margin-top: 8px;
+    overflow-x: auto;
+}
+.gov-result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.gov-result-table th,
+.gov-result-table td {
+    border: 1px solid #e2e8f0;
+    padding: 6px 10px;
+    text-align: left;
+}
+.gov-result-table th {
+    background: #f7fafc;
+    font-weight: 600;
+}
+.gov-result-table tr:nth-child(even) {
+    background: #fafbfc;
+}

@@ -6472,6 +6472,31 @@ async function pollTaskProgress(taskId, runId) {
     const pollInterval = 2000; // 2秒轮询一次
     let lastProcessed = 0;
 
+    // 渲染执行结果表格
+    function renderGovResultTable(container, output) {
+        if (!output) return;
+        // 尝试解析 JSON 表格数据
+        try {
+            const data = JSON.parse(output);
+            if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+                const headers = Object.keys(data[0]);
+                let html = '<div class="gov-result-table-wrap"><table class="gov-result-table"><thead><tr>';
+                headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
+                html += '</tr></thead><tbody>';
+                data.forEach(row => {
+                    html += '<tr>';
+                    headers.forEach(h => { html += `<td>${escapeHtml(row[h] ?? '')}</td>`; });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                container.innerHTML = html;
+                return;
+            }
+        } catch (e) {}
+        // 非 JSON，直接显示文本
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>执行成功</span><span class="gov-log-status success">成功</span></div><div class="gov-log-output"><pre>${escapeHtml(output)}</pre></div></div>`;
+    }
+
     const poll = async () => {
         try {
             const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`);
@@ -6515,6 +6540,10 @@ async function pollTaskProgress(taskId, runId) {
                 if (task) {
                     currentGovTask = task;
                     showGovTaskDetail(task);
+                }
+                // 显示执行结果表格
+                if (status === 'success' && last_output) {
+                    renderGovResultTable(container, last_output);
                 }
                 await loadGovTaskLogs();
                 return;
