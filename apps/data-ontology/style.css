@@ -500,7 +500,8 @@ body {
     background: #fff;
     border-radius: 12px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: calc(100vh - 120px);
 }
 
 .tab-content-wrap > .onto-workspace,
@@ -5517,10 +5518,11 @@ textarea#testApiParams {
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 2px 12px rgba(0,0,0,.1);
-    max-height: min(70vh, 640px);
+    max-height: min(50vh, 400px);
     overflow: auto;
     position: relative;
-    z-index: 1;
+    z-index: 0;
+    flex-shrink: 0;
 }
 .qa-audit-result-hd {
     font-weight: 600;

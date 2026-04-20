@@ -1036,15 +1036,22 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaExpandAll').addEventListener('click', function () {
-            document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = true; });
-        });
-
-        document.getElementById('qaCollapseAll').addEventListener('click', function () {
-            document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = false; });
-        });
-
         // 规则树全选/取消全选
+        // 展开/折叠切换按钮
+        document.getElementById('qaToggleExpand').addEventListener('click', function () {
+            var btn = this;
+            var details = document.querySelectorAll('#qualityTab .qa-tree details');
+            var allOpen = Array.from(details).every(function(d) { return d.open; });
+            if (allOpen) {
+                // 全部展开 -> 折叠全部
+                details.forEach(function(d) { d.open = false; });
+                btn.textContent = '展开全部';
+            } else {
+                // 部分折叠 -> 展开全部
+                details.forEach(function(d) { d.open = true; });
+                btn.textContent = '折叠全部';
+            }
+        });
         document.getElementById('qaTreeSelectAll').addEventListener('change', function (e) {
             var checked = e.target.checked;
             // 从 flatRules 获取所有规则 NM
