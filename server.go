@@ -5883,6 +5883,11 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if moduleSet["small-model"] {
+		handleAISmallModel(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
 	if moduleSet["ontology"] {
 		handleAIOntologyQuery(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
@@ -7479,6 +7484,64 @@ func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *
 	sendSSE(w, "quality_rule_draft", map[string]interface{}{
 		"message": "已生成数据质量审核规则，请确认后创建。",
 		"rule":    rule,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
+// handleAISmallModel 处理AI创建小模型
+func handleAISmallModel(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在根据您的需求生成小模型配置...",
+	})
+	flusher.Flush()
+
+	prompt := "你是数据处理专家。用户需要创建一个小模型（JavaScript 数据处理函数），请根据用户需求生成配置。\n\n"
+	prompt += "用户需求：" + queryReq.Message + "\n\n"
+	prompt += "请生成小模型配置，JSON格式：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"name\": \"模型名称\",\n"
+	prompt += "  \"description\": \"模型描述\",\n"
+	prompt += "  \"input_type\": \"json\",\n"
+	prompt += "  \"output_type\": \"json\",\n"
+	prompt += "  \"js_code\": \"async function run(input) { return input; }\"\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "说明：\n"
+	prompt += "- js_code: 异步函数，接收 input 参数，返回处理结果\n"
+	prompt += "- input_type/output_type: json/text/number\n"
+
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "AI服务调用失败: " + err.Error()})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 解析JSON
+	jsonStart := strings.Index(aiResponse, "{")
+	jsonEnd := strings.LastIndex(aiResponse, "}")
+	if jsonStart == -1 || jsonEnd == -1 {
+		sendSSE(w, "error", map[string]interface{}{"message": "未能解析配置", "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	var model map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &model); err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "small_model_draft", map[string]interface{}{
+		"message": "已生成小模型配置，请确认后创建。",
+		"model":   model,
 	})
 	sendSSE(w, "done", map[string]interface{}{})
 	flusher.Flush()

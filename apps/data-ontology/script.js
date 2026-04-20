@@ -61,6 +61,7 @@ const aiModules = [
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
     { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
     { id: 'quality-audit', name: '数据质量审核', icon: '✅', description: '创建和管理审核规则' },
+    { id: 'small-model', name: '小模型', icon: '📝', description: '创建自定义数据处理模型' },
     { id: 'ontology', name: '本体论抽象', icon: '💡', description: '开发中...' },
 ];
 
@@ -5261,6 +5262,35 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = qaRuleHtml;
             attemptsEl.style.display = 'none';
             break;
+
+        case 'small_model_draft':
+            statusEl.innerHTML = '';
+            const smModel = data.model || {};
+            const smModelHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">小模型配置</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(smModel.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(smModel.description || '')}</span></div>
+                        <div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${escapeHtml(smModel.input_type || 'json')}</span></div>
+                        <div class="config-item"><span class="config-label">输出类型:</span> <span class="config-value">${escapeHtml(smModel.output_type || 'json')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">JS代码:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px; max-height: 150px; overflow: auto;">${escapeHtml(smModel.js_code || '')}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateSmallModelFromAI(${escapeHtml(JSON.stringify(smModel))})">✓ 确认创建</button>
+                        <button class="btn" onclick="cancelSmallModelDraft('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = smModelHtml;
+            attemptsEl.style.display = 'none';
+            break;
             
         case 'done':
             // 完成，不需要特别处理
@@ -5634,6 +5664,34 @@ function cancelQARuleDraft(messageId) {
     const contentEl = document.getElementById(`${messageId}-content`);
     if (contentEl) {
         contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建规则</div>`;
+    }
+}
+
+// 确认创建 AI 生成的小模型
+async function confirmCreateSmallModelFromAI(model) {
+    if (!model) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(model)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('小模型已创建', 'success');
+            if (typeof loadSmallModels === 'function') loadSmallModels();
+        } else {
+            showToast(data.message || '创建失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+function cancelSmallModelDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建小模型</div>`;
     }
 }
     }
@@ -9405,7 +9463,15 @@ async function loadSmallModels() {
 function renderSmallModels() {
     const container = document.getElementById('smallModelsList');
     if (smallModels.length === 0) {
-        container.innerHTML = '<div class="models-empty">暂无小模型配置，点击"添加模型"创建</div>';
+        container.innerHTML = `
+            <div class="models-empty">
+                <p>暂无小模型配置，点击"添加模型"创建</p>
+                <div style="margin-top:16px;padding:12px;background:#f7fafc;border-radius:6px;text-align:left;">
+                    <p style="font-size:12px;color:#718096;margin-bottom:8px;">📝 示例：JSON 数据转换</p>
+                    <p style="font-size:11px;color:#4a5568;"><strong>输入:</strong> <code>{"name": "test"}</code></p>
+                    <p style="font-size:11px;color:#4a5568;"><strong>输出:</strong> <code>{"name": "TEST", "processed": true}</code></p>
+                </div>
+            </div>`;
         return;
     }
     
