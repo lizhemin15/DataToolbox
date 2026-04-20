@@ -60,6 +60,7 @@ const aiModules = [
     { id: 'db-manage', name: '数据库管理', icon: '📦', description: '查询、写入、表结构操作' },
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
     { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
+    { id: 'quality-audit', name: '数据质量审核', icon: '✅', description: '创建和管理审核规则' },
     { id: 'ontology', name: '本体论抽象', icon: '💡', description: '开发中...' },
 ];
 
@@ -9199,19 +9200,7 @@ let editingSmallModelId = null;
 
 // 初始化模型管理
 function initModelsTab() {
-    loadLLMModels();
     loadSmallModels();
-    
-    // Tab 切换
-    document.querySelectorAll('.models-tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.models-tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const tab = btn.dataset.modelTab;
-            document.getElementById('llmModelsPanel').style.display = tab === 'llm' ? '' : 'none';
-            document.getElementById('smallModelsPanel').style.display = tab === 'small' ? '' : 'none';
-        });
-    });
 }
 
 // ========== 大模型管理 ==========
