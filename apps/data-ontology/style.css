@@ -5331,12 +5331,13 @@ textarea#testApiParams {
     padding: 0;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
 }
 .qa-layout {
     display: grid;
     grid-template-columns: 320px 1fr;
     gap: 12px;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 520px;
     min-width: 0;
 }
@@ -5515,9 +5516,11 @@ textarea#testApiParams {
     padding: 12px;
     background: #fff;
     border-radius: 8px;
-    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    box-shadow: 0 2px 12px rgba(0,0,0,.1);
     max-height: min(70vh, 640px);
     overflow: auto;
+    position: relative;
+    z-index: 1;
 }
 .qa-audit-result-hd {
     font-weight: 600;

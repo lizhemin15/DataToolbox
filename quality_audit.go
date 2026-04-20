@@ -2161,6 +2161,51 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		sb.WriteString(`</w:t></w:r></w:p>`)
 	}
 
+	// 添加表格函数
+	addTable := func(headers []string, rows []map[string]interface{}) {
+		sb.WriteString(`<w:tbl>`)
+		sb.WriteString(`<w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblBorders>`)
+		sb.WriteString(`<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`<w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`<w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
+		sb.WriteString(`</w:tblBorders></w:tblPr>`)
+		// 表头
+		sb.WriteString(`<w:tr>`)
+		for _, h := range headers {
+			sb.WriteString(`<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="E0E0E0"/></w:tcPr><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>`)
+			sb.WriteString(xmlEscapeQA(h))
+			sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
+		}
+		sb.WriteString(`</w:tr>`)
+		// 数据行
+		for _, row := range rows {
+			sb.WriteString(`<w:tr>`)
+			for _, h := range headers {
+				val := ""
+				if v, ok := row[h]; ok {
+					switch vv := v.(type) {
+					case string:
+						val = vv
+					case float64:
+						val = fmt.Sprintf("%.0f", vv)
+					case int, int64:
+						val = fmt.Sprintf("%d", vv)
+					default:
+						val = fmt.Sprintf("%v", vv)
+					}
+				}
+				sb.WriteString(`<w:tc><w:p><w:r><w:t>`)
+				sb.WriteString(xmlEscapeQA(val))
+				sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
+			}
+			sb.WriteString(`</w:tr>`)
+		}
+		sb.WriteString(`</w:tbl>`)
+	}
+
 	if strings.TrimSpace(styles.PageHeader) != "" {
 		addPara(styles.PageHeader)
 	}
@@ -2192,9 +2237,36 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		if e, ok := row["error"].(string); ok && e != "" {
 			addPara("错误：" + e)
 		}
+		// 用表格展示违规数据
 		if sr, ok := row["sample_rows"].([]interface{}); ok && len(sr) > 0 {
-			b, _ := json.Marshal(sr)
-			addPara("违规示例（最多5行）：" + string(b))
+			addPara("违规数据示例：")
+			// 收集所有字段名
+			fieldSet := make(map[string]bool)
+			tableRows := make([]map[string]interface{}, 0, len(sr))
+			for _, item := range sr {
+				if m, ok := item.(map[string]interface{}); ok {
+					tableRows = append(tableRows, m)
+					for k := range m {
+						fieldSet[k] = true
+					}
+				}
+			}
+			// 转为有序列表
+			headers := make([]string, 0, len(fieldSet))
+			for k := range fieldSet {
+				headers = append(headers, k)
+			}
+			// 按字段名排序
+			for i := 0; i < len(headers)-1; i++ {
+				for j := i + 1; j < len(headers); j++ {
+					if headers[i] > headers[j] {
+						headers[i], headers[j] = headers[j], headers[i]
+					}
+				}
+			}
+			if len(headers) > 0 && len(tableRows) > 0 {
+				addTable(headers, tableRows)
+			}
 		}
 	}
 

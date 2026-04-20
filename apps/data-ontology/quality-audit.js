@@ -1022,11 +1022,26 @@
                 return normalizeFillRow(p);
             });
             renderFillTree(treeId, withChecked);
-            showMsg('已填充 ' + parsed.length + ' 行（' + (itemVisible ? '项填报率' : '记录填报率') + '）', false);
+            // 自动保存
+            var body = {
+                item_fill_rate: collectFill('qaFillItemTree'),
+                record_fill_rate: collectFill('qaFillRecordTree')
+            };
+            fetchWithAuth(PREFIX + 'fill-rates', { method: 'POST', body: JSON.stringify(body) })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.success) throw new Error(d.message);
+                    showMsg('已填充 ' + parsed.length + ' 行并保存（' + (itemVisible ? '项填报率' : '记录填报率') + '）', false);
+                })
+                .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
         document.getElementById('qaExpandAll').addEventListener('click', function () {
             document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = true; });
+        });
+
+        document.getElementById('qaCollapseAll').addEventListener('click', function () {
+            document.querySelectorAll('#qualityTab .qa-tree details').forEach(function (d) { d.open = false; });
         });
 
         // 规则树全选/取消全选
