@@ -2327,12 +2327,8 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 			apiBadRequest(w, "无效的请求体")
 			return
 		}
-		if currentUser.Settings == nil {
-			currentUser.Settings = map[string]interface{}{}
-		}
-		for k, v := range body {
-			currentUser.Settings[k] = v
-		}
+			// 直接用 body 替换设置，避免嵌套
+		currentUser.Settings = body
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
