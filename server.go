@@ -6825,10 +6825,10 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	// 使用配置的超时时间，默认60秒
+	// 使用配置的超时时间，默认120秒，避免大模型首次响应过慢导致超时
 	timeout := config.Timeout
 	if timeout <= 0 {
-		timeout = 60
+		timeout = 120
 	}
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,

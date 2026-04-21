@@ -20,3 +20,12 @@ artifacts/
 
 # 编译产物
 datatoolbox
+
+# 临时文件 / 运行时缓存
+.gocache/
+server.config.json
+apps/data-ontology/data-store.json
+apps/web-nav/links-store.json
+*.tmp
+*.temp
+

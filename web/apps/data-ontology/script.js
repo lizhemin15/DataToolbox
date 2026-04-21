@@ -4011,6 +4011,7 @@ function showAiSettingsModal() {
         document.getElementById('aiUrlInput').value = aiConfig.url || '';
         document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
         document.getElementById('aiModelInput').value = aiConfig.model || '';
+        document.getElementById('aiTimeoutInput').value = aiConfig.timeout || '';
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
@@ -4245,10 +4246,12 @@ function applyTabVisibility(settings) {
 async function handleSaveAiSettings(e) {
     e.preventDefault();
 
+    const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
     const config = {
         url: document.getElementById('aiUrlInput').value,
         api_key: document.getElementById('aiApiKeyInput').value,
-        model: document.getElementById('aiModelInput').value
+        model: document.getElementById('aiModelInput').value,
+        timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120
     };
 
     const errorEl = document.getElementById('aiSettingsError');
