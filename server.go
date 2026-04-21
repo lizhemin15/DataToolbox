@@ -388,7 +388,11 @@ func jsonResponse(w http.ResponseWriter, data interface{}, statusCode int) {
 
 // jsonSuccess 写入成功 JSON 响应
 func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
-	jsonResponse(w, data, 0)
+	result := map[string]interface{}{"success": true}
+	for k, v := range data {
+		result[k] = v
+	}
+	jsonResponse(w, result, 0)
 }
 
 // jsonError 写入错误 JSON 响应
