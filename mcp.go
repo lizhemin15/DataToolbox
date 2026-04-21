@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -46,7 +45,7 @@ func newMCPClient() (*mcpClient, error) {
 	return &mcpClient{
 		baseURL: baseURL,
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}, nil
 }
 
@@ -333,7 +332,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var rpcReq mcpRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
-		mcpSendError(w, nil, -32700, "解析错误: "+err.Error())
+		mcpSendError(w, nil, -32700, "解析错误")
 		return
 	}
 
@@ -341,7 +340,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 	cli := &mcpClient{
 		baseURL: mcpLoopbackAddr,
 		apiKey:  apiKey,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}
 
 	switch rpcReq.Method {
@@ -370,12 +369,12 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		if err := json.Unmarshal(rpcReq.Params, &params); err != nil {
-			mcpSendError(w, rpcReq.ID, -32602, "参数解析错误: "+err.Error())
+			mcpSendError(w, rpcReq.ID, -32602, "参数解析错误")
 			return
 		}
 		result, err := mcpCallTool(cli, params.Name, params.Arguments)
 		if err != nil {
-			mcpSendError(w, rpcReq.ID, -32000, err.Error())
+			mcpSendError(w, rpcReq.ID, -32000, safeErrorMessage(err, "工具调用失败"))
 			return
 		}
 		mcpSendResult(w, rpcReq.ID, result)

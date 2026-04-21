@@ -2,6 +2,10 @@
 datatoolbox-server
 datatoolbox-server.exe
 
+# gov-runner 可执行文件（构建产物，嵌入 datatoolbox-server）
+gov-runner/gov-runner
+gov-runner/gov-runner.exe
+
 # 日志文件
 *.log
 
@@ -13,3 +17,6 @@ package/
 # GitHub Actions artifacts
 artifacts/
 
+
+# 编译产物
+datatoolbox

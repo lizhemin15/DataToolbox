@@ -28,7 +28,7 @@ jobs:
             output: datatoolbox-server.exe
             package: datatoolbox-windows-arm64.zip
           
-          # Linux
+          # Linux（CGO 启用，用于 SQLite 等）
           - goos: linux
             goarch: amd64
             output: datatoolbox-server
@@ -59,6 +59,11 @@ jobs:
         with:
           go-version: '1.23'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Download dependencies
         run: |
           go mod tidy
@@ -71,18 +76,37 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          go build -ldflags="-s -w" -o ${{ matrix.output }} .
+          cd gov-runner
+          bun install
+          case "${{ matrix.goos }}-${{ matrix.goarch }}" in
+            linux-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-x64 ;;
+            linux-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-arm64 ;;
+            windows-amd64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-x64 ;;
+            windows-arm64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-arm64 ;;
+            darwin-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-x64 ;;
+            darwin-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-arm64 ;;
+            *) echo "Unknown matrix"; exit 1 ;;
+          esac
+          cd ..
+          # 使用 release 标签构建，不嵌入静态文件
+          go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
 
       - name: Prepare package files
         run: |
-          mkdir -p package
+          mkdir -p package/web
           cp ${{ matrix.output }} package/
           cp server.config.json package/
-          cp -r apps package/
-          cp -r lib package/
-          cp -r css package/
-          cp -r js package/
-          cp index.html package/
+          cp install.sh README_DEPLOY.md package/
+          chmod +x package/install.sh
+          # 复制静态文件到 web 目录
+          cp -r index.html apps css js lib package/web/
+          # 复制 gov-runner
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp gov-runner/gov-runner.exe package/
+          else
+            cp gov-runner/gov-runner package/
+            chmod +x package/gov-runner
+          fi
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'
@@ -121,28 +145,6 @@ jobs:
           EOF
           chmod +x package/start.sh
           chmod +x package/datatoolbox-server
-
-      - name: Create systemd service for Linux
-        if: matrix.goos == 'linux'
-        run: |
-          cat > package/datatoolbox.service << 'EOF'
-          [Unit]
-          Description=DataToolbox Server
-          After=network.target
-
-          [Service]
-          Type=simple
-          WorkingDirectory=/opt/datatoolbox
-          ExecStart=/opt/datatoolbox/datatoolbox-server
-          Restart=always
-          RestartSec=3
-          StandardOutput=journal
-          StandardError=journal
-          SyslogIdentifier=datatoolbox
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
 
       - name: Create ZIP package (Windows)
         if: matrix.goos == 'windows'
@@ -197,7 +199,26 @@ jobs:
             - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`
             - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
             
+            ### 📁 目录结构
+            
+            解压后目录结构：
+            ```
+            datatoolbox/
+            ├── datatoolbox-server    # 可执行文件（体积小，不含静态资源）
+            ├── web/                  # 静态资源目录
+            │   ├── index.html
+            │   ├── apps/
+            │   ├── css/
+            │   ├── js/
+            │   └── lib/
+            ├── gov-runner           # 治理任务运行器
+            ├── server.config.json   # 配置文件
+            └── install.sh           # 安装脚本
+            ```
+            
             ### 🚀 使用方法
+            
+            **交互式安装（推荐）：** 解压后执行 `chmod +x install.sh && ./install.sh`，详见包内 `README_DEPLOY.md`。
             
             **默认端口8080启动：**
             - Windows: 双击运行 `start.bat`
@@ -224,7 +245,7 @@ jobs:
             
             **Linux 更新版本：**
             1. 停止服务：`sudo systemctl stop datatoolbox`
-            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`（若新包里有更新的 `apps`、`lib` 等也一并覆盖）
+            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`
             3. 启动服务：`sudo systemctl start datatoolbox`
             
             **Linux 停止服务 / 取消开机自启：**

@@ -88,4 +88,28 @@ go run server.go
 
 ---
 
+## 开发说明
+
+### 前端架构
+
+- **无框架依赖**：纯原生 HTML + CSS + JavaScript，无构建工具
+- **模块化设计**：每个应用独立目录，自包含单页面应用
+- **延迟加载**：大型第三方库（如 xlsx、docxtemplater）仅在需要时动态加载
+- **Toast 通知**：统一的 `showToast()` 函数替代 alert，提升用户体验
+
+### 后端架构
+
+- **单文件部署**：`server.go` 包含所有后端逻辑
+- **数据库连接池**：支持 MySQL、PostgreSQL、Oracle、达梦、SQL Server、MongoDB 等
+- **WebSocket 支持**：实时协作功能（局域网聊天、多人文档协作）
+- **RESTful API**：`/api/data-ontology/` 系列接口
+
+### 代码规范
+
+- 使用 JSDoc 注释关键函数
+- 避免内存泄漏：事件监听器使用命名函数，便于移除
+- 统一错误处理：`apiRequest()` 封装统一请求逻辑
+
+---
+
 开发者：李哲民

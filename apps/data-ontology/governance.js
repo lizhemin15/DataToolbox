@@ -1,0 +1,78 @@
+async function govDownloadExampleSingle(path) {
+    const safe = String(path || '').trim();
+    if (!safe) return;
+    const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(safe)}`;
+    const response = await fetchWithAuth(url);
+    if (!response.ok) {
+        showToast('下载失败', 'error');
+        return;
+    }
+    const blob = await response.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = safe.split('/').pop() || 'example.docx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+async function govDownloadExampleZip(files) {
+    const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: files })
+    });
+    const ct = response.headers.get('Content-Type') || '';
+    if (!response.ok || ct.includes('application/json')) {
+        try {
+            const j = await response.json();
+            showToast((j && j.message) || '下载失败', 'error');
+        } catch (e) {
+            showToast('下载失败', 'error');
+        }
+        return;
+    }
+    const blob = await response.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'governance-examples.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function govDownloadExamplesForTask(taskId) {
+    const task = govTasks.find(t => t.id === taskId);
+    const list = task && task.example_files;
+    if (!list || !list.length) return;
+    if (list.length === 1) {
+        govDownloadExampleSingle(list[0].path);
+    } else {
+        govDownloadExampleZip(list);
+    }
+}
+
+async function govReloadExamplesFromEmbed() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/reload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showToast(data.message || '刷新失败', 'error');
+            return;
+        }
+        await loadGovernanceTasks();
+        if (currentGovTask) {
+            const t = govTasks.find(x => x.id === currentGovTask.id);
+            if (t) {
+                currentGovTask = t;
+                showGovTaskDetail(t);
+            }
+        }
+        const n = data.updated_tasks != null ? data.updated_tasks : 0;
+        showToast(n > 0 ? `已同步 ${n} 个预置任务的示例元数据` : '已是最新，无需更新', 'success');
+    } catch (e) {
+        showToast('刷新失败', 'error');
+    }
+}

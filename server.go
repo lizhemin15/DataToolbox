@@ -1,12 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/md5"
 	"database/sql"
-	"encoding/hex"
+	"embed"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,30 +17,60 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	_ "gitee.com/chunanyong/dm"
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
-	_ "gitee.com/chunanyong/dm"
 	"go.mongodb.org/mongo-driver/bson"
-	_ "modernc.org/sqlite"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/bcrypt"
 )
+
+//go:embed governance-examples
+var governanceExamplesFS embed.FS
 
 // 条件编译：仅在支持CGO时导入这些驱动
 // SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
+
+// 应用配置常量
+const (
+	// WebSocket 配置
+	WebSocketReadTimeout  = 60 * time.Second // WebSocket 读取超时
+	WebSocketWriteTimeout = 10 * time.Second // WebSocket 写入超时
+	WebSocketPingInterval = 54 * time.Second // WebSocket Ping 间隔
+
+	// HTTP 客户端配置
+	HTTPClientTimeout = 30 * time.Second // HTTP 客户端默认超时
+
+	// SSH 配置
+	SSHConnectTimeout = 15 * time.Second // SSH 连接超时
+	SFTPSessionTTL    = 30 * time.Minute // SFTP 会话过期时间
+	SFTPCleanInterval = 5 * time.Minute  // SFTP 会话清理间隔
+
+	// 治理任务配置
+	GovernanceSchedulerInterval = 30 * time.Second // 治理任务调度器检查间隔
+	GovernanceJobQueueSize      = 100             // 治理任务队列大小
+
+	// 数据库连接池默认配置
+	DefaultDBMaxOpenConns = 10
+	DefaultDBMaxIdleConns = 5
+)
 
 // Config 服务器配置
 type Config struct {
@@ -94,6 +126,108 @@ var hub = &Hub{
 	unregister: make(chan *Client),
 }
 
+// ============================================================
+// 数据库连接池管理器
+// 用于复用数据库连接，避免每次请求都创建新连接
+// ============================================================
+
+// dbPool 全局数据库连接池
+var dbPool = struct {
+	sync.RWMutex
+	connections map[string]*sql.DB // key: 数据库配置ID
+}{
+	connections: make(map[string]*sql.DB),
+}
+
+// dbPoolConfig 连接池配置
+const (
+	maxOpenConns    = 10               // 最大打开连接数
+	maxIdleConns    = 5                // 最大空闲连接数
+	connMaxLifetime = 30 * time.Minute // 连接最大生命周期
+	connMaxIdleTime = 5 * time.Minute  // 空闲连接最大存活时间
+)
+
+// getDBFromPool 从连接池获取数据库连接，如果不存在则创建
+func getDBFromPool(config *DatabaseConfig) (*sql.DB, error) {
+	// 先尝试读锁获取
+	dbPool.RLock()
+	if db, ok := dbPool.connections[config.ID]; ok {
+		dbPool.RUnlock()
+		// 验证连接是否有效
+		if err := db.Ping(); err == nil {
+			return db, nil
+		}
+		// 连接无效，需要重建
+	} else {
+		dbPool.RUnlock()
+	}
+
+	// 需要创建新连接
+	dbPool.Lock()
+	defer dbPool.Unlock()
+
+	// 双重检查
+	if db, ok := dbPool.connections[config.ID]; ok {
+		if err := db.Ping(); err == nil {
+			return db, nil
+		}
+		// 关闭无效连接
+		db.Close()
+		delete(dbPool.connections, config.ID)
+	}
+
+	// 创建新连接
+	driver, dsn, err := buildDSN(config)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	// 设置连接池参数
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
+
+	// 验证连接
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	dbPool.connections[config.ID] = db
+	log.Printf("[DBPool] 创建新连接: id=%s, type=%s, host=%s", config.ID, config.Type, config.Host)
+	return db, nil
+}
+
+// closeDBPool 关闭所有数据库连接池
+func closeDBPool() {
+	dbPool.Lock()
+	defer dbPool.Unlock()
+	for id, db := range dbPool.connections {
+		if err := db.Close(); err != nil {
+			log.Printf("[DBPool] 关闭连接失败: id=%s, err=%v", id, err)
+		}
+	}
+	dbPool.connections = make(map[string]*sql.DB)
+	log.Printf("[DBPool] 所有连接已关闭")
+}
+
+// removeDBFromPool 从连接池移除指定数据库连接
+func removeDBFromPool(dbID string) {
+	dbPool.Lock()
+	defer dbPool.Unlock()
+	if db, ok := dbPool.connections[dbID]; ok {
+		db.Close()
+		delete(dbPool.connections, dbID)
+		log.Printf("[DBPool] 移除连接: id=%s", dbID)
+	}
+}
+
 // loadConfig 加载配置文件
 func loadConfig() Config {
 	defaultConfig := Config{
@@ -131,12 +265,254 @@ func getLocalIP() string {
 	return localAddr.IP.String()
 }
 
-// loggingMiddleware 日志中间件
+// isValidIdentifier 检查标识符（表名、列名）是否安全
+// 防止 SQL 注入：只允许字母、数字、下划线，且不能以数字开头
+var validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// sanitizeFilename 清理文件名，防止路径遍历攻击
+// 返回清理后的安全文件名，如果文件名不合法则返回错误
+func sanitizeFilename(filename string) (string, error) {
+	if filename == "" {
+		return "", fmt.Errorf("文件名不能为空")
+	}
+	// 限制文件名长度
+	if len(filename) > 255 {
+		filename = filename[:255]
+	}
+	// 移除路径分隔符和危险字符
+	filename = filepath.Base(filename)
+	// 检查是否包含路径遍历
+	if strings.Contains(filename, "..") {
+		return "", fmt.Errorf("文件名包含非法字符")
+	}
+	// 移除控制字符
+	cleaned := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, filename)
+	if cleaned == "" {
+		return "", fmt.Errorf("文件名无效")
+	}
+	return cleaned, nil
+}
+
+func isValidIdentifier(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	return validIdentifierRegex.MatchString(name)
+}
+
+// isValidIdentifierWithSchema 检查带 schema 的标识符（如 owner.table）
+func isValidIdentifierWithSchema(name string) bool {
+	if name == "" || len(name) > 256 {
+		return false
+	}
+	// 允许 schema.table 格式
+	parts := strings.Split(name, ".")
+	for _, part := range parts {
+		if !isValidIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// safeQuoteIdentifier 安全地引用标识符，防止 SQL 注入
+// 如果标识符合法，返回带引号的标识符；否则返回空字符串和错误
+func safeQuoteIdentifier(name, dbType string) (string, error) {
+	// 先验证标识符合法性
+	if !isValidIdentifierWithSchema(name) {
+		return "", fmt.Errorf("无效的标识符: %s", name)
+	}
+
+	switch dbType {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return `"` + name + `"`, nil
+	case "sqlserver":
+		return "[" + name + "]", nil
+	case "oracle", "dm":
+		// Oracle/DM 通常不需要引号，直接返回大写形式
+		return strings.ToUpper(name), nil
+	default:
+		// MySQL, SQLite, DuckDB, ClickHouse 等
+		return "`" + name + "`", nil
+	}
+}
+
+// mustSafeQuote 安全引用标识符，如果无效则返回空字符串和错误
+// 注意：调用方应处理错误情况，不要忽略返回的错误
+func mustSafeQuote(name, dbType string) (string, error) {
+	quoted, err := safeQuoteIdentifier(name, dbType)
+	if err != nil {
+		return "", err
+	}
+	return quoted, nil
+}
+
+// ============================================================
+// API 响应辅助函数
+// 统一 API 响应格式，确保一致性
+// ============================================================
+
+// APIResponse 标准 API 响应结构
+type APIResponse struct {
+	Success   bool        `json:"success"`
+	Message   string      `json:"message,omitempty"`
+	Data      interface{} `json:"data,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	ErrorCode string      `json:"error_code,omitempty"` // 错误码，便于前端国际化
+}
+
+// 标准错误码定义
+const (
+	ErrCodeBadRequest    = "BAD_REQUEST"
+	ErrCodeUnauthorized  = "UNAUTHORIZED"
+	ErrCodeForbidden     = "FORBIDDEN"
+	ErrCodeNotFound      = "NOT_FOUND"
+	ErrCodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
+	ErrCodeInternalError = "INTERNAL_ERROR"
+	ErrCodeInvalidInput  = "INVALID_INPUT"
+)
+
+// jsonResponse 写入 JSON 响应（内部函数）
+func jsonResponse(w http.ResponseWriter, data interface{}, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	if statusCode > 0 {
+		w.WriteHeader(statusCode)
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
+// jsonSuccess 写入成功 JSON 响应
+func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
+	result := map[string]interface{}{"success": true}
+	for k, v := range data {
+		result[k] = v
+	}
+	jsonResponse(w, result, 0)
+}
+
+// jsonError 写入错误 JSON 响应
+func jsonError(w http.ResponseWriter, message string, errorCode string) {
+	jsonResponse(w, map[string]interface{}{"success": false, "message": message, "errorCode": errorCode}, 0)
+}
+
+// jsonErrorWithLog 写入错误 JSON 响应并记录日志
+func jsonErrorWithLog(w http.ResponseWriter, message string, errorCode string, logMsg string, logArgs ...interface{}) {
+	if logMsg != "" {
+		log.Printf(logMsg, logArgs...)
+	}
+	jsonError(w, message, errorCode)
+}
+
+// apiSuccess 返回成功响应（标准格式）
+func apiSuccess(w http.ResponseWriter, data interface{}) {
+	jsonResponse(w, APIResponse{
+		Success: true,
+		Data:    data,
+	}, 0)
+}
+
+// apiSuccessWithMessage 返回带消息的成功响应
+func apiSuccessWithMessage(w http.ResponseWriter, message string, data interface{}) {
+	jsonResponse(w, APIResponse{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, 0)
+}
+
+// apiError 返回错误响应（标准格式）
+func apiError(w http.ResponseWriter, message string, statusCode int, errorCode string) {
+	jsonResponse(w, APIResponse{
+		Success:   false,
+		Message:   message,
+		ErrorCode: errorCode,
+	}, statusCode)
+}
+
+// apiBadRequest 返回 400 错误
+func apiBadRequest(w http.ResponseWriter, message string) {
+	apiError(w, message, http.StatusBadRequest, ErrCodeBadRequest)
+}
+
+// apiUnauthorized 返回 401 错误
+func apiUnauthorized(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "未授权"
+	}
+	apiError(w, message, http.StatusUnauthorized, ErrCodeUnauthorized)
+}
+
+// apiForbidden 返回 403 错误
+func apiForbidden(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "权限不足"
+	}
+	apiError(w, message, http.StatusForbidden, ErrCodeForbidden)
+}
+
+// apiNotFound 返回 404 错误
+func apiNotFound(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "资源不存在"
+	}
+	apiError(w, message, http.StatusNotFound, ErrCodeNotFound)
+}
+
+// apiMethodNotAllowed 返回 405 错误
+func apiMethodNotAllowed(w http.ResponseWriter, message ...string) {
+	msg := "方法不允许"
+	if len(message) > 0 && message[0] != "" {
+		msg = message[0]
+	}
+	apiError(w, msg, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed)
+}
+
+// apiInternalError 返回 500 错误
+func apiInternalError(w http.ResponseWriter, message string) {
+	if message == "" {
+		message = "服务器内部错误"
+	}
+	apiError(w, message, http.StatusInternalServerError, ErrCodeInternalError)
+}
+
+// apiInvalidInput 返回输入验证错误
+func apiInvalidInput(w http.ResponseWriter, message string) {
+	apiError(w, message, http.StatusBadRequest, ErrCodeInvalidInput)
+}
+
+// loggingMiddleware 日志中间件 - 记录请求方法和响应时间
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s - %s %s", r.RemoteAddr, r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
+		start := time.Now()
+		// 使用自定义 ResponseWriter 捕获状态码
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(wrapped, r)
+		duration := time.Since(start)
+		log.Printf("[HTTP] %s %s %s - %d (%v)", r.RemoteAddr, r.Method, r.URL.Path, wrapped.statusCode, duration)
 	})
+}
+
+// responseWriter 包装 http.ResponseWriter 以捕获状态码
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush 实现 http.Flusher 接口，支持流式传输
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // corsMiddleware CORS中间件
@@ -146,12 +522,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -267,7 +643,7 @@ func (h *Hub) broadcastPeerJoin(client *Client) {
 	data, _ := json.Marshal(msg)
 
 	log.Printf("广播用户加入: %s (%s) 给 %d 个其他用户", client.Name, client.ID, len(h.clients)-1)
-	
+
 	for _, c := range h.clients {
 		if c.ID != client.ID {
 			select {
@@ -333,9 +709,9 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
-	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetReadDeadline(time.Now().Add(WebSocketReadTimeout))
 	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.Conn.SetReadDeadline(time.Now().Add(WebSocketReadTimeout))
 		return nil
 	})
 
@@ -394,7 +770,7 @@ func (c *Client) readPump() {
 
 // 向客户端写入消息
 func (c *Client) writePump() {
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(WebSocketPingInterval)
 	defer func() {
 		ticker.Stop()
 		c.Conn.Close()
@@ -403,7 +779,7 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.Conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if !ok {
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -415,7 +791,7 @@ func (c *Client) writePump() {
 			}
 
 		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			c.Conn.SetWriteDeadline(time.Now().Add(WebSocketWriteTimeout))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -427,16 +803,18 @@ func (c *Client) writePump() {
 
 // User 用户
 type User struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Token    string `json:"token"`
-	ApiKey   string `json:"api_key,omitempty"`
+	Username string                 `json:"username"`
+	Password string                 `json:"password"`
+	Token    string                 `json:"token"`
+	ApiKey   string                 `json:"api_key,omitempty"`
+	Settings map[string]interface{} `json:"settings,omitempty"` // 用户设置（嵌入模式等）
 }
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
 	ID       string `json:"id"`
-	Type     string `json:"type"`     // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
+	Owner    string `json:"owner,omitempty"` // 所属用户名
+	Type     string `json:"type"`            // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
 	Name     string `json:"name"`
 	Host     string `json:"host,omitempty"`
 	Port     int    `json:"port,omitempty"`
@@ -449,6 +827,7 @@ type DatabaseConfig struct {
 // DatabaseInfo 数据库信息（不包含敏感信息）
 type DatabaseInfo struct {
 	ID        string   `json:"id"`
+	Owner     string   `json:"owner,omitempty"`
 	Type      string   `json:"type"`
 	Name      string   `json:"name"`
 	Host      string   `json:"host,omitempty"`
@@ -465,8 +844,8 @@ type ApiConfig struct {
 	ID            string                 `json:"id"`
 	Name          string                 `json:"name"`
 	Path          string                 `json:"path"`
-	Method        string                 `json:"method"`               // GET, POST, PUT, DELETE
-	Type          string                 `json:"type,omitempty"`       // "query"(默认) | "forward"
+	Method        string                 `json:"method"`                // GET, POST, PUT, DELETE
+	Type          string                 `json:"type,omitempty"`        // "query"(默认) | "forward"
 	DatabaseID    string                 `json:"database_id,omitempty"` // query类型：关联的数据库ID
 	SQL           string                 `json:"sql,omitempty"`         // query类型：MyBatis风格的SQL语句
 	ForwardURL    string                 `json:"forward_url,omitempty"` // forward类型：转发目标URL
@@ -493,9 +872,40 @@ type ApiInfo struct {
 
 // AIConfig AI配置
 type AIConfig struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-	Model  string `json:"model"`
+	URL     string `json:"url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+	Timeout int    `json:"timeout"` // 超时时间（秒），默认60
+}
+
+// LLMModelConfig 大模型配置
+type LLMModelConfig struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`     // "llm" | "rerank" | "embedding" | "asr" | "tts"
+	Provider    string `json:"provider"` // "openai" | "anthropic" | "ollama" | "custom"
+	URL         string `json:"url"`
+	APIKey      string `json:"api_key,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
+// SmallModelConfig 小模型配置（JS 代码运行）
+type SmallModelConfig struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	JsCode      string `json:"js_code"`
+	DatabaseID  string `json:"database_id,omitempty"`
+	InputType   string `json:"input_type,omitempty"`  // "text" | "file" | "both"
+	AcceptExts  string `json:"accept_exts,omitempty"` // ".csv,.txt,.json"
+	OutputType  string `json:"output_type,omitempty"` // "text" | "json" | "file"
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 // AIQueryRequest AI查询请求
@@ -508,13 +918,13 @@ type AIQueryRequest struct {
 
 // AICodegenRequest 数据治理入库代码 AI 生成请求（与 AI 助手共用 url/api_key/model）
 type AICodegenRequest struct {
-	DatabaseID   string             `json:"database_id"`
-	DatabaseName string             `json:"database_name"`
-	DBType       string             `json:"db_type"`
-	TableName    string             `json:"table_name"`
-	SourceType   string             `json:"source_type"` // excel | csv_file | csv_text
-	Columns      []AICodegenColumn  `json:"columns"`
-	UserHint     string             `json:"user_hint,omitempty"`
+	DatabaseID   string            `json:"database_id"`
+	DatabaseName string            `json:"database_name"`
+	DBType       string            `json:"db_type"`
+	TableName    string            `json:"table_name"`
+	SourceType   string            `json:"source_type"` // excel | csv_file | csv_text
+	Columns      []AICodegenColumn `json:"columns"`
+	UserHint     string            `json:"user_hint,omitempty"`
 }
 
 // AICodegenColumn 列映射
@@ -524,30 +934,51 @@ type AICodegenColumn struct {
 	SourceIndex int    `json:"source_index"`
 }
 
+// GovernanceExampleFile 预置任务示例文件（供下载，path 为 governance-examples 下相对路径）
+type GovernanceExampleFile struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 // GovernanceTask 数据治理任务
 type GovernanceTask struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`                    // "scheduled" | "interactive"
-	Description string   `json:"description,omitempty"`
-	JsCode      string   `json:"js_code"`
-	DatabaseID  string   `json:"database_id,omitempty"`
-	CronExpr    string   `json:"cron_expr,omitempty"`     // "分 时 日 月 周" e.g. "0 2 * * *"
-	Enabled     bool     `json:"enabled"`
-	InputType   string   `json:"input_type,omitempty"`    // "file" | "text" | "both"
-	AcceptExts  []string `json:"accept_exts,omitempty"`   // [".xlsx",".csv",".docx"]
-	CreatedAt   string   `json:"created_at"`
-	UpdatedAt   string   `json:"updated_at,omitempty"`
-	Status      string   `json:"status"`                  // "idle" | "running" | "success" | "error"
-	LastOutput  string   `json:"last_output,omitempty"`
-	LastError   string   `json:"last_error,omitempty"`
-	LastRunAt   string   `json:"last_run_at,omitempty"`
+	ID            string                  `json:"id"`
+	Owner         string                  `json:"owner,omitempty"` // 所属用户名
+	Name          string                  `json:"name"`
+	Type          string                  `json:"type"` // "scheduled" | "interactive"
+	Description   string                  `json:"description,omitempty"`
+	JsCode        string                  `json:"js_code"`
+	DatabaseID    string                  `json:"database_id,omitempty"`
+	CronExpr      string                  `json:"cron_expr,omitempty"` // "分 时 日 月 周" e.g. "0 2 * * *"
+	Enabled       bool                    `json:"enabled"`
+	InputType     string                  `json:"input_type,omitempty"`      // "file" | "text" | "both"
+	AcceptExts    []string                `json:"accept_exts,omitempty"`     // [".xlsx",".csv",".docx"]
+	RegisterAsAPI bool                    `json:"register_as_api"`           // 是否注册为 API 接口
+	APIPath       string                  `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
+	APIMethod     string                  `json:"api_method,omitempty"`      // API 方法（GET/POST）
+	FileBatchMode string                  `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
+	Runtime       string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境）
+	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
+	CreatedAt     string                  `json:"created_at"`
+	UpdatedAt     string                  `json:"updated_at,omitempty"`
+	Status        string                  `json:"status"` // "idle" | "running" | "success" | "error"
+	LastOutput    string                  `json:"last_output,omitempty"`
+	LastError     string                  `json:"last_error,omitempty"`
+	LastRunAt     string                  `json:"last_run_at,omitempty"`
+	// 异步执行进度追踪
+	RunID          string `json:"run_id,omitempty"`          // 当前运行 ID
+	TotalFiles     int    `json:"total_files,omitempty"`     // 总文件数
+	ProcessedFiles int    `json:"processed_files,omitempty"` // 已处理文件数
+	Percent        int    `json:"percent,omitempty"`         // 进度百分比
+	CurrentFile    string `json:"current_file,omitempty"`    // 当前处理的文件
+	StartedAt      string `json:"started_at,omitempty"`      // 开始时间
 }
 
 // GovernanceTaskLog 任务执行日志
 type GovernanceTaskLog struct {
 	ID        string `json:"id"`
 	TaskID    string `json:"task_id"`
+	RunID     string `json:"run_id,omitempty"` // 与 GovernanceJob.RunID 对应，用于异步执行更新同一条日志
 	StartTime string `json:"start_time"`
 	EndTime   string `json:"end_time,omitempty"`
 	Status    string `json:"status"` // "running" | "success" | "error"
@@ -558,20 +989,38 @@ type GovernanceTaskLog struct {
 
 // 数据本体池存储
 var (
-	dataOntologyUsers     = make(map[string]*User)
-	dataOntologyDatabases = make(map[string]*DatabaseConfig)
-	dataOntologyApis      = make(map[string]*ApiConfig)
-	dataOntologyAIConfig  *AIConfig
-	governanceTasks       = make(map[string]*GovernanceTask)
-	governanceTaskLogs    = make(map[string][]*GovernanceTaskLog)
+	dataOntologyUsers      = make(map[string]*User)
+	dataOntologyDatabases  = make(map[string]*DatabaseConfig)
+	dataOntologyApis       = make(map[string]*ApiConfig)
+	dataOntologyAIConfig   *AIConfig
+	governanceTasks        = make(map[string]*GovernanceTask)
+	governanceTaskLogs     = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
-	dataOntologyMu        sync.RWMutex
+	// 模型管理
+	llmModels      = make(map[string]*LLMModelConfig)
+	smallModels    = make(map[string]*SmallModelConfig)
+	dataOntologyMu sync.RWMutex
+)
+
+// 数据治理任务队列
+type GovernanceJob struct {
+	TaskID     string
+	RunID      string
+	Token      string
+	InputFiles []string // 文件路径列表
+	InputText  string
+}
+
+var (
+	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
+	govRunnerPath      = "gov-runner"                   // 未嵌入时从可执行文件旁查找
+	govRunnerAPIBase   string                           // 供 gov-runner 回调本机 API，在 main 中设置
 )
 
 // 网页导航
 var (
-	webNavLinks   []WebNavLink
-	webNavMu      sync.RWMutex
+	webNavLinks      []WebNavLink
+	webNavMu         sync.RWMutex
 	webNavAdminToken string // 管理员登录后的 token
 )
 
@@ -590,13 +1039,16 @@ type WebNavStore struct {
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users      map[string]*User                  `json:"users"`
-	Databases  map[string]*DatabaseConfig        `json:"databases"`
-	Apis       map[string]*ApiConfig             `json:"apis"`
-	AIConfig   *AIConfig                         `json:"ai_config,omitempty"`
-	Tasks      map[string]*GovernanceTask        `json:"governance_tasks,omitempty"`
-	TaskLogs   map[string][]*GovernanceTaskLog   `json:"governance_task_logs,omitempty"`
-	MCPEnabled *bool                             `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	Users      map[string]*User                `json:"users"`
+	Databases  map[string]*DatabaseConfig      `json:"databases"`
+	Apis       map[string]*ApiConfig           `json:"apis"`
+	AIConfig   *AIConfig                       `json:"ai_config,omitempty"`
+	Tasks      map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
+	TaskLogs   map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
+	MCPEnabled *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	// 模型管理
+	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
+	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
 }
 
 // 获取持久化文件路径
@@ -611,193 +1063,57 @@ func getDataOntologyStorePath() string {
 	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
 }
 
-// 获取数据本体池演示 SQLite 数据库路径（与 data-store 同目录）
-func getDataOntologyDemoDBPath() string {
-	exePath, err := os.Executable()
-	if err != nil {
-		return filepath.Join("apps", "data-ontology", "demo.db")
-	}
-	rootDir := filepath.Dir(exePath)
-	return filepath.Join(rootDir, "apps", "data-ontology", "demo.db")
-}
-
-// 数据本体池演示库固定 ID，用于初始化时判断是否已存在
-const dataOntologyDemoDBID = "data-ontology-demo"
-
-// initDemoSQLiteDB 创建并初始化演示用 SQLite：电商订单场景，覆盖数据库管理、数据治理、本体论、接口分发、MCP、AI 助手等演示
-func initDemoSQLiteDB(dbPath string) error {
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("创建目录失败: %w", err)
-	}
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return fmt.Errorf("打开演示库失败: %w", err)
-	}
-	defer db.Close()
-	if err := db.Ping(); err != nil {
-		return fmt.Errorf("连接演示库失败: %w", err)
-	}
-
-	// 场景：电商订单。用户 -> 订单 -> 产品，治理日志、接口日志、本体实体表
-	schema := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			username TEXT NOT NULL UNIQUE,
-			display_name TEXT,
-			role TEXT DEFAULT 'user',
-			created_at TEXT DEFAULT (datetime('now','localtime'))
-		)`,
-		`CREATE TABLE IF NOT EXISTS products (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			category TEXT NOT NULL,
-			price REAL NOT NULL,
-			stock INTEGER DEFAULT 0,
-			created_at TEXT DEFAULT (datetime('now','localtime'))
-		)`,
-		`CREATE TABLE IF NOT EXISTS orders (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			product_id INTEGER NOT NULL,
-			quantity INTEGER NOT NULL,
-			amount REAL NOT NULL,
-			status TEXT DEFAULT 'pending',
-			created_at TEXT DEFAULT (datetime('now','localtime')),
-			FOREIGN KEY (user_id) REFERENCES users(id),
-			FOREIGN KEY (product_id) REFERENCES products(id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS governance_log (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_name TEXT NOT NULL,
-			action TEXT,
-			record_count INTEGER,
-			message TEXT,
-			created_at TEXT DEFAULT (datetime('now','localtime'))
-		)`,
-		`CREATE TABLE IF NOT EXISTS api_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			path TEXT NOT NULL,
-			method TEXT NOT NULL,
-			created_at TEXT DEFAULT (datetime('now','localtime'))
-		)`,
-		`CREATE TABLE IF NOT EXISTS ontology_entities (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			entity_type TEXT NOT NULL,
-			description TEXT,
-			table_name TEXT,
-			created_at TEXT DEFAULT (datetime('now','localtime'))
-		)`,
-	}
-	for _, s := range schema {
-		if _, err := db.Exec(s); err != nil {
-			return fmt.Errorf("执行建表语句失败: %w", err)
-		}
-	}
-
-	var userCount int
-	_ = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
-	if userCount == 0 {
-		inserts := []string{
-			`INSERT INTO users (username, display_name, role) VALUES 
-				('admin', '管理员', 'admin'),
-				('zhangsan', '张三', 'user'),
-				('lisi', '李四', 'user'),
-				('wangwu', '王五', 'user'),
-				('zhaoliu', '赵六', 'operator')`,
-			`INSERT INTO products (name, category, price, stock) VALUES 
-				('无线鼠标', '电子', 89.00, 120),
-				('机械键盘', '电子', 299.00, 80),
-				('USB-C 扩展坞', '电子', 199.00, 50),
-				('数据分析入门', '图书', 59.00, 200),
-				('SQL 必知必会', '图书', 49.00, 150),
-				('保温杯', '日用', 79.00, 300),
-				('笔记本支架', '日用', 129.00, 100)`,
-			`INSERT INTO orders (user_id, product_id, quantity, amount, status) VALUES 
-				(2, 1, 2, 178.00, 'completed'),
-				(2, 4, 1, 59.00, 'completed'),
-				(3, 2, 1, 299.00, 'completed'),
-				(3, 6, 3, 237.00, 'pending'),
-				(4, 3, 1, 199.00, 'completed'),
-				(4, 5, 2, 98.00, 'cancelled'),
-				(5, 1, 5, 445.00, 'completed'),
-				(5, 7, 1, 129.00, 'pending')`,
-			`INSERT INTO governance_log (task_name, action, record_count, message) VALUES 
-				('表行数统计', 'schedule', 5, 'users=5, products=7, orders=8'),
-				('Excel产品导入', 'interactive', 7, '从 products.xlsx 导入 7 条')`,
-			`INSERT INTO api_logs (path, method) VALUES 
-				('/api/demo/products', 'GET'),
-				('/api/demo/orders', 'GET'),
-				('/api/demo/users/2/orders', 'GET')`,
-			`INSERT INTO ontology_entities (name, entity_type, description, table_name) VALUES 
-				('用户', 'entity', '系统用户，含角色', 'users'),
-				('产品', 'entity', '商品目录，含分类与库存', 'products'),
-				('订单', 'entity', '用户购买记录，关联用户与产品', 'orders'),
-				('订单-用户', 'relation', '订单属于某用户', NULL),
-				('订单-产品', 'relation', '订单包含某产品', NULL)`,
-		}
-		for _, s := range inserts {
-			if _, err := db.Exec(s); err != nil {
-				return fmt.Errorf("插入示例数据失败: %w", err)
-			}
-		}
-		log.Printf("演示库已初始化（电商订单场景）: %s", dbPath)
-	}
-	return nil
-}
-
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePath()
-	
+
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
 		log.Printf("持久化文件不存在，将创建新文件: %s", storePath)
 		return nil
 	}
-	
+
 	// 读取文件
 	data, err := os.ReadFile(storePath)
 	if err != nil {
 		return fmt.Errorf("读取持久化文件失败: %v", err)
 	}
-	
+
 	// 解析JSON
 	var store DataOntologyStore
 	if err := json.Unmarshal(data, &store); err != nil {
 		return fmt.Errorf("解析持久化数据失败: %v", err)
 	}
-	
+
 	// 加载数据到内存
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
-	
+
 	if store.Users != nil {
 		dataOntologyUsers = store.Users
 		log.Printf("已加载 %d 个用户", len(dataOntologyUsers))
 	}
-	
+
 	if store.Databases != nil {
 		dataOntologyDatabases = store.Databases
 		log.Printf("已加载 %d 个数据库配置", len(dataOntologyDatabases))
 	}
-	
+
 	if store.Apis != nil {
 		dataOntologyApis = store.Apis
 		log.Printf("已加载 %d 个接口配置", len(dataOntologyApis))
 	}
-	
+
 	if store.AIConfig != nil {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
 	}
-	
+
 	if store.Tasks != nil {
 		governanceTasks = store.Tasks
 		log.Printf("已加载 %d 个治理任务", len(governanceTasks))
 	}
-	
+
 	if store.TaskLogs != nil {
 		governanceTaskLogs = store.TaskLogs
 		log.Printf("已加载治理任务日志")
@@ -805,43 +1121,65 @@ func loadDataOntologyStore() error {
 	if store.MCPEnabled != nil {
 		dataOntologyMCPEnabled = store.MCPEnabled
 	}
+	// 模型管理
+	if store.LLMModels != nil {
+		llmModels = store.LLMModels
+		log.Printf("已加载 %d 个大模型配置", len(llmModels))
+	}
+	if store.SmallModels != nil {
+		smallModels = store.SmallModels
+		log.Printf("已加载 %d 个小模型配置", len(smallModels))
+	}
+	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
+	for _, c := range dataOntologyDatabases {
+		if c != nil && c.Owner == "" {
+			c.Owner = "admin"
+		}
+	}
+	for _, t := range governanceTasks {
+		if t != nil && t.Owner == "" {
+			t.Owner = "admin"
+		}
+	}
 	return nil
 }
 
 // 保存持久化数据
 func saveDataOntologyStore() error {
 	storePath := getDataOntologyStorePath()
-	
+
 	// 确保目录存在
 	storeDir := filepath.Dir(storePath)
 	if err := os.MkdirAll(storeDir, 0755); err != nil {
 		return fmt.Errorf("创建目录失败: %v", err)
 	}
-	
+
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
-		Users:      dataOntologyUsers,
-		Databases:  dataOntologyDatabases,
-		Apis:       dataOntologyApis,
-		AIConfig:   dataOntologyAIConfig,
-		Tasks:      governanceTasks,
-		TaskLogs:   governanceTaskLogs,
-		MCPEnabled: dataOntologyMCPEnabled,
+		Users:       dataOntologyUsers,
+		Databases:   dataOntologyDatabases,
+		Apis:        dataOntologyApis,
+		AIConfig:    dataOntologyAIConfig,
+		Tasks:       governanceTasks,
+		TaskLogs:    governanceTaskLogs,
+		MCPEnabled:  dataOntologyMCPEnabled,
+		LLMModels:   llmModels,
+		SmallModels: smallModels,
 	}
 	dataOntologyMu.RUnlock()
-	
+
 	// 序列化为JSON
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化数据失败: %v", err)
 	}
-	
+
 	// 写入文件
 	if err := os.WriteFile(storePath, data, 0644); err != nil {
 		return fmt.Errorf("写入文件失败: %v", err)
 	}
-	
+
 	log.Printf("数据已保存到: %s", storePath)
 	return nil
 }
@@ -904,14 +1242,20 @@ func initWebNav() {
 }
 
 // 网页导航默认管理员 admin / admin1234
+// 预生成的 bcrypt 哈希（admin1234）
+const webNavAdminPasswordHash = "$2a$10$Hxx7DcpNAlReSHjolH9otuCsoIHrMZxY8gCZ4R3OFk0oKqP5C6IT2"
+
 func checkWebNavAdmin(username, password string) bool {
-	return username == "admin" && hashPassword(password) == hashPassword("admin1234")
+	if username != "admin" {
+		return false
+	}
+	return verifyPassword(password, webNavAdminPasswordHash)
 }
 
 func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		apiMethodNotAllowed(w, "只支持POST")
 		return
 	}
 	var req struct {
@@ -919,18 +1263,18 @@ func handleWebNavLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 	if !checkWebNavAdmin(req.Username, req.Password) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名或密码错误"})
+		apiUnauthorized(w, "用户名或密码错误")
 		return
 	}
 	token := generateToken()
 	webNavMu.Lock()
 	webNavAdminToken = token
 	webNavMu.Unlock()
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": token})
+	jsonSuccess(w, map[string]interface{}{"token": token})
 }
 
 func checkWebNavAuth(r *http.Request) bool {
@@ -956,20 +1300,20 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 		webNavMu.RLock()
 		links := append([]WebNavLink(nil), webNavLinks...)
 		webNavMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "links": links})
+		jsonSuccess(w, map[string]interface{}{"links": links})
 		return
 	case http.MethodPost:
 		if !checkWebNavAuth(r) {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+			apiUnauthorized(w, "需要管理员权限")
 			return
 		}
 		var link WebNavLink
 		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if link.Title == "" || link.URL == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			apiBadRequest(w, "标题和链接不能为空")
 			return
 		}
 		link.ID = uuid.New().String()
@@ -979,10 +1323,10 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+		jsonSuccess(w, map[string]interface{}{"link": link})
 		return
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+		apiMethodNotAllowed(w, "方法不允许")
 		return
 	}
 }
@@ -990,7 +1334,7 @@ func handleWebNavLinks(w http.ResponseWriter, r *http.Request) {
 func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 	w.Header().Set("Content-Type", "application/json")
 	if !checkWebNavAuth(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "需要管理员权限"})
+		apiUnauthorized(w, "需要管理员权限")
 		return
 	}
 	webNavMu.Lock()
@@ -1003,7 +1347,7 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if idx < 0 {
 		webNavMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "链接不存在"})
+		apiBadRequest(w, "链接不存在")
 		return
 	}
 	switch r.Method {
@@ -1011,11 +1355,11 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 		var link WebNavLink
 		webNavMu.Unlock()
 		if err := json.NewDecoder(r.Body).Decode(&link); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		if link.Title == "" || link.URL == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "标题和链接不能为空"})
+			apiBadRequest(w, "标题和链接不能为空")
 			return
 		}
 		link.ID = id
@@ -1025,17 +1369,102 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "link": link})
+		jsonSuccess(w, map[string]interface{}{"link": link})
 	case http.MethodDelete:
 		webNavLinks = append(webNavLinks[:idx], webNavLinks[idx+1:]...)
 		webNavMu.Unlock()
 		if err := saveWebNavStore(); err != nil {
 			log.Printf("保存网页导航失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		jsonSuccess(w, nil)
 	default:
 		webNavMu.Unlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "方法不允许"})
+		apiMethodNotAllowed(w, "方法不允许")
+	}
+}
+
+func loadGovernanceAggregateDailyReportJS() string {
+	b, err := governanceExamplesFS.ReadFile("governance-examples/aggregate-daily-report.js")
+	if err != nil {
+		log.Printf("读取 aggregate-daily-report.js 失败: %v", err)
+		return ""
+	}
+	return string(b)
+}
+
+// governancePresetExampleFilesByName 内置预置任务的示例文件列表（与 embed 中 governance-examples 一致）
+func governancePresetExampleFilesByName(taskName string) ([]GovernanceExampleFile, bool) {
+	switch taskName {
+	case "Word文档内容提取":
+		return []GovernanceExampleFile{
+			{Name: "模板.docx", Path: "template.docx"},
+		}, true
+	case "综合日报生成器":
+		return []GovernanceExampleFile{
+			{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+			{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
+			{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
+			{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+		}, true
+	default:
+		return nil, false
+	}
+}
+
+// exampleFilesListsEqual 比较两个示例列表是否一致（顺序敏感）
+func exampleFilesListsEqual(a, b []GovernanceExampleFile) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || a[i].Path != b[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+// syncGovernancePresetExamplesFromEmbed 将 embed 中的预置示例元数据同步到内存中的任务并写入 data-store。
+// 仅处理名称与内置预置完全一致的任务，不会修改用户自建任务。
+// includeJS 为 true 时，将「综合日报生成器」的 js_code 替换为 embed 内最新脚本（慎用：会覆盖用户对该任务的代码修改）。
+func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
+	now := time.Now().Format(time.RFC3339)
+	updated := 0
+	for _, t := range governanceTasks {
+		if t == nil {
+			continue
+		}
+		files, ok := governancePresetExampleFilesByName(t.Name)
+		if !ok {
+			continue
+		}
+		changed := false
+		if !exampleFilesListsEqual(t.ExampleFiles, files) {
+			t.ExampleFiles = files
+			t.UpdatedAt = now
+			changed = true
+		}
+		if includeJS && t.Name == "综合日报生成器" {
+			js := loadGovernanceAggregateDailyReportJS()
+			if js != "" && t.JsCode != js {
+				t.JsCode = js
+				t.UpdatedAt = now
+				changed = true
+			}
+		}
+		if changed {
+			updated++
+		}
+	}
+	return updated
+}
+
+// ensureGovernanceExampleFiles 为已持久化的预置任务补全示例文件元数据（兼容旧数据，逻辑已由 syncGovernancePresetExamplesFromEmbed 覆盖）
+func ensureGovernanceExampleFiles() {
+	if n := syncGovernancePresetExamplesFromEmbed(false); n > 0 {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存示例文件元数据失败: %v", err)
+		}
 	}
 }
 
@@ -1045,31 +1474,8 @@ func initDataOntology() {
 	if err := loadDataOntologyStore(); err != nil {
 		log.Printf("加载持久化数据失败: %v", err)
 	}
+	ensureGovernanceExampleFiles()
 
-	// 演示用 SQLite 数据库：创建文件并初始化表结构+示例数据，供数据治理、本体论、接口、MCP、AI 助手等模块演示
-	demoPath := getDataOntologyDemoDBPath()
-	if err := initDemoSQLiteDB(demoPath); err != nil {
-		log.Printf("初始化演示库失败: %v", err)
-	} else {
-		dataOntologyMu.Lock()
-		if dataOntologyDatabases[dataOntologyDemoDBID] == nil {
-			dataOntologyDatabases[dataOntologyDemoDBID] = &DatabaseConfig{
-				ID:   dataOntologyDemoDBID,
-				Type: "sqlite",
-				Name: "演示库",
-				Path: demoPath,
-			}
-			dataOntologyMu.Unlock()
-			if err := saveDataOntologyStore(); err != nil {
-				log.Printf("保存演示库配置失败: %v", err)
-			} else {
-				log.Printf("已自动加载演示库到数据本体池: %s", demoPath)
-			}
-			dataOntologyMu.Lock()
-		}
-		dataOntologyMu.Unlock()
-	}
-	
 	// 如果没有用户，创建默认管理员账号
 	dataOntologyMu.Lock()
 	if len(dataOntologyUsers) == 0 {
@@ -1079,7 +1485,7 @@ func initDataOntology() {
 			Password: hashedPassword,
 		}
 		log.Println("已创建默认管理员账号: admin/admin1234")
-		
+
 		// 保存初始数据
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
@@ -1088,83 +1494,113 @@ func initDataOntology() {
 		dataOntologyMu.Lock()
 	}
 	dataOntologyMu.Unlock()
-	
+
 	// 如果没有治理任务，创建示例任务
 	dataOntologyMu.Lock()
 	if len(governanceTasks) == 0 {
 		now := time.Now().Format(time.RFC3339)
-		
+
 		// 示例1: 定时任务 - 数据库表统计
 		scheduledID := uuid.New().String()
 		governanceTasks[scheduledID] = &GovernanceTask{
 			ID:          scheduledID,
+			Owner:       "admin",
 			Name:        "数据库表行数统计",
 			Type:        "scheduled",
 			Description: "查询所有表的行数，输出统计报告（需关联数据库）",
-			JsCode: "// 定时任务：统计数据库所有表的行数（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\ngov.log('='.repeat(40));\ngov.log(`共 ${tableList.length} 张表`);\ngov.log('='.repeat(40));\nfor (const tableName of tableList) {\n  const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const cnt = result && result[0] ? (result[0].cnt ?? result[0].CNT ?? 0) : 0;\n  gov.log(`  ${String(tableName).padEnd(30)} ${cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
-			CronExpr:   "0 2 * * *",
-			Enabled:    false,
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 定时任务：统计数据库所有表的行数（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\ngov.log('='.repeat(40));\ngov.log(`共 ${tableList.length} 张表`);\ngov.log('='.repeat(40));\nfor (const tableName of tableList) {\n  const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const cnt = result && result[0] ? (result[0].cnt ?? result[0].CNT ?? 0) : 0;\n  gov.log(`  ${String(tableName).padEnd(30)} ${cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
+			CronExpr:    "0 2 * * *",
+			Enabled:     false,
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例2: 交互任务 - Excel数据导入
 		interactiveID := uuid.New().String()
 		governanceTasks[interactiveID] = &GovernanceTask{
 			ID:          interactiveID,
+			Owner:       "admin",
 			Name:        "Excel数据解析入库",
 			Type:        "interactive",
 			Description: "上传Excel文件，解析内容预览，可选入库",
-			JsCode: "// Excel 数据解析预览 + 入「当前关联的单个库」的指定表\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\nconst headers = data[0];\nconst rows = data.slice(1);\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${rows.length}, 列数: ${headers.length}`);\ngov.log(`表头: ${headers.join(', ')}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, rows.length); i++) {\n    gov.log(`  行${i + 1}: ${rows[i].join(' | ')}`);\n}\n\n// 入当前任务关联的单个库的某张表（编辑任务时可选择关联数据库）\nconst tableName = 'your_table';\nconst insertCols = ['col1', 'col2', 'col3'];\nlet n = 0;\ntry {\n  for (let i = 0; i < rows.length; i++) {\n    const row = rows[i];\n    await gov.executeSQL(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (?,?,?)`, [row[0], row[1], row[2] ?? null]);\n    n++;\n  }\n  gov.log(`\\n入库完成: ${tableName} 写入 ${n} 行`);\n} catch (e) {\n  gov.log('\\n入库失败: ' + e.message);\n  gov.log('请编辑任务：1) 关联一个数据库 2) 修改上面 tableName、insertCols 与列数');\n}\n",
-			InputType:  "file",
-			AcceptExts: []string{".xlsx", ".xls"},
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// Excel 数据解析预览 + 入「当前关联的单个库」的指定表\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\nconst headers = data[0];\nconst rows = data.slice(1);\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${rows.length}, 列数: ${headers.length}`);\ngov.log(`表头: ${headers.join(', ')}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, rows.length); i++) {\n    gov.log(`  行${i + 1}: ${rows[i].join(' | ')}`);\n}\n\n// 入当前任务关联的单个库的某张表（编辑任务时可选择关联数据库）\nconst tableName = 'your_table';\nconst insertCols = ['col1', 'col2', 'col3'];\nlet n = 0;\ntry {\n  for (let i = 0; i < rows.length; i++) {\n    const row = rows[i];\n    await gov.executeSQL(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (?,?,?)`, [row[0], row[1], row[2] ?? null]);\n    n++;\n  }\n  gov.log(`\\n入库完成: ${tableName} 写入 ${n} 行`);\n} catch (e) {\n  gov.log('\\n入库失败: ' + e.message);\n  gov.log('请编辑任务：1) 关联一个数据库 2) 修改上面 tableName、insertCols 与列数');\n}\n",
+			InputType:   "file",
+			AcceptExts:  []string{".xlsx", ".xls"},
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例3: 交互任务 - CSV文本解析
 		textTaskID := uuid.New().String()
 		governanceTasks[textTaskID] = &GovernanceTask{
 			ID:          textTaskID,
+			Owner:       "admin",
 			Name:        "CSV文本解析",
 			Type:        "interactive",
 			Description: "输入CSV格式文本，解析并展示结构化结果",
-			JsCode: "// CSV 文本解析预览\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, result.data.length); i++) {\n    const row = result.data[i];\n    gov.log(`行 ${i + 1}: ${Object.values(row).join(' | ')}`);\n}\ngov.log(`\\n提示: 使用\"入库代码生成助手\"可快速生成入库代码`);",
-			InputType:  "text",
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// CSV 文本解析预览\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, result.data.length); i++) {\n    const row = result.data[i];\n    gov.log(`行 ${i + 1}: ${Object.values(row).join(' | ')}`);\n}\ngov.log(`\\n提示: 使用\"入库代码生成助手\"可快速生成入库代码`);",
+			InputType:   "text",
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例4: 定时任务 - 数据完整性检查
 		syncCheckID := uuid.New().String()
 		governanceTasks[syncCheckID] = &GovernanceTask{
 			ID:          syncCheckID,
+			Owner:       "admin",
 			Name:        "数据完整性检查",
 			Type:        "scheduled",
 			Description: "检查数据库表的空值情况（需关联数据库）",
-			JsCode: "// 定时任务：检查各表的数据完整性（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\nfor (const tableName of tableList) {\n  gov.log(`\\n[${tableName}]`);\n  let columns = [];\n  if (dbType === 'dm') {\n    const rows = await gov.querySQL(`SELECT COLUMN_NAME, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, \"''\").toUpperCase()}' ORDER BY COLUMN_ID`);\n    columns = rows.map(r => ({ name: r.COLUMN_NAME ?? r.column_name, nullable: (r.NULLABLE ?? r.nullable) === 'Y' }));\n  } else {\n    const rows = await gov.querySQL(`SHOW COLUMNS FROM ${q(tableName)}`);\n    columns = rows.map(r => ({ name: r.Field, nullable: r.Null === 'YES' }));\n  }\n  const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const totalCnt = countResult && countResult[0] ? (countResult[0].cnt ?? countResult[0].CNT ?? 0) : 0;\n  for (const col of columns) {\n    if (col.nullable) {\n      const colQ = q(col.name);\n      const nullResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)} WHERE ${colQ} IS NULL`);\n      const n = nullResult && nullResult[0] ? (nullResult[0].cnt ?? nullResult[0].CNT ?? 0) : 0;\n      if (n > 0) gov.log(`  ⚠ ${col.name}: ${n} 个空值`);\n    }\n  }\n  gov.log(`  总行数: ${totalCnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
-			CronExpr:   "30 1 * * *",
-			Enabled:    false,
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 定时任务：检查各表的数据完整性（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '\"' + String(t).replace(/\"/g, '\"\"') + '\"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\nfor (const tableName of tableList) {\n  gov.log(`\\n[${tableName}]`);\n  let columns = [];\n  if (dbType === 'dm') {\n    const rows = await gov.querySQL(`SELECT COLUMN_NAME, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, \"''\").toUpperCase()}' ORDER BY COLUMN_ID`);\n    columns = rows.map(r => ({ name: r.COLUMN_NAME ?? r.column_name, nullable: (r.NULLABLE ?? r.nullable) === 'Y' }));\n  } else {\n    const rows = await gov.querySQL(`SHOW COLUMNS FROM ${q(tableName)}`);\n    columns = rows.map(r => ({ name: r.Field, nullable: r.Null === 'YES' }));\n  }\n  const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const totalCnt = countResult && countResult[0] ? (countResult[0].cnt ?? countResult[0].CNT ?? 0) : 0;\n  for (const col of columns) {\n    if (col.nullable) {\n      const colQ = q(col.name);\n      const nullResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)} WHERE ${colQ} IS NULL`);\n      const n = nullResult && nullResult[0] ? (nullResult[0].cnt ?? nullResult[0].CNT ?? 0) : 0;\n      if (n > 0) gov.log(`  ⚠ ${col.name}: ${n} 个空值`);\n    }\n  }\n  gov.log(`  总行数: ${totalCnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
+			CronExpr:    "30 1 * * *",
+			Enabled:     false,
+			CreatedAt:   now,
+			Status:      "idle",
 		}
 
 		// 示例5: 交互任务 - Word文档解析
 		docTaskID := uuid.New().String()
 		governanceTasks[docTaskID] = &GovernanceTask{
 			ID:          docTaskID,
+			Owner:       "admin",
 			Name:        "Word文档内容提取",
 			Type:        "interactive",
 			Description: "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
-			JsCode: "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nif (structured.length > 0 && currentGovTask && currentGovTask.database_id) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
-			InputType:  "file",
-			AcceptExts: []string{".docx"},
-			CreatedAt:  now,
-			Status:     "idle",
+			JsCode:      "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nconst dbType = gov.getDbType();\nif (structured.length > 0 && dbType) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
+			InputType:   "file",
+			AcceptExts:  []string{".docx"},
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "模板.docx", Path: "template.docx"},
+			},
+			CreatedAt: now,
+			Status:    "idle",
+		}
+
+		// 示例6: 交互任务 - 综合日报生成器（多文件一次执行 + LLM + docxtemplater）
+		reportTaskID := uuid.New().String()
+		governanceTasks[reportTaskID] = &GovernanceTask{
+			ID:            reportTaskID,
+			Owner:         "admin",
+			Name:          "综合日报生成器",
+			Type:          "interactive",
+			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，AI 整合后生成综合日报",
+			JsCode:        loadGovernanceAggregateDailyReportJS(),
+			InputType:     "file",
+			AcceptExts:    []string{".docx"},
+			FileBatchMode: "single",
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
+				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
+				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
+			},
+			CreatedAt: now,
+			Status:    "idle",
 		}
 
 		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
-		
+
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存示例治理任务失败: %v", err)
@@ -1172,18 +1608,85 @@ func initDataOntology() {
 		dataOntologyMu.Lock()
 	}
 	dataOntologyMu.Unlock()
-	
-	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d", 
+
+	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
-	
+
+	initQualityAuditDB()
+
+	// 进程重启后内存队列已清空，持久化仍为「运行中」的任务无法继续，需收尾以免状态与日志长期不一致
+	reconcileStuckGovernanceRuns()
+
+	// 启动治理任务 worker（后台执行器）
+	go governanceWorker()
+
 	// 启动治理任务调度器
 	go governanceScheduler()
 }
 
-// 密码哈希
+// 密码哈希 - 使用 bcrypt
 func hashPassword(password string) string {
-	hash := md5.Sum([]byte(password))
-	return hex.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// bcrypt 失败时回退到简单哈希（不应发生）
+		log.Printf("bcrypt 哈希失败: %v", err)
+		return ""
+	}
+	return string(hash)
+}
+
+// 验证密码 - 支持 bcrypt 和旧的 MD5 哈希（向后兼容）
+func verifyPassword(password, hashedPassword string) bool {
+	// 检查是否是 bcrypt 哈希（以 $2a$ 或 $2b$ 开头）
+	if strings.HasPrefix(hashedPassword, "$2a$") || strings.HasPrefix(hashedPassword, "$2b$") {
+		err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+		return err == nil
+	}
+	// 旧的 MD5 哈希（向后兼容）- 已弃用，仅用于迁移
+	return false
+}
+
+// safeErrorMessage 返回安全的错误消息，避免泄露敏感信息
+// 对于数据库错误、连接错误等，返回通用消息；对于用户输入错误，返回具体提示
+func safeErrorMessage(err error, defaultMsg string) string {
+	if err == nil {
+		return defaultMsg
+	}
+	errStr := err.Error()
+	
+	// 检测敏感关键词，返回通用错误消息
+	sensitivePatterns := []string{
+		"password", "passwd", "secret", "token", "key", "credential",
+		"connection string", "dsn", "sql:", "driver:",
+		"access denied", "authentication", "permission",
+	}
+	lowerErr := strings.ToLower(errStr)
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(lowerErr, pattern) {
+			log.Printf("安全过滤错误消息: %s", errStr)
+			return defaultMsg
+		}
+	}
+	
+	// 对于已知的安全错误类型，可以返回具体消息
+	// 如：唯一约束冲突、外键约束等
+	if strings.Contains(errStr, "UNIQUE constraint") ||
+		strings.Contains(errStr, "duplicate key") ||
+		strings.Contains(errStr, "already exists") {
+		return "记录已存在"
+	}
+	if strings.Contains(errStr, "FOREIGN KEY constraint") ||
+		strings.Contains(errStr, "foreign key") {
+		return "关联数据不存在"
+	}
+	if strings.Contains(errStr, "NOT NULL constraint") ||
+		strings.Contains(errStr, "cannot be null") {
+		return "必填字段不能为空"
+	}
+	
+	// 其他错误返回默认消息，但记录详细日志
+	log.Printf("错误详情: %s", errStr)
+	return defaultMsg
 }
 
 // 生成Token
@@ -1223,7 +1726,7 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		// 格式: dm://username:password@host:port/schema
 		// 需要对用户名和密码进行 URL 编码，避免特殊字符导致解析错误
 		log.Printf("DM配置: 原始Host='%s', 原始Port=%d", config.Host, config.Port)
-		
+
 		host := config.Host
 		if host == "" {
 			host = "localhost"
@@ -1234,27 +1737,32 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 			port = 5236
 			log.Printf("DM: Port为0，使用默认值 5236")
 		}
-		
+
 		// URL 编码用户名和密码，避免特殊字符（如 @、:、/ 等）导致 DSN 解析错误
 		encodedUser := url.QueryEscape(config.User)
 		encodedPassword := url.QueryEscape(config.Password)
-		
+
 		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
 			encodedUser, encodedPassword, host, port)
 		if config.Database != "" {
 			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
 				encodedUser, encodedPassword, host, port, config.Database)
 		}
-		
-		log.Printf("DM最终DSN(已编码): %s", dsn)
+
+	// 安全：不在日志中输出包含密码的 DSN
+		log.Printf("DM最终DSN(已编码): driver=dm, host=%s, port=%d, database=%s", host, port, config.Database)
 		return "dm", dsn, nil
 
 	case "sqlite":
-		if config.Path == "" {
-			return "", "", fmt.Errorf("SQLite 需要填写数据库文件路径")
+		path := strings.TrimSpace(config.Path)
+		if path == "" {
+			path = strings.TrimSpace(config.Database)
 		}
-		// 使用纯 Go 驱动 modernc.org/sqlite，无需 CGO
-		return "sqlite", config.Path, nil
+		if path == "" {
+			return "", "", fmt.Errorf("SQLite 需要配置数据库文件路径（path 或 database）")
+		}
+		// modernc.org/sqlite 注册的驱动名为 "sqlite"（非 mattn/go-sqlite3 的 sqlite3）
+		return "sqlite", path, nil
 
 	case "duckdb":
 		// DuckDB 需要CGO支持
@@ -1315,18 +1823,18 @@ func buildMongoURI(config *DatabaseConfig) string {
 	if strings.Contains(config.Host, ".mongodb.net") {
 		// MongoDB Atlas 使用 SRV 连接格式，不需要端口号
 		uri := fmt.Sprintf("mongodb+srv://%s:%s@%s/%s?retryWrites=true&w=majority",
-			url.QueryEscape(config.User), 
-			url.QueryEscape(config.Password), 
-			config.Host, 
+			url.QueryEscape(config.User),
+			url.QueryEscape(config.Password),
+			config.Host,
 			config.Database)
 		return uri
 	}
 	// 标准 MongoDB 连接格式
 	return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
-		url.QueryEscape(config.User), 
-		url.QueryEscape(config.Password), 
-		config.Host, 
-		config.Port, 
+		url.QueryEscape(config.User),
+		url.QueryEscape(config.Password),
+		config.Host,
+		config.Port,
 		config.Database)
 }
 
@@ -1345,7 +1853,7 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 			return nil, err
 		}
 		defer client.Disconnect(ctx)
-		
+
 		db := client.Database(config.Database)
 		collections, err := db.ListCollectionNames(ctx, bson.M{})
 		if err != nil {
@@ -1360,27 +1868,18 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	}
 
 	// 其他NoSQL数据库暂不支持
-	if config.Type == "neo4j" || config.Type == "elasticsearch" || 
-	   config.Type == "influxdb" || config.Type == "memcached" || 
-	   config.Type == "cassandra" || config.Type == "hbase" {
+	if config.Type == "neo4j" || config.Type == "elasticsearch" ||
+		config.Type == "influxdb" || config.Type == "memcached" ||
+		config.Type == "cassandra" || config.Type == "hbase" {
 		return []string{}, nil
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(config)
+	// SQL数据库通用处理 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		return nil, err
-	}
+	// 注意：不再 defer db.Close()，因为连接池管理连接生命周期
 
 	// 获取表列表
 	query := getTablesQuery(config)
@@ -1427,25 +1926,36 @@ func getTablesList(config *DatabaseConfig) ([]string, error) {
 	return tables, nil
 }
 
+// oracleEscapeIdentifier 安全转义 Oracle/DM 标识符用于 SQL 字符串字面量
+// 标识符已通过 isValidIdentifierWithSchema 验证，这里只需转义单引号
+func oracleEscapeIdentifier(name string) string {
+	return strings.ReplaceAll(strings.ToUpper(name), "'", "''")
+}
+
 // oracleTableColumnsSQL 返回 Oracle 查询表列的 SQL，支持 owner.table 形式
 func oracleTableColumnsSQL(tableName string, withDefault bool) string {
-	tbl := strings.ToUpper(tableName)
 	sel := "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE"
 	if withDefault {
 		sel = "SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT"
 	}
-	if idx := strings.Index(tbl, "."); idx >= 0 {
-		owner := strings.ReplaceAll(tbl[:idx], "'", "''")
-		tblPart := strings.ReplaceAll(tbl[idx+1:], "'", "''")
+	// 处理 owner.table 形式
+	if idx := strings.Index(tableName, "."); idx >= 0 {
+		owner := oracleEscapeIdentifier(tableName[:idx])
+		tblPart := oracleEscapeIdentifier(tableName[idx+1:])
 		return fmt.Sprintf("%s FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, owner, tblPart)
 	}
-	tableEsc := strings.ReplaceAll(tableName, "'", "''")
+	tableEsc := oracleEscapeIdentifier(tableName)
 	return fmt.Sprintf("%s FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", sel, tableEsc)
 }
 
 // getTableColumns 获取表的字段信息
 func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]interface{}, error) {
 	var columns []map[string]interface{}
+
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		return nil, fmt.Errorf("无效的表名: %s", tableName)
+	}
 
 	// MongoDB 特殊处理 - 通过采样文档推断字段
 	if config.Type == "mongodb" {
@@ -1460,7 +1970,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		defer client.Disconnect(ctx)
 
 		collection := client.Database(config.Database).Collection(tableName)
-		
+
 		// 采样一个文档来推断字段
 		var sample bson.M
 		err = collection.FindOne(ctx, bson.M{}).Decode(&sample)
@@ -1487,45 +1997,49 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		return []map[string]interface{}{}, nil
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(config)
+	// SQL数据库通用处理 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
 
 	var query string
 	switch config.Type {
 	case "mysql", "mariadb", "tidb":
-		query = fmt.Sprintf("SHOW COLUMNS FROM `%s`", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("SHOW COLUMNS FROM %s", quotedTable)
 	case "postgresql", "timescaledb", "cockroachdb":
-		query = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+		// 使用参数化查询代替字符串拼接
+		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position"
 	case "sqlserver":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' ORDER BY ORDINAL_POSITION", tableName)
+		query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @p1 ORDER BY ORDINAL_POSITION"
 	case "sqlite", "duckdb":
-		query = fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("PRAGMA table_info(%s)", quotedTable)
 	case "oracle":
 		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
 		tbl := tableName
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tableEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 	case "dm":
-		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
+		query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tableName))
 	case "clickhouse":
-		query = fmt.Sprintf("DESCRIBE TABLE %s", tableName)
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query = fmt.Sprintf("DESCRIBE TABLE %s", quotedTable)
 	default:
 		return nil, fmt.Errorf("不支持的数据库类型: %s", config.Type)
 	}
 
-	rows, err := db.Query(query)
+	var rows *sql.Rows
+	if config.Type == "postgresql" || config.Type == "timescaledb" || config.Type == "cockroachdb" {
+		rows, err = db.Query(query, tableName)
+	} else if config.Type == "sqlserver" {
+		rows, err = db.Query(query, tableName)
+	} else {
+		rows, err = db.Query(query)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1549,7 +2063,7 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 		}
 
 		var colName, colType string
-		
+
 		// 根据不同数据库类型解析列信息
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
@@ -1632,23 +2146,57 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	return columns, nil
 }
 
-// 验证Token（同时支持登录Token和ApiKey）
-func verifyToken(r *http.Request) bool {
+// getDataOntologyUserFromRequest 从 Authorization Bearer 解析 token/apiKey，返回用户名（users map 的 key）
+func getDataOntologyUserFromRequest(r *http.Request) (username string, ok bool) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		return false
+		return "", false
 	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	if token == "" {
+		return "", false
+	}
 	dataOntologyMu.RLock()
 	defer dataOntologyMu.RUnlock()
-
-	for _, user := range dataOntologyUsers {
+	for uname, user := range dataOntologyUsers {
 		if user.Token == token || (user.ApiKey != "" && user.ApiKey == token) {
-			return true
+			return uname, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// dataOntologyResourceVisible 非 admin 仅可见 Owner 与本人一致的资源；Owner 为空视为仅 admin 可见
+func dataOntologyResourceVisible(owner, username string) bool {
+	if username == "admin" {
+		return true
+	}
+	return owner != "" && owner == username
+}
+
+// requireGovernanceTaskAccess 校验当前用户对治理任务的访问权，失败时写入 JSON 响应
+func requireGovernanceTaskAccess(w http.ResponseWriter, r *http.Request, taskID string) (*GovernanceTask, string, bool) {
+	username, ok := getDataOntologyUserFromRequest(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return nil, "", false
+	}
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	dataOntologyMu.RUnlock()
+	if !exists || !dataOntologyResourceVisible(task.Owner, username) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return nil, "", false
+	}
+	return task, username, true
+}
+
+// 验证Token（同时支持登录Token和ApiKey）
+func verifyToken(r *http.Request) bool {
+	_, ok := getDataOntologyUserFromRequest(r)
+	return ok
 }
 
 // 登录处理
@@ -1656,10 +2204,7 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		jsonError(w, "只支持POST请求", ErrCodeMethodNotAllowed)
 		return
 	}
 
@@ -1669,10 +2214,7 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&loginReq); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		jsonError(w, "请求格式错误", ErrCodeBadRequest)
 		return
 	}
 
@@ -1680,11 +2222,10 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	defer dataOntologyMu.Unlock()
 
 	user, exists := dataOntologyUsers[loginReq.Username]
-	if !exists || user.Password != hashPassword(loginReq.Password) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "用户名或密码错误",
-		})
+	// 使用 verifyPassword 比较 bcrypt 哈希（bcrypt 每次生成不同的哈希，不能用 == 比较）
+	if !exists || !verifyPassword(loginReq.Password, user.Password) {
+		log.Printf("[Auth] 登录失败: username=%s, reason=%v", loginReq.Username, map[bool]string{true: "密码错误", false: "用户不存在"}[exists])
+		jsonError(w, "用户名或密码错误", ErrCodeUnauthorized)
 		return
 	}
 
@@ -1692,10 +2233,8 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	token := generateToken()
 	user.Token = token
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"token":   token,
-	})
+	log.Printf("[Auth] 登录成功: username=%s", loginReq.Username)
+	jsonSuccess(w, map[string]interface{}{"success": true, "token": token})
 }
 
 // handleApiKey 管理ApiKey（GET获取/POST生成/DELETE删除）
@@ -1704,7 +2243,7 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	loginToken := strings.TrimPrefix(authHeader, "Bearer ")
@@ -1720,43 +2259,274 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if currentUser == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api_key": currentUser.ApiKey,
-		})
+		jsonSuccess(w, map[string]interface{}{"success": true, "api_key": currentUser.ApiKey})
 	case http.MethodPost:
-		currentUser.ApiKey = "dok_" + uuid.New().String()
+		var target *User = currentUser
+		var body struct {
+			Username string `json:"username"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		targetName := strings.TrimSpace(body.Username)
+		log.Printf("[APIKey] POST body.Username=%q targetName=%q currentUser=%s", body.Username, targetName, currentUser.Username)
+		if targetName != "" && currentUser.Username == "admin" {
+			if u, ok := dataOntologyUsers[targetName]; ok && u != nil {
+				target = u
+				log.Printf("[APIKey] target switched to %s", target.Username)
+			} else {
+				log.Printf("[APIKey] user %q not found in map, keeping currentUser", targetName)
+			}
+		}
+		target.ApiKey = "dok_" + uuid.New().String()
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api_key": currentUser.ApiKey,
-		})
+		log.Printf("[APIKey] 生成新API Key: user=%s", target.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true, "api_key": target.ApiKey})
 	case http.MethodDelete:
 		currentUser.ApiKey = ""
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
 		dataOntologyMu.Lock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-		})
+		log.Printf("[APIKey] 删除API Key: user=%s", currentUser.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true})
+	default:
+		apiMethodNotAllowed(w, "不支持的方法")
+	}
+}
+
+// handleUserSettings 管理用户设置（GET获取/POST保存）
+func handleUserSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+	loginToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	var currentUser *User
+	for _, u := range dataOntologyUsers {
+		if u.Token == loginToken {
+			currentUser = u
+			break
+		}
+	}
+	if currentUser == nil {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		settings := currentUser.Settings
+		if settings == nil {
+			settings = map[string]interface{}{}
+		}
+		jsonSuccess(w, map[string]interface{}{"success": true, "settings": settings})
+	case http.MethodPost:
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			apiBadRequest(w, "无效的请求体")
+			return
+		}
+			// 直接用 body 替换设置，避免嵌套
+		currentUser.Settings = body
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		dataOntologyMu.Lock()
+		log.Printf("[Settings] 保存用户设置: user=%s", currentUser.Username)
+		jsonSuccess(w, map[string]interface{}{"success": true})
+	default:
+		apiMethodNotAllowed(w, "不支持的方法")
+	}
+}
+
+// requireDataOntologyAdmin 当前用户须为 admin
+func requireDataOntologyAdmin(w http.ResponseWriter, r *http.Request) (string, bool) {
+	u, ok := getDataOntologyUserFromRequest(r)
+	if !ok {
+		apiUnauthorized(w, "未授权")
+		return "", false
+	}
+	if u != "admin" {
+		apiForbidden(w, "需要管理员权限")
+		return "", false
+	}
+	return u, true
+}
+
+// UserPublic 用户列表展示（不含密码）
+type UserPublic struct {
+	Username string `json:"username"`
+	ApiKey   string `json:"api_key,omitempty"`
+}
+
+// handleDataOntologyUsers GET 列出用户 / POST 创建用户（仅 admin）
+func handleDataOntologyUsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		dataOntologyMu.RLock()
+		list := make([]UserPublic, 0, len(dataOntologyUsers))
+		for name, u := range dataOntologyUsers {
+			if u == nil {
+				continue
+			}
+			apiKey := ""
+			if u.ApiKey != "" {
+				apiKey = u.ApiKey
+			}
+			list = append(list, UserPublic{Username: name, ApiKey: apiKey})
+		}
+		dataOntologyMu.RUnlock()
+		sort.Slice(list, func(i, j int) bool { return list[i].Username < list[j].Username })
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "users": list})
+
+	case http.MethodPost:
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		name := strings.TrimSpace(body.Username)
+		if name == "" || body.Password == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名和密码不能为空"})
+			return
+		}
+		dataOntologyMu.Lock()
+		if _, exists := dataOntologyUsers[name]; exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户名已存在"})
+			return
+		}
+		dataOntologyUsers[name] = &User{
+			Username: name,
+			Password: hashPassword(body.Password),
+		}
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存用户失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+
 	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
 	}
+}
+
+// handleDataOntologyUsersDetail DELETE /users/{username} / PUT /users/{username}/password
+func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	base := "/api/data-ontology/users/"
+	if !strings.HasPrefix(r.URL.Path, base) {
+		http.NotFound(w, r)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, base)
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效路径"})
+		return
+	}
+	parts := strings.Split(rest, "/")
+	targetName := parts[0]
+	if u, err := url.PathUnescape(targetName); err == nil && u != "" {
+		targetName = u
+	}
+
+	if len(parts) == 1 {
+		if r.Method != http.MethodDelete {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+			return
+		}
+		if _, ok := requireDataOntologyAdmin(w, r); !ok {
+			return
+		}
+		if targetName == "admin" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不能删除管理员账号"})
+			return
+		}
+		dataOntologyMu.Lock()
+		if _, exists := dataOntologyUsers[targetName]; !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户不存在"})
+			return
+		}
+		delete(dataOntologyUsers, targetName)
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存用户失败: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "password" && r.Method == http.MethodPut {
+		caller, ok := getDataOntologyUserFromRequest(r)
+		if !ok {
+			apiUnauthorized(w, "未授权")
+			return
+		}
+		if caller != "admin" && caller != targetName {
+			apiForbidden(w, "只能修改自己的密码")
+			return
+		}
+		var body struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if strings.TrimSpace(body.Password) == "" {
+			apiInvalidInput(w, "密码不能为空")
+			return
+		}
+		dataOntologyMu.Lock()
+		user, exists := dataOntologyUsers[targetName]
+		if !exists || user == nil {
+			dataOntologyMu.Unlock()
+			apiNotFound(w, "用户不存在")
+			return
+		}
+		user.Password = hashPassword(body.Password)
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[User] 保存用户密码失败: user=%s, err=%v", targetName, err)
+		}
+		log.Printf("[User] 密码已更新: user=%s, by=%s", targetName, caller)
+		jsonSuccess(w, map[string]interface{}{"success": true})
+		return
+	}
+
+	apiNotFound(w, "无效路径")
 }
 
 // handleMCPConfig MCP 总开关：GET 返回当前状态，PUT 更新（需授权）
 func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 	switch r.Method {
@@ -1764,25 +2534,26 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 		dataOntologyMu.RLock()
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
+		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
 	case http.MethodPut:
 		var body struct {
 			Enabled *bool `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 		dataOntologyMu.Lock()
 		dataOntologyMCPEnabled = body.Enabled
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
-			log.Printf("保存 MCP 配置失败: %v", err)
+			log.Printf("[MCP] 保存配置失败: err=%v", err)
 		}
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": enabled})
+		log.Printf("[MCP] 配置已更新: enabled=%v", enabled)
+		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		apiMethodNotAllowed(w)
 	}
 }
 
@@ -1791,32 +2562,23 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		apiBadRequest(w, "只支持POST请求")
 		return
 	}
 
 	var config DatabaseConfig
 	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 
 	// 调试日志：打印接收到的配置
-	log.Printf("测试连接配置: Type=%s, Host=%s, Port=%d, User=%s, Database=%s", 
+	log.Printf("[DB] 测试连接: type=%s, host=%s, port=%d, user=%s, database=%s",
 		config.Type, config.Host, config.Port, config.User, config.Database)
 
 	// MongoDB 特殊处理
@@ -1827,26 +2589,20 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 
 		client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] MongoDB 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer client.Disconnect(ctx)
 
 		if err := client.Ping(ctx, nil); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] MongoDB Ping 失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] MongoDB 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -1855,18 +2611,14 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		url := fmt.Sprintf("http://%s:%d", config.Host, config.Port)
 		resp, err := http.Get(url)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Elasticsearch 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer resp.Body.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Elasticsearch 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -1875,38 +2627,29 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 		url := fmt.Sprintf("http://%s:%d/ping", config.Host, config.Port)
 		resp, err := http.Get(url)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] InfluxDB 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer resp.Body.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] InfluxDB 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
 	// Redis 特殊处理
 	if config.Type == "redis" {
-		// Redis 连接测试 - 简化处理，使用tcp连接
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Redis 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Redis 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
@@ -1914,38 +2657,29 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	if config.Type == "memcached" {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Memcached 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功",
-		})
+		log.Printf("[DB] Memcached 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 		return
 	}
 
 	// Neo4j 特殊处理
 	if config.Type == "neo4j" {
-		// Neo4j 驱动在某些构建版本中可能不可用
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] Neo4j 连接失败: err=%v", err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功 (基础端口测试)",
-		})
+		log.Printf("[DB] Neo4j 连接成功: host=%s", config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功 (基础端口测试)"})
 		return
 	}
 
@@ -1953,67 +2687,44 @@ func handleTestConnection(w http.ResponseWriter, r *http.Request) {
 	if config.Type == "cassandra" || config.Type == "hbase" {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", config.Host, config.Port), 5*time.Second)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "连接失败: " + err.Error(),
-			})
+			log.Printf("[DB] %s 连接失败: err=%v", config.Type, err)
+			jsonError(w, "连接失败: "+err.Error(), "")
 			return
 		}
 		defer conn.Close()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "连接成功 (基础端口测试)",
-		})
+		log.Printf("[DB] %s 连接成功: host=%s", config.Type, config.Host)
+		jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功 (基础端口测试)"})
 		return
 	}
 
-	// SQL数据库通用处理
-	driver, dsn, err := buildDSN(&config)
+	// SQL数据库通用处理 - 使用连接池
+	log.Printf("[DB] 连接数据库: host=%s, port=%d, database=%s", config.Host, config.Port, config.Database)
+
+	db, err := getDBFromPool(&config)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
+		log.Printf("[DB] SQL数据库连接失败: type=%s, err=%v", config.Type, err)
+		jsonError(w, "连接失败: "+err.Error(), "")
 		return
 	}
-
-	// 调试日志：打印生成的 DSN
-	log.Printf("生成的 DSN: driver=%s, dsn=%s", driver, dsn)
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "连接失败: " + err.Error(),
-		})
-		return
-	}
-	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "连接失败: " + err.Error(),
-		})
+		log.Printf("[DB] SQL数据库Ping失败: type=%s, err=%v", config.Type, err)
+		jsonError(w, "连接失败: "+err.Error(), "")
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "连接成功",
-	})
+	log.Printf("[DB] SQL数据库连接成功: type=%s, host=%s", config.Type, config.Host)
+	jsonSuccess(w, map[string]interface{}{"success": true, "message": "连接成功"})
 }
 
 // 数据库管理
 func handleDatabases(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -2025,8 +2736,12 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 
 		databases := make([]DatabaseInfo, 0)
 		for _, config := range dataOntologyDatabases {
+			if !dataOntologyResourceVisible(config.Owner, username) {
+				continue
+			}
 			databases = append(databases, DatabaseInfo{
 				ID:       config.ID,
+				Owner:    config.Owner,
 				Type:     config.Type,
 				Name:     config.Name,
 				Host:     config.Host,
@@ -2066,6 +2781,7 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 
 		// 保存配置
 		config.ID = uuid.New().String()
+		config.Owner = username
 		dataOntologyMu.Lock()
 		dataOntologyDatabases[config.ID] = &config
 		dataOntologyMu.Unlock()
@@ -2092,7 +2808,8 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -2116,7 +2833,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -2172,33 +2889,29 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				tables = []string{}
 			}
 		} else {
-			// SQL数据库通用处理
-			driver, dsn, err := buildDSN(config)
+			// SQL数据库通用处理 - 使用连接池
+			db, err := getDBFromPool(config)
 			if err == nil {
-				db, err := sql.Open(driver, dsn)
-				if err == nil {
-					defer db.Close()
-					if err := db.Ping(); err == nil {
-						connected = true
-						// 获取表列表
-						query := getTablesQuery(config)
-						log.Printf("执行查询表列表: %s", query)
-						rows, err := db.Query(query)
-						if err != nil {
-							log.Printf("查询表列表失败: %v", err)
-						} else {
-							defer rows.Close()
-							for rows.Next() {
-								var tableName string
-								if err := rows.Scan(&tableName); err == nil {
-									tables = append(tables, tableName)
-									log.Printf("找到表: %s", tableName)
-								} else {
-									log.Printf("扫描表名失败: %v", err)
-								}
+				if err := db.Ping(); err == nil {
+					connected = true
+					// 获取表列表
+					query := getTablesQuery(config)
+					log.Printf("执行查询表列表: %s", query)
+					rows, err := db.Query(query)
+					if err != nil {
+						log.Printf("查询表列表失败: %v", err)
+					} else {
+						defer rows.Close()
+						for rows.Next() {
+							var tableName string
+							if err := rows.Scan(&tableName); err == nil {
+								tables = append(tables, tableName)
+								log.Printf("找到表: %s", tableName)
+							} else {
+								log.Printf("扫描表名失败: %v", err)
 							}
-							log.Printf("共找到 %d 个表", len(tables))
 						}
+						log.Printf("共找到 %d 个表", len(tables))
 					}
 				}
 			}
@@ -2225,6 +2938,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			"success": true,
 			"database": DatabaseInfo{
 				ID:        config.ID,
+				Owner:     config.Owner,
 				Type:      config.Type,
 				Name:      config.Name,
 				Host:      config.Host,
@@ -2251,12 +2965,13 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		// 保留原ID和类型
 		updateConfig.ID = config.ID
 		updateConfig.Type = config.Type
-		
+		updateConfig.Owner = config.Owner
+
 		// 如果密码为空，保留原密码
 		if updateConfig.Password == "" {
 			updateConfig.Password = config.Password
 		}
-		
+
 		dataOntologyDatabases[dbID] = &updateConfig
 		dataOntologyMu.Unlock()
 
@@ -2293,11 +3008,272 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// LineageEdge 外键血缘边：from 表的外键列引用 to 表的主键/唯一列（数据从 to 流向 from）
+type LineageEdge struct {
+	FromTable  string `json:"fromTable"`
+	FromColumn string `json:"fromColumn"`
+	ToTable    string `json:"toTable"`
+	ToColumn   string `json:"toColumn"`
+	Constraint string `json:"constraint,omitempty"`
+}
+
+func dedupeLineageEdges(edges []LineageEdge) []LineageEdge {
+	seen := make(map[string]struct{}, len(edges))
+	out := make([]LineageEdge, 0, len(edges))
+	for _, e := range edges {
+		k := e.FromTable + "\x00" + e.FromColumn + "\x00" + e.ToTable + "\x00" + e.ToColumn
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, e)
+	}
+	return out
+}
+
+func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+	path := strings.Trim(r.URL.Path, "/")
+	parts := strings.Split(path, "/")
+	// api / data-ontology / databases / {id} / lineage
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "data-ontology" || parts[2] != "databases" || parts[4] != "lineage" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := parts[3]
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	if config.Type == "mongodb" || config.Type == "redis" || config.Type == "neo4j" ||
+		config.Type == "elasticsearch" || config.Type == "influxdb" || config.Type == "memcached" ||
+		config.Type == "cassandra" || config.Type == "hbase" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"tables":  []string{},
+			"edges":   []LineageEdge{},
+			"message": "当前数据库类型不支持基于外键的血缘分析",
+		})
+		return
+	}
+
+	tables, err := getTablesList(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取表列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 使用连接池
+	db, err := getDBFromPool(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+
+	edges, warn := queryForeignKeyLineage(db, config, tables)
+	edges = dedupeLineageEdges(edges)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"dbType":    config.Type,
+		"tables":    tables,
+		"edges":     edges,
+		"edgeCount": len(edges),
+		"message":   warn,
+	})
+}
+
+func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string) ([]LineageEdge, string) {
+	var edges []LineageEdge
+	var warn string
+
+	switch config.Type {
+	case "mysql", "mariadb", "tidb":
+		q := `SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, CONSTRAINT_NAME
+			FROM information_schema.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`
+		rows, err := db.Query(q, config.Database)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "postgresql", "timescaledb", "cockroachdb":
+		q := `
+			SELECT con.conname::text,
+			       nsp.nspname || '.' || rel.relname,
+			       att.attname::text,
+			       fnsp.nspname || '.' || frel.relname,
+			       fatt.attname::text
+			FROM pg_catalog.pg_constraint con
+			INNER JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+			INNER JOIN pg_catalog.pg_namespace nsp ON nsp.oid = rel.relnamespace
+			INNER JOIN pg_catalog.pg_class frel ON frel.oid = con.confrelid
+			INNER JOIN pg_catalog.pg_namespace fnsp ON fnsp.oid = frel.relnamespace
+			CROSS JOIN LATERAL unnest(con.conkey, con.confkey) AS u(attnum, refattnum)
+			INNER JOIN pg_catalog.pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum AND NOT att.attisdropped
+			INNER JOIN pg_catalog.pg_attribute fatt ON fatt.attrelid = con.confrelid AND fatt.attnum = u.refattnum AND NOT fatt.attisdropped
+			WHERE con.contype = 'f'
+			  AND nsp.nspname NOT IN ('pg_catalog', 'information_schema')`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cname, fromT, fromC, toT, toC string
+			if err := rows.Scan(&cname, &fromT, &fromC, &toT, &toC); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "sqlserver":
+		q := `
+			SELECT OBJECT_SCHEMA_NAME(fkc.parent_object_id) + '.' + OBJECT_NAME(fkc.parent_object_id),
+			       col1.name,
+			       OBJECT_SCHEMA_NAME(fkc.referenced_object_id) + '.' + OBJECT_NAME(fkc.referenced_object_id),
+			       col2.name,
+			       fk.name
+			FROM sys.foreign_key_columns fkc
+			INNER JOIN sys.foreign_keys fk ON fkc.constraint_object_id = fk.object_id
+			INNER JOIN sys.columns col1 ON fkc.parent_object_id = col1.object_id AND fkc.parent_column_id = col1.column_id
+			INNER JOIN sys.columns col2 ON fkc.referenced_object_id = col2.object_id AND fkc.referenced_column_id = col2.column_id`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "oracle":
+		q := `SELECT a.owner || '.' || a.table_name, a.column_name,
+		         b.owner || '.' || b.table_name, b.column_name,
+		         c.constraint_name
+		      FROM all_cons_columns a
+		      JOIN all_constraints c ON a.owner = c.owner AND a.constraint_name = c.constraint_name
+		      JOIN all_constraints c_pk ON c.r_owner = c_pk.owner AND c.r_constraint_name = c_pk.constraint_name
+		      JOIN all_cons_columns b ON c_pk.owner = b.owner AND c_pk.constraint_name = b.constraint_name
+		        AND a.position = b.position
+		      WHERE c.constraint_type = 'R'
+		        AND a.owner NOT IN ('SYS','SYSTEM','OUTLN','DBSNMP','MDSYS','CTXSYS','XDB')`
+		rows, err := db.Query(q)
+		if err != nil {
+			return nil, "查询外键失败: " + err.Error()
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "dm":
+		q := `SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, CONSTRAINT_NAME
+			FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+			WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+			ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`
+		rows, err := db.Query(q, config.Database)
+		if err != nil {
+			// 达梦部分版本元数据字段不同，返回空边并提示
+			warn = "达梦库未返回标准 information_schema 外键信息: " + err.Error()
+			return []LineageEdge{}, warn
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var fromT, fromC, toT, toC, cname string
+			if err := rows.Scan(&fromT, &fromC, &toT, &toC, &cname); err == nil {
+				edges = append(edges, LineageEdge{FromTable: fromT, FromColumn: fromC, ToTable: toT, ToColumn: toC, Constraint: cname})
+			}
+		}
+
+	case "sqlite":
+		sqliteQuote := func(name string) string {
+			return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+		}
+		for _, t := range tables {
+			prag := fmt.Sprintf("PRAGMA foreign_key_list(%s)", sqliteQuote(t))
+			rows, err := db.Query(prag)
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var id, seq int
+				var refTable, fromCol, toCol string
+				var onUpdate, onDelete, match string
+				if err := rows.Scan(&id, &seq, &refTable, &fromCol, &toCol, &onUpdate, &onDelete, &match); err != nil {
+					continue
+				}
+				if toCol == "" {
+					toCol = fromCol
+				}
+				edges = append(edges, LineageEdge{
+					FromTable: t, FromColumn: fromCol, ToTable: refTable, ToColumn: toCol,
+					Constraint: fmt.Sprintf("fk_%d", id),
+				})
+			}
+			rows.Close()
+		}
+
+	case "duckdb":
+		warn = "DuckDB 在当前环境可能不可用；若已连接，暂不支持自动外键血缘"
+		return []LineageEdge{}, warn
+
+	default:
+		warn = "该数据库类型未实现外键血缘采集"
+	}
+
+	return edges, warn
+}
+
 // 获取表数据
 func handleTableData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -2308,7 +3284,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	// 从URL中提取数据库ID和表名
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	
+
 	// 路径格式: /api/data-ontology/databases/{id}/tables 或 /api/data-ontology/databases/{id}/tables/{name}
 	if len(parts) < 6 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2317,14 +3293,14 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	dbID := parts[4]
-	
+
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -2337,7 +3313,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		handleTableCreate(w, r, config)
 		return
 	}
-	
+
 	// 其他情况需要表名
 	if len(parts) < 7 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2346,8 +3322,17 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	tableName := parts[6]
+
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名",
+		})
+		return
+	}
 
 	// 检查是否是特殊路径
 	if strings.HasSuffix(path, "/structure") {
@@ -2373,7 +3358,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	
+
 	// 处理不同的HTTP方法
 	switch r.Method {
 	case http.MethodGet:
@@ -2405,6 +3390,15 @@ type TableDataSaveRequest struct {
 
 // handleTableDataSave 处理表格数据保存（更新、插入、删除）
 func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名: " + tableName,
+		})
+		return
+	}
+
 	// 解析请求体
 	var req TableDataSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2415,7 +3409,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		return
 	}
 
-	log.Printf("收到保存请求: 表=%s, 更新=%d条, 插入=%d条, 删除=%d条", 
+	log.Printf("收到保存请求: 表=%s, 更新=%d条, 插入=%d条, 删除=%d条",
 		tableName, len(req.Updates), len(req.Inserts), len(req.Deletes))
 
 	// 只支持SQL数据库的数据修改
@@ -2427,17 +3421,8 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		return
 	}
 
-	// 建立数据库连接
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 建立数据库连接 - 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2445,24 +3430,10 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		})
 		return
 	}
-	defer db.Close()
 
 	// 首先查询所有数据以获取主键
-	var query string
-	switch config.Type {
-	case "postgresql", "timescaledb", "cockroachdb":
-		query = fmt.Sprintf(`SELECT * FROM "%s"`, tableName)
-	case "oracle", "dm":
-		query = fmt.Sprintf("SELECT * FROM %s", tableName)
-	case "sqlserver":
-		query = fmt.Sprintf("SELECT * FROM [%s]", tableName)
-	case "duckdb":
-		query = fmt.Sprintf("SELECT * FROM %s", tableName)
-	case "clickhouse":
-		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
-	default:
-		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
-	}
+	quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+	query := fmt.Sprintf("SELECT * FROM %s", quotedTable)
 
 	rows, err := db.Query(query)
 	if err != nil {
@@ -2529,8 +3500,13 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		quoteChar = "`"
 		supportsLimit = true
 	}
-	
+
 	quoteIdentifier := func(name string) string {
+		// 安全验证：检查标识符是否合法
+		if !isValidIdentifier(name) {
+			log.Printf("警告：无效的标识符被拒绝: %s", name)
+			return "INVALID_IDENTIFIER"
+		}
 		if quoteChar == "[" {
 			return "[" + name + "]"
 		} else if quoteChar == "" {
@@ -2574,7 +3550,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			}
 
 			rowData := allData[index]
-			
+
 			// 构建WHERE条件（使用所有列匹配）
 			whereClauses := make([]string, 0)
 			whereValues := make([]interface{}, 0)
@@ -2589,18 +3565,18 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 
 			var deleteQuery string
 			if supportsLimit {
-				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s LIMIT 1", 
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s LIMIT 1",
 					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
 			} else {
 				// 达梦、Oracle、SQL Server 不支持 DELETE ... LIMIT
 				// WHERE 条件已包含所有列匹配，理论上只会删除一行
-				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s", 
+				deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s",
 					quoteIdentifier(tableName), strings.Join(whereClauses, " AND "))
 			}
-			
-		deleteQuery = oraclize(deleteQuery)
-		log.Printf("执行删除SQL: %s", deleteQuery)
-		result, err := db.Exec(deleteQuery, whereValues...)
+
+			deleteQuery = oraclize(deleteQuery)
+			log.Printf("执行删除SQL: %s", deleteQuery)
+			result, err := db.Exec(deleteQuery, whereValues...)
 			if err != nil {
 				log.Printf("删除失败: %v", err)
 				continue
@@ -2619,7 +3595,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		}
 
 		oldRow := allData[update.Index]
-		
+
 		// 构建UPDATE语句
 		setClauses := make([]string, 0)
 		setValues := make([]interface{}, 0)
@@ -2650,7 +3626,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s",
 				quoteIdentifier(tableName), strings.Join(setClauses, ", "), strings.Join(whereClauses, " AND "))
 		}
-		
+
 		allValues := append(setValues, whereValues...)
 		updateQuery = oraclize(updateQuery)
 		log.Printf("执行更新SQL: %s", updateQuery)
@@ -2669,11 +3645,12 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	// 对于达梦/Oracle 数据库，需要先查询自增列并排除
 	identityColumns := make(map[string]bool)
 	if config.Type == "dm" {
+		// 安全验证已确保 tableName 合法
 		identQuery := fmt.Sprintf(`
 			SELECT a.NAME
 			FROM SYS.SYSCOLUMNS a, sys.sysobjects b
 			WHERE b.id = a.id AND b.name = '%s' AND (a.INFO2 & 0x01) = 0x01
-		`, tableName)
+		`, oracleEscapeIdentifier(tableName))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -2691,8 +3668,8 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", tblEsc)
+		// 安全验证已确保表名合法
+		identQuery := fmt.Sprintf("SELECT COLUMN_NAME FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' AND IDENTITY_COLUMN = 'YES'", oracleEscapeIdentifier(tbl))
 		identRows, err := db.Query(identQuery)
 		if err == nil {
 			defer identRows.Close()
@@ -2705,7 +3682,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			}
 		}
 	}
-	
+
 	for _, insertData := range req.Inserts {
 		cols := make([]string, 0)
 		placeholders := make([]string, 0)
@@ -2717,7 +3694,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 				log.Printf("跳过自增列 %s", col)
 				continue
 			}
-			
+
 			cols = append(cols, quoteIdentifier(col))
 			placeholders = append(placeholders, "?")
 			values = append(values, val)
@@ -2726,7 +3703,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 		var insertQuery string
 		var result sql.Result
 		var err error
-		
+
 		// 如果所有列都被跳过（只有自增列），使用 DEFAULT VALUES
 		if len(cols) == 0 {
 			insertQuery = fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", quoteIdentifier(tableName))
@@ -2739,7 +3716,7 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 			log.Printf("执行插入SQL: %s", insertQuery)
 			result, err = db.Exec(insertQuery, values...)
 		}
-		
+
 		if err != nil {
 			log.Printf("插入失败: %v, SQL: %s", err, insertQuery)
 			continue
@@ -2753,10 +3730,10 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 	log.Printf("保存完成: 更新=%d, 插入=%d, 删除=%d", updated, inserted, deleted)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"updated": updated,
+		"success":  true,
+		"updated":  updated,
 		"inserted": inserted,
-		"deleted": deleted,
+		"deleted":  deleted,
 	})
 }
 
@@ -2799,17 +3776,8 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			}
 		}
 	} else {
-		// SQL数据库通用处理
-		driver, dsn, err := buildDSN(config)
-		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-
-		db, err := sql.Open(driver, dsn)
+		// SQL数据库通用处理 - 使用连接池
+		db, err := getDBFromPool(config)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -2817,7 +3785,6 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			})
 			return
 		}
-		defer db.Close()
 
 		// 查询数据（限制100条）
 		var query string
@@ -2891,6 +3858,15 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 
 // handleTableStructure 获取或修改表结构
 func handleTableStructure(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
+	// 安全验证：检查表名是否合法，防止 SQL 注入
+	if !isValidIdentifierWithSchema(tableName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的表名",
+		})
+		return
+	}
+
 	// 只支持SQL数据库
 	if config.Type == "mongodb" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2912,16 +3888,8 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -2929,7 +3897,6 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		})
 		return
 	}
-	defer db.Close()
 
 	// 根据数据库类型查询表结构
 	var query string
@@ -2963,11 +3930,10 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
 		// owner.table 时只用表名部分查 USER_TAB_COLUMNS（避免需要 ALL_TAB_COLUMNS 权限）
 		if idx := strings.Index(tableName, "."); idx >= 0 {
-			tblPart := strings.ReplaceAll(strings.ToUpper(tableName[idx+1:]), "'", "''")
+			tblPart := oracleEscapeIdentifier(tableName[idx+1:])
 			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblPart)
 		} else {
-			tableEsc := strings.ReplaceAll(strings.ToUpper(tableName), "'", "''")
-			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableEsc)
+			query = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tableName))
 		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
@@ -2980,8 +3946,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 		rows, err = db.Query(fallbackQuery)
 	}
 	if err != nil {
@@ -2997,7 +3962,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 	for rows.Next() {
 		var colName, colType string
 		var nullable, extra interface{}
-		
+
 		// 根据不同数据库类型处理不同的返回格式
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
@@ -3061,8 +4026,7 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
 		}
-		tblEsc := strings.ReplaceAll(strings.ToUpper(tbl), "'", "''")
-		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tblEsc)
+		fallbackQuery := fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", oracleEscapeIdentifier(tbl))
 		rows2, err2 := db.Query(fallbackQuery)
 		if err2 == nil {
 			defer rows2.Close()
@@ -3116,16 +4080,8 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3133,7 +4089,6 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 		})
 		return
 	}
-	defer db.Close()
 
 	// 获取当前表结构
 	var query string
@@ -3156,17 +4111,17 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 			WHERE TABLE_NAME = '%s'
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
-		case "dm", "oracle":
-			if config.Type == "oracle" {
-				query = oracleTableColumnsSQL(tableName, false)
-			} else {
-				query = fmt.Sprintf(`
+	case "dm", "oracle":
+		if config.Type == "oracle" {
+			query = oracleTableColumnsSQL(tableName, false)
+		} else {
+			query = fmt.Sprintf(`
 			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
-		`, strings.ToUpper(tableName))
-			}
+		`, oracleEscapeIdentifier(tableName))
+		}
 	default:
 		query = fmt.Sprintf("DESCRIBE `%s`", tableName)
 	}
@@ -3184,7 +4139,7 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var colName string
-		
+
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
 			var colType, nullable interface{}
@@ -3217,7 +4172,7 @@ func handleTableStructureUpdate(w http.ResponseWriter, r *http.Request, config *
 	// 达梦：查询自增列，修改表结构时不得 MODIFY 自增列（否则报 -2664）
 	identityColumns := make(map[string]bool)
 	if config.Type == "dm" {
-		tblUpper := strings.ToUpper(tableName)
+		tblUpper := oracleEscapeIdentifier(tableName)
 		identQuery := fmt.Sprintf(`
 			SELECT a.NAME FROM SYS.SYSCOLUMNS a, SYS.SYSOBJECTS b
 			WHERE b.ID = a.ID AND b.NAME = '%s' AND (a.INFO2 & 0x01) = 0x01
@@ -3425,21 +4380,21 @@ func handleTableRename(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名不能为空"})
 		return
 	}
+	// 安全验证：检查新表名是否合法
+	if !isValidIdentifier(newName) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效的新表名"})
+		return
+	}
 	if newName == tableName {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "新表名与当前表名相同"})
 		return
 	}
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
-		return
-	}
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败"})
 		return
 	}
-	defer db.Close()
 
 	var renameSQL string
 	switch config.Type {
@@ -3474,16 +4429,8 @@ func handleTableDrop(w http.ResponseWriter, r *http.Request, config *DatabaseCon
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3491,7 +4438,6 @@ func handleTableDrop(w http.ResponseWriter, r *http.Request, config *DatabaseCon
 		})
 		return
 	}
-	defer db.Close()
 
 	// 构建DROP TABLE语句
 	var dropQuery string
@@ -3572,16 +4518,28 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		return
 	}
 
-	driver, dsn, err := buildDSN(config)
-	if err != nil {
+	// 安全验证：检查表名是否合法
+	if !isValidIdentifier(req.Name) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"message": err.Error(),
+			"message": "无效的表名",
 		})
 		return
 	}
 
-	db, err := sql.Open(driver, dsn)
+	// 安全验证：检查列名是否合法
+	for _, col := range req.Columns {
+		if !isValidIdentifier(col.Name) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的列名: " + col.Name,
+			})
+			return
+		}
+	}
+
+	// 使用连接池
+	db, err := getDBFromPool(config)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3589,7 +4547,6 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		})
 		return
 	}
-	defer db.Close()
 
 	// 构建CREATE TABLE语句
 	// 根据数据库类型选择标识符引用符
@@ -3604,8 +4561,13 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	default:
 		quoteChar = "`"
 	}
-	
+
 	quoteIdentifier := func(name string) string {
+		// 安全验证：检查标识符是否合法
+		if !isValidIdentifier(name) {
+			log.Printf("警告：无效的标识符被拒绝: %s", name)
+			return "INVALID_IDENTIFIER"
+		}
 		if quoteChar == "[" {
 			return "[" + name + "]"
 		} else if quoteChar == "" {
@@ -3613,23 +4575,23 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		}
 		return quoteChar + name + quoteChar
 	}
-	
+
 	columnDefs := make([]string, 0)
 	primaryKeys := make([]string, 0)
 
 	for _, col := range req.Columns {
 		colDef := fmt.Sprintf("%s %s", quoteIdentifier(col.Name), col.Type)
-		
+
 		// 添加长度
 		if col.Size != "" && (col.Type == "VARCHAR" || col.Type == "CHAR") {
 			colDef = fmt.Sprintf("%s %s(%s)", quoteIdentifier(col.Name), col.Type, col.Size)
 		}
-		
+
 		// 添加NOT NULL
 		if col.NotNull {
 			colDef += " NOT NULL"
 		}
-		
+
 		// 添加AUTO_INCREMENT
 		if col.AutoIncrement {
 			switch config.Type {
@@ -3646,9 +4608,9 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 				colDef += " AUTO_INCREMENT"
 			}
 		}
-		
+
 		columnDefs = append(columnDefs, colDef)
-		
+
 		// 收集主键
 		if col.PrimaryKey {
 			primaryKeys = append(primaryKeys, quoteIdentifier(col.Name))
@@ -3660,7 +4622,7 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(primaryKeys, ", ")))
 	}
 
-	createQuery := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)", 
+	createQuery := fmt.Sprintf("CREATE TABLE %s (\n    %s\n)",
 		quoteIdentifier(req.Name), strings.Join(columnDefs, ",\n    "))
 
 	log.Printf("执行创建表: %s", createQuery)
@@ -3687,10 +4649,7 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -3723,19 +4682,13 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			apiList = append(apiList, apiInfo)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"apis":    apiList,
-		})
+		jsonSuccess(w, map[string]interface{}{"apis": apiList})
 
 	case http.MethodPost:
 		// 添加新接口
 		var apiConfig ApiConfig
 		if err := json.NewDecoder(r.Body).Decode(&apiConfig); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
@@ -3746,26 +4699,17 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 
 		// 验证必填字段
 		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "缺少必填字段",
-			})
+			apiInvalidInput(w, "缺少必填字段")
 			return
 		}
 		if apiConfig.Type == "forward" {
 			if apiConfig.ForwardURL == "" {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发类型接口必须填写转发URL",
-				})
+				apiInvalidInput(w, "转发类型接口必须填写转发URL")
 				return
 			}
 		} else {
 			if apiConfig.DatabaseID == "" || apiConfig.SQL == "" {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "缺少必填字段",
-				})
+				apiInvalidInput(w, "缺少必填字段")
 				return
 			}
 			// 验证数据库是否存在
@@ -3773,10 +4717,7 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			_, dbExists := dataOntologyDatabases[apiConfig.DatabaseID]
 			dataOntologyMu.RUnlock()
 			if !dbExists {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "数据库不存在",
-				})
+				apiNotFound(w, "数据库不存在")
 				return
 			}
 		}
@@ -3794,16 +4735,10 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			log.Printf("保存接口配置失败: %v", err)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     apiConfig,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": apiConfig})
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "不支持的请求方法",
-		})
+		apiMethodNotAllowed(w, "不支持的请求方法")
 	}
 }
 
@@ -3812,20 +4747,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	// 提取接口ID
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "缺少接口ID",
-		})
+		apiBadRequest(w, "缺少接口ID")
 		return
 	}
 	apiID := pathParts[0]
@@ -3837,10 +4766,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		api, exists := dataOntologyApis[apiID]
 		if !exists {
 			dataOntologyMu.RUnlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -3866,19 +4792,13 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		dataOntologyMu.RUnlock()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     apiInfo,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": apiInfo})
 
 	case http.MethodPut:
 		// 更新接口
 		var apiUpdate ApiConfig
 		if err := json.NewDecoder(r.Body).Decode(&apiUpdate); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
@@ -3886,10 +4806,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		api, exists := dataOntologyApis[apiID]
 		if !exists {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -3906,10 +4823,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		if updateType == "query" && apiUpdate.DatabaseID != "" {
 			if _, dbExists := dataOntologyDatabases[apiUpdate.DatabaseID]; !dbExists {
 				dataOntologyMu.Unlock()
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "数据库不存在",
-				})
+				apiNotFound(w, "数据库不存在")
 				return
 			}
 		}
@@ -3948,20 +4862,14 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存接口配置失败: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"api":     api,
-		})
+		jsonSuccess(w, map[string]interface{}{"api": api})
 
 	case http.MethodDelete:
 		// 删除接口
 		dataOntologyMu.Lock()
 		if _, exists := dataOntologyApis[apiID]; !exists {
 			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "接口不存在",
-			})
+			apiNotFound(w, "接口不存在")
 			return
 		}
 
@@ -3973,15 +4881,10 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 			log.Printf("保存接口配置失败: %v", err)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-		})
+		jsonSuccess(w, nil)
 
 	default:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "不支持的请求方法",
-		})
+		apiMethodNotAllowed(w, "不支持的请求方法")
 	}
 }
 
@@ -3993,6 +4896,58 @@ func handleApiDispatch(next http.Handler) http.Handler {
 
 		if reqMethod == http.MethodOptions {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 先检查是否有匹配的数据治理任务 API
+		dataOntologyMu.RLock()
+		var matchedTask *GovernanceTask
+		for _, task := range governanceTasks {
+			if task.RegisterAsAPI && task.APIPath == reqPath && strings.EqualFold(task.APIMethod, reqMethod) {
+				matchedTask = task
+				break
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		if matchedTask != nil {
+			// 找到匹配的任务，执行任务
+			if !matchedTask.Enabled {
+				apiForbidden(w, "该任务已禁用")
+				return
+			}
+
+			if !verifyToken(r) {
+				apiUnauthorized(w, "未授权，请提供有效的 API Key 或 Token")
+				return
+			}
+
+			// 解析请求参数
+			params := make(map[string]interface{})
+			isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
+			if isBodyMethod && r.Body != nil {
+				json.NewDecoder(r.Body).Decode(&params)
+			}
+			for k, v := range r.URL.Query() {
+				if _, exists := params[k]; !exists {
+					if len(v) == 1 {
+						params[k] = v[0]
+					} else {
+						params[k] = v
+					}
+				}
+			}
+
+			// 执行任务
+			result, err := executeGovernanceTaskForAPI(matchedTask, params)
+			w.Header().Set("Content-Type", "application/json")
+			if err != nil {
+				log.Printf("[API] 任务执行失败: task=%s, err=%v", matchedTask.Name, err)
+				jsonError(w, "任务执行失败: "+err.Error(), "")
+				return
+			}
+			log.Printf("[API] 任务执行成功: task=%s, path=%s", matchedTask.Name, reqPath)
+			jsonSuccess(w, map[string]interface{}{"success": true, "data": result})
 			return
 		}
 
@@ -4033,22 +4988,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		}
 
 		if matchedApi.Enabled != nil && !*matchedApi.Enabled {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "该接口已关闭",
-			})
+			apiForbidden(w, "该接口已关闭")
 			return
 		}
 
 		if !verifyToken(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "未授权，请提供有效的 API Key 或 Token",
-			})
+			apiUnauthorized(w, "未授权，请提供有效的 API Key 或 Token")
 			return
 		}
 
@@ -4077,26 +5022,20 @@ func handleApiDispatch(next http.Handler) http.Handler {
 
 		finalSQL, args, err := parseMyBatisSQL(matchedApi.SQL, params)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "SQL解析失败: " + err.Error(),
-			})
+			log.Printf("[API] SQL解析失败: api=%s, err=%v", matchedApi.Name, err)
+			jsonError(w, "SQL解析失败: "+err.Error(), "")
 			return
 		}
 
 		result, err := executeSQLQuery(matchedDb, finalSQL, args)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "查询失败: " + err.Error(),
-			})
+			log.Printf("[API] 查询失败: api=%s, db=%s, err=%v", matchedApi.Name, matchedDb.Name, err)
+			jsonError(w, "查询失败: "+err.Error(), "")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"data":    result,
-		})
+		log.Printf("[API] 查询成功: api=%s, path=%s", matchedApi.Name, reqPath)
+		jsonSuccess(w, map[string]interface{}{"success": true, "data": result})
 	})
 }
 
@@ -4104,17 +5043,20 @@ func handleApiDispatch(next http.Handler) http.Handler {
 func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL string) {
 	var bodyBytes []byte
 	if r.Body != nil {
-		bodyBytes, _ = io.ReadAll(r.Body)
+		var err error
+		bodyBytes, err = io.ReadAll(r.Body)
+		if err != nil {
+			apiBadRequest(w, "读取请求体失败")
+			return
+		}
 	}
 
 	proxyReq, err := http.NewRequest(r.Method, targetURL, bytes.NewReader(bodyBytes))
 	if err != nil {
+		log.Printf("[API] 构建转发请求失败: target=%s, err=%v", targetURL, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "构建转发请求失败: " + err.Error(),
-		})
+		jsonError(w, "构建转发请求失败: "+err.Error(), "")
 		return
 	}
 
@@ -4131,15 +5073,13 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 		}
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: HTTPClientTimeout}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
+		log.Printf("[API] 转发请求失败: target=%s, err=%v", targetURL, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "转发请求失败: " + err.Error(),
-		})
+		jsonError(w, "转发请求失败: "+err.Error(), "")
 		return
 	}
 	defer resp.Body.Close()
@@ -4159,28 +5099,19 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "只支持POST请求",
-		})
+		apiMethodNotAllowed(w, "只支持POST请求")
 		return
 	}
 
 	// 提取接口ID
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
 	if len(pathParts) < 2 || pathParts[0] == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "缺少接口ID",
-		})
+		apiBadRequest(w, "缺少接口ID")
 		return
 	}
 	apiID := pathParts[0]
@@ -4190,10 +5121,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 		Params map[string]interface{} `json:"params"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&testReq); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请求格式错误",
-		})
+		apiBadRequest(w, "请求格式错误")
 		return
 	}
 
@@ -4202,18 +5130,12 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	api, exists := dataOntologyApis[apiID]
 	if !exists {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "接口不存在",
-		})
+		apiNotFound(w, "接口不存在")
 		return
 	}
 	if api.Enabled != nil && !*api.Enabled {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "该接口已关闭",
-		})
+		apiBadRequest(w, "该接口已关闭")
 		return
 	}
 	apiType := api.Type
@@ -4243,19 +5165,13 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			}
 			proxyReq, err := http.NewRequest(apiMethod, targetURL, nil)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "构建转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "构建转发请求失败: "+err.Error())
 				return
 			}
-			client := &http.Client{Timeout: 30 * time.Second}
+			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "转发请求失败: "+err.Error())
 				return
 			}
 			defer resp.Body.Close()
@@ -4264,30 +5180,20 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(respBody, &respData); err != nil {
 				respData = string(respBody)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     true,
-				"status_code": resp.StatusCode,
-				"data":        respData,
-			})
+			jsonSuccess(w, map[string]interface{}{"status_code": resp.StatusCode, "data": respData})
 		} else {
 			// POST/PUT/PATCH 将参数作为 JSON body 传递
 			bodyBytes, _ := json.Marshal(testReq.Params)
 			proxyReq, err := http.NewRequest(apiMethod, targetURL, bytes.NewReader(bodyBytes))
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "构建转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "构建转发请求失败: "+err.Error())
 				return
 			}
 			proxyReq.Header.Set("Content-Type", "application/json")
-			client := &http.Client{Timeout: 30 * time.Second}
+			client := &http.Client{Timeout: HTTPClientTimeout}
 			resp, err := client.Do(proxyReq)
 			if err != nil {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "转发请求失败: " + err.Error(),
-				})
+				apiInternalError(w, "转发请求失败: "+err.Error())
 				return
 			}
 			defer resp.Body.Close()
@@ -4296,11 +5202,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(respBody, &respData); err != nil {
 				respData = string(respBody)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":     true,
-				"status_code": resp.StatusCode,
-				"data":        respData,
-			})
+			jsonSuccess(w, map[string]interface{}{"status_code": resp.StatusCode, "data": respData})
 		}
 		return
 	}
@@ -4309,10 +5211,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	dbConfig, dbExists := dataOntologyDatabases[api.DatabaseID]
 	if !dbExists {
 		dataOntologyMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "数据库不存在",
-		})
+		apiNotFound(w, "数据库不存在")
 		return
 	}
 	dataOntologyMu.RUnlock()
@@ -4320,27 +5219,18 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	// 解析MyBatis风格的SQL并替换参数
 	finalSQL, args, err := parseMyBatisSQL(api.SQL, testReq.Params)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "SQL解析失败: " + err.Error(),
-		})
+		apiBadRequest(w, "SQL解析失败: "+err.Error())
 		return
 	}
 
 	// 执行SQL查询
 	result, err := executeSQLQuery(dbConfig, finalSQL, args)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "查询失败: " + err.Error(),
-		})
+		apiInternalError(w, "查询失败: "+err.Error())
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data":    result,
-	})
+	jsonSuccess(w, map[string]interface{}{"data": result})
 }
 
 // parseMyBatisSQL 解析MyBatis风格的SQL语句
@@ -4450,17 +5340,11 @@ func executeSQLQuery(dbConfig *DatabaseConfig, sqlQuery string, args []interface
 		return nil, fmt.Errorf("%s 暂不支持SQL查询", dbConfig.Type)
 	}
 
-	// SQL数据库
-	driver, dsn, err := buildDSN(dbConfig)
+	// SQL数据库 - 使用连接池
+	db, err := getDBFromPool(dbConfig)
 	if err != nil {
 		return nil, err
 	}
-
-	db, err := sql.Open(driver, dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
 
 	// 写操作使用 Exec
 	if isWriteOperation(sqlQuery) {
@@ -4533,10 +5417,7 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "未授权",
-		})
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
@@ -4546,9 +5427,8 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		config := dataOntologyAIConfig
 		dataOntologyMu.RUnlock()
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"config":  config,
+		jsonSuccess(w, map[string]interface{}{
+			"config": config,
 		})
 		return
 	}
@@ -4557,19 +5437,13 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		// 保存AI配置
 		var config AIConfig
 		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请求格式错误",
-			})
+			apiBadRequest(w, "请求格式错误")
 			return
 		}
 
 		// 验证配置
 		if config.URL == "" || config.APIKey == "" || config.Model == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "请填写完整的配置信息",
-			})
+			apiInvalidInput(w, "请填写完整的配置信息")
 			return
 		}
 
@@ -4581,23 +5455,304 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		// 持久化
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存AI配置失败: %v", err)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "保存失败",
-			})
+			apiInternalError(w, "保存失败")
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
+		jsonSuccess(w, map[string]interface{}{
 			"message": "配置保存成功",
 		})
 		return
 	}
 
+	apiMethodNotAllowed(w, "不支持的请求方法")
+}
+
+// ========== 大模型管理 API ==========
+
+// handleLLMModels 处理大模型列表和创建
+func handleLLMModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		list := make([]*LLMModelConfig, 0, len(llmModels))
+		for _, m := range llmModels {
+			list = append(list, m)
+		}
+		dataOntologyMu.RUnlock()
+		jsonSuccess(w, map[string]interface{}{"models": list})
+
+	case http.MethodPost:
+		var model LLMModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&model); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if model.Name == "" || model.Type == "" || model.URL == "" {
+			apiInvalidInput(w, "名称、类型和URL不能为空")
+			return
+		}
+		model.ID = uuid.New().String()
+		model.CreatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Lock()
+		llmModels[model.ID] = &model
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		jsonSuccess(w, map[string]interface{}{"model": model})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的方法")
+	}
+}
+
+// handleLLMModelDetail 处理单个大模型的 GET/PUT/DELETE
+func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/llm/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		apiBadRequest(w, "缺少模型ID")
+		return
+	}
+	modelID := pathParts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		model, exists := llmModels[modelID]
+		dataOntologyMu.RUnlock()
+		if !exists {
+			apiNotFound(w, "模型不存在")
+			return
+		}
+		jsonSuccess(w, map[string]interface{}{"model": model})
+
+	case http.MethodPut:
+		var update LLMModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		dataOntologyMu.Lock()
+		model, exists := llmModels[modelID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			apiNotFound(w, "模型不存在")
+			return
+		}
+		if update.Name != "" {
+			model.Name = update.Name
+		}
+		if update.Type != "" {
+			model.Type = update.Type
+		}
+		if update.Provider != "" {
+			model.Provider = update.Provider
+		}
+		if update.URL != "" {
+			model.URL = update.URL
+		}
+		model.APIKey = update.APIKey
+		if update.Model != "" {
+			model.Model = update.Model
+		}
+		model.Description = update.Description
+		model.Enabled = update.Enabled
+		model.UpdatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		jsonSuccess(w, map[string]interface{}{"model": model})
+
+	case http.MethodDelete:
+		dataOntologyMu.Lock()
+		delete(llmModels, modelID)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		jsonSuccess(w, map[string]interface{}{"message": "删除成功"})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的方法")
+	}
+}
+
+// ========== 小模型管理 API ==========
+
+// handleSmallModels 处理小模型列表和创建
+func handleSmallModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		list := make([]*SmallModelConfig, 0, len(smallModels))
+		for _, m := range smallModels {
+			list = append(list, m)
+		}
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "models": list})
+
+	case http.MethodPost:
+		var model SmallModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&model); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		if model.Name == "" || model.JsCode == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "名称和代码不能为空"})
+			return
+		}
+		model.ID = uuid.New().String()
+		model.CreatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Lock()
+		smallModels[model.ID] = &model
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleSmallModelDetail 处理单个小模型的 GET/PUT/DELETE/Run
+func handleSmallModelDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/small/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少模型ID"})
+		return
+	}
+	modelID := pathParts[0]
+
+	// 运行小模型
+	if len(pathParts) >= 2 && pathParts[1] == "run" {
+		handleSmallModelRun(w, r, modelID)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		model, exists := smallModels[modelID]
+		dataOntologyMu.RUnlock()
+		if !exists {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodPut:
+		var update SmallModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+			return
+		}
+		dataOntologyMu.Lock()
+		model, exists := smallModels[modelID]
+		if !exists {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+			return
+		}
+		if update.Name != "" {
+			model.Name = update.Name
+		}
+		model.Description = update.Description
+		if update.JsCode != "" {
+			model.JsCode = update.JsCode
+		}
+		model.DatabaseID = update.DatabaseID
+		model.InputType = update.InputType
+		model.AcceptExts = update.AcceptExts
+		model.OutputType = update.OutputType
+		model.Enabled = update.Enabled
+		model.UpdatedAt = time.Now().Format(time.RFC3339)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "model": model})
+
+	case http.MethodDelete:
+		dataOntologyMu.Lock()
+		delete(smallModels, modelID)
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "删除成功"})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+	}
+}
+
+// handleSmallModelRun 运行小模型
+func handleSmallModelRun(w http.ResponseWriter, r *http.Request, modelID string) {
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	dataOntologyMu.RLock()
+	model, exists := smallModels[modelID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "模型不存在"})
+		return
+	}
+	dbID := model.DatabaseID
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	code := model.JsCode
+	dataOntologyMu.RUnlock()
+
+	// 解析输入参数
+	var req struct {
+		InputText string `json:"input_text"`
+		InputFile string `json:"input_file"` // base64
+		FileName  string `json:"file_name"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        code,
+		"token":       "",
+		"database_id": dbID,
+		"db_type":     dbType,
+		"input_text":  req.InputText,
+		"file_base64": req.InputFile,
+		"file_name":   req.FileName,
+	}
+
+	// 执行
+	result := callGovRunner(taskData)
+	if !result.Success {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": result.Error})
+		return
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": false,
-		"message": "不支持的请求方法",
+		"success": true,
+		"output":  result.Output,
 	})
 }
 
@@ -4609,7 +5764,8 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		sendSSE(w, "error", map[string]interface{}{
 			"message": "未授权",
 		})
@@ -4622,7 +5778,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// 确保支持流式传输
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -4670,7 +5826,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var dbSchemas []map[string]interface{}
 	for _, dbID := range queryReq.Databases {
 		dbConfig, exists := dataOntologyDatabases[dbID]
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			continue
 		}
 
@@ -4717,7 +5873,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	// 根据模块上下文路由
 	moduleSet := make(map[string]bool)
 	for _, m := range queryReq.Modules {
@@ -4731,6 +5887,16 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 	if moduleSet["data-governance"] {
 		handleAIGovernanceTask(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
+	if moduleSet["quality-audit"] {
+		handleAIQualityRule(w, flusher, &queryReq, dbSchemas, aiConfig)
+		return
+	}
+
+	if moduleSet["small-model"] {
+		handleAISmallModel(w, flusher, &queryReq, dbSchemas, aiConfig)
 		return
 	}
 
@@ -4750,6 +5916,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	var lastError string
 	var lastSQL string
 	var attempts []map[string]interface{}
+	var normalizedSQLs []string
 
 	for retry := 0; retry < maxRetries; retry++ {
 		// 发送生成SQL事件
@@ -4810,9 +5977,32 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 			continue
 		}
-		
-		// 检测是否生成了相同的SQL
+
+		// 检测是否生成了已执行失败过的相同 SQL
 		normalizedSQL := strings.ReplaceAll(strings.ReplaceAll(sqlQuery, " ", ""), "\n", "")
+		dup := false
+		for _, prev := range normalizedSQLs {
+			if normalizedSQL == prev {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			lastError = "AI重复生成已尝试过的SQL，无法修复问题"
+			attempts = append(attempts, map[string]interface{}{
+				"attempt":  retry + 1,
+				"error":    lastError,
+				"response": responseText,
+				"sql":      sqlQuery,
+			})
+			sendSSE(w, "attempt_failed", map[string]interface{}{
+				"attempt": retry + 1,
+				"error":   lastError,
+				"sql":     sqlQuery,
+			})
+			flusher.Flush()
+			break
+		}
 		normalizedLastSQL := strings.ReplaceAll(strings.ReplaceAll(lastSQL, " ", ""), "\n", "")
 		if retry > 0 && normalizedSQL == normalizedLastSQL {
 			lastError = "AI重复生成相同的SQL，无法修复问题"
@@ -4868,7 +6058,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		dbConfig, exists := dataOntologyDatabases[targetDBID]
 		dataOntologyMu.RUnlock()
 
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			lastError = "数据库不存在"
 			attempts = append(attempts, map[string]interface{}{
 				"attempt":  retry + 1,
@@ -4888,6 +6078,32 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		results, err := executeSQLQuery(dbConfig, sqlQuery, []interface{}{})
 		if err != nil {
 			lastError = "SQL执行失败: " + err.Error()
+			errorClass := classifySQLError(err, dbConfig.Type)
+			if errorClass == ErrorClassPermission {
+				attempts = append(attempts, map[string]interface{}{
+					"attempt":  retry + 1,
+					"error":    lastError,
+					"response": responseText,
+					"sql":      sqlQuery,
+				})
+				sendSSE(w, "attempt_failed", map[string]interface{}{
+					"attempt": retry + 1,
+					"error":   lastError,
+					"sql":     sqlQuery,
+				})
+				flusher.Flush()
+				sendSSE(w, "error", map[string]interface{}{
+					"message":  "权限不足，请联系 DBA 授权。错误：" + lastError,
+					"no_retry": true,
+				})
+				sendSSE(w, "done", map[string]interface{}{})
+				flusher.Flush()
+				return
+			}
+			normalizedSQLs = append(normalizedSQLs, normalizedSQL)
+			if errorClass == ErrorClassTimeout {
+				lastError += "（请简化查询：限制行数、减少关联、避免 SELECT *）"
+			}
 			attempts = append(attempts, map[string]interface{}{
 				"attempt":  retry + 1,
 				"error":    lastError,
@@ -4900,18 +6116,37 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"sql":     sqlQuery,
 			})
 			flusher.Flush()
-			
+
 			if retry < maxRetries-1 {
 				continue
 			}
 		} else {
-			// 成功了，返回结果
+			// 成功了，返回结果（含反思洞察）
+			insight := ""
+			confidence := 0.0
+
+			resultsSummary := truncateResultsForAI(results, 20, 2000)
+			reflectionPrompt := buildReflectionPrompt(queryReq.Message, sqlQuery, resultsSummary, dbConfig.Type)
+			reflectionResponse, refErr := callAIService(aiConfig, reflectionPrompt)
+			if refErr != nil {
+				log.Printf("反思失败: %v", refErr)
+			} else {
+				reflection := parseReflectionResponse(reflectionResponse)
+				if !reflection.AnswersQuestion && reflection.Suggestion != "" && retry < maxRetries-1 {
+					log.Printf("反思建议: %s", reflection.Suggestion)
+				}
+				insight = reflection.Insight
+				confidence = reflection.Confidence
+			}
+
 			sendSSE(w, "success", map[string]interface{}{
-				"response": responseText,
-				"sql":      sqlQuery,
-				"results":  results,
-				"attempts": attempts,
-				"retries":  retry,
+				"response":   responseText,
+				"sql":        sqlQuery,
+				"results":    results,
+				"insight":    insight,
+				"confidence": confidence,
+				"attempts":   attempts,
+				"retries":    retry,
 			})
 			sendSSE(w, "done", map[string]interface{}{})
 			flusher.Flush()
@@ -4932,7 +6167,8 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -4980,7 +6216,7 @@ func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
 	dbConfig, exists := dataOntologyDatabases[req.DBID]
 	dataOntologyMu.RUnlock()
 
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "数据库不存在",
@@ -5072,6 +6308,87 @@ func getDBSpecificWarnings(dbType string) string {
 	}
 }
 
+// ErrorClass 错误类型枚举
+type ErrorClass string
+
+const (
+	ErrorClassSyntax         ErrorClass = "syntax"
+	ErrorClassObjectNotFound ErrorClass = "object_not_found"
+	ErrorClassPermission     ErrorClass = "permission"
+	ErrorClassTimeout        ErrorClass = "timeout"
+	ErrorClassAmbiguous      ErrorClass = "ambiguous"
+	ErrorClassUnknown        ErrorClass = "unknown"
+)
+
+// classifySQLError 根据错误信息分类
+func classifySQLError(err error, dbType string) ErrorClass {
+	_ = dbType
+	errStr := strings.ToLower(err.Error())
+
+	if strings.Contains(errStr, "-2007") ||
+		strings.Contains(errStr, "1064") ||
+		strings.Contains(errStr, "ora-00933") ||
+		strings.Contains(errStr, "语法分析") ||
+		strings.Contains(errStr, "syntax") ||
+		strings.Contains(errStr, "near") {
+		return ErrorClassSyntax
+	}
+
+	if strings.Contains(errStr, "doesn't exist") ||
+		strings.Contains(errStr, "不存在") ||
+		strings.Contains(errStr, "-2106") ||
+		strings.Contains(errStr, "invalid object") {
+		return ErrorClassObjectNotFound
+	}
+
+	if strings.Contains(errStr, "permission") ||
+		strings.Contains(errStr, "拒绝") ||
+		strings.Contains(errStr, "ora-01031") ||
+		strings.Contains(errStr, "-5512") {
+		return ErrorClassPermission
+	}
+
+	if strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "超时") ||
+		strings.Contains(errStr, "deadline") {
+		return ErrorClassTimeout
+	}
+
+	if strings.Contains(errStr, "ambiguous") {
+		return ErrorClassAmbiguous
+	}
+
+	return ErrorClassUnknown
+}
+
+var sqlDocsCache = make(map[string]string)
+var sqlDocsOnce sync.Once
+
+// loadSQLDoc 加载 SQL 文档（带缓存）
+func loadSQLDoc(dbType string) string {
+	sqlDocsOnce.Do(func() {
+		docs := map[string]string{
+			"dm":     "docs/sql/dm.md",
+			"oracle": "docs/sql/oracle.md",
+		}
+		for t, path := range docs {
+			content, err := os.ReadFile(path)
+			if err == nil {
+				s := string(content)
+				if len(s) > 8000 {
+					s = s[:8000] + "\n... (文档已截断)"
+				}
+				sqlDocsCache[t] = s
+			}
+		}
+	})
+
+	if doc, ok := sqlDocsCache[dbType]; ok {
+		return doc
+	}
+	return ""
+}
+
 // formatDBSchemaForPrompt 将数据库结构格式化为提示词文本，返回格式化文本和主数据库类型
 func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string) {
 	var sb strings.Builder
@@ -5143,6 +6460,128 @@ func getModulePromptPrefix(modules []string) string {
 	return "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
 }
 
+// ReflectionResult 反思结果
+type ReflectionResult struct {
+	AnswersQuestion bool    `json:"answers_question"`
+	Confidence      float64 `json:"confidence"`
+	Issue           string  `json:"issue"`
+	Insight         string  `json:"insight"`
+	Suggestion      string  `json:"suggestion"`
+}
+
+var reflectionJSONRegexp = regexp.MustCompile(`\{[\s\S]*\}`)
+
+// parseReflectionResponse 解析反思响应
+func parseReflectionResponse(response string) ReflectionResult {
+	result := ReflectionResult{
+		AnswersQuestion: true,
+		Confidence:      0.5,
+		Issue:           "ok",
+		Insight:         "",
+		Suggestion:      "",
+	}
+
+	jsonMatch := reflectionJSONRegexp.FindString(response)
+	if jsonMatch == "" {
+		return result
+	}
+
+	if err := json.Unmarshal([]byte(jsonMatch), &result); err != nil {
+		log.Printf("解析反思结果失败: %v", err)
+	}
+
+	return result
+}
+
+// truncateResultsForAI 裁剪结果供 AI 分析
+func truncateResultsForAI(results []map[string]interface{}, maxRows int, maxChars int) map[string]interface{} {
+	if len(results) == 0 {
+		return map[string]interface{}{
+			"row_count": 0,
+			"columns":   []string{},
+			"sample":    []map[string]interface{}{},
+		}
+	}
+
+	columns := make([]string, 0, len(results[0]))
+	for k := range results[0] {
+		columns = append(columns, k)
+	}
+	sort.Strings(columns)
+
+	sample := results
+	if len(results) > maxRows {
+		sample = results[:maxRows]
+	}
+
+	totalChars := 0
+	truncatedSample := []map[string]interface{}{}
+	for _, row := range sample {
+		newRow := make(map[string]interface{})
+		for _, k := range columns {
+			v, ok := row[k]
+			if !ok {
+				continue
+			}
+			str := fmt.Sprintf("%v", v)
+			if len(str) > 200 {
+				str = str[:200] + "..."
+			}
+			newRow[k] = str
+			totalChars += len(str)
+		}
+		truncatedSample = append(truncatedSample, newRow)
+		if totalChars > maxChars {
+			break
+		}
+	}
+
+	return map[string]interface{}{
+		"row_count": len(results),
+		"columns":   columns,
+		"sample":    truncatedSample,
+	}
+}
+
+// buildReflectionPrompt 构建反思提示词
+func buildReflectionPrompt(userMessage string, sqlQuery string, resultsSummary map[string]interface{}, dbType string) string {
+	var sb strings.Builder
+
+	sb.WriteString("你是一个数据分析专家。请分析以下 SQL 查询结果是否回答了用户的问题。\n\n")
+
+	sb.WriteString("## 用户问题\n")
+	sb.WriteString(userMessage + "\n\n")
+
+	sb.WriteString("## 数据库类型\n")
+	sb.WriteString(dbType + "\n\n")
+
+	sb.WriteString("## 执行的 SQL\n")
+	sb.WriteString(sqlQuery + "\n\n")
+
+	sb.WriteString("## 查询结果摘要\n")
+	sb.WriteString(fmt.Sprintf("- 总行数: %v\n", resultsSummary["row_count"]))
+	sb.WriteString(fmt.Sprintf("- 列名: %v\n", resultsSummary["columns"]))
+	sb.WriteString("- 样本数据（前几行）:\n")
+
+	sampleJSON, err := json.MarshalIndent(resultsSummary["sample"], "", "  ")
+	if err != nil {
+		sb.WriteString("[]\n\n")
+	} else {
+		sb.WriteString(string(sampleJSON) + "\n\n")
+	}
+
+	sb.WriteString("## 请输出 JSON 格式的分析\n")
+	sb.WriteString("要求：只输出一个 JSON 对象，不要输出其他内容。\n\n")
+	sb.WriteString("JSON 字段说明：\n")
+	sb.WriteString("- answers_question: boolean，查询结果是否在实质上回答了用户问题\n")
+	sb.WriteString("- confidence: number，0~1，你对上述判断的置信度\n")
+	sb.WriteString("- issue: string，若有问题简要说明，否则 \"ok\"\n")
+	sb.WriteString("- insight: string，面向用户的中文结论与数据解读（简洁）\n")
+	sb.WriteString("- suggestion: string，若未充分回答，给出改进 SQL 或下一步建议；否则可为空字符串\n")
+
+	return sb.String()
+}
+
 // buildAIPrompt 构建AI提示词
 func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}, modules []string) string {
 	prompt := getModulePromptPrefix(modules)
@@ -5201,76 +6640,122 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}, modul
 
 // buildRetryPrompt 构建重试提示词
 func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, lastError string, attempts []map[string]interface{}, modules []string) string {
-	prompt := getModulePromptPrefix(modules)
-	prompt += "之前的SQL查询执行失败了，请根据错误信息重新生成正确的SQL。\n\n"
-	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n"
+	primaryDBType := "mysql"
+	if len(dbSchemas) > 0 {
+		if t, ok := dbSchemas[0]["type"].(string); ok && t != "" {
+			primaryDBType = t
+		}
+	}
+	errorClass := classifySQLError(errors.New(lastError), primaryDBType)
 
-	schemaText, primaryDBType := formatDBSchemaForPrompt(dbSchemas)
-	prompt += schemaText
+	var sb strings.Builder
+	sb.WriteString(getModulePromptPrefix(modules))
+	sb.WriteString("上一次查询失败，请根据错误信息修正。\n\n")
+
+	switch errorClass {
+	case ErrorClassSyntax:
+		sb.WriteString("【语法错误】\n")
+		sb.WriteString("1. 检查 SQL 语法是否符合 " + primaryDBType + " 规范\n")
+		sb.WriteString("2. 注意：DM/Oracle 不支持 LIMIT，请用 ROWNUM\n")
+		sb.WriteString("3. 确保关键字拼写正确\n")
+		if doc := loadSQLDoc(primaryDBType); doc != "" {
+			sb.WriteString("\n## " + primaryDBType + " 参考文档\n")
+			sb.WriteString(doc)
+			sb.WriteString("\n")
+		}
+	case ErrorClassObjectNotFound:
+		sb.WriteString("【对象不存在】\n")
+		sb.WriteString("1. 只能使用以下表：\n")
+		for _, db := range dbSchemas {
+			if tables, ok := db["tables"].([]map[string]interface{}); ok {
+				for _, t := range tables {
+					sb.WriteString("  - " + fmt.Sprintf("%v", t["name"]) + "\n")
+				}
+			}
+		}
+		sb.WriteString("2. 检查表名大小写\n")
+	case ErrorClassPermission:
+		sb.WriteString("【权限不足】\n")
+		sb.WriteString("此错误无法通过修改 SQL 解决，请联系 DBA 授权。\n")
+		sb.WriteString("不要重试生成 SQL。\n")
+	case ErrorClassTimeout:
+		sb.WriteString("【查询超时】\n")
+		sb.WriteString("1. 添加 ROWNUM <= 100 限制行数\n")
+		sb.WriteString("2. 减少关联表数量\n")
+		sb.WriteString("3. 只查询必要字段，避免 SELECT *\n")
+	case ErrorClassAmbiguous:
+		sb.WriteString("【列名歧义】\n")
+		sb.WriteString("请为所有列添加表别名，如：t1.column_name\n")
+	}
+
+	sb.WriteString("\n历史尝试：\n")
+	for _, a := range attempts {
+		sb.WriteString(fmt.Sprintf("第%v次: SQL=%v, 错误=%v\n",
+			a["attempt"], a["sql"], a["error"]))
+	}
+
+	schemaText, pdb := formatDBSchemaForPrompt(dbSchemas)
+	if pdb != "" {
+		primaryDBType = pdb
+	}
+	sb.WriteString("\n【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL，不要编造不存在的列名或表名：\n")
+	sb.WriteString(schemaText)
 
 	queryColumns, _, sampleQuery := getDBSQLHints(primaryDBType)
 
-	prompt += "\n用户问题：" + userMessage + "\n\n"
-	prompt += "之前失败的尝试：\n"
-	for _, attempt := range attempts {
-		if sql, ok := attempt["sql"].(string); ok && sql != "" {
-			prompt += fmt.Sprintf("尝试 %d:\n", attempt["attempt"])
-			prompt += fmt.Sprintf("SQL: %s\n", sql)
-			prompt += fmt.Sprintf("错误: %s\n\n", attempt["error"])
-		}
-	}
+	sb.WriteString("\n用户问题：" + userMessage + "\n\n")
 
-	prompt += getDBSpecificWarnings(primaryDBType)
+	sb.WriteString(getDBSpecificWarnings(primaryDBType))
 
-	prompt += "⚠️ 重要注意事项：\n"
-	prompt += "1. 【必须】只生成一条SQL语句，不要生成多条语句！\n"
-	prompt += "2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n"
-	prompt += "   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n"
-	prompt += "   - 是否有语法错误的关键字？\n"
-	prompt += "   - 是否缺少或多余了分号、引号等符号？\n"
-	prompt += "3. 如果错误信息包含'Table doesn't exist'或'对象不存在'，请使用正确的表名\n"
-	prompt += "4. 如果错误信息包含'Column doesn't exist'或'列不存在'，请使用正确的字段名\n"
-	prompt += "5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n"
-	prompt += "   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n"
-	prompt += "   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
-	prompt += "   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n"
+	sb.WriteString("⚠️ 重要注意事项：\n")
+	sb.WriteString("1. 【必须】只生成一条SQL语句，不要生成多条语句！\n")
+	sb.WriteString("2. 如果错误信息包含'near'关键字，说明SQL语法有问题，请仔细检查：\n")
+	sb.WriteString("   - 是否有多条SQL语句？如果有，只保留一条或合并为一条\n")
+	sb.WriteString("   - 是否有语法错误的关键字？\n")
+	sb.WriteString("   - 是否缺少或多余了分号、引号等符号？\n")
+	sb.WriteString("3. 如果错误信息包含'Table doesn't exist'或'对象不存在'，请使用正确的表名\n")
+	sb.WriteString("4. 如果错误信息包含'Column doesn't exist'或'列不存在'，请使用正确的字段名\n")
+	sb.WriteString("5. 如果错误信息包含'different number of columns'，说明UNION的表结构不同：\n")
+	sb.WriteString("   ❌ 不要用：SELECT * FROM table1 UNION ALL SELECT * FROM table2\n")
+	sb.WriteString("   ✅ 改用统计：SELECT 'table1' as name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n")
+	sb.WriteString("   ✅ 或用子查询：SELECT (SELECT COUNT(*) FROM table1) as table1_count, (SELECT COUNT(*) FROM table2) as table2_count\n\n")
 
-	prompt += "📚 正确的SQL参考示例：\n"
-	prompt += "🔍 查询表结构：\n" + queryColumns + "\n"
-	prompt += "📋 查看样本数据：" + sampleQuery + "\n\n"
+	sb.WriteString("📚 正确的SQL参考示例：\n")
+	sb.WriteString("🔍 查询表结构：\n" + queryColumns + "\n")
+	sb.WriteString("📋 查看样本数据：" + sampleQuery + "\n\n")
 
 	if strings.Contains(lastError, "near") && strings.Contains(lastError, "at line 2") {
-		prompt += "🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n"
-		prompt += "请修改为只生成一条SQL语句。\n\n"
+		sb.WriteString("🔍 根据错误分析：你生成了多条SQL语句，但系统只能执行一条！\n")
+		sb.WriteString("请修改为只生成一条SQL语句。\n\n")
 	}
 
 	if strings.Contains(lastError, "different number of columns") {
-		prompt += "🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n"
-		prompt += "解决方案：\n"
-		prompt += "1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n"
-		prompt += "2. 如果是查询字段，使用：\n" + queryColumns + "\n"
-		prompt += "3. 不要直接合并不同结构的表数据！\n\n"
+		sb.WriteString("🔍 根据错误分析：你使用UNION ALL合并了列数不同的表！\n")
+		sb.WriteString("解决方案：\n")
+		sb.WriteString("1. 如果是统计数据，使用：SELECT 'table1' as table_name, COUNT(*) as count FROM table1 UNION ALL SELECT 'table2', COUNT(*) FROM table2\n")
+		sb.WriteString("2. 如果是查询字段，使用：\n" + queryColumns + "\n")
+		sb.WriteString("3. 不要直接合并不同结构的表数据！\n\n")
 	}
 
 	if strings.Contains(lastError, "connectex") || strings.Contains(lastError, "connection") {
-		prompt += "🔍 根据错误分析：数据库连接超时或失败！\n"
-		prompt += "请生成简单的SQL语句，避免复杂查询导致超时。\n\n"
+		sb.WriteString("🔍 根据错误分析：数据库连接超时或失败！\n")
+		sb.WriteString("请生成简单的SQL语句，避免复杂查询导致超时。\n\n")
 	}
 
 	if strings.Contains(lastError, "LIMIT") || strings.Contains(lastError, "语法分析") {
-		prompt += "🔍 根据错误分析：SQL语法不兼容当前数据库！\n"
-		prompt += "请严格使用当前数据库（" + primaryDBType + "）支持的SQL语法。\n\n"
+		sb.WriteString("🔍 根据错误分析：SQL语法不兼容当前数据库！\n")
+		sb.WriteString("请严格使用当前数据库（" + primaryDBType + "）支持的SQL语法。\n\n")
 	}
 
-	prompt += "请按以下格式回复：\n"
-	prompt += "1. 简单说明你发现的问题和修正方案（一句话）\n"
-	prompt += "2. 提供修正后的SQL（只能有一条SQL语句）：\n"
-	prompt += "```sql\n"
-	prompt += "SELECT ... FROM ...;\n"
-	prompt += "```\n\n"
-	prompt += "❗ 再次强调：只生成一条SQL语句！"
+	sb.WriteString("请按以下格式回复：\n")
+	sb.WriteString("1. 简单说明你发现的问题和修正方案（一句话）\n")
+	sb.WriteString("2. 提供修正后的SQL（只能有一条SQL语句）：\n")
+	sb.WriteString("```sql\n")
+	sb.WriteString("SELECT ... FROM ...;\n")
+	sb.WriteString("```\n\n")
+	sb.WriteString("❗ 再次强调：只生成一条SQL语句！")
 
-	return prompt
+	return sb.String()
 }
 
 // callAIService 调用AI服务
@@ -5301,9 +6786,13 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	// 发送请求
+	// 使用配置的超时时间，默认60秒
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 60
+	}
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: time.Duration(timeout) * time.Second,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -5359,7 +6848,8 @@ func extractCodeFromAIResponse(s string) string {
 // handleAICodegen 处理数据治理入库代码 AI 生成（使用与 AI 助手相同的 api url / api_key / model）
 func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "未授权",
@@ -5380,6 +6870,18 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 			"message": "请求格式错误",
 		})
 		return
+	}
+	if req.DatabaseID != "" {
+		dataOntologyMu.RLock()
+		dc, ok := dataOntologyDatabases[req.DatabaseID]
+		dataOntologyMu.RUnlock()
+		if !ok || !dataOntologyResourceVisible(dc.Owner, username) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
 	}
 	if req.TableName == "" || len(req.Columns) == 0 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -5406,9 +6908,9 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 		colLines = append(colLines, fmt.Sprintf("  - 列 %s (%s) ← 源数据第 %d 列(0-based)", c.Name, c.Type, c.SourceIndex))
 	}
 	sourceDesc := map[string]string{
-		"excel":     "Excel 文件 (.xlsx)，使用 INPUT_FILE，gov.readExcel(INPUT_FILE) 与 XLSX.utils.sheet_to_json",
-		"csv_file":  "CSV 文件，使用 INPUT_FILE.text() 与 Papa.parse",
-		"csv_text":  "CSV 文本，使用 INPUT_TEXT 与 Papa.parse(INPUT_TEXT)",
+		"excel":    "Excel 文件 (.xlsx)，使用 INPUT_FILE，gov.readExcel(INPUT_FILE) 与 XLSX.utils.sheet_to_json",
+		"csv_file": "CSV 文件，使用 INPUT_FILE.text() 与 Papa.parse",
+		"csv_text": "CSV 文本，使用 INPUT_TEXT 与 Papa.parse(INPUT_TEXT)",
 	}[req.SourceType]
 	if sourceDesc == "" {
 		sourceDesc = "Excel 文件"
@@ -5464,7 +6966,8 @@ func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		sendSSE(w, "onto-error", map[string]interface{}{"message": "未授权"})
 		return
 	}
@@ -5503,7 +7006,7 @@ func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
 	var dbSchemas []map[string]interface{}
 	for _, dbID := range req.Databases {
 		dbConfig, exists := dataOntologyDatabases[dbID]
-		if !exists {
+		if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 			continue
 		}
 		tables, err := getTablesList(dbConfig)
@@ -5910,7 +7413,7 @@ func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryRe
 	draft, parseErr := parseGovernanceTaskDraft(aiResponse, defaultDBID)
 	if draft == nil {
 		sendSSE(w, "error", map[string]interface{}{
-			"message": "未能生成有效任务草稿。" + parseErr,
+			"message":  "未能生成有效任务草稿。" + parseErr,
 			"response": aiResponse,
 		})
 		sendSSE(w, "done", map[string]interface{}{})
@@ -5926,9 +7429,143 @@ func handleAIGovernanceTask(w http.ResponseWriter, flusher http.Flusher, queryRe
 	flusher.Flush()
 }
 
+// handleAIQualityRule 处理AI创建数据质量审核规则
+func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在根据您的需求生成数据质量审核规则...",
+	})
+	flusher.Flush()
+
+	// 构建提示词
+	prompt := "你是数据质量审核专家。用户需要创建数据质量审核规则，请根据用户需求和以下数据库结构生成规则配置。\n\n"
+	prompt += "数据库结构：\n"
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("- 数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		if tables, ok := schema["tables"].([]string); ok {
+			prompt += fmt.Sprintf("  表: %s\n", strings.Join(tables, ", "))
+		}
+	}
+	prompt += "\n用户需求：" + queryReq.Message + "\n\n"
+	prompt += "请生成规则配置，JSON格式：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"nm\": \"010101\",\n"
+	prompt += "  \"xh\": \"0101\",\n"
+	prompt += "  \"name\": \"规则名称\",\n"
+	prompt += "  \"category\": \"完整性\",\n"
+	prompt += "  \"sql\": \"SELECT * FROM table WHERE field IS NULL\"\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "规则说明：\n"
+	prompt += "- nm: 6位规则编号\n"
+	prompt += "- xh: 层级编码\n"
+	prompt += "- sql: 查询违规数据的SQL（返回违规记录）\n"
+
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "AI服务调用失败: " + err.Error()})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 解析JSON
+	jsonStart := strings.Index(aiResponse, "```json")
+	if jsonStart != -1 {
+		jsonStart = strings.Index(aiResponse[jsonStart:], "{")
+		if jsonStart != -1 {
+			jsonStart += strings.Index(aiResponse, "```json")
+		}
+	}
+	if jsonStart == -1 {
+		jsonStart = strings.Index(aiResponse, "{")
+	}
+	jsonEnd := strings.LastIndex(aiResponse, "}")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		sendSSE(w, "error", map[string]interface{}{"message": "未能解析规则配置", "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	var rule map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &rule); err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "quality_rule_draft", map[string]interface{}{
+		"message": "已生成数据质量审核规则，请确认后创建。",
+		"rule":    rule,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
+// handleAISmallModel 处理AI创建小模型
+func handleAISmallModel(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+	sendSSE(w, "thinking", map[string]interface{}{
+		"message": "正在根据您的需求生成小模型配置...",
+	})
+	flusher.Flush()
+
+	prompt := "你是数据处理专家。用户需要创建一个小模型（JavaScript 数据处理函数），请根据用户需求生成配置。\n\n"
+	prompt += "用户需求：" + queryReq.Message + "\n\n"
+	prompt += "请生成小模型配置，JSON格式：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"name\": \"模型名称\",\n"
+	prompt += "  \"description\": \"模型描述\",\n"
+	prompt += "  \"input_type\": \"json\",\n"
+	prompt += "  \"output_type\": \"json\",\n"
+	prompt += "  \"js_code\": \"async function run(input) { return input; }\"\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "说明：\n"
+	prompt += "- js_code: 异步函数，接收 input 参数，返回处理结果\n"
+	prompt += "- input_type/output_type: json/text/number\n"
+
+	aiResponse, err := callAIService(aiConfig, prompt)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "AI服务调用失败: " + err.Error()})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 解析JSON
+	jsonStart := strings.Index(aiResponse, "{")
+	jsonEnd := strings.LastIndex(aiResponse, "}")
+	if jsonStart == -1 || jsonEnd == -1 {
+		sendSSE(w, "error", map[string]interface{}{"message": "未能解析配置", "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	var model map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &model); err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	sendSSE(w, "small_model_draft", map[string]interface{}{
+		"message": "已生成小模型配置，请确认后创建。",
+		"model":   model,
+	})
+	sendSSE(w, "done", map[string]interface{}{})
+	flusher.Flush()
+}
+
 // handleAICreateApi 处理AI创建接口请求
 func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
-	
+
 	// 如果 dbSchemas 尚未增强（tables 还是 []string），则获取字段信息
 	needEnhance := false
 	if len(dbSchemas) > 0 {
@@ -5985,10 +7622,10 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		"message": "正在分析您的需求并生成接口配置...",
 	})
 	flusher.Flush()
-	
+
 	// 构建创建接口的提示词
 	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas)
-	
+
 	// 调用AI服务
 	aiResponse, err := callAIService(aiConfig, prompt)
 	if err != nil {
@@ -5999,7 +7636,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		flusher.Flush()
 		return
 	}
-	
+
 	// 解析AI返回的接口配置
 	apiConfig, parseError := parseApiConfigFromAI(aiResponse, dbSchemas)
 	if apiConfig == nil {
@@ -6008,14 +7645,14 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			log.Printf("解析错误: %s", parseError)
 		}
 		sendSSE(w, "error", map[string]interface{}{
-			"message": "AI未能生成有效的接口配置。" + parseError,
+			"message":  "AI未能生成有效的接口配置。" + parseError,
 			"response": aiResponse,
 		})
 		sendSSE(w, "done", map[string]interface{}{})
 		flusher.Flush()
 		return
 	}
-	
+
 	// 返回接口配置供用户确认
 	sendSSE(w, "api_config_generated", map[string]interface{}{
 		"message": "已生成接口配置，请确认后创建",
@@ -6029,17 +7666,17 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
 	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求和以下真实数据库结构生成接口配置。\n\n"
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL：\n\n"
-	
+
 	for _, schema := range dbSchemas {
 		prompt += fmt.Sprintf("数据库: %s (类型: %s)\n", schema["name"], schema["type"])
 		prompt += "=" + strings.Repeat("=", 60) + "\n"
-		
+
 		// 处理新格式（包含字段信息）
 		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
 			for _, table := range tables {
 				tableName := table["name"].(string)
 				prompt += fmt.Sprintf("\n表名: %s\n", tableName)
-				
+
 				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
 					prompt += "字段列表:\n"
 					for _, col := range columns {
@@ -6057,7 +7694,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 		}
 		prompt += "\n"
 	}
-	
+
 	prompt += "\n用户需求：" + userMessage + "\n\n"
 	prompt += "请生成接口配置，必须包含以下信息：\n"
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
@@ -6092,7 +7729,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
 	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
 	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询"
-	
+
 	return prompt
 }
 
@@ -6100,10 +7737,16 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (map[string]interface{}, string) {
 	// 提取JSON代码块
 	jsonStart := strings.Index(response, "```json")
-	if jsonStart == -1 {
+	jsonBlockOffset := 0
+	if jsonStart != -1 {
+		jsonBlockOffset = len("```json")
+	} else {
 		jsonStart = strings.Index(response, "```")
+		if jsonStart != -1 {
+			jsonBlockOffset = len("```")
+		}
 	}
-	
+
 	if jsonStart == -1 {
 		// 尝试直接解析整个响应作为JSON
 		var config map[string]interface{}
@@ -6116,26 +7759,54 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 			}
 			return config, ""
 		}
+		// 尝试提取 { } 包裹的 JSON 对象
+		objStart := strings.Index(response, "{")
+		objEnd := strings.LastIndex(response, "}")
+		if objStart != -1 && objEnd != -1 && objEnd > objStart {
+			jsonStr := response[objStart : objEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
+				if len(dbSchemas) > 0 {
+					if id, ok := dbSchemas[0]["id"].(string); ok {
+						config["database_id"] = id
+					}
+				}
+				return config, ""
+			}
+		}
 		return nil, "未找到JSON代码块，且响应内容无法直接解析为JSON"
 	}
-	
-	jsonStart = strings.Index(response[jsonStart:], "\n")
-	if jsonStart == -1 {
+
+	// 找到代码块起始位置后的换行符
+	newlineIdx := strings.Index(response[jsonStart+jsonBlockOffset:], "\n")
+	if newlineIdx == -1 {
 		return nil, "找到代码块标记但格式不正确"
 	}
-	
-	jsonEnd := strings.Index(response[jsonStart+1:], "```")
+	contentStart := jsonStart + jsonBlockOffset + newlineIdx + 1
+
+	// 找到代码块结束标记
+	jsonEnd := strings.Index(response[contentStart:], "```")
 	if jsonEnd == -1 {
+		// 没有结束标记，尝试从 contentStart 解析到结尾
+		jsonStr := strings.TrimSpace(response[contentStart:])
+		var config map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
+			if len(dbSchemas) > 0 {
+				if id, ok := dbSchemas[0]["id"].(string); ok {
+					config["database_id"] = id
+				}
+			}
+			return config, ""
+		}
 		return nil, "找到代码块开始标记但未找到结束标记"
 	}
-	
-	jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
-	
+
+	jsonStr := strings.TrimSpace(response[contentStart : contentStart+jsonEnd])
+
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
 		return nil, fmt.Sprintf("JSON解析失败: %v，JSON内容: %s", err, jsonStr)
 	}
-	
+
 	// 验证必需字段
 	requiredFields := []string{"name", "path", "method", "sql"}
 	for _, field := range requiredFields {
@@ -6143,14 +7814,14 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 			return nil, fmt.Sprintf("缺少必需字段: %s", field)
 		}
 	}
-	
+
 	// 添加数据库ID
 	if len(dbSchemas) > 0 {
 		if id, ok := dbSchemas[0]["id"].(string); ok {
 			config["database_id"] = id
 		}
 	}
-	
+
 	return config, ""
 }
 
@@ -6224,7 +7895,8 @@ func parseAIResponse(response string, dbSchemas []map[string]interface{}) (strin
 // handleGovernanceTasks 处理治理任务列表和创建
 func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
 		return
 	}
@@ -6236,6 +7908,9 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 
 		taskList := make([]*GovernanceTask, 0, len(governanceTasks))
 		for _, t := range governanceTasks {
+			if !dataOntologyResourceVisible(t.Owner, username) {
+				continue
+			}
 			taskList = append(taskList, t)
 		}
 		sort.Slice(taskList, func(i, j int) bool {
@@ -6253,7 +7928,18 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务名称、类型和Go代码不能为空"})
 			return
 		}
+		if task.DatabaseID != "" {
+			dataOntologyMu.RLock()
+			dc, dbOk := dataOntologyDatabases[task.DatabaseID]
+			dataOntologyMu.RUnlock()
+			if !dbOk || !dataOntologyResourceVisible(dc.Owner, username) {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
+				return
+			}
+		}
+		task.ExampleFiles = nil
 		task.ID = uuid.New().String()
+		task.Owner = username
 		task.CreatedAt = time.Now().Format(time.RFC3339)
 		task.Status = "idle"
 		if task.Type == "scheduled" && task.Enabled {
@@ -6277,10 +7963,6 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 // handleGovernanceTaskDetail 处理单个治理任务的 GET/PUT/DELETE
 func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
-		return
-	}
 
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/tasks/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
@@ -6307,21 +7989,25 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "save-log":
 			handleGovernanceTaskSaveLog(w, r, taskID)
 			return
+		case "progress":
+			handleGovernanceTaskProgress(w, r, taskID)
+			return
 		}
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		dataOntologyMu.RLock()
-		task, exists := governanceTasks[taskID]
-		dataOntologyMu.RUnlock()
-		if !exists {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
 
 	case http.MethodPut:
+		_, username, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
+			return
+		}
 		var update GovernanceTask
 		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
@@ -6344,6 +8030,12 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			task.JsCode = update.JsCode
 		}
 		if update.DatabaseID != "" {
+			dc, dcOk := dataOntologyDatabases[update.DatabaseID]
+			if !dcOk || !dataOntologyResourceVisible(dc.Owner, username) {
+				dataOntologyMu.Unlock()
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
+				return
+			}
 			task.DatabaseID = update.DatabaseID
 		}
 		if update.CronExpr != "" {
@@ -6355,7 +8047,16 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.AcceptExts != nil {
 			task.AcceptExts = update.AcceptExts
 		}
+		task.FileBatchMode = update.FileBatchMode
 		task.Enabled = update.Enabled
+		// API 注册字段
+		task.RegisterAsAPI = update.RegisterAsAPI
+		if update.APIPath != "" {
+			task.APIPath = update.APIPath
+		}
+		if update.APIMethod != "" {
+			task.APIMethod = update.APIMethod
+		}
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()
 
@@ -6365,12 +8066,11 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": task})
 
 	case http.MethodDelete:
-		dataOntologyMu.Lock()
-		if _, exists := governanceTasks[taskID]; !exists {
-			dataOntologyMu.Unlock()
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+		if !ok {
 			return
 		}
+		dataOntologyMu.Lock()
 		delete(governanceTasks, taskID)
 		delete(governanceTaskLogs, taskID)
 		dataOntologyMu.Unlock()
@@ -6387,8 +8087,13 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 // handleGovernanceTaskToggle 启用/禁用定时任务
 func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 	dataOntologyMu.Lock()
@@ -6410,23 +8115,212 @@ func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID s
 
 // handleGovernanceTaskLogs 获取任务执行日志
 func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
 		return
 	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
 	dataOntologyMu.RLock()
 	logs := governanceTaskLogs[taskID]
+	task, hasTask := governanceTasks[taskID]
 	dataOntologyMu.RUnlock()
 
 	if logs == nil {
 		logs = make([]*GovernanceTaskLog, 0)
 	}
+	// 运行中任务：把 last_output 合并进「运行中」日志条目；若尚无日志行（竞态或历史数据），则合成一条便于展示
+	if hasTask && task != nil && task.Status == "running" {
+		if len(logs) == 0 {
+			st := task.StartedAt
+			if st == "" {
+				st = time.Now().Format(time.RFC3339)
+			}
+			in := "（无输入）"
+			if task.TotalFiles > 0 {
+				in = fmt.Sprintf("文件: %d 个", task.TotalFiles)
+			}
+			logs = []*GovernanceTaskLog{{
+				ID:        uuid.New().String(),
+				TaskID:    taskID,
+				RunID:     task.RunID,
+				StartTime: st,
+				Status:    "running",
+				Output:    task.LastOutput,
+				Input:     in,
+			}}
+		} else if strings.TrimSpace(task.LastOutput) != "" {
+			out := make([]*GovernanceTaskLog, 0, len(logs))
+			for _, l := range logs {
+				if l == nil {
+					continue
+				}
+				cp := *l
+				if cp.Status == "running" && (cp.RunID == "" || cp.RunID == task.RunID) {
+					cp.Output = task.LastOutput
+				}
+				out = append(out, &cp)
+			}
+			logs = out
+		}
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
 }
 
-// handleGovernanceTaskRun 不再服务端执行，仅用于更新任务状态（前端执行完回调）
+// handleGovernanceTaskRun 执行治理任务（后端异步执行）
 func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID string) {
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "请在前端执行"})
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+	token := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if token == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	// 解析请求（支持 multipart 和 JSON）
+	var inputText string
+	var filePaths []string
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		// multipart 上传
+		maxSize := int64(100 * 1024 * 1024) // 100MB
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		if err := r.ParseMultipartForm(maxSize); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析表单失败: " + err.Error()})
+			return
+		}
+		inputText = r.FormValue("input_text")
+
+		// 保存上传的文件（须在循环内立即 Close，勿 defer：否则返回响应后才会刷盘，
+		// 后台 governanceWorker 可能先读到未落盘的空/截断文件）
+		files := r.MultipartForm.File["files"]
+		for _, fileHeader := range files {
+			// 安全验证：清理文件名，防止路径遍历攻击
+			safeFilename, err := sanitizeFilename(fileHeader.Filename)
+			if err != nil {
+				log.Printf("[Governance] 文件名无效: %v", err)
+				continue
+			}
+			file, err := fileHeader.Open()
+			if err != nil {
+				continue
+			}
+			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+			if err := os.MkdirAll(tmpDir, 0755); err != nil {
+				file.Close()
+				continue
+			}
+			tmpPath := filepath.Join(tmpDir, safeFilename)
+			dst, err := os.Create(tmpPath)
+			if err != nil {
+				file.Close()
+				continue
+			}
+			_, copyErr := io.Copy(dst, file)
+			file.Close()
+			closeErr := dst.Close()
+			if copyErr != nil {
+				os.Remove(tmpPath)
+				continue
+			}
+			if closeErr != nil {
+				os.Remove(tmpPath)
+				continue
+			}
+			filePaths = append(filePaths, tmpPath)
+		}
+	} else {
+		// JSON 请求
+		var req struct {
+			InputText string `json:"input_text"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		inputText = req.InputText
+	}
+
+	// 创建任务
+	runID := uuid.New().String()
+	startedAt := time.Now().Format(time.RFC3339)
+	job := &GovernanceJob{
+		TaskID:     taskID,
+		RunID:      runID,
+		Token:      token,
+		InputFiles: filePaths,
+		InputText:  inputText,
+	}
+
+	// 更新任务状态
+	dataOntologyMu.Lock()
+	task.Status = "running"
+	task.RunID = runID
+	task.StartedAt = startedAt
+	task.TotalFiles = len(filePaths)
+	task.ProcessedFiles = 0
+	task.Percent = 0
+	task.CurrentFile = ""
+	dataOntologyMu.Unlock()
+
+	// 先入队前写入「运行中」日志并落库；勿在日志落库之前单独 save 任务，否则刷新页面可能只见 running 而无执行记录
+	governanceAppendRunningLog(taskID, job, startedAt)
+
+	// 入队
+	select {
+	case governanceJobQueue <- job:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"run_id":  runID,
+			"message": "任务已入队，正在后台执行",
+		})
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "任务队列已满，请稍后重试",
+		})
+	}
+}
+
+// handleGovernanceTaskProgress 获取任务执行进度
+func handleGovernanceTaskProgress(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":         true,
+		"status":          task.Status,
+		"run_id":          task.RunID,
+		"total_files":     task.TotalFiles,
+		"processed_files": task.ProcessedFiles,
+		"percent":         task.Percent,
+		"current_file":    task.CurrentFile,
+		"started_at":      task.StartedAt,
+		"last_output":     task.LastOutput,
+		"last_error":      task.LastError,
+	})
 }
 
 // handleGovernanceTaskUpload 不再需要，交互任务在前端直接处理文件
@@ -6439,6 +8333,10 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 
@@ -6489,10 +8387,248 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+// sanitizeGovernanceExampleFilename 仅允许 governance-examples 下的文件名（无路径穿越）
+func sanitizeGovernanceExampleFilename(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.Contains(s, "..") || strings.Contains(s, "/") || strings.Contains(s, "\\") {
+		return ""
+	}
+	base := filepath.Base(s)
+	if base != s {
+		return ""
+	}
+	for _, c := range base {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
+			continue
+		}
+		return ""
+	}
+	return base
+}
+
+// handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
+func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
+	rawPath := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
+	if rawPath == r.URL.Path {
+		rawPath = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
+	}
+	rawPath = strings.TrimPrefix(rawPath, "/")
+	if r.Method == http.MethodPost && rawPath == "reload" {
+		handleGovernanceExamplesReload(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	_ = username
+	raw := rawPath
+	if raw == "" || raw == "download" {
+		http.NotFound(w, r)
+		return
+	}
+	safe := sanitizeGovernanceExampleFilename(raw)
+	if safe == "" {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	data, err := governanceExamplesFS.ReadFile("governance-examples/" + safe)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`"`)
+	w.Write(data)
+}
+
+// handleGovernanceExamplesZipDownload POST body: {"paths":["a.docx","b.docx"]}
+func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	_ = username
+	var req struct {
+		Paths []string `json:"paths"`
+		Files []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	type zipItem struct {
+		entryName string
+		diskPath  string
+	}
+	var items []zipItem
+	if len(req.Files) > 0 {
+		for _, it := range req.Files {
+			safe := sanitizeGovernanceExampleFilename(it.Path)
+			if safe == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法路径"})
+				return
+			}
+			name := strings.TrimSpace(it.Name)
+			if name == "" {
+				name = safe
+			}
+			if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法文件名"})
+				return
+			}
+			items = append(items, zipItem{entryName: name, diskPath: safe})
+		}
+	} else {
+		for _, p := range req.Paths {
+			safe := sanitizeGovernanceExampleFilename(p)
+			if safe == "" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法路径"})
+				return
+			}
+			items = append(items, zipItem{entryName: safe, diskPath: safe})
+		}
+	}
+	if len(items) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "paths 或 files 不能为空"})
+		return
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, it := range items {
+		data, err := governanceExamplesFS.ReadFile("governance-examples/" + it.diskPath)
+		if err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件不存在"})
+			return
+		}
+		f, err := zw.Create(it.entryName)
+		if err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+		if _, err := f.Write(data); err != nil {
+			zw.Close()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+			return
+		}
+	}
+	if err := zw.Close(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="governance-examples.zip"`)
+	w.Write(buf.Bytes())
+}
+
+// handleGovernanceExamplesReload POST /api/data-ontology/governance/examples/reload
+// 从当前进程内的 embed FS 将预置任务的 example_files（及可选的「综合日报生成器」js_code）同步到 data-store.json。
+// 仅匹配内置任务名称，不修改用户自建任务。需管理员。
+func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	if _, ok := requireDataOntologyAdmin(w, r); !ok {
+		return
+	}
+	var body struct {
+		IncludeJS bool `json:"include_js"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	dataOntologyMu.Lock()
+	n := syncGovernancePresetExamplesFromEmbed(body.IncludeJS)
+	dataOntologyMu.Unlock()
+
+	if n > 0 {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存治理预置示例同步失败: %v", err)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存失败"})
+			return
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n})
+}
+
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）
+// handleGovernanceDownloadOutput 下载单次任务生成的输出文件（gov-runner output_files）
+func handleGovernanceDownloadOutput(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	runID := r.URL.Query().Get("run_id")
+	safeName := sanitizeGovOutputFilename(r.URL.Query().Get("name"))
+	if runID == "" || safeName == "" {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	dataOntologyMu.RLock()
+	var owner string
+	var found bool
+	for _, t := range governanceTasks {
+		if t.RunID == runID {
+			owner = t.Owner
+			found = true
+			break
+		}
+	}
+	dataOntologyMu.RUnlock()
+	if !found || !dataOntologyResourceVisible(owner, username) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	path := filepath.Join(os.TempDir(), "gov-output-downloads", runID, safeName)
+	if _, err := os.Stat(path); err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`"`)
+	http.ServeFile(w, r, path)
+}
+
 func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if !verifyToken(r) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
 		return
 	}
@@ -6518,23 +8654,17 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RLock()
 	dbConfig, exists := dataOntologyDatabases[req.DatabaseID]
 	dataOntologyMu.RUnlock()
-	if !exists {
+	if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
 		return
 	}
 
-	driver, dsn, dsnErr := buildDSN(dbConfig)
-	if dsnErr != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的数据库类型: " + dbConfig.Type})
-		return
-	}
-
-	db, err := sql.Open(driver, dsn)
+	// 使用连接池
+	db, err := getDBFromPool(dbConfig)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "连接失败: " + err.Error()})
 		return
 	}
-	defer db.Close()
 
 	sqlUpper := strings.TrimSpace(strings.ToUpper(req.SQL))
 	if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") || strings.HasPrefix(sqlUpper, "DESCRIBE") || strings.HasPrefix(sqlUpper, "EXPLAIN") {
@@ -6587,6 +8717,570 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 
 // ==================== 治理任务调度器 ====================
 
+// reconcileStuckGovernanceRuns 服务启动时将仍处于 running 的任务视为已中断（队列与工作者状态不会在重启后保留）
+func reconcileStuckGovernanceRuns() {
+	dataOntologyMu.Lock()
+	changed := false
+	for id, t := range governanceTasks {
+		if t == nil || t.Status != "running" {
+			continue
+		}
+		t.Status = "idle"
+		if t.LastError == "" {
+			t.LastError = "上次执行未正常结束（服务重启或进程退出）"
+		}
+		rid := t.RunID
+		t.RunID = ""
+		t.TotalFiles = 0
+		t.ProcessedFiles = 0
+		t.Percent = 0
+		t.CurrentFile = ""
+		for _, l := range governanceTaskLogs[id] {
+			if l != nil && l.Status == "running" && (rid == "" || l.RunID == rid) {
+				l.Status = "error"
+				l.Error = "执行中断（服务重启或进程退出）"
+				l.EndTime = time.Now().Format(time.RFC3339)
+				changed = true
+				break
+			}
+		}
+		changed = true
+	}
+	dataOntologyMu.Unlock()
+	if changed {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("收尾中断中的治理任务失败: %v", err)
+		}
+	}
+}
+
+// governanceJobInputSummary 生成异步任务输入摘要（供执行日志展示）
+func governanceJobInputSummary(job *GovernanceJob) string {
+	var parts []string
+	if strings.TrimSpace(job.InputText) != "" {
+		t := strings.TrimSpace(job.InputText)
+		runes := []rune(t)
+		if len(runes) > 200 {
+			t = string(runes[:200]) + "…"
+		}
+		parts = append(parts, "文本: "+t)
+	}
+	if len(job.InputFiles) > 0 {
+		names := make([]string, 0, len(job.InputFiles))
+		for _, p := range job.InputFiles {
+			names = append(names, filepath.Base(p))
+		}
+		parts = append(parts, "文件: "+strings.Join(names, ", "))
+	}
+	if len(parts) == 0 {
+		return "（无输入）"
+	}
+	return strings.Join(parts, "；")
+}
+
+// governanceAppendRunningLog 异步任务开始时写入一条「运行中」日志（便于刷新页面后仍能看到执行记录）
+func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt string) {
+	if startedAt == "" {
+		startedAt = time.Now().Format(time.RFC3339)
+	}
+	dataOntologyMu.Lock()
+	logEntry := &GovernanceTaskLog{
+		ID:        uuid.New().String(),
+		TaskID:    taskID,
+		RunID:     job.RunID,
+		StartTime: startedAt,
+		Status:    "running",
+		Input:     governanceJobInputSummary(job),
+	}
+	governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], logEntry)
+	if len(governanceTaskLogs[taskID]) > 50 {
+		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
+	}
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务运行中日志失败: %v", err)
+	}
+}
+
+// governanceFinalizeRunLog 将对应 run_id 的「运行中」日志更新为结束状态；若无则追加一条完成记录
+func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
+	if runID == "" {
+		runID = uuid.New().String()
+	}
+	now := time.Now().Format(time.RFC3339)
+	dataOntologyMu.Lock()
+	logs := governanceTaskLogs[taskID]
+	found := false
+	for _, l := range logs {
+		if l.RunID == runID && l.Status == "running" {
+			l.Status = status
+			l.Output = output
+			l.Error = errStr
+			l.EndTime = now
+			found = true
+			break
+		}
+	}
+	if !found {
+		governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], &GovernanceTaskLog{
+			ID:        uuid.New().String(),
+			TaskID:    taskID,
+			RunID:     runID,
+			StartTime: now,
+			EndTime:   now,
+			Status:    status,
+			Output:    output,
+			Error:     errStr,
+		})
+	}
+	if len(governanceTaskLogs[taskID]) > 50 {
+		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
+	}
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存治理任务完成日志失败: %v", err)
+	}
+}
+
+// governanceFinalizeRunLogFromTask 根据任务当前状态将本次 run 的执行日志落库
+func governanceFinalizeRunLogFromTask(taskID, runID string) {
+	dataOntologyMu.RLock()
+	var outStr, errStr string
+	status := "error"
+	if t, ok := governanceTasks[taskID]; ok {
+		if t.Status == "success" {
+			status = "success"
+		}
+		outStr = t.LastOutput
+		errStr = t.LastError
+	}
+	dataOntologyMu.RUnlock()
+	if status == "success" {
+		governanceFinalizeRunLog(taskID, runID, "success", outStr, "")
+	} else {
+		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
+	}
+}
+
+// governanceWorker 任务执行器，从队列取出任务并执行
+func governanceWorker() {
+	for job := range governanceJobQueue {
+		executeGovernanceJob(job)
+	}
+}
+
+// executeGovernanceTaskForAPI 为 API 调用执行任务（同步返回结果）
+func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interface{}) (interface{}, error) {
+	// 获取任务信息
+	dataOntologyMu.RLock()
+	dbID := task.DatabaseID
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	// 构建数据库列表
+	var databases []map[string]string
+	for id, db := range dataOntologyDatabases {
+		if !dataOntologyResourceVisible(db.Owner, task.Owner) {
+			continue
+		}
+		databases = append(databases, map[string]string{
+			"id":   id,
+			"name": db.Name,
+			"type": db.Type,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        task.JsCode,
+		"token":       "", // API 调用不需要 token
+		"database_id": dbID,
+		"db_type":     dbType,
+		"databases":   databases,
+		"input_text":  "",
+		"api_params":  params, // 传入 API 参数
+	}
+
+	// 处理文件参数（如果有的话）
+	if fileBase64, ok := params["file_base64"].(string); ok {
+		taskData["file_base64"] = fileBase64
+	}
+	if fileName, ok := params["file_name"].(string); ok {
+		taskData["file_name"] = fileName
+	}
+	if inputText, ok := params["input_text"].(string); ok {
+		taskData["input_text"] = inputText
+	}
+
+	// 执行任务
+	result := callGovRunner(taskData)
+	if !result.Success {
+		return nil, fmt.Errorf(result.Error)
+	}
+
+	// 返回结果
+	if len(result.Output) == 1 {
+		return result.Output[0], nil
+	}
+	return result.Output, nil
+}
+
+// GovOutputFile gov-runner 生成的二进制输出
+type GovOutputFile struct {
+	Name          string `json:"name"`
+	ContentBase64 string `json:"content_base64"`
+}
+
+// GovRunnerResult gov-runner 执行结果
+type GovRunnerResult struct {
+	Success     bool            `json:"success"`
+	Output      []string        `json:"output"`
+	Error       string          `json:"error"`
+	OutputFiles []GovOutputFile `json:"output_files,omitempty"`
+}
+
+func sanitizeGovOutputFilename(name string) string {
+	base := filepath.Base(name)
+	if base == "." || base == "" {
+		return "output.docx"
+	}
+	return base
+}
+
+// governanceWriteOutputFiles 将 gov-runner 输出的文件落盘并返回日志行（含下载路径）
+func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
+	if runID == "" || len(files) == 0 {
+		return nil
+	}
+	dir := filepath.Join(os.TempDir(), "gov-output-downloads", runID)
+	_ = os.MkdirAll(dir, 0755)
+	var lines []string
+	for _, f := range files {
+		if f.Name == "" || f.ContentBase64 == "" {
+			continue
+		}
+		safe := sanitizeGovOutputFilename(f.Name)
+		data, err := base64.StdEncoding.DecodeString(f.ContentBase64)
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(dir, safe)
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			continue
+		}
+		q := url.Values{}
+		q.Set("run_id", runID)
+		q.Set("name", safe)
+		lines = append(lines, fmt.Sprintf("输出文件 %s — 下载: /api/data-ontology/governance/download-output?%s", safe, q.Encode()))
+	}
+	return lines
+}
+
+// executeGovernanceJob 执行单个治理任务
+func executeGovernanceJob(job *GovernanceJob) {
+	taskID := job.TaskID
+	runID := job.RunID
+
+	// 获取任务信息
+	dataOntologyMu.RLock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.RUnlock()
+		return
+	}
+	code := task.JsCode
+	dbID := task.DatabaseID
+	batchMode := task.FileBatchMode
+	if batchMode == "" {
+		batchMode = "per_file"
+	}
+	dbType := ""
+	if db, ok := dataOntologyDatabases[dbID]; ok {
+		dbType = db.Type
+	}
+	// 构建数据库列表（仅包含任务所属用户可见的配置，避免泄露他人连接信息）
+	var databases []map[string]string
+	for id, db := range dataOntologyDatabases {
+		if !dataOntologyResourceVisible(db.Owner, task.Owner) {
+			continue
+		}
+		databases = append(databases, map[string]string{
+			"id":   id,
+			"name": db.Name,
+			"type": db.Type,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
+	// 准备任务参数
+	taskData := map[string]interface{}{
+		"code":        code,
+		"token":       job.Token,
+		"database_id": dbID,
+		"db_type":     dbType,
+		"databases":   databases,
+		"input_text":  job.InputText,
+	}
+
+	// 如果有文件，读取并转为 base64
+	if len(job.InputFiles) > 0 {
+		if batchMode == "single" {
+			var filePayloads []map[string]interface{}
+			for _, filePath := range job.InputFiles {
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					log.Printf("读取文件失败: %v", err)
+					dataOntologyMu.Lock()
+					if t, ok := governanceTasks[taskID]; ok {
+						t.Status = "error"
+						t.LastError = "读取文件失败: " + err.Error()
+						t.LastRunAt = time.Now().Format(time.RFC3339)
+						t.ProcessedFiles = len(job.InputFiles)
+						t.Percent = 100
+					}
+					dataOntologyMu.Unlock()
+					saveDataOntologyStore()
+					governanceFinalizeRunLogFromTask(taskID, runID)
+					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+					os.RemoveAll(tmpDir)
+					return
+				}
+				filePayloads = append(filePayloads, map[string]interface{}{
+					"file_name":   filepath.Base(filePath),
+					"file_base64": base64.StdEncoding.EncodeToString(data),
+				})
+			}
+			for _, filePath := range job.InputFiles {
+				os.Remove(filePath)
+			}
+			taskData["files"] = filePayloads
+
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				t.ProcessedFiles = 0
+				t.Percent = 50
+				t.CurrentFile = "合并执行"
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+
+			result := callGovRunner(taskData)
+			var extraLines []string
+			if len(result.OutputFiles) > 0 {
+				extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+			}
+			if !result.Success {
+				log.Printf("任务 %s 合并执行失败: %s", taskID, result.Error)
+			} else {
+				log.Printf("任务 %s 合并执行成功", taskID)
+			}
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if result.Success {
+					t.Status = "success"
+					out := strings.Join(result.Output, "\n")
+					if len(extraLines) > 0 {
+						out += "\n" + strings.Join(extraLines, "\n")
+					}
+					t.LastOutput = out
+				} else {
+					t.Status = "error"
+					t.LastError = result.Error
+					if len(result.Output) > 0 {
+						t.LastOutput = strings.Join(result.Output, "\n")
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
+				t.CurrentFile = ""
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTask(taskID, runID)
+		} else {
+			var allOutput []string
+			var lastError string
+
+			for i, filePath := range job.InputFiles {
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					log.Printf("读取文件失败: %v", err)
+					lastError = "读取文件失败: " + err.Error()
+					continue
+				}
+				taskData["file_base64"] = base64.StdEncoding.EncodeToString(data)
+				taskData["file_name"] = filepath.Base(filePath)
+
+				// 更新进度
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					t.ProcessedFiles = i
+					t.Percent = (i * 100) / len(job.InputFiles)
+					t.CurrentFile = filepath.Base(filePath)
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+
+				// 执行单个文件
+				result := callGovRunner(taskData)
+				var extraLines []string
+				if len(result.OutputFiles) > 0 {
+					extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+				}
+				if !result.Success {
+					log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
+					lastError = result.Error
+					if len(result.Output) > 0 {
+						allOutput = append(allOutput, result.Output...)
+					}
+					if len(extraLines) > 0 {
+						allOutput = append(allOutput, extraLines...)
+					}
+				} else {
+					log.Printf("任务 %s 文件 %s 执行成功", taskID, filePath)
+					allOutput = append(allOutput, result.Output...)
+					if len(extraLines) > 0 {
+						allOutput = append(allOutput, extraLines...)
+					}
+				}
+
+				// 清理临时文件
+				os.Remove(filePath)
+
+				// 每处理完一个文件更新 last_output，便于轮询与合并到「运行中」日志
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					if len(allOutput) > 0 {
+						t.LastOutput = strings.Join(allOutput, "\n")
+					}
+					if lastError != "" {
+						t.LastError = lastError
+					}
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+			}
+
+			// 更新任务状态
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if lastError == "" {
+					t.Status = "success"
+					t.LastOutput = strings.Join(allOutput, "\n")
+				} else {
+					t.Status = "error"
+					t.LastError = lastError
+					if len(allOutput) > 0 {
+						t.LastOutput = strings.Join(allOutput, "\n")
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTask(taskID, runID)
+		}
+	} else {
+		// 无文件，直接执行
+		result := callGovRunner(taskData)
+		if !result.Success {
+			log.Printf("任务 %s 执行失败: %s", taskID, result.Error)
+		} else {
+			log.Printf("任务 %s 执行成功，输出: %v", taskID, result.Output)
+		}
+
+		// 更新任务状态
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[taskID]; ok {
+			if result.Success {
+				t.Status = "success"
+				t.LastOutput = strings.Join(result.Output, "\n")
+			} else {
+				t.Status = "error"
+				t.LastError = result.Error
+			}
+			t.LastRunAt = time.Now().Format(time.RFC3339)
+		}
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		governanceFinalizeRunLogFromTask(taskID, runID)
+	}
+
+	// 清理临时目录
+	if len(job.InputFiles) > 0 {
+		tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
+		os.RemoveAll(tmpDir)
+	}
+}
+
+// callGovRunner 调用 gov-runner 执行任务
+func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
+	runnerPath, err := resolveGovRunnerPath()
+	if err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
+	// 写入临时任务文件
+	taskJSON, _ := json.Marshal(taskData)
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("gov-task-%d.json", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, taskJSON, 0644); err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "写入任务文件失败: " + err.Error(),
+		}
+	}
+	defer os.Remove(tmpFile)
+
+	// 执行 gov-runner
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, runnerPath, tmpFile)
+	apiBase := govRunnerAPIBase
+	if apiBase == "" {
+		apiBase = "http://127.0.0.1:8080"
+	}
+	cmd.Env = append(os.Environ(), "GOV_RUNNER_CLI=true", "API_BASE="+apiBase)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	outBytes := bytes.TrimSpace(stdout.Bytes())
+	errBytes := bytes.TrimSpace(stderr.Bytes())
+
+	if len(outBytes) == 0 {
+		if runErr != nil {
+			errMsg := runErr.Error()
+			if len(errBytes) > 0 {
+				errMsg += " | stderr: " + string(errBytes)
+			}
+			return &GovRunnerResult{Success: false, Error: "执行失败: " + errMsg}
+		}
+		errMsg := "gov-runner 无输出"
+		if len(errBytes) > 0 {
+			errMsg += " | stderr: " + string(errBytes)
+		}
+		return &GovRunnerResult{Success: false, Error: errMsg}
+	}
+
+	var result GovRunnerResult
+	if err := json.Unmarshal(outBytes, &result); err != nil {
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "解析结果失败: " + err.Error(),
+		}
+	}
+	return &result
+}
+
 func governanceScheduler() {
 	for {
 		time.Sleep(30 * time.Second)
@@ -6594,9 +9288,9 @@ func governanceScheduler() {
 
 		dataOntologyMu.RLock()
 		var tasksToRun []struct {
-			id     string
-			code   string
-			dbID   string
+			id   string
+			code string
+			dbID string
 		}
 		for _, task := range governanceTasks {
 			if task.Type == "scheduled" && task.Enabled && task.Status != "running" {
@@ -6699,15 +9393,15 @@ func getSFTPSession(id string) *SFTPSession {
 	return s
 }
 
-// startSFTPSessionCleaner 定期清理 30 分钟未使用的 SFTP 会话
+// startSFTPSessionCleaner 定期清理未使用的 SFTP 会话
 func startSFTPSessionCleaner() {
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(SFTPCleanInterval)
 		defer ticker.Stop()
 		for range ticker.C {
 			sftpSessionsMu.Lock()
 			for id, s := range sftpSessionsMap {
-				if time.Since(s.LastUsed) > 30*time.Minute {
+				if time.Since(s.LastUsed) > SFTPSessionTTL {
 					s.SFTPClient.Close()
 					s.SSHClient.Close()
 					delete(sftpSessionsMap, id)
@@ -6769,7 +9463,7 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 		User:            user,
 		Auth:            []gossh.AuthMethod{gossh.Password(password)},
 		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
-		Timeout:         15 * time.Second,
+		Timeout:         SSHConnectTimeout,
 	}
 
 	sshClient, err := gossh.Dial("tcp", host+":"+portStr, sshConfig)
@@ -6840,9 +9534,12 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 // handleSFTPConnect POST /api/ops/sftp/connect
 func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		apiMethodNotAllowed(w, "仅支持 POST")
 		return
 	}
 	var req struct {
@@ -6853,8 +9550,7 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	if req.Host == "" || req.User == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "host 和 user 不能为空"})
+		apiBadRequest(w, "host 和 user 不能为空")
 		return
 	}
 	if req.Port == "" {
@@ -6865,19 +9561,19 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 		User:            req.User,
 		Auth:            []gossh.AuthMethod{gossh.Password(req.Password)},
 		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
-		Timeout:         15 * time.Second,
+		Timeout:         SSHConnectTimeout,
 	}
 	sshClient, err := gossh.Dial("tcp", req.Host+":"+req.Port, sshConfig)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SSH 连接失败: " + err.Error()})
+		log.Printf("[SFTP] SSH连接失败: host=%s, err=%v", req.Host, err)
+		apiBadRequest(w, "SSH 连接失败")
 		return
 	}
 	sftpClient, err := sftp.NewClient(sshClient)
 	if err != nil {
 		sshClient.Close()
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "SFTP 初始化失败: " + err.Error()})
+		log.Printf("[SFTP] SFTP初始化失败: host=%s, err=%v", req.Host, err)
+		apiBadRequest(w, "SFTP 初始化失败")
 		return
 	}
 
@@ -6896,7 +9592,8 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 		homePath = wd
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	log.Printf("[SFTP] 连接成功: host=%s, user=%s, session=%s", req.Host, req.User, sessionID)
+	jsonSuccess(w, map[string]interface{}{
 		"success":     true,
 		"sessionId":   sessionID,
 		"currentPath": homePath,
@@ -6906,6 +9603,10 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 // handleSFTPList GET /api/ops/sftp/list?session=xxx&path=/
 func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	if remotePath == "" {
@@ -6913,14 +9614,13 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	}
 	s := getSFTPSession(sessionID)
 	if s == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期，请重新连接"})
+		apiBadRequest(w, "会话不存在或已过期，请重新连接")
 		return
 	}
 	entries, err := s.SFTPClient.ReadDir(remotePath)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取目录失败: " + err.Error()})
+		log.Printf("[SFTP] 读取目录失败: session=%s, path=%s, err=%v", sessionID, remotePath, err)
+		apiBadRequest(w, "读取目录失败")
 		return
 	}
 	files := make([]map[string]interface{}, 0, len(entries)+1)
@@ -6938,36 +9638,44 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 			"permissions": e.Mode().String(),
 		})
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": remotePath, "files": files})
+	jsonSuccess(w, map[string]interface{}{"success": true, "path": remotePath, "files": files})
 }
 
 // handleSFTPUpload POST /api/ops/sftp/upload?session=xxx&path=/remote/dir
 func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		apiMethodNotAllowed(w, "仅支持 POST")
 		return
 	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	s := getSFTPSession(sessionID)
 	if s == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "会话不存在或已过期"})
+		apiBadRequest(w, "会话不存在或已过期")
 		return
 	}
 	r.ParseMultipartForm(200 << 20) // 200MB
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取上传文件失败: " + err.Error()})
+		apiBadRequest(w, "读取上传文件失败")
 		return
 	}
 	defer file.Close()
 
+	// 安全验证：清理文件名，防止路径遍历攻击
+	safeFilename, err := sanitizeFilename(header.Filename)
+	if err != nil {
+		apiBadRequest(w, "文件名无效: "+err.Error())
+		return
+	}
+
 	// 使用正斜杠拼接远程路径
-	remoteFilePath := strings.TrimRight(remotePath, "/") + "/" + header.Filename
+	remoteFilePath := strings.TrimRight(remotePath, "/") + "/" + safeFilename
 	dst, err := s.SFTPClient.Create(remoteFilePath)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -6985,6 +9693,10 @@ func handleSFTPUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleSFTPDownload GET /api/ops/sftp/download?session=xxx&path=/file
 func handleSFTPDownload(w http.ResponseWriter, r *http.Request) {
+	if !verifyToken(r) {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
 	sessionID := r.URL.Query().Get("session")
 	remotePath := r.URL.Query().Get("path")
 	s := getSFTPSession(sessionID)
@@ -7012,6 +9724,10 @@ func handleSFTPDownload(w http.ResponseWriter, r *http.Request) {
 // handleSFTPDisconnect POST /api/ops/sftp/disconnect
 func handleSFTPDisconnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
 	var sessionID string
 	sessionID = r.URL.Query().Get("session")
 	if sessionID == "" {
@@ -7151,18 +9867,15 @@ func main() {
 	// 加载配置
 	config := loadConfig()
 	port := config.Port
-	
+
 	// 命令行参数优先
 	if *portFlag != 0 {
 		port = *portFlag
 	}
 
-	// 获取当前目录
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatal(err)
-	}
-	rootDir := filepath.Dir(exePath)
+	// MCP 回环与 gov-runner 回调本机 API（需在 init 之前，避免非默认端口时回调错误）
+	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	govRunnerAPIBase = mcpLoopbackAddr
 
 	// 初始化数据本体池
 	initDataOntology()
@@ -7191,13 +9904,22 @@ func main() {
 	mux.HandleFunc("/api/ops/sftp/mkdir", handleSFTPMkdir)
 	mux.HandleFunc("/api/ops/sftp/delete", handleSFTPDelete)
 	mux.HandleFunc("/api/ops/sftp/rename", handleSFTPRename)
-	
+
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
+	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
+	mux.HandleFunc("/api/data-ontology/users/", handleDataOntologyUsersDetail)
 	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
+	mux.HandleFunc("/api/data-ontology/settings", handleUserSettings)
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
+		trimPath := strings.Trim(r.URL.Path, "/")
+		parts := strings.Split(trimPath, "/")
+		if len(parts) == 5 && parts[2] == "databases" && parts[4] == "lineage" {
+			handleDatabaseLineage(w, r)
+			return
+		}
 		path := r.URL.Path
 		if strings.Contains(path, "/tables/") || strings.HasSuffix(path, "/tables") {
 			handleTableData(w, r)
@@ -7205,7 +9927,7 @@ func main() {
 			handleDatabaseDetail(w, r)
 		}
 	})
-	
+
 	// MCP 配置（总开关）
 	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
 	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
@@ -7220,14 +9942,20 @@ func main() {
 			handleApiDetail(w, r)
 		}
 	})
-	
+
 	// AI助手API路由
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
-	
+
+	// 模型管理API路由
+	mux.HandleFunc("/api/data-ontology/models/llm", handleLLMModels)
+	mux.HandleFunc("/api/data-ontology/models/llm/", handleLLMModelDetail)
+	mux.HandleFunc("/api/data-ontology/models/small", handleSmallModels)
+	mux.HandleFunc("/api/data-ontology/models/small/", handleSmallModelDetail)
+
 	// 本体论API路由
 	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
 	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
@@ -7235,8 +9963,14 @@ func main() {
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
+	mux.HandleFunc("/api/data-ontology/governance/examples/download", handleGovernanceExamplesZipDownload)
+	mux.HandleFunc("/api/data-ontology/governance/examples/", handleGovernanceExampleDownload)
+	mux.HandleFunc("/api/governance/examples/download", handleGovernanceExamplesZipDownload)
+	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
+	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
-	
+	mux.HandleFunc("/api/data-ontology/quality-audit/", handleQualityAuditAPI)
+
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
 	mux.HandleFunc("/api/web-nav/links", handleWebNavLinks)
@@ -7248,15 +9982,11 @@ func main() {
 		}
 		handleWebNavLinkByID(w, r, id)
 	})
-	
-	// 文件服务器
-	fs := http.FileServer(http.Dir(rootDir))
-	mux.Handle("/", fs)
-	
-	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
-	// 设置 MCP HTTP 模式的回环地址
-	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	// 静态资源（嵌入二进制，无需外置 apps/css/js/lib）
+	mux.Handle("/", newStaticFileHandler())
+
+	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", config.Host, port)
@@ -7280,4 +10010,3 @@ func main() {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
 }
-

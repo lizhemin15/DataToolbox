@@ -4,6 +4,44 @@ let databases = [];
 let currentDb = null;
 let isEditMode = false;
 let editingDbId = null;
+let userMgmtMode = false;
+let userPasswordTarget = null;
+
+const USER_MIN_PASSWORD_LEN = 4;
+
+function clearUserMgmtCreatePwdHint() {
+    const el = document.getElementById('userMgmtCreatePwdHint');
+    if (el) {
+        el.classList.remove('show');
+        el.textContent = '';
+    }
+}
+
+function clearUserPasswordModalPwdHint() {
+    const el = document.getElementById('userPasswordModalPwdHint');
+    if (el) {
+        el.classList.remove('show');
+        el.textContent = '';
+    }
+}
+
+/** 校验密码与确认密码：先长度再一致性。hintEl 为带 .error-message 的提示节点 */
+function validateUserPasswordPair(password, confirm, hintEl) {
+    if (!hintEl) return false;
+    hintEl.classList.remove('show');
+    hintEl.textContent = '';
+    if (password.length < USER_MIN_PASSWORD_LEN) {
+        hintEl.textContent = '密码至少4位';
+        hintEl.classList.add('show');
+        return false;
+    }
+    if (password !== confirm) {
+        hintEl.textContent = '两次密码输入不一致';
+        hintEl.classList.add('show');
+        return false;
+    }
+    return true;
+}
 
 // 接口管理状态
 let apis = [];
@@ -19,10 +57,12 @@ let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
 const aiModules = [
-    { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '查询、写入、表结构操作' },
+    { id: 'db-manage', name: '数据库管理', icon: '📦', description: '查询、写入、表结构操作' },
     { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '生成和管理数据接口' },
     { id: 'data-governance', name: '数据治理', icon: '🔧', description: '任务管理与数据处理' },
-    { id: 'ontology', name: '本体论抽象', icon: '🧠', description: '开发中...' },
+    { id: 'quality-audit', name: '数据质量审核', icon: '✅', description: '创建和管理审核规则' },
+    { id: 'small-model', name: '小模型', icon: '📝', description: '创建自定义数据处理模型' },
+    { id: 'ontology', name: '本体论抽象', icon: '💡', description: '开发中...' },
 ];
 
 let aiSessionContext = {
@@ -34,8 +74,477 @@ let aiSessionContext = {
 // API基础URL
 const API_BASE = window.location.origin;
 
+const RETURN_URL_KEY = 'dataOntologyReturnUrl';
+
+function saveReturnUrlForLogin() {
+    try {
+        sessionStorage.setItem(RETURN_URL_KEY, location.pathname + location.search + location.hash);
+    } catch (e) {}
+}
+
+function handleUnauthorizedFromApi() {
+    if (!localStorage.getItem('dataOntologyToken')) return;
+    try { closeUserMgmtPanel(true); } catch (e) {}
+    try { window._qualityAuditDataLoaded = false; } catch (e) {}
+    saveReturnUrlForLogin();
+    localStorage.removeItem('dataOntologyToken');
+    localStorage.removeItem('dataOntologyUser');
+    currentUser = null;
+    databases = [];
+    currentDb = null;
+    govTasks = [];
+    currentGovTask = null;
+    showLoginPage();
+}
+
+async function fetchWithAuth(input, init) {
+    const initCopy = init ? { ...init } : {};
+    const headers = new Headers(initCopy.headers || {});
+    const token = localStorage.getItem('dataOntologyToken');
+    if (token) {
+        headers.set('Authorization', 'Bearer ' + token);
+    }
+    const response = await fetch(input, { ...initCopy, headers });
+    if (response.status === 401) {
+        handleUnauthorizedFromApi();
+        return response;
+    }
+    const ct = response.headers.get('Content-Type') || '';
+    if (ct.includes('application/json')) {
+        const cloned = response.clone();
+        try {
+            const data = await cloned.json();
+            if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
+                handleUnauthorizedFromApi();
+            }
+        } catch (e) {}
+    }
+    return response;
+}
+
+/**
+ * 统一的 API 请求封装函数
+ * @param {string} endpoint - API 端点路径（不含 API_BASE）
+ * @param {Object} options - 请求选项
+ * @param {string} options.method - HTTP 方法（默认 GET）
+ * @param {Object} options.body - 请求体（会自动 JSON 序列化）
+ * @param {string} options.errorPrefix - 错误消息前缀（默认 '操作失败'）
+ * @param {boolean} options.showToastOnError - 是否在错误时显示 toast（默认 true）
+ * @returns {Promise<{success: boolean, data?: any, error?: string}>}
+ */
+async function apiRequest(endpoint, options = {}) {
+    const { method = 'GET', body, errorPrefix = '操作失败', showToastOnError = true } = options;
+    
+    const init = { method };
+    if (body) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
+    }
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}${endpoint}`, init);
+        const data = await response.json();
+        
+        if (!data.success && showToastOnError) {
+            showToast(`${errorPrefix}：${data.message || '未知错误'}`, 'error');
+        }
+        
+        return { success: data.success, data, error: data.success ? null : (data.message || '未知错误') };
+    } catch (error) {
+        const errorMsg = error.message || '网络错误';
+        if (showToastOnError) {
+            showToast(`${errorPrefix}：${errorMsg}`, 'error');
+        }
+        return { success: false, error: errorMsg };
+    }
+}
+
+// ---- 演示库（前端模拟 SQLite 内存库；后端未持久化该 ID）----
+const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
+
+const DEMO_ONTOLOGY_TABLES = {
+    customers: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'name', type: 'TEXT', nullable: false },
+            { name: 'email', type: 'TEXT', nullable: true }
+        ],
+        rows: [
+            { id: 1, name: '张三', email: 'zhang@example.com' },
+            { id: 2, name: '李四', email: 'li@example.com' }
+        ]
+    },
+    products: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'name', type: 'TEXT', nullable: false },
+            { name: 'price', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 101, name: '笔记本', price: 5999 },
+            { id: 102, name: '鼠标', price: 99 }
+        ]
+    },
+    orders: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'customer_id', type: 'INTEGER', nullable: false },
+            { name: 'order_date', type: 'TEXT', nullable: false },
+            { name: 'total', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 1001, customer_id: 1, order_date: '2025-03-01', total: 6098 },
+            { id: 1002, customer_id: 2, order_date: '2025-03-02', total: 99 }
+        ]
+    },
+    order_items: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'order_id', type: 'INTEGER', nullable: false },
+            { name: 'product_id', type: 'INTEGER', nullable: false },
+            { name: 'qty', type: 'INTEGER', nullable: false },
+            { name: 'unit_price', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { id: 1, order_id: 1001, product_id: 101, qty: 1, unit_price: 5999 },
+            { id: 2, order_id: 1001, product_id: 102, qty: 1, unit_price: 99 },
+            { id: 3, order_id: 1002, product_id: 102, qty: 1, unit_price: 99 }
+        ]
+    },
+    payments: {
+        columns: [
+            { name: 'id', type: 'INTEGER', nullable: false },
+            { name: 'order_id', type: 'INTEGER', nullable: false },
+            { name: 'amount', type: 'REAL', nullable: false },
+            { name: 'paid_at', type: 'TEXT', nullable: true }
+        ],
+        rows: [
+            { id: 1, order_id: 1001, amount: 6098, paid_at: '2025-03-01T10:00:00' },
+            { id: 2, order_id: 1002, amount: 99, paid_at: '2025-03-02T15:00:00' }
+        ]
+    },
+    report_sales: {
+        columns: [
+            { name: 'period', type: 'TEXT', nullable: false },
+            { name: 'sku', type: 'TEXT', nullable: false },
+            { name: 'qty_sold', type: 'INTEGER', nullable: false },
+            { name: 'revenue', type: 'REAL', nullable: false }
+        ],
+        rows: [
+            { period: '2025-03', sku: '笔记本', qty_sold: 1, revenue: 5999 },
+            { period: '2025-03', sku: '鼠标', qty_sold: 2, revenue: 198 }
+        ]
+    }
+};
+
+/** 外键 + ETL：kind==='etl' 表示 from 聚合到 to（与 FK 箭头方向相反） */
+const DEMO_ONTOLOGY_LINEAGE_EDGES = [
+    { fromTable: 'orders', fromColumn: 'customer_id', toTable: 'customers', toColumn: 'id' },
+    { fromTable: 'order_items', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
+    { fromTable: 'order_items', fromColumn: 'product_id', toTable: 'products', toColumn: 'id' },
+    { fromTable: 'payments', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
+    { fromTable: 'orders', fromColumn: '(聚合)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' },
+    { fromTable: 'order_items', fromColumn: '(聚合)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' }
+];
+
+function getDemoDatabaseListEntry() {
+    return {
+        id: DEMO_ONTOLOGY_DB_ID,
+        type: 'sqlite',
+        name: '演示库（内存模拟）',
+        host: '',
+        port: 0,
+        path: ':memory:',
+        user: '',
+        database: 'demo_shop'
+    };
+}
+
+function mergeDemoDatabaseIntoList() {
+    if (databases.some(d => d.id === DEMO_ONTOLOGY_DB_ID)) return;
+    databases.push(getDemoDatabaseListEntry());
+}
+
+function demoOntologyJsonResponse(obj, status) {
+    const s = status === undefined ? 200 : status;
+    return Promise.resolve(new Response(JSON.stringify(obj), {
+        status: s,
+        headers: { 'Content-Type': 'application/json' }
+    }));
+}
+
+function parseDemoOntologyApiPath(pathname) {
+    const prefix = '/api/data-ontology/databases/' + DEMO_ONTOLOGY_DB_ID;
+    if (!pathname.startsWith(prefix)) return null;
+    const rest = pathname.slice(prefix.length);
+    if (!rest || rest === '/') return { kind: 'detail' };
+    if (rest === '/lineage') return { kind: 'lineage' };
+    const m = rest.match(/^\/tables\/([^/]+)(\/structure|\/data|\/rename)?$/);
+    if (m) {
+        return {
+            kind: 'table',
+            table: decodeURIComponent(m[1]),
+            sub: m[2] || ''
+        };
+    }
+    return { kind: 'unknown' };
+}
+
+function handleDemoOntologyFetch(url, init) {
+    let pathname;
+    try {
+        pathname = new URL(url, API_BASE).pathname;
+    } catch (e) {
+        return null;
+    }
+    const parsed = parseDemoOntologyApiPath(pathname);
+    if (!parsed) return null;
+    const method = (init && init.method) ? init.method.toUpperCase() : 'GET';
+
+    if (parsed.kind === 'detail') {
+        if (method === 'GET') {
+            const tableNames = Object.keys(DEMO_ONTOLOGY_TABLES);
+            return demoOntologyJsonResponse({
+                success: true,
+                database: {
+                    id: DEMO_ONTOLOGY_DB_ID,
+                    type: 'sqlite',
+                    name: getDemoDatabaseListEntry().name,
+                    host: '',
+                    port: 0,
+                    path: ':memory:',
+                    database: 'demo_shop',
+                    connected: true,
+                    tables: tableNames
+                }
+            });
+        }
+        if (method === 'DELETE') {
+            const i = databases.findIndex(d => d.id === DEMO_ONTOLOGY_DB_ID);
+            if (i >= 0) databases.splice(i, 1);
+            return demoOntologyJsonResponse({ success: true });
+        }
+        return demoOntologyJsonResponse({ success: false, message: '演示库不支持此操作' }, 400);
+    }
+
+    if (parsed.kind === 'lineage' && method === 'GET') {
+        const tables = Object.keys(DEMO_ONTOLOGY_TABLES);
+        return demoOntologyJsonResponse({
+            success: true,
+            dbType: 'sqlite',
+            tables,
+            edges: DEMO_ONTOLOGY_LINEAGE_EDGES,
+            edgeCount: DEMO_ONTOLOGY_LINEAGE_EDGES.length,
+            message: '演示数据：外键血缘 + ETL（report_sales）'
+        });
+    }
+
+    if (parsed.kind === 'table') {
+        const tdef = DEMO_ONTOLOGY_TABLES[parsed.table];
+        if (!tdef) {
+            return demoOntologyJsonResponse({ success: false, message: '表不存在' }, 404);
+        }
+        if (parsed.sub === '/structure' && method === 'GET') {
+            return demoOntologyJsonResponse({ success: true, columns: tdef.columns });
+        }
+        if (parsed.sub === '' && method === 'GET') {
+            return demoOntologyJsonResponse({ success: true, data: tdef.rows });
+        }
+        return demoOntologyJsonResponse({ success: false, message: '演示库为只读' }, 400);
+    }
+
+    return demoOntologyJsonResponse({ success: false, message: '无效的演示库请求' }, 404);
+}
+
+(function installDemoOntologyFetchInterceptor() {
+    const origFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url);
+        if (typeof url === 'string' && url.indexOf('/api/data-ontology/databases/' + DEMO_ONTOLOGY_DB_ID) !== -1) {
+            const r = handleDemoOntologyFetch(url, init);
+            if (r) return r;
+        }
+        return origFetch(input, init);
+    };
+})();
+
+function initDemoData() {
+    mergeDemoDatabaseIntoList();
+}
+
+// ==================== 全局错误处理与 Toast 通知系统 ====================
+
+// Toast 通知系统（替代 alert，提升用户体验）
+let toastContainer = null;
+
+function initToastContainer() {
+    if (toastContainer) return;
+    toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    toastContainer.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+    `;
+    document.body.appendChild(toastContainer);
+}
+
+/**
+ * 显示 Toast 通知
+ * @param {string} message - 消息内容
+ * @param {string} type - 类型: 'success' | 'error' | 'warning' | 'info'
+ * @param {number} duration - 显示时长（毫秒），默认 3000
+ */
+function showToast(message, type = 'info', duration = 3000) {
+    if (!toastContainer) initToastContainer();
+    
+    const colors = {
+        success: { bg: '#10b981', icon: '✓' },
+        error: { bg: '#ef4444', icon: '✗' },
+        warning: { bg: '#f59e0b', icon: '⚠' },
+        info: { bg: '#3b82f6', icon: 'ℹ' }
+    };
+    const config = colors[type] || colors.info;
+    
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        background: ${config.bg};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        font-size: 14px;
+        max-width: 360px;
+        word-wrap: break-word;
+        pointer-events: auto;
+        cursor: pointer;
+        opacity: 0;
+        transform: translateX(100%);
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    toast.innerHTML = `<span style="font-size:16px">${config.icon}</span><span>${escapeHtml(message)}</span>`;
+    
+    toast.onclick = () => removeToast(toast);
+    toastContainer.appendChild(toast);
+    
+    // 触发动画
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(0)';
+    });
+    
+    // 自动消失
+    if (duration > 0) {
+        setTimeout(() => removeToast(toast), duration);
+    }
+    
+    return toast;
+}
+
+function removeToast(toast) {
+    if (!toast || !toast.parentNode) return;
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100%)';
+    setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
+}
+
+/**
+ * 模态框辅助函数
+ * @param {string} modalId - 模态框元素ID
+ * @param {boolean} show - true显示，false隐藏
+ */
+function toggleModal(modalId, show) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        if (show) {
+            modal.classList.add('show');
+        } else {
+            modal.classList.remove('show');
+        }
+    }
+}
+
+/**
+ * 显示模态框并清除错误/成功提示
+ * @param {string} modalId - 模态框ID
+ * @param {string[]} clearIds - 需要隐藏的错误/成功提示元素ID数组
+ */
+function showModal(modalId, clearIds = []) {
+    toggleModal(modalId, true);
+    clearIds.forEach(id => toggleModal(id, false));
+}
+
+/**
+ * 隐藏模态框
+ * @param {string} modalId - 模态框ID
+ */
+function hideModal(modalId) {
+    toggleModal(modalId, false);
+}
+
+/**
+ * 复制文本到剪贴板，并更新按钮状态
+ * @param {string} text - 要复制的文本
+ * @param {HTMLElement} btnEl - 按钮元素（可选，用于显示复制状态）
+ * @param {string} successText - 成功时的文本（默认 '已复制'）
+ * @param {number} duration - 状态恢复时间（毫秒，默认 1500）
+ */
+function copyToClipboard(text, btnEl, successText = '已复制', duration = 1500) {
+    if (!text) return Promise.resolve(false);
+    return navigator.clipboard.writeText(text).then(() => {
+        if (btnEl) {
+            const originalText = btnEl.textContent;
+            btnEl.textContent = successText;
+            setTimeout(() => { btnEl.textContent = originalText; }, duration);
+        }
+        return true;
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showToast('复制失败', 'error');
+        return false;
+    });
+}
+
+// 全局错误处理（统一在 setupGlobalErrorHandlers 中初始化）
+
+// 初始化全局错误处理器
+function setupGlobalErrorHandlers() {
+    // 处理未捕获的 Promise rejection
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('未捕获的 Promise 异常:', event.reason);
+        const msg = event.reason?.message || String(event.reason) || '未知错误';
+        showToast('操作失败: ' + msg, 'error', 5000);
+        event.preventDefault(); // 阻止默认的控制台错误输出
+    });
+    
+    // 处理全局 JavaScript 错误
+    window.addEventListener('error', function(event) {
+        // 忽略脚本加载错误（通常由网络问题引起）
+        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
+            return;
+        }
+        console.error('JavaScript 错误:', event.message);
+        // 仅在非开发环境显示用户友好提示
+        if (event.message && !event.message.includes('Script error')) {
+            showToast('页面出现错误，请刷新重试', 'error', 4000);
+        }
+    }, true);
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async function() {
+    // 初始化全局错误处理
+    setupGlobalErrorHandlers();
+    initToastContainer();
+    
     // 检测是否通过服务端运行
     if (!checkServerAvailability()) {
         return; // 如果服务端不可用，直接返回，不初始化应用
@@ -48,6 +557,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (currentUser) {
             showMainPage();
             loadDatabases();
+            loadGovernanceTasks();
         }
     }
 
@@ -180,12 +690,16 @@ function initEventListeners() {
             popover.style.top = rect.top + 'px';
         }
     });
-    document.addEventListener('click', function(e) {
-        const popover = document.getElementById('apikeyPopover');
-        if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
-            popover.classList.remove('show');
-        }
-    });
+    // API Key 弹出层关闭处理器（保存引用避免重复添加）
+    if (!window._apikeyPopoverClickHandler) {
+        window._apikeyPopoverClickHandler = function(e) {
+            const popover = document.getElementById('apikeyPopover');
+            if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
+                popover.classList.remove('show');
+            }
+        };
+        document.addEventListener('click', window._apikeyPopoverClickHandler);
+    }
     document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
     document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
     document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
@@ -207,13 +721,12 @@ function initEventListeners() {
     // MCP 模块事件
     const mcpCopyBaseUrlBtn = document.getElementById('mcpCopyBaseUrlBtn');
     if (mcpCopyBaseUrlBtn) mcpCopyBaseUrlBtn.addEventListener('click', function() {
-        const url = (API_BASE || window.location.origin);
-        navigator.clipboard.writeText(url).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+        copyToClipboard(API_BASE || window.location.origin, this);
     });
     const mcpCopyKeyBtn = document.getElementById('mcpCopyKeyBtn');
     if (mcpCopyKeyBtn) mcpCopyKeyBtn.addEventListener('click', function() {
         if (!currentApiKey) return;
-        navigator.clipboard.writeText(currentApiKey).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制'; }, 1500); });
+        copyToClipboard(currentApiKey, this);
     });
     const mcpGenerateKeyBtn = document.getElementById('mcpGenerateKeyBtn');
     if (mcpGenerateKeyBtn) mcpGenerateKeyBtn.addEventListener('click', async function() {
@@ -224,7 +737,7 @@ function initEventListeners() {
     if (mcpCopyConfigBtn) mcpCopyConfigBtn.addEventListener('click', function() {
         const pre = document.getElementById('mcpConfigPre');
         if (!pre) return;
-        navigator.clipboard.writeText(pre.textContent).then(() => { this.textContent = '已复制'; setTimeout(() => { this.textContent = '复制配置'; }, 1500); });
+        copyToClipboard(pre.textContent, this, '已复制');
     });
     
     // 测试接口事件
@@ -249,7 +762,54 @@ function initEventListeners() {
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
     
+    // 设置弹窗事件
+    document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
+    document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);
+    document.getElementById('settingsModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideSettingsModal();
+        }
+    });
+    document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
+    document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
+    
     // 清除AI上下文按钮（稍后会动态添加）
+
+    const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
+    if (userMgmtHeaderBtn) {
+        userMgmtHeaderBtn.addEventListener('click', function () {
+            if (currentUser !== 'admin') return;
+            if (userMgmtMode) {
+                closeUserMgmtPanel();
+            } else {
+                openUserMgmtPanel();
+            }
+        });
+    }
+    const userMgmtBackdrop = document.getElementById('userMgmtDrawerBackdrop');
+    if (userMgmtBackdrop) userMgmtBackdrop.addEventListener('click', function () { closeUserMgmtPanel(); });
+    const userMgmtCloseBtn = document.getElementById('userMgmtCloseBtn');
+    if (userMgmtCloseBtn) userMgmtCloseBtn.addEventListener('click', function () { closeUserMgmtPanel(); });
+    const createUserBtn = document.getElementById('createUserBtn');
+    if (createUserBtn) createUserBtn.addEventListener('click', handleCreateUser);
+    const closeUserPasswordModal = document.getElementById('closeUserPasswordModal');
+    if (closeUserPasswordModal) closeUserPasswordModal.addEventListener('click', hideUserPasswordModal);
+    const userPasswordModal = document.getElementById('userPasswordModal');
+    if (userPasswordModal) {
+        userPasswordModal.addEventListener('click', function (e) {
+            if (e.target === this) hideUserPasswordModal();
+        });
+    }
+    const submitUserPasswordBtn = document.getElementById('submitUserPasswordBtn');
+    if (submitUserPasswordBtn) submitUserPasswordBtn.addEventListener('click', submitUserPasswordChange);
+    const newUserPwd = document.getElementById('newUserPassword');
+    const newUserPwdConfirm = document.getElementById('newUserPasswordConfirm');
+    if (newUserPwd) newUserPwd.addEventListener('input', clearUserMgmtCreatePwdHint);
+    if (newUserPwdConfirm) newUserPwdConfirm.addEventListener('input', clearUserMgmtCreatePwdHint);
+    const editPwd = document.getElementById('editPasswordInput');
+    const editPwdConfirm = document.getElementById('editPasswordConfirmInput');
+    if (editPwd) editPwd.addEventListener('input', clearUserPasswordModalPwdHint);
+    if (editPwdConfirm) editPwdConfirm.addEventListener('input', clearUserPasswordModalPwdHint);
 }
 
 // 登录处理
@@ -276,6 +836,17 @@ async function handleLogin(e) {
             localStorage.setItem('dataOntologyUser', username);
             showMainPage();
             loadDatabases();
+            loadGovernanceTasks();
+            try {
+                const ret = sessionStorage.getItem(RETURN_URL_KEY);
+                if (ret) {
+                    sessionStorage.removeItem(RETURN_URL_KEY);
+                    const cur = location.pathname + location.search + location.hash;
+                    if (ret !== cur) {
+                        location.replace(ret);
+                    }
+                }
+            } catch (e) {}
         } else {
             errorEl.textContent = data.message || '登录失败';
             errorEl.classList.add('show');
@@ -288,11 +859,16 @@ async function handleLogin(e) {
 
 // 退出登录
 function handleLogout() {
+    closeUserMgmtPanel(true);
+    try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
+    try { window._qualityAuditDataLoaded = false; } catch (e) {}
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
     databases = [];
     currentDb = null;
+    govTasks = [];
+    currentGovTask = null;
     showLoginPage();
 }
 
@@ -310,10 +886,45 @@ function showMainPage() {
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('mainPage').classList.add('active');
     document.getElementById('currentUser').textContent = currentUser;
+    updateUserMgmtNavVisibility();
+    // 应用标签页可见性设置
+    applyTabVisibility();
+    // 初始化嵌入模式
+    initEmbedMode();
+    try {
+        if (location.hash === '#quality') {
+            switchTab('quality');
+        }
+    } catch (e) {}
+}
+
+function updateUserMgmtNavVisibility() {
+    const btn = document.getElementById('userMgmtHeaderBtn');
+    if (btn) {
+        btn.style.display = currentUser === 'admin' ? 'inline-flex' : 'none';
+    }
+    const govRefresh = document.getElementById('govRefreshExamplesBtn');
+    if (govRefresh) {
+        govRefresh.style.display = currentUser === 'admin' ? 'inline-flex' : 'none';
+    }
 }
 
 // 切换标签页
 function switchTab(tabName) {
+    if (tabName !== 'database') {
+        closeUserMgmtPanel();
+        const wv = document.getElementById('welcomeView');
+        const dv = document.getElementById('dbDetailView');
+        if (wv && dv) {
+            if (currentDb) {
+                wv.style.display = 'none';
+                dv.style.display = 'block';
+            } else {
+                wv.style.display = 'block';
+                dv.style.display = 'none';
+            }
+        }
+    }
     // 更新标签按钮状态
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.classList.remove('active');
@@ -339,6 +950,24 @@ function switchTab(tabName) {
         loadGovernanceTasks();
     } else if (tabName === 'ontology') {
         initOntologyTab();
+    } else if (tabName === 'models') {
+        initModelsTab();
+    } else if (tabName === 'lineage') {
+        initLineageTab();
+        if (!window._lineageDemoAutoLoaded) {
+            window._lineageDemoAutoLoaded = true;
+            const demo = databases.find(d => d.id === DEMO_ONTOLOGY_DB_ID);
+            if (demo && !lineageSelectedDbId) {
+                selectLineageDb(demo.id, demo.name, demo.type);
+            }
+            if (lineageSelectedDbId) {
+                loadLineageGraph();
+            }
+        }
+    } else if (tabName === 'quality') {
+        if (typeof window.initQualityAuditTab === 'function') {
+            window.initQualityAuditTab();
+        }
     }
 }
 
@@ -513,6 +1142,261 @@ function hideAddDbModal() {
     editingDbId = null;
 }
 
+function openUserMgmtPanel() {
+    if (currentUser !== 'admin') return;
+    userMgmtMode = true;
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.add('open');
+        root.setAttribute('aria-hidden', 'false');
+    }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.add('active');
+    renderDatabaseList();
+    loadUsers();
+}
+
+function closeUserMgmtPanel(skipRender) {
+    userMgmtMode = false;
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.remove('open');
+        root.setAttribute('aria-hidden', 'true');
+    }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.remove('active');
+    if (!skipRender) renderDatabaseList();
+}
+
+async function loadUsers() {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
+        const data = await response.json();
+        if (!data.success) {
+            listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
+            return;
+        }
+        renderUserMgmtList(data.users || []);
+    } catch (e) {
+        listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function renderUserMgmtList(users) {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'user-mgmt-row um-head';
+    head.innerHTML = '<div class="um-col">用户名</div><div class="um-col">API Key</div><div class="um-actions">操作</div>';
+    listEl.appendChild(head);
+    users.forEach(u => {
+        const name = u.username || '';
+        const key = u.api_key || '';
+        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '未生成';
+        const row = document.createElement('div');
+        row.className = 'user-mgmt-row';
+        const col1 = document.createElement('div');
+        col1.className = 'um-col';
+        col1.textContent = name;
+        const col2 = document.createElement('div');
+        col2.className = 'um-col';
+        const span = document.createElement('span');
+        span.className = 'user-mgmt-apikey';
+        span.title = key;
+        span.textContent = keyShow;
+        col2.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'um-actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-sm';
+        copyBtn.textContent = key ? '复制 Key' : '生成 Key';
+        copyBtn.onclick = async function () {
+            if (key) {
+                const label = copyBtn.textContent;
+                try {
+                    await navigator.clipboard.writeText(key);
+                    copyBtn.textContent = '已复制';
+                    setTimeout(() => { copyBtn.textContent = label; }, 1000);
+                } catch (e) {
+                    console.error(e);
+                }
+                return;
+            }
+            try {
+                const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: name })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('密码已重置', 'success');
+                    loadUsers();
+                } else {
+                    showToast(data.message || '生成失败', 'error');
+                }
+            } catch (e) {
+                showToast(e.message || '生成失败', 'error');
+            }
+        };
+        const passBtn = document.createElement('button');
+        passBtn.type = 'button';
+        passBtn.className = 'btn btn-sm';
+        passBtn.textContent = '改密';
+        passBtn.onclick = function () {
+            openUserPasswordModal(name);
+        };
+        actions.appendChild(copyBtn);
+        actions.appendChild(passBtn);
+        if (name !== 'admin') {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-sm btn-danger';
+            delBtn.textContent = '删除';
+            delBtn.onclick = function () {
+                userMgmtDelete(name);
+            };
+            actions.appendChild(delBtn);
+        }
+        row.appendChild(col1);
+        row.appendChild(col2);
+        row.appendChild(actions);
+        listEl.appendChild(row);
+    });
+}
+
+function openUserPasswordModal(username) {
+    userPasswordTarget = username;
+    const title = document.getElementById('userPasswordModalTitle');
+    if (title) title.textContent = '修改密码 — ' + username;
+    const inp = document.getElementById('editPasswordInput');
+    if (inp) inp.value = '';
+    const inp2 = document.getElementById('editPasswordConfirmInput');
+    if (inp2) inp2.value = '';
+    const err = document.getElementById('userPasswordModalErr');
+    if (err) err.classList.remove('show');
+    clearUserPasswordModalPwdHint();
+    document.getElementById('userPasswordModal').classList.add('show');
+}
+
+function hideUserPasswordModal() {
+    document.getElementById('userPasswordModal').classList.remove('show');
+    userPasswordTarget = null;
+}
+
+async function submitUserPasswordChange() {
+    const pwd = document.getElementById('editPasswordInput').value;
+    const pwdConfirm = document.getElementById('editPasswordConfirmInput').value;
+    const errEl = document.getElementById('userPasswordModalErr');
+    const hintEl = document.getElementById('userPasswordModalPwdHint');
+    if (!userPasswordTarget) return;
+    errEl.classList.remove('show');
+    if (!pwd || !pwdConfirm) {
+        errEl.textContent = '请输入新密码与确认新密码';
+        errEl.classList.add('show');
+        return;
+    }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(userPasswordTarget)}/password`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('密码修改成功', 'success');
+            hideUserPasswordModal();
+            if (userMgmtMode) loadUsers();
+        } else {
+            errEl.textContent = data.message || '修改失败';
+            errEl.classList.add('show');
+        }
+    } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.add('show');
+    }
+}
+
+async function userMgmtDelete(username) {
+    if (!confirm('确定删除用户「' + username + '」？')) return;
+    
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '删除中...';
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('用户已删除', 'success');
+            loadUsers();
+        } else {
+            showToast(data.message || '删除失败', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (e) {
+        showToast(e.message || '删除失败', 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+async function handleCreateUser() {
+    const name = document.getElementById('newUserName').value.trim();
+    const pwd = document.getElementById('newUserPassword').value;
+    const pwdConfirm = document.getElementById('newUserPasswordConfirm').value;
+    const msgEl = document.getElementById('userMgmtCreateMsg');
+    const hintEl = document.getElementById('userMgmtCreatePwdHint');
+    msgEl.classList.remove('show');
+    clearUserMgmtCreatePwdHint();
+    if (!name) {
+        msgEl.textContent = '请输入用户名';
+        msgEl.classList.add('show');
+        return;
+    }
+    if (!pwd || !pwdConfirm) {
+        msgEl.textContent = '请输入密码和确认密码';
+        msgEl.classList.add('show');
+        return;
+    }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username: name, password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('newUserName').value = '';
+            document.getElementById('newUserPassword').value = '';
+            document.getElementById('newUserPasswordConfirm').value = '';
+            loadUsers();
+        } else {
+            msgEl.textContent = data.message || '创建失败';
+            msgEl.classList.add('show');
+        }
+    } catch (e) {
+        msgEl.textContent = e.message;
+        msgEl.classList.add('show');
+    }
+}
+
 // 测试数据库连接
 async function testConnection() {
     const dbType = document.getElementById('dbTypeInput').value;
@@ -548,12 +1432,19 @@ async function testConnection() {
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
 
+    // 显示加载状态
+    const testBtn = document.getElementById('testConnectionBtn');
+    const originalText = testBtn ? testBtn.textContent : '';
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = '测试中...';
+    }
+
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/test-connection`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/test-connection`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
@@ -570,6 +1461,12 @@ async function testConnection() {
     } catch (error) {
         errorEl.textContent = '连接失败：' + error.message;
         errorEl.classList.add('show');
+    } finally {
+        // 恢复按钮状态
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.textContent = originalText || '测试连接';
+        }
     }
 }
 
@@ -578,17 +1475,57 @@ async function handleAddDatabase(e) {
     e.preventDefault();
 
     const dbType = document.getElementById('dbTypeInput').value;
+    const dbName = document.getElementById('dbNameInput').value.trim();
+    
+    const errorEl = document.getElementById('dbFormError');
+    const successEl = document.getElementById('dbFormSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    // 表单验证
+    if (!dbName) {
+        errorEl.textContent = '请输入数据库名称';
+        errorEl.classList.add('show');
+        return;
+    }
+    
     const config = {
         type: dbType,
-        name: document.getElementById('dbNameInput').value
+        name: dbName
     };
 
     if (dbTypeDefaults[dbType].isFile) {
-        config.path = document.getElementById('dbPathInput').value;
+        const dbPath = document.getElementById('dbPathInput').value.trim();
+        if (!dbPath) {
+            errorEl.textContent = '请输入数据库文件路径';
+            errorEl.classList.add('show');
+            return;
+        }
+        config.path = dbPath;
     } else {
-        config.host = document.getElementById('dbHostInput').value;
-        config.port = parseInt(document.getElementById('dbPortInput').value);
-        config.user = document.getElementById('dbUserInput').value;
+        const dbHost = document.getElementById('dbHostInput').value.trim();
+        const dbPort = document.getElementById('dbPortInput').value.trim();
+        const dbUser = document.getElementById('dbUserInput').value.trim();
+        
+        if (!dbHost) {
+            errorEl.textContent = '请输入主机地址';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbPort || isNaN(parseInt(dbPort)) || parseInt(dbPort) <= 0) {
+            errorEl.textContent = '请输入有效的端口号';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbUser) {
+            errorEl.textContent = '请输入用户名';
+            errorEl.classList.add('show');
+            return;
+        }
+        
+        config.host = dbHost;
+        config.port = parseInt(dbPort);
+        config.user = dbUser;
         const password = document.getElementById('dbPasswordInput').value;
         
         // 编辑模式下，如果密码为空则不更新密码
@@ -599,14 +1536,15 @@ async function handleAddDatabase(e) {
         }
         
         if (dbTypeDefaults[dbType].requiresDb) {
-            config.database = document.getElementById('dbDatabaseInput').value;
+            const dbDatabase = document.getElementById('dbDatabaseInput').value.trim();
+            if (!dbDatabase) {
+                errorEl.textContent = '请输入数据库名';
+                errorEl.classList.add('show');
+                return;
+            }
+            config.database = dbDatabase;
         }
     }
-
-    const errorEl = document.getElementById('dbFormError');
-    const successEl = document.getElementById('dbFormSuccess');
-    errorEl.classList.remove('show');
-    successEl.classList.remove('show');
 
     try {
         const url = isEditMode 
@@ -615,11 +1553,10 @@ async function handleAddDatabase(e) {
         
         const method = isEditMode ? 'PUT' : 'POST';
         
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
@@ -650,18 +1587,19 @@ async function handleAddDatabase(e) {
 }
 
 // 加载数据库列表
+/**
+ * 从后端获取数据库列表并更新 UI
+ * @returns {Promise<void>}
+ */
 async function loadDatabases() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
 
         const data = await response.json();
 
         if (data.success) {
             databases = data.databases || [];
+            initDemoData();
             renderDatabaseList();
             
             // 如果当前选中的数据库被更新，同步更新currentDb
@@ -669,11 +1607,16 @@ async function loadDatabases() {
                 const updatedDb = databases.find(db => db.id === currentDb.id);
                 if (updatedDb) {
                     currentDb = updatedDb;
+                } else {
+                    currentDb = null;
+                    document.getElementById('welcomeView').style.display = 'block';
+                    document.getElementById('dbDetailView').style.display = 'none';
                 }
             }
         }
     } catch (error) {
         console.error('加载数据库列表失败：', error);
+        showToast('加载数据库列表失败', 'error');
     }
 }
 
@@ -686,15 +1629,29 @@ function renderDatabaseList() {
         return;
     }
 
-    listEl.innerHTML = databases.map(db => {
-        const typeIcon = dbTypeIcons[db.type] || '🗄️';
+    // 排序：达梦(dm)和Oracle优先显示
+    const priorityTypes = ['dm', 'oracle'];
+    const sortedDatabases = [...databases].sort((a, b) => {
+        const aIsPriority = priorityTypes.includes(a.type);
+        const bIsPriority = priorityTypes.includes(b.type);
+        if (aIsPriority && !bIsPriority) return -1;
+        if (!aIsPriority && bIsPriority) return 1;
+        return 0;
+    });
+
+    listEl.innerHTML = sortedDatabases.map(db => {
+        const typeIcon = dbTypeIcons[db.type] || '📦';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
         
+        const isActive = !userMgmtMode && currentDb && currentDb.id === db.id;
+        const safeDbId = escapeHtml(db.id);
+        const safeName = escapeHtml(db.name);
+        const safeInfo = escapeHtml(info);
         return `
-            <div class="db-item ${currentDb && currentDb.id === db.id ? 'active' : ''}" onclick="selectDatabase('${db.id}')">
-                <div class="db-item-name">${typeIcon} ${db.name}</div>
-                <div class="db-item-info">${info}</div>
+            <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${safeDbId}')">
+                <div class="db-item-name">${typeIcon} ${safeName}</div>
+                <div class="db-item-info">${safeInfo}</div>
             </div>
         `;
     }).join('');
@@ -702,6 +1659,7 @@ function renderDatabaseList() {
 
 // 选择数据库
 function selectDatabase(dbId) {
+    closeUserMgmtPanel(true);
     currentDb = databases.find(db => db.id === dbId);
     if (currentDb) {
         renderDatabaseList();
@@ -712,6 +1670,7 @@ function selectDatabase(dbId) {
 
 // 显示数据库加载状态
 function showDatabaseLoading() {
+    closeUserMgmtPanel(true);
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('dbDetailView').style.display = 'block';
     
@@ -734,11 +1693,7 @@ function showDatabaseLoading() {
 // 加载数据库详情
 async function loadDatabaseDetail(dbId) {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${dbId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${dbId}`);
 
         const data = await response.json();
 
@@ -792,7 +1747,7 @@ async function loadDatabaseDetail(dbId) {
             listEl.innerHTML = `
                 <div style="text-align:center;padding:40px;color:#e53e3e;">
                     <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
-                    <div>加载失败：${data.message || '未知错误'}</div>
+                    <div>加载失败：${escapeHtml(data.message || '未知错误')}</div>
                 </div>
             `;
         }
@@ -836,8 +1791,8 @@ function renderTablesList(tables) {
     }
 
     const tablesHtml = tables.map(table => `
-        <div class="table-item" onclick="previewTable('${table}')">
-            ${table}
+        <div class="table-item" onclick="previewTable('${escapeHtml(table)}')">
+            ${escapeHtml(table)}
         </div>
     `).join('');
     
@@ -855,7 +1810,6 @@ async function previewTable(tableName, keepEditMode = false) {
         return;
     }
 
-    console.log('预览表:', tableName, '保持编辑模式:', keepEditMode, '当前编辑模式:', isTableEditMode);
     currentPreviewTable = tableName;
     
     // 如果不是保持编辑模式，则重置
@@ -875,19 +1829,11 @@ async function previewTable(tableName, keepEditMode = false) {
 
     try {
         // 首先获取表结构
-        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
         const structureData = await structureResponse.json();
         
         // 然后获取表数据
-        const dataResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const dataResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`);
         const data = await dataResponse.json();
 
         if (data.success) {
@@ -906,9 +1852,7 @@ async function previewTable(tableName, keepEditMode = false) {
                 columns = Object.keys(data.data[0]);
             } else {
                 // 无结构且无数据时重试一次拉取表结构（新创建的空表可能首次未返回）
-                const retryResp = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`, {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-                });
+                const retryResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
                 const retryData = await retryResp.json();
                 if (retryData.success && retryData.columns && retryData.columns.length > 0) {
                     columns = retryData.columns.map(col => col.name);
@@ -948,7 +1892,7 @@ async function previewTable(tableName, keepEditMode = false) {
                                         const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
                                         return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
                                     }).join('')}
-                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button></td>` : ''}
+                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">❌</button></td>` : ''}
                                 </tr>
                             `;
                         }).join('') : `
@@ -982,7 +1926,7 @@ async function previewTable(tableName, keepEditMode = false) {
     } catch (error) {
         console.error('预览表数据失败：', error);
         const previewContent = document.getElementById('previewContent');
-        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + error.message + '</div>';
+        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + escapeHtml(error.message) + '</div>';
     }
 }
 
@@ -998,8 +1942,7 @@ async function loadStructureAndRenderTable(addOneRow) {
     structureLoadingLock = true;
     previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载表结构...</div>';
     try {
-        const structureResponse = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
         });
         const structureData = await structureResponse.json();
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
@@ -1076,23 +2019,16 @@ function updatePreviewHeader() {
 
 // 启用表格编辑模式
 function enableTableEditMode() {
-    console.log('enableTableEditMode被调用');
-    console.log('currentPreviewTable:', currentPreviewTable);
-    console.log('currentDb:', currentDb);
-    
     if (!currentPreviewTable) {
-        console.error('没有选中的表');
-        alert('请先选择一个表');
+        showToast('请先选择一个表', 'warning');
         return;
     }
-    
+
     if (!currentDb) {
-        console.error('没有选中数据库');
-        alert('请先选择数据库');
+        showToast('请先选择数据库', 'warning');
         return;
     }
     
-    console.log('启用编辑模式，当前表:', currentPreviewTable);
     isTableEditMode = true;
     
     // 显示加载提示
@@ -1264,7 +2200,7 @@ function addTableRow() {
         `<td data-column="${escapeHtml(col)}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
     ).join('') + `
         <td class="action-column">
-            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">🗑️</button>
+            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除行">❌</button>
         </td>
     `;
     
@@ -1286,19 +2222,13 @@ function addTableRow() {
 
 // 删除表格行
 function deleteTableRow(rowId) {
-    console.log('删除行被调用，rowId:', rowId);
     const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
     if (!row) {
-        console.error('找不到行，rowId:', rowId);
         return;
     }
     
-    console.log('找到行:', row);
-    console.log('行数据 - isNew:', row.dataset.isNew, 'deleted:', row.dataset.deleted, 'rowIndex:', row.dataset.rowIndex);
-    
     // 如果是新增行，直接删除DOM
     if (row.dataset.isNew === 'true') {
-        console.log('删除新增行');
         row.remove();
         
         // 如果删除后没有行了，显示空行提示
@@ -1319,16 +2249,14 @@ function deleteTableRow(rowId) {
         
         if (row.dataset.deleted === 'true') {
             // 取消删除标记
-            console.log('取消删除标记');
             row.dataset.deleted = 'false';
             row.classList.remove('row-deleted');
             if (deleteBtn) {
-                deleteBtn.textContent = '🗑️';
+                deleteBtn.textContent = '❌';
                 deleteBtn.title = '删除行';
             }
         } else {
             // 标记为删除
-            console.log('标记为删除，rowIndex:', row.dataset.rowIndex);
             row.dataset.deleted = 'true';
             row.classList.add('row-deleted');
             if (deleteBtn) {
@@ -1349,8 +2277,6 @@ async function saveTableData() {
     const table = document.getElementById('dataTable');
     const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
     
-    console.log('总行数（不包括空行）:', rows.length);
-    
     const updates = [];
     const inserts = [];
     const deletes = [];
@@ -1361,21 +2287,10 @@ async function saveTableData() {
         const isNew = row.dataset.isNew === 'true';
         const isDeleted = row.dataset.deleted === 'true';
         
-        console.log(`行 ${index}:`, {
-            rowId,
-            rowIndex,
-            isNew,
-            isDeleted,
-            hasDeletedClass: row.classList.contains('row-deleted')
-        });
-        
         if (isDeleted) {
             // 只有非新增的行才需要删除
             if (!isNew && rowIndex !== undefined) {
-                console.log(`添加到删除列表: rowIndex=${rowIndex}`);
                 deletes.push(parseInt(rowIndex));
-            } else {
-                console.log('跳过删除（新增行或无索引）');
             }
         } else {
             const rowData = {};
@@ -1388,24 +2303,16 @@ async function saveTableData() {
             });
             
             if (isNew) {
-                console.log('添加到插入列表:', rowData);
                 inserts.push(rowData);
             } else if (rowIndex !== undefined) {
-                console.log(`添加到更新列表: rowIndex=${rowIndex}`, rowData);
                 updates.push({ index: parseInt(rowIndex), data: rowData });
             }
         }
     });
     
-    // 调试日志
-    console.log('准备保存数据：');
-    console.log('- 更新:', updates.length, '条', updates);
-    console.log('- 插入:', inserts.length, '条', inserts);
-    console.log('- 删除:', deletes.length, '条', deletes);
-    
     // 检查是否有更改
     if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
-        alert('没有任何更改');
+        showToast('没有任何更改', 'info');
         return;
     }
     
@@ -1417,18 +2324,10 @@ async function saveTableData() {
     
     // 发送保存请求
     try {
-        console.log('发送保存请求到后端：', {
-            url: `${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`,
-            updates,
-            inserts,
-            deletes
-        });
-        
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 updates,
@@ -1438,24 +2337,8 @@ async function saveTableData() {
         });
         
         const data = await response.json();
-        console.log('后端响应:', data);
         
         if (data.success) {
-            console.log('✅ 后端返回成功');
-            console.log('📊 后端处理结果:', {
-                affected: data.affected || 'N/A',
-                updated: data.updated || 'N/A',
-                inserted: data.inserted || 'N/A',
-                deleted: data.deleted || 'N/A'
-            });
-            
-            // 检查后端是否真正处理了删除
-            if (deletes.length > 0) {
-                if (data.deleted !== undefined && data.deleted !== deletes.length) {
-                    console.warn('⚠️ 警告：请求删除 ' + deletes.length + ' 条，但后端只删除了 ' + data.deleted + ' 条');
-                }
-            }
-            
             // 显示成功提示
             const successMsg = `保存成功！\n✓ 更新: ${updates.length} 条\n✓ 插入: ${inserts.length} 条\n✓ 删除: ${deletes.length} 条`;
             
@@ -1464,16 +2347,13 @@ async function saveTableData() {
             
             // 延迟重新加载，确保提示显示
             setTimeout(() => {
-                console.log('🔄 开始重新加载表格，isTableEditMode:', isTableEditMode);
                 previewTable(currentPreviewTable, true);
             }, 1500);
         } else {
-            console.error('❌ 保存失败:', data.message);
-            alert('保存失败：' + (data.message || '未知错误'));
+            showToast('保存失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        console.error('保存异常:', error);
-        alert('保存失败：' + error.message);
+        showToast('保存失败：' + error.message, 'error');
     }
 }
 
@@ -1486,24 +2366,21 @@ async function dropTable() {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
+            method: 'DELETE'
         });
         
         const data = await response.json();
         
         if (data.success) {
-            alert('表删除成功！');
+            showToast('表删除成功！', 'success');
             closePreview();
             loadDatabaseDetail(currentDb.id);
         } else {
-            alert('删除失败：' + (data.message || '未知错误'));
+            showToast('删除失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
     }
 }
 
@@ -1520,15 +2397,11 @@ async function showEditStructureModal() {
     
     try {
         // 获取当前表结构
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`);
         const data = await response.json();
         
         if (!data.success) {
-            alert('获取表结构失败：' + (data.message || '未知错误'));
+            showToast('获取表结构失败：' + (data.message || '未知错误'), 'error');
             return;
         }
         
@@ -1536,7 +2409,7 @@ async function showEditStructureModal() {
         renderEditStructure(data.columns || []);
         document.getElementById('editStructureModal').style.display = 'block';
     } catch (error) {
-        alert('获取表结构失败：' + error.message);
+        showToast('获取表结构失败：' + error.message, 'error');
     }
 }
 
@@ -1551,7 +2424,7 @@ function renderEditStructure(columns) {
                 <div class="structure-column-header">
                     <span class="column-number">#${index + 1}</span>
                     <input type="text" class="form-control" value="${col.name}" data-field="name" placeholder="列名" />
-                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">❌</button>
                 </div>
                 <div class="structure-column-fields">
                     <div class="form-group">
@@ -1607,7 +2480,7 @@ function addStructureColumn() {
         <div class="structure-column-header">
             <span class="column-number">#${index + 1}</span>
             <input type="text" class="form-control" data-field="name" placeholder="列名" />
-            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">🗑️</button>
+            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除列">❌</button>
         </div>
         <div class="structure-column-fields">
             <div class="form-group">
@@ -1675,7 +2548,7 @@ async function saveTableStructure() {
     });
     
     if (newColumns.length === 0) {
-        alert('至少需要一个列');
+        showToast('至少需要一个列', 'warning');
         return;
     }
     
@@ -1684,11 +2557,10 @@ async function saveTableStructure() {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ columns: newColumns })
         });
@@ -1696,14 +2568,14 @@ async function saveTableStructure() {
         const data = await response.json();
         
         if (data.success) {
-            alert('表结构修改成功！');
+            showToast('表结构修改成功！', 'success');
             closeEditStructureModal();
             previewTable(currentPreviewTable);
         } else {
-            alert('修改失败：' + (data.message || '未知错误'));
+            showToast('修改失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('修改失败：' + error.message);
+        showToast('修改失败：' + error.message, 'error');
     }
 }
 
@@ -1729,7 +2601,7 @@ async function submitRenameTable() {
     if (!currentDb || !currentPreviewTable) return;
     const newName = document.getElementById('renameTableNewName').value.trim();
     if (!newName) {
-        alert('请输入新表名');
+        showToast('请输入新表名', 'warning');
         return;
     }
     if (newName === currentPreviewTable) {
@@ -1737,11 +2609,10 @@ async function submitRenameTable() {
         return;
     }
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ new_name: newName })
         });
@@ -1752,10 +2623,10 @@ async function submitRenameTable() {
             updatePreviewHeader();
             loadDatabaseDetail(currentDb.id).then(() => previewTable(newName));
         } else {
-            alert('重命名失败：' + (data.message || '未知错误'));
+            showToast('重命名失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (e) {
-        alert('重命名失败：' + e.message);
+        showToast('重命名失败：' + e.message, 'error');
     }
 }
 
@@ -1767,12 +2638,14 @@ async function handleDeleteDatabase() {
         return;
     }
 
+    const deleteBtn = document.getElementById('deleteDbBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
+            method: 'DELETE'
         });
 
         const data = await response.json();
@@ -1785,10 +2658,14 @@ async function handleDeleteDatabase() {
             document.getElementById('tablePreview').style.display = 'none';
             loadDatabases();
         } else {
-            alert(data.message || '删除失败');
+            showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
@@ -1798,9 +2675,7 @@ async function handleDeleteDatabase() {
 
 async function loadApiKey() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`);
         const data = await response.json();
         if (data.success) {
             currentApiKey = data.api_key || '';
@@ -1808,51 +2683,62 @@ async function loadApiKey() {
         }
     } catch (e) {
         console.error('加载ApiKey失败：', e);
+        showToast('加载 API Key 失败', 'error');
     }
 }
 
 async function generateApiKey() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await response.json();
         if (data.success) {
             currentApiKey = data.api_key;
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
+        } else {
+            showToast(data.message || '生成失败', 'error');
         }
     } catch (e) {
         console.error('生成ApiKey失败：', e);
+        showToast('生成 API Key 失败', 'error');
     }
 }
 
 async function deleteApiKey() {
     if (!confirm('删除后，使用此 API Key 的外部调用将全部失效，确认删除？')) return;
+    
+    const deleteBtn = document.getElementById('deleteApikeyBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+    
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await response.json();
         if (data.success) {
             currentApiKey = '';
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
+        } else {
+            showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (e) {
         console.error('删除ApiKey失败：', e);
+        showToast('删除 API Key 失败', 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
 function copyApiKey() {
     if (!currentApiKey) return;
-    navigator.clipboard.writeText(currentApiKey).then(() => {
-        const btn = document.getElementById('copyApikeyBtn');
-        btn.textContent = '已复制';
-        setTimeout(() => { btn.textContent = '复制'; }, 1500);
-    });
+    copyToClipboard(currentApiKey, document.getElementById('copyApikeyBtn'));
 }
 
 function renderApiKeyUI() {
@@ -1863,7 +2749,9 @@ function renderApiKeyUI() {
 
     if (currentApiKey) {
         const masked = currentApiKey.substring(0, 8) + '••••••••' + currentApiKey.substring(currentApiKey.length - 4);
-        contentEl.innerHTML = `<code class="apikey-value" title="${currentApiKey}">${masked}</code>`;
+        const safeKey = escapeHtml(currentApiKey);
+        const safeMasked = escapeHtml(masked);
+        contentEl.innerHTML = `<code class="apikey-value" title="${safeKey}">${safeMasked}</code>`;
         generateBtn.textContent = '重新生成';
         copyBtn.style.display = '';
         deleteBtn.style.display = '';
@@ -1881,9 +2769,7 @@ let mcpConfigEnabled = true;
 async function loadMcpInfo() {
     await loadApiKey();
     try {
-        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/config`);
         const data = await r.json();
         if (data.success) mcpConfigEnabled = data.enabled !== false;
     } catch (e) { mcpConfigEnabled = true; }
@@ -1897,10 +2783,9 @@ async function toggleMcpEnabled() {
     if (!cb) return;
     const next = cb.checked;
     try {
-        const r = await fetch(`${API_BASE}/api/data-ontology/mcp/config`, {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/config`, {
             method: 'PUT',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ enabled: next })
@@ -2039,11 +2924,7 @@ export DATA_ONTOLOGY_API_KEY="${key}"
 // 加载接口列表
 async function loadApis() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`);
 
         const data = await response.json();
 
@@ -2053,6 +2934,7 @@ async function loadApis() {
         }
     } catch (error) {
         console.error('加载接口列表失败：', error);
+        showToast('加载接口列表失败', 'error');
     }
 }
 
@@ -2087,15 +2969,18 @@ function renderApiList() {
             'DELETE': '#f56565'
         }[api.method] || '#718096';
         const enabled = api.enabled !== false;
+        const safeApiId = escapeHtml(api.id);
+        const safeApiName = escapeHtml(api.name);
+        const safeApiPath = escapeHtml(api.path);
         return `
-            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${api.id}')">
+            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${safeApiId}')">
                 <div class="db-item-main">
-                    <div class="db-item-name">${api.name}</div>
+                    <div class="db-item-name">${safeApiName}</div>
                     <div class="db-item-info">
-                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${api.path}
+                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${safeApiPath}
                     </div>
                 </div>
-                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${api.id}')" title="${enabled ? '关闭接口' : '开启接口'}" style="flex-shrink:0;">
+                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${safeApiId}')" title="${enabled ? '关闭接口' : '开启接口'}" style="flex-shrink:0;">
                     <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
                     <span class="switch-slider"></span>
                 </label>
@@ -2119,10 +3004,9 @@ async function toggleApiEnabled(apiId, forceEnabled) {
     if (!api) return;
     const next = forceEnabled !== undefined ? forceEnabled : (api.enabled === false);
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
             method: 'PUT',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ enabled: next })
@@ -2138,6 +3022,7 @@ async function toggleApiEnabled(apiId, forceEnabled) {
         }
     } catch (e) {
         console.error('切换接口状态失败', e);
+        showToast('切换接口状态失败', 'error');
     }
 }
 
@@ -2151,11 +3036,7 @@ function toggleApiEnabledFromDetail() {
 // 加载接口详情
 async function loadApiDetail(apiId) {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${apiId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${apiId}`);
 
         const data = await response.json();
 
@@ -2200,6 +3081,7 @@ async function loadApiDetail(apiId) {
         }
     } catch (error) {
         console.error('加载接口详情失败：', error);
+        showToast('加载接口详情失败', 'error');
     }
 }
 
@@ -2347,7 +3229,12 @@ function generateCodeExamples(api) {
     ];
 }
 
-function genJavaScript(ctx) {
+/**
+ * 生成 JavaScript/Node.js 代码示例（两者语法相同）
+ * @param {Object} ctx - 代码上下文
+ * @returns {string} 生成的代码
+ */
+function genJavaScriptOrNode(ctx) {
     if (ctx.isBodyMethod && ctx.hasParams) {
         const bodyJson = JSON.stringify(ctx.params, null, 4);
         return `const response = await fetch("${ctx.baseUrl}", {
@@ -2382,6 +3269,10 @@ console.log(data);`;
 const data = await response.json();
 console.log(data);`;
 }
+
+// JavaScript 和 Node.js 使用相同的语法
+const genJavaScript = genJavaScriptOrNode;
+const genNode = genJavaScriptOrNode;
 
 function genPython(ctx) {
     const lines = [];
@@ -2490,42 +3381,6 @@ function genGolang(ctx) {
     lines.push('    fmt.Println(string(data))');
     lines.push('}');
     return lines.join('\n');
-}
-
-function genNode(ctx) {
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyJson = JSON.stringify(ctx.params, null, 4);
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer ${ctx.token}"
-    },
-    body: JSON.stringify(${bodyJson})
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    if (ctx.isBodyMethod) {
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    return `const response = await fetch("${ctx.fullUrl}", {
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
 }
 
 function genPhp(ctx) {
@@ -2652,11 +3507,10 @@ async function quickFixSql() {
     
     // 更新接口
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 name: currentApi.name,
@@ -2672,13 +3526,13 @@ async function quickFixSql() {
         const data = await response.json();
         
         if (data.success) {
-            alert('修复成功！');
+            showToast('修复成功！', 'success');
             loadApiDetail(currentApi.id);
         } else {
-            alert('修复失败：' + (data.message || '未知错误'));
+            showToast('修复失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('修复失败：' + error.message);
+        showToast('修复失败：' + error.message, 'error');
     }
 }
 
@@ -2723,11 +3577,7 @@ async function showAddApiModal() {
 // 加载数据库列表到下拉框
 async function loadDatabasesForSelect() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
 
         const data = await response.json();
 
@@ -2772,12 +3622,30 @@ async function handleAddApi(e) {
     const apiType = document.querySelector('input[name="apiType"]:checked')?.value || 'query';
 
     const apiData = {
-        name: document.getElementById('apiNameInput').value,
-        path: document.getElementById('apiPathInput').value,
+        name: document.getElementById('apiNameInput').value.trim(),
+        path: document.getElementById('apiPathInput').value.trim(),
         method: document.getElementById('apiMethodInput').value,
         type: apiType,
-        description: document.getElementById('apiDescInput').value
+        description: document.getElementById('apiDescInput').value.trim()
     };
+
+    // 接口名称验证
+    if (!apiData.name) {
+        showApiFormError('请输入接口名称');
+        return;
+    }
+
+    // 路径验证
+    if (!apiData.path) {
+        showApiFormError('请输入接口路径');
+        return;
+    }
+
+    // 验证路径格式
+    if (!apiData.path.startsWith('/')) {
+        showApiFormError('接口路径必须以 / 开头');
+        return;
+    }
 
     if (apiType === 'forward') {
         apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
@@ -2785,9 +3653,22 @@ async function handleAddApi(e) {
             showApiFormError('请填写转发目标URL');
             return;
         }
+        // URL格式验证
+        try {
+            new URL(apiData.forward_url);
+        } catch {
+            showApiFormError('转发目标URL格式不正确');
+            return;
+        }
     } else {
         apiData.database_id = document.getElementById('apiDbSelect').value;
-        apiData.sql = document.getElementById('apiSqlInput').value;
+        apiData.sql = document.getElementById('apiSqlInput').value.trim();
+        
+        // SQL验证
+        if (!apiData.sql) {
+            showApiFormError('请输入SQL语句');
+            return;
+        }
     }
 
     // 处理默认参数
@@ -2799,12 +3680,6 @@ async function handleAddApi(e) {
             showApiFormError('默认参数格式错误，请输入有效的JSON格式');
             return;
         }
-    }
-
-    // 验证路径格式
-    if (!apiData.path.startsWith('/')) {
-        showApiFormError('接口路径必须以 / 开头');
-        return;
     }
 
     // query类型才验证SQL语法
@@ -2838,11 +3713,10 @@ async function handleAddApi(e) {
         
         const method = isEditApiMode ? 'PUT' : 'POST';
         
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(apiData)
         });
@@ -2983,12 +3857,14 @@ async function handleDeleteApi() {
         return;
     }
 
+    const deleteBtn = document.getElementById('deleteApiBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
+            method: 'DELETE'
         });
 
         const data = await response.json();
@@ -2999,10 +3875,14 @@ async function handleDeleteApi() {
             document.getElementById('apiDetailView').style.display = 'none';
             loadApis();
         } else {
-            alert(data.message || '删除失败');
+            showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
         }
     } catch (error) {
-        alert('删除失败：' + error.message);
+        showToast('删除失败：' + error.message, 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
     }
 }
 
@@ -3073,11 +3953,10 @@ async function executeApiTest() {
     const startTime = Date.now();
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ params })
         });
@@ -3113,15 +3992,14 @@ function showTestApiError(message) {
 // 加载AI配置
 async function loadAiConfig() {
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
-            }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`);
 
         const data = await response.json();
 
-        if (data.success && data.config) {
+        // 兼容两种返回格式: {success, config} 或 {config}
+        if (data.config) {
+            aiConfig = data.config;
+        } else if (data.success && data.config) {
             aiConfig = data.config;
         }
     } catch (error) {
@@ -3151,6 +4029,223 @@ function hideAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.remove('show');
 }
 
+// ========== 设置弹窗功能 ==========
+const TAB_VISIBILITY_KEY = 'tabVisibilitySettings';
+const ALL_TABS = [
+    { id: 'database', name: '数据库管理' },
+    { id: 'governance', name: '数据治理' },
+    { id: 'ontology', name: '本体论抽象' },
+    { id: 'lineage', name: '数据血缘' },
+    { id: 'api', name: '接口分发' },
+    { id: 'mcp', name: 'MCP' },
+    { id: 'ai', name: 'AI助手' },
+    { id: 'models', name: '模型管理' },
+    { id: 'quality', name: '数据质量审核' }
+];
+
+// 显示设置弹窗
+function showSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+    loadTabSettings();
+}
+
+// 隐藏设置弹窗
+function hideSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+}
+
+// 加载标签页可见性设置
+function loadTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    // 从 localStorage 加载设置
+    let settings = null;
+    try {
+        const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
+        if (stored) {
+            settings = JSON.parse(stored);
+        }
+    } catch (e) {
+        console.error('加载标签页设置失败：', e);
+    }
+
+    // 应用设置到复选框
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        const tabId = cb.dataset.tab;
+        if (settings && settings.hasOwnProperty(tabId)) {
+            cb.checked = settings[tabId];
+        } else {
+            cb.checked = true; // 默认显示
+        }
+    });
+}
+
+// 保存标签页可见性设置
+function saveTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    const settings = {};
+    let visibleCount = 0;
+
+    checkboxes.forEach(cb => {
+        const tabId = cb.dataset.tab;
+        settings[tabId] = cb.checked;
+        if (cb.checked) visibleCount++;
+    });
+
+    // 至少保留一个标签页
+    if (visibleCount < 1) {
+        showToast('至少需要保留一个标签页显示', 'warning');
+        return false;
+    }
+
+    // 保存嵌入模式设置
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    const embedMode = embedModeToggle ? embedModeToggle.checked : false;
+    applyEmbedMode(embedMode);
+
+    // 保存到服务器
+    (async () => {
+        const userSettings = await loadUserSettings();
+        userSettings.embedMode = embedMode;
+        userSettings.tabVisibility = settings;
+        await saveUserSettings(userSettings);
+    })();
+
+    try {
+        localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
+        applyTabVisibility(settings);
+        showToast('设置已保存', 'success');
+        hideSettingsModal();
+        return true;
+    } catch (e) {
+        console.error('保存标签页设置失败：', e);
+        showToast('保存设置失败', 'error');
+        return false;
+    }
+}
+
+// 重置标签页设置为默认（全部显示）
+function resetTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+    });
+    
+    // 同时重置嵌入模式
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = false;
+    }
+}
+
+// 应用嵌入模式
+function applyEmbedMode(enabled) {
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (enabled) {
+        document.body.classList.add('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'block';
+    } else {
+        document.body.classList.remove('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'none';
+    }
+}
+
+// 从服务器加载用户设置
+async function loadUserSettings() {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings');
+        const data = await resp.json();
+        if (data.success && data.settings) {
+            return data.settings;
+        }
+    } catch (e) {
+        console.error('加载用户设置失败：', e);
+    }
+    return {};
+}
+
+// 保存用户设置到服务器
+async function saveUserSettings(settings) {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)  // 直接发送 settings 对象，避免嵌套
+        });
+        const data = await resp.json();
+        return data.success;
+    } catch (e) {
+        console.error('保存用户设置失败：', e);
+        return false;
+    }
+}
+
+// 初始化嵌入模式
+async function initEmbedMode() {
+    const settings = await loadUserSettings();
+    const embedMode = settings.embedMode === true;
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = embedMode;
+    }
+    applyEmbedMode(embedMode);
+    
+    // 嵌入模式下的浮动设置按钮
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (embedSettingsBtn) {
+        embedSettingsBtn.addEventListener('click', showSettingsModal);
+    }
+}
+
+// 应用标签页可见性
+function applyTabVisibility(settings) {
+    if (!settings) {
+        // 如果没有设置，加载保存的设置
+        try {
+            const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
+            if (stored) {
+                settings = JSON.parse(stored);
+            }
+        } catch (e) {
+            console.error('加载标签页设置失败：', e);
+            return;
+        }
+    }
+
+    // 如果还是没有设置，默认全部显示
+    if (!settings) return;
+
+    // 应用到标签页按钮
+    const tabs = document.querySelectorAll('.nav-tab');
+    tabs.forEach(tab => {
+        const tabId = tab.dataset.tab;
+        if (settings.hasOwnProperty(tabId)) {
+            tab.style.display = settings[tabId] ? '' : 'none';
+        }
+    });
+
+    // 检查当前激活的标签页是否被隐藏，如果是则切换到第一个可见的标签页
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (activeTab) {
+        const activeTabId = activeTab.dataset.tab;
+        if (settings[activeTabId] === false) {
+            // 找到第一个可见的标签页并激活
+            const firstVisibleTab = document.querySelector('.nav-tab:not([style*="display: none"])');
+            if (firstVisibleTab) {
+                switchTab(firstVisibleTab.dataset.tab);
+            }
+        }
+    }
+}
+
 // 保存AI配置
 async function handleSaveAiSettings(e) {
     e.preventDefault();
@@ -3167,18 +4262,18 @@ async function handleSaveAiSettings(e) {
     successEl.classList.remove('show');
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/config`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(config)
         });
 
         const data = await response.json();
 
-        if (data.success) {
+        // 兼容两种返回格式: {success: true} 或 {message: "成功"}
+        if (data.success || data.message) {
             aiConfig = config;
             successEl.textContent = 'AI配置保存成功！';
             successEl.classList.add('show');
@@ -3236,30 +4331,37 @@ function showDbSuggestions(searchTerm) {
 
     if (matchedModules.length > 0) {
         html += '<div class="ai-suggestion-group-title">功能模块</div>';
-        html += matchedModules.map(m => `
+        html += matchedModules.map(m => {
+            const safeMId = escapeHtml(m.id);
+            const safeMName = escapeHtml(m.name);
+            const safeMDesc = escapeHtml(m.description);
+            return `
             <div class="ai-db-suggestion ai-module-suggestion"
-                 onclick="selectSuggestion('module','${m.id}')"
-                 data-type="module" data-id="${m.id}">
+                 onclick="selectSuggestion('module','${safeMId}')"
+                 data-type="module" data-id="${safeMId}">
                 <span class="ai-db-suggestion-icon">${m.icon}</span>
-                <span class="ai-db-suggestion-name">${m.name}</span>
-                <span class="ai-db-suggestion-info">${m.description}</span>
+                <span class="ai-db-suggestion-name">${safeMName}</span>
+                <span class="ai-db-suggestion-info">${safeMDesc}</span>
             </div>
-        `).join('');
+        `}).join('');
     }
 
     if (matchedDbs.length > 0) {
         html += '<div class="ai-suggestion-group-title">数据库</div>';
         html += matchedDbs.map(db => {
-            const typeIcon = dbTypeIcons[db.type] || '🗄️';
+            const typeIcon = dbTypeIcons[db.type] || '📦';
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
             const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+            const safeDbId = escapeHtml(db.id);
+            const safeDbName = escapeHtml(db.name);
+            const safeInfo = escapeHtml(info);
             return `
                 <div class="ai-db-suggestion"
-                     onclick="selectSuggestion('db','${db.id}')"
-                     data-type="db" data-id="${db.id}">
+                     onclick="selectSuggestion('db','${safeDbId}')"
+                     data-type="db" data-id="${safeDbId}">
                     <span class="ai-db-suggestion-icon">${typeIcon}</span>
-                    <span class="ai-db-suggestion-name">${db.name}</span>
-                    <span class="ai-db-suggestion-info">${info}</span>
+                    <span class="ai-db-suggestion-name">${safeDbName}</span>
+                    <span class="ai-db-suggestion-info">${safeInfo}</span>
                 </div>
             `;
         }).join('');
@@ -3426,11 +4528,10 @@ async function handleSendAiMessage() {
     const streamMessageId = addAiStreamMessage();
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/query`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 message: message,
@@ -3754,6 +4855,25 @@ function toggleRetryDetails(retryId) {
     }
 }
 
+// 从 data-* 属性读取 SQL 数据并执行（安全的 XSS 防护方式）
+async function executeConfirmedSQLFromElement(confirmId, messageId) {
+    const confirmEl = document.getElementById(confirmId);
+    if (!confirmEl) return;
+    
+    const sqlData = confirmEl.dataset.sql;
+    const dbIdData = confirmEl.dataset.dbId;
+    
+    if (!sqlData || !dbIdData) {
+        console.error('Missing SQL or dbId data');
+        return;
+    }
+    
+    const sql = JSON.parse(decodeURIComponent(sqlData));
+    const dbId = JSON.parse(decodeURIComponent(dbIdData));
+    
+    await executeConfirmedSQL(confirmId, sql, dbId, messageId);
+}
+
 async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
     const confirmEl = document.getElementById(confirmId);
     if (!confirmEl) return;
@@ -3761,11 +4881,10 @@ async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
     confirmEl.innerHTML = `<div class="ai-status-executing">⚡ 正在执行写操作...</div>`;
 
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({ sql, dbId })
         });
@@ -3885,6 +5004,19 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             
             let resultHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             
+            if (data.insight != null && String(data.insight).trim() !== '') {
+                const conf = data.confidence;
+                const confStr = typeof conf === 'number' && conf > 0
+                    ? `<div style="font-size:11px;color:#718096;margin-top:6px;">置信度: ${conf <= 1 ? Math.round(conf * 100) + '%' : escapeHtml(String(conf))}</div>`
+                    : '';
+                resultHtml += `
+                    <div class="ai-reflection-insight" style="margin-top:8px;padding:10px 12px;background:#ebf8ff;border-radius:6px;border-left:4px solid #3182ce;">
+                        <div style="font-size:12px;font-weight:600;color:#2c5282;margin-bottom:4px;">💡 数据洞察</div>
+                        <div style="font-size:13px;color:#2d3748;">${formatAIText(data.insight)}</div>
+                        ${confStr}
+                    </div>`;
+            }
+            
             // 显示重试信息（如果有）
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
@@ -3950,19 +5082,22 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
         case 'confirm_write':
             statusEl.innerHTML = '';
             const confirmId = 'confirm-' + messageId;
+            // 使用 data-* 属性存储 JSON 数据，避免 XSS
+            const confirmSqlData = encodeURIComponent(JSON.stringify(data.sql));
+            const confirmDbIdData = encodeURIComponent(JSON.stringify(data.dbId));
             let confirmHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             confirmHtml += `
                 <div style="margin-top: 6px;">
                     <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">📝 待执行的SQL：</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
-                <div class="ai-confirm-write" id="${confirmId}">
+                <div class="ai-confirm-write" id="${confirmId}" data-sql="${confirmSqlData}" data-db-id="${confirmDbIdData}">
                     <div class="ai-confirm-warning">
                         <span class="ai-confirm-icon">⚠️</span>
                         <span>该操作将修改数据库数据，请确认是否执行？</span>
                     </div>
                     <div class="ai-confirm-actions">
-                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQL('${confirmId}', ${escapeHtml(JSON.stringify(data.sql))}, ${escapeHtml(JSON.stringify(data.dbId))}, '${messageId}')">✓ 确认执行</button>
+                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQLFromElement('${confirmId}', '${messageId}')">✓ 确认执行</button>
                         <button class="btn ai-confirm-btn-no" onclick="cancelConfirmedSQL('${confirmId}', '${messageId}')">✕ 取消</button>
                     </div>
                 </div>
@@ -4102,6 +5237,64 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = govTaskHtml;
             attemptsEl.style.display = 'none';
             break;
+
+        case 'quality_rule_draft':
+            statusEl.innerHTML = '';
+            const qaRule = data.rule || {};
+            const qaRuleHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">数据质量审核规则</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">规则编号:</span> <span class="config-value">${escapeHtml(qaRule.nm || '')}</span></div>
+                        <div class="config-item"><span class="config-label">层级编码:</span> <span class="config-value">${escapeHtml(qaRule.xh || '')}</span></div>
+                        <div class="config-item"><span class="config-label">规则名称:</span> <span class="config-value">${escapeHtml(qaRule.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">类别:</span> <span class="config-value">${escapeHtml(qaRule.category || '')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">SQL:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(qaRule.sql || '')}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateQARuleFromAI(${escapeHtml(JSON.stringify(qaRule))})">✓ 确认创建</button>
+                        <button class="btn" onclick="cancelQARuleDraft('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = qaRuleHtml;
+            attemptsEl.style.display = 'none';
+            break;
+
+        case 'small_model_draft':
+            statusEl.innerHTML = '';
+            const smModel = data.model || {};
+            const smModelHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">小模型配置</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(smModel.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(smModel.description || '')}</span></div>
+                        <div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${escapeHtml(smModel.input_type || 'json')}</span></div>
+                        <div class="config-item"><span class="config-label">输出类型:</span> <span class="config-value">${escapeHtml(smModel.output_type || 'json')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;">
+                            <span class="config-label">JS代码:</span>
+                            <div class="ai-sql-block" style="margin-top: 6px; max-height: 150px; overflow: auto;">${escapeHtml(smModel.js_code || '')}</div>
+                        </div>
+                    </div>
+                    <div class="ai-api-config-actions">
+                        <button class="btn btn-primary" onclick="confirmCreateSmallModelFromAI(${escapeHtml(JSON.stringify(smModel))})">✓ 确认创建</button>
+                        <button class="btn" onclick="cancelSmallModelDraft('${messageId}')">✕ 取消</button>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = smModelHtml;
+            attemptsEl.style.display = 'none';
+            break;
             
         case 'done':
             // 完成，不需要特别处理
@@ -4209,7 +5402,7 @@ function updateAiContextDisplay() {
         }
         if (hasDbs) {
             tagsHtml += aiSessionContext.databases.map(db => {
-                const icon = dbTypeIcons[db.type] || '🗄️';
+                const icon = dbTypeIcons[db.type] || '📦';
                 return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
             }).join('');
         }
@@ -4335,11 +5528,10 @@ async function confirmCreateApiFromAI(config, messageId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/apis`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(apiData)
         });
@@ -4409,10 +5601,9 @@ async function confirmCreateGovTaskFromAI(messageId) {
         accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
     };
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
         });
         const data = await response.json();
@@ -4451,6 +5642,61 @@ function cancelGovTaskDraft(messageId) {
             </div>
         `;
     }
+}
+
+// 确认创建 AI 生成的数据质量审核规则
+async function confirmCreateQARuleFromAI(rule) {
+    if (!rule) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/quality-audit/rules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rule)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('规则已创建', 'success');
+        } else {
+            showToast(data.message || '创建失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+function cancelQARuleDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建规则</div>`;
+    }
+}
+
+// 确认创建 AI 生成的小模型
+async function confirmCreateSmallModelFromAI(model) {
+    if (!model) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(model)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('小模型已创建', 'success');
+            if (typeof loadSmallModels === 'function') loadSmallModels();
+        } else {
+            showToast(data.message || '创建失败', 'error');
+        }
+    } catch (err) {
+        showToast('请求失败: ' + err.message, 'error');
+    }
+}
+
+function cancelSmallModelDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `<div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">ℹ️ 已取消创建小模型</div>`;
+    }
     if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
 }
 
@@ -4485,7 +5731,7 @@ function editGovTaskDraftFromAI(messageId) {
 // 显示创建表弹窗
 function showCreateTableModal() {
     if (!currentDb) {
-        alert('请先选择数据库');
+        showToast('请先选择数据库', 'warning');
         return;
     }
     
@@ -4511,7 +5757,7 @@ function showCreateTableModal() {
             <label><input type="checkbox" class="column-notnull" checked> NOT NULL</label>
             <label><input type="checkbox" class="column-primary" checked> 主键</label>
             <label><input type="checkbox" class="column-autoincrement" checked> 自增</label>
-            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">❌</button>
         </div>
     `;
 }
@@ -4540,7 +5786,7 @@ function addTableColumn() {
         <label><input type="checkbox" class="column-notnull"> NOT NULL</label>
         <label><input type="checkbox" class="column-primary"> 主键</label>
         <label><input type="checkbox" class="column-autoincrement"> 自增</label>
-        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">🗑️</button>
+        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除列">❌</button>
     `;
     columnsContainer.appendChild(newColumn);
 }
@@ -4549,7 +5795,7 @@ function addTableColumn() {
 function removeTableColumn(btn) {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     if (columnsContainer.children.length <= 1) {
-        alert('至少需要保留一列');
+        showToast('至少需要保留一列', 'warning');
         return;
     }
     btn.parentElement.remove();
@@ -4563,6 +5809,24 @@ async function handleCreateTable(e) {
     
     const tableName = document.getElementById('tableNameInput').value.trim();
     const columnItems = document.querySelectorAll('.table-column-item');
+    
+    // 表名验证
+    if (!tableName) {
+        showCreateTableError('请输入表名');
+        return;
+    }
+    
+    // 表名格式验证：只允许字母、数字、下划线，且以字母开头
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+        showCreateTableError('表名只能包含字母、数字、下划线，且必须以字母或下划线开头');
+        return;
+    }
+    
+    // 列数量验证
+    if (columnItems.length === 0) {
+        showCreateTableError('请至少添加一个列');
+        return;
+    }
     
     const columns = [];
     for (const item of columnItems) {
@@ -4594,11 +5858,10 @@ async function handleCreateTable(e) {
     successEl.classList.remove('show');
     
     try {
-        const response = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 name: tableName,
@@ -4637,7 +5900,8 @@ let currentGovTask = null;
 let isEditGovMode = false;
 let editingGovTaskId = null;
 let govCurrentFilter = 'all';
-let govSelectedFile = null;
+/** @type {File[]} */
+let govSelectedFiles = [];
 
 // 初始化治理模块事件
 (function initGovernanceEvents() {
@@ -4680,26 +5944,57 @@ let govSelectedFile = null;
                 e.preventDefault();
                 this.classList.remove('drag-over');
                 if (e.dataTransfer.files.length > 0) {
-                    setGovFile(e.dataTransfer.files[0]);
+                    setGovFiles(e.dataTransfer.files);
                 }
             });
         }
     });
 })();
 
+/**
+ * 加载治理任务列表并恢复上次选中的任务状态
+ * @returns {Promise<void>}
+ */
 async function loadGovernanceTasks() {
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`);
         const data = await response.json();
         if (data.success) {
             govTasks = data.tasks || [];
+            if (currentGovTask) {
+                const fresh = govTasks.find(t => t.id === currentGovTask.id);
+                if (fresh) {
+                    currentGovTask = fresh;
+                    showGovTaskDetail(currentGovTask);
+                    loadGovTaskLogs();
+                    if (currentGovTask.status === 'running') {
+                        setTimeout(refreshGovTaskStatus, 3000);
+                    }
+                } else {
+                    currentGovTask = null;
+                    try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
+                    document.getElementById('govTaskDetailView').style.display = 'none';
+                    document.getElementById('govWelcomeView').style.display = '';
+                }
+            } else {
+                const savedId = sessionStorage.getItem('govLastSelectedTaskId');
+                if (savedId) {
+                    const t = govTasks.find(x => x.id === savedId);
+                    if (t) {
+                        currentGovTask = t;
+                        showGovTaskDetail(currentGovTask);
+                        loadGovTaskLogs();
+                        if (currentGovTask.status === 'running') {
+                            setTimeout(refreshGovTaskStatus, 3000);
+                        }
+                    }
+                }
+            }
             renderGovTaskList();
         }
     } catch (error) {
         console.error('加载治理任务失败:', error);
+        showToast('加载治理任务失败', 'error');
     }
 }
 
@@ -4719,20 +6014,26 @@ function renderGovTaskList() {
         return;
     }
 
-    container.innerHTML = filtered.map(t => `
+    container.innerHTML = filtered.map(t => {
+        const safeTId = escapeHtml(t.id);
+        return `
         <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
-             onclick="selectGovTask('${t.id}')">
+             onclick="selectGovTask('${safeTId}')">
             <div class="gov-task-item-icon">${t.type === 'scheduled' ? '⏰' : '📤'}</div>
             <div class="gov-task-item-info">
-                <div class="gov-task-item-name">${escapeHtml(t.name)}</div>
+                <div class="gov-task-item-name">
+                    ${escapeHtml(t.name)}
+                    ${t.register_as_api ? '<span class="gov-api-badge" title="已注册为 API">🔗</span>' : ''}
+                </div>
                 <div class="gov-task-item-meta">
                     <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '定时' : '交互'}</span>
                     <span class="gov-status-dot ${t.status}"></span>
                     <span>${t.status === 'idle' ? '空闲' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '错误'}</span>
                 </div>
             </div>
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">下载示例</button>` : ''}
         </div>
-    `).join('');
+    `;}).join('');
 }
 
 function filterGovTaskList() {
@@ -4750,6 +6051,7 @@ function filterGovByType(type) {
 async function selectGovTask(taskId) {
     const task = govTasks.find(t => t.id === taskId);
     if (!task) return;
+    try { sessionStorage.setItem('govLastSelectedTaskId', taskId); } catch (e) {}
     currentGovTask = task;
     renderGovTaskList();
     showGovTaskDetail(task);
@@ -4803,6 +6105,10 @@ function showGovTaskDetail(task) {
         } else {
             document.getElementById('govFileInput').accept = '';
         }
+        const hintEl = document.getElementById('govSingleBatchHint');
+        if (hintEl) {
+            hintEl.style.display = (task.file_batch_mode === 'single') ? '' : 'none';
+        }
     } else {
         interactiveSection.style.display = 'none';
     }
@@ -4812,17 +6118,56 @@ function showGovTaskDetail(task) {
 async function loadGovTaskLogs() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs`);
         const data = await response.json();
         if (data.success) {
             renderGovLogs(data.logs || []);
         }
     } catch (error) {
         console.error('加载任务日志失败:', error);
+        showToast('加载任务日志失败', 'error');
     }
+}
+
+// 解析 markdown 表格为 HTML（全局函数）
+function parseMarkdownTable(text) {
+    if (!text || typeof text !== 'string') return null;
+    const lines = text.split('\n');
+    const tableLines = [];
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // 匹配表格行：以 | 开头和结尾
+        if (trimmed.startsWith('|')) {
+            // 跳过分隔行（只包含 - | : 和空格）
+            if (trimmed.match(/^\|[\s\-:|]+\|?$/)) continue;
+            tableLines.push(trimmed);
+        }
+    }
+    if (tableLines.length < 2) return null;
+
+    // 解析表格
+    const rows = tableLines.map(line => {
+        // 移除首尾的 |，然后按 | 分割
+        let cells = line;
+        if (cells.startsWith('|')) cells = cells.slice(1);
+        if (cells.endsWith('|')) cells = cells.slice(0, -1);
+        return cells.split('|').map(cell => cell.trim());
+    });
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+
+    let html = '<div class="gov-result-table-wrap"><table class="gov-result-table"><thead><tr>';
+    headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
+    html += '</tr></thead><tbody>';
+    dataRows.forEach(row => {
+        html += '<tr>';
+        for (let i = 0; i < headers.length; i++) {
+            html += `<td>${escapeHtml(row[i] || '')}</td>`;
+        }
+        html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    return html;
 }
 
 function renderGovLogs(logs) {
@@ -4832,22 +6177,29 @@ function renderGovLogs(logs) {
         return;
     }
     const sorted = [...logs].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
-    container.innerHTML = sorted.map(log => `
+    container.innerHTML = sorted.map(log => {
+        let outputHtml = '';
+        if (log.output) {
+            // 检查是否包含 markdown 表格
+            const tableHtml = parseMarkdownTable(log.output);
+            if (tableHtml) {
+                outputHtml = `<div class="gov-log-output">${tableHtml}</div>`;
+            } else {
+                outputHtml = `<div class="gov-log-output">${escapeHtml(log.output)}</div>`;
+            }
+        }
+        return `
         <div class="gov-log-entry">
             <div class="gov-log-header">
                 <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' → ' + new Date(log.end_time).toLocaleString() : ''}</span>
                 <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '错误' : '运行中'}</span>
             </div>
             ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
-            ${log.output ? `<div class="gov-log-output">${escapeHtml(log.output)}</div>` : ''}
+            ${outputHtml}
             ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
         </div>
-    `).join('');
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    `;
+    }).join('');
 }
 
 // 新建/编辑任务
@@ -4858,6 +6210,14 @@ function showAddGovTaskModal() {
     document.getElementById('govTaskForm').reset();
     document.getElementById('govEnabledInput').checked = true;
     document.getElementById('govEnabledLabel').textContent = '已启用';
+    // 重置 API 字段
+    document.getElementById('govRegisterAPIInput').checked = false;
+    document.getElementById('govRegisterAPILabel').textContent = '未注册';
+    document.getElementById('govAPIPathInput').value = '';
+    document.getElementById('govAPIMethodInput').value = 'POST';
+    document.getElementById('govAPIFields').style.display = 'none';
+    const fbNew = document.getElementById('govFileBatchModeSelect');
+    if (fbNew) fbNew.value = 'per_file';
     onGovTaskTypeChange();
     populateGovDbSelect();
     document.getElementById('govFormError').textContent = '';
@@ -4881,6 +6241,16 @@ function editGovTask() {
     document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
     document.getElementById('govInputTypeSelect').value = currentGovTask.input_type || 'file';
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
+    const fb = document.getElementById('govFileBatchModeSelect');
+    if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
+    const rt = document.getElementById('govRuntimeSelect');
+    if (rt) rt.value = currentGovTask.runtime || 'backend';
+    // API 字段
+    document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
+    document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
+    document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
+    document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
+    document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
     populateGovDbSelect();
     document.getElementById('govTaskDbSelect').value = currentGovTask.database_id || '';
     onGovTaskTypeChange();
@@ -4901,11 +6271,68 @@ function onGovTaskTypeChange() {
     document.getElementById('govInteractiveFields').style.display = type === 'interactive' ? '' : 'none';
 }
 
+// 中文转拼音首字母
+function chineseToPinyinInitials(str) {
+    const pinyinMap = {
+        '阿': 'a', '啊': 'a', '安': 'a', '爱': 'a', '艾': 'a',
+        '巴': 'b', '白': 'b', '北': 'b', '本': 'b', '表': 'b', '别': 'b', '不': 'b',
+        '才': 'c', '成': 'c', '城': 'c', '出': 'c', '处': 'c', '从': 'c', '存': 'c',
+        '大': 'd', '但': 'd', '当': 'd', '到': 'd', '得': 'd', '的': 'd', '地': 'd', '点': 'd', '定': 'd', '东': 'd', '动': 'd', '对': 'd', '多': 'd',
+        '而': 'e', '二': 'e',
+        '发': 'f', '法': 'f', '方': 'f', '分': 'f', '服': 'f', '府': 'f',
+        '改': 'g', '高': 'g', '个': 'g', '给': 'g', '更': 'g', '工': 'g', '公': 'g', '共': 'g', '关': 'g', '管': 'g', '国': 'g', '过': 'g',
+        '还': 'h', '海': 'h', '好': 'h', '和': 'h', '合': 'h', '很': 'h', '后': 'h', '会': 'h', '活': 'h',
+        '机': 'j', '基': 'j', '级': 'j', '即': 'j', '几': 'j', '技': 'j', '计': 'j', '记': 'j', '加': 'j', '家': 'j', '间': 'j', '建': 'j', '将': 'j', '交': 'j', '教': 'j', '解': 'j', '进': 'j', '经': 'j', '就': 'j', '局': 'j', '据': 'j', '决': 'j',
+        '开': 'k', '看': 'k', '可': 'k', '客': 'k', '空': 'k', '口': 'k',
+        '来': 'l', '老': 'l', '了': 'l', '理': 'l', '力': 'l', '立': 'l', '利': 'l', '连': 'l', '两': 'l', '林': 'l', '路': 'l',
+        '妈': 'm', '马': 'm', '么': 'm', '没': 'm', '每': 'm', '美': 'm', '门': 'm', '们': 'm', '面': 'm', '名': 'm', '明': 'm', '目': 'm',
+        '那': 'n', '南': 'n', '能': 'n', '你': 'n', '年': 'n', '您': 'n',
+        '欧': 'o',
+        '排': 'p', '配': 'p', '朋': 'p', '平': 'p', '品': 'p',
+        '期': 'q', '其': 'q', '起': 'q', '气': 'q', '前': 'q', '情': 'q', '请': 'q', '区': 'q', '去': 'q', '全': 'q', '确': 'q',
+        '然': 'r', '人': 'r', '日': 'r', '容': 'r', '入': 'r',
+        '三': 's', '色': 's', '上': 's', '少': 's', '社': 's', '设': 's', '生': 's', '时': 's', '实': 's', '使': 's', '事': 's', '是': 's', '书': 's', '水': 's', '说': 's', '思': 's', '四': 's', '送': 's', '算': 's', '所': 's',
+        '他': 't', '她': 't', '台': 't', '天': 't', '条': 't', '通': 't', '同': 't', '头': 't', '图': 't', '团': 't',
+        '外': 'w', '完': 'w', '万': 'w', '网': 'w', '为': 'w', '文': 'w', '问': 'w', '我': 'w', '无': 'w', '五': 'w', '物': 'w',
+        '西': 'x', '系': 'x', '下': 'x', '先': 'x', '显': 'x', '现': 'x', '相': 'x', '想': 'x', '向': 'x', '小': 'x', '效': 'x', '新': 'x', '心': 'x', '信': 'x', '行': 'x', '学': 'x',
+        '研': 'y', '样': 'y', '要': 'y', '也': 'y', '业': 'y', '一': 'y', '已': 'y', '以': 'y', '意': 'y', '因': 'y', '应': 'y', '用': 'y', '有': 'y', '又': 'y', '于': 'y', '元': 'y', '月': 'y', '员': 'y', '原': 'y', '源': 'y', '约': 'y', '越': 'y',
+        '再': 'z', '在': 'z', '则': 'z', '怎': 'z', '展': 'z', '张': 'z', '找': 'z', '这': 'z', '真': 'z', '正': 'z', '证': 'z', '知': 'z', '只': 'z', '至': 'z', '制': 'z', '中': 'z', '种': 'z', '重': 'z', '主': 'z', '注': 'z', '专': 'z', '资': 'z', '子': 'z', '自': 'z', '总': 'z', '组': 'z', '最': 'z', '作': 'z',
+        '数': 's', '据': 'j', '治': 'z', '理': 'l', '任': 'r', '务': 'w', '导': 'd', '入': 'r', '出': 'c', '报': 'b', '告': 'g', '处': 'c', '析': 'x', '测': 'c', '试': 's', '运': 'y', '行': 'x', '配': 'p', '置': 'z', '查': 'c', '询': 'x', '更': 'g', '新': 'x', '删': 's', '除': 'c', '添': 't', '加': 'j', '编': 'b', '辑': 'j', '创': 'c', '建': 'j'
+    };
+    
+    let result = '';
+    for (const char of str) {
+        if (pinyinMap[char]) {
+            result += pinyinMap[char];
+        } else if (/[a-zA-Z]/.test(char)) {
+            result += char.toLowerCase();
+        } else if (/[0-9]/.test(char)) {
+            result += char;
+        }
+    }
+    return result;
+}
+
+function onGovRegisterAPIChange() {
+    const checked = document.getElementById('govRegisterAPIInput').checked;
+    document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
+    document.getElementById('govRegisterAPILabel').textContent = checked ? '已注册' : '未注册';
+    
+    // 自动生成 API 路径（拼音首字母）
+    if (checked && !document.getElementById('govAPIPathInput').value) {
+        const taskName = document.getElementById('govTaskNameInput').value.trim();
+        if (taskName) {
+            const initials = chineseToPinyinInitials(taskName);
+            document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
+        }
+    }
+}
+
 function populateGovDbSelect() {
     const select = document.getElementById('govTaskDbSelect');
     select.innerHTML = '<option value="">不关联数据库</option>';
     databases.forEach(db => {
-        select.innerHTML += `<option value="${db.id}">${escapeHtml(db.name)} (${db.type})</option>`;
+        select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
     });
 }
 
@@ -4913,6 +6340,7 @@ async function handleGovTaskSubmit(e) {
     e.preventDefault();
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
+    const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
         type: type,
@@ -4923,6 +6351,11 @@ async function handleGovTaskSubmit(e) {
         enabled: type === 'scheduled' ? document.getElementById('govEnabledInput').checked : false,
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+        file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
+        runtime: type === 'interactive' && document.getElementById('govRuntimeSelect') ? document.getElementById('govRuntimeSelect').value : 'backend',
+        register_as_api: registerAsAPI,
+        api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
+        api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
     };
 
     if (!taskData.name || !taskData.js_code) {
@@ -4932,15 +6365,13 @@ async function handleGovTaskSubmit(e) {
     }
 
     try {
-        const token = localStorage.getItem('dataOntologyToken');
         const url = isEditGovMode
             ? `${API_BASE}/api/data-ontology/governance/tasks/${editingGovTaskId}`
             : `${API_BASE}/api/data-ontology/governance/tasks`;
         const method = isEditGovMode ? 'PUT' : 'POST';
-        const response = await fetch(url, {
+        const response = await fetchWithAuth(url, {
             method: method,
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(taskData)
@@ -4968,21 +6399,38 @@ async function handleGovTaskSubmit(e) {
 async function deleteGovTask() {
     if (!currentGovTask) return;
     if (!confirm(`确定删除任务「${currentGovTask.name}」？`)) return;
+    
+    const deleteBtn = document.getElementById('deleteGovTaskBtn');
+    const originalText = deleteBtn ? deleteBtn.textContent : '';
+    if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = '删除中...';
+    }
+    
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
+            method: 'DELETE'
         });
         const data = await response.json();
         if (data.success) {
             currentGovTask = null;
+            try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
             document.getElementById('govTaskDetailView').style.display = 'none';
             document.getElementById('govWelcomeView').style.display = '';
             loadGovernanceTasks();
+        } else {
+            showToast(data.message || '删除失败', 'error');
+            if (deleteBtn) {
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = originalText;
+            }
         }
     } catch (error) {
-        alert('删除失败: ' + error.message);
+        showToast('删除失败: ' + error.message, 'error');
+        if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
+        }
     }
 }
 
@@ -4994,10 +6442,8 @@ async function runGovTask() {
 async function toggleGovTask() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/toggle`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/toggle`, {
+            method: 'POST'
         });
         const data = await response.json();
         if (data.success) {
@@ -5006,17 +6452,14 @@ async function toggleGovTask() {
             renderGovTaskList();
         }
     } catch (error) {
-        alert('操作失败: ' + error.message);
+        showToast('操作失败: ' + error.message, 'error');
     }
 }
 
 async function refreshGovTaskStatus() {
     if (!currentGovTask) return;
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`);
         const data = await response.json();
         if (data.success && data.task) {
             const idx = govTasks.findIndex(t => t.id === data.task.id);
@@ -5034,21 +6477,36 @@ async function refreshGovTaskStatus() {
     }
 }
 
-// 文件上传
+// 文件上传（支持多选）
 function handleGovFileSelect(event) {
     if (event.target.files.length > 0) {
-        setGovFile(event.target.files[0]);
+        setGovFiles(event.target.files);
     }
 }
 
-function setGovFile(file) {
-    govSelectedFile = file;
-    document.getElementById('govFileName').textContent = file.name + ' (' + formatFileSize(file.size) + ')';
-    document.getElementById('govSelectedFile').style.display = 'flex';
+function setGovFiles(fileList) {
+    govSelectedFiles = Array.from(fileList || []);
+    const row = document.getElementById('govSelectedFile');
+    const nameEl = document.getElementById('govFileName');
+    if (govSelectedFiles.length === 0) {
+        row.style.display = 'none';
+        return;
+    }
+    if (govSelectedFiles.length === 1) {
+        const f = govSelectedFiles[0];
+        nameEl.textContent = f.name + ' (' + formatFileSize(f.size) + ')';
+    } else {
+        const total = govSelectedFiles.reduce((s, f) => s + f.size, 0);
+        const names = govSelectedFiles.map(f => f.name).join('、');
+        const maxLen = 200;
+        const showNames = names.length > maxLen ? names.slice(0, maxLen) + '…' : names;
+        nameEl.textContent = `已选 ${govSelectedFiles.length} 个文件（共 ${formatFileSize(total)}）：${showNames}`;
+    }
+    row.style.display = 'flex';
 }
 
 function clearGovFile() {
-    govSelectedFile = null;
+    govSelectedFiles = [];
     document.getElementById('govFileInput').value = '';
     document.getElementById('govSelectedFile').style.display = 'none';
     document.getElementById('govInputText') && (document.getElementById('govInputText').value = '');
@@ -5064,30 +6522,244 @@ async function executeInteractiveTask() {
     if (!currentGovTask) return;
     const inputType = currentGovTask.input_type || 'file';
     const inputText = document.getElementById('govInputText')?.value || '';
-    const file = govSelectedFile;
+    const files = govSelectedFiles;
 
-    if ((inputType === 'file' || inputType === 'both') && !file && !inputText) {
-        alert('请选择文件或输入文本');
+    if ((inputType === 'file' || inputType === 'both') && files.length === 0 && !inputText) {
+        showToast('请选择文件或输入文本', 'warning');
         return;
     }
     if (inputType === 'text' && !inputText) {
-        alert('请输入文本内容');
+        showToast('请输入文本内容', 'warning');
         return;
     }
 
-    await executeGovTaskInBrowser(currentGovTask.js_code, file, inputText);
+    const batchMode = currentGovTask.file_batch_mode || 'per_file';
+    const runtime = currentGovTask.runtime || 'backend';
+
+    // 根据 runtime 选择执行环境
+    if (runtime === 'frontend') {
+        // 前端执行（浏览器）
+        if (batchMode === 'single' && files.length >= 2) {
+            await executeGovTaskAggregateInBrowser(files, inputText);
+        } else {
+            await executeGovTaskInBrowser(currentGovTask.js_code, files.length > 0 ? files[0] : null, inputText);
+        }
+    } else {
+        // 后端执行（gov-runner）
+        await executeGovTaskOnBackend(files, inputText);
+    }
+}
+
+async function executeGovTaskAggregateInBrowser(files, inputText) {
+    if (!currentGovTask) return;
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
+
+    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(currentGovTask.js_code, null, inputText, files);
+
+    currentGovTask.status = status;
+    currentGovTask.last_output = output;
+    currentGovTask.last_error = errorMsg;
+    currentGovTask.last_run_at = new Date().toISOString();
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    container.innerHTML = `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date().toLocaleString()}</span>
+                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '错误'}</span>
+            </div>
+            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
+            ${output ? `<div class="gov-log-output">${escapeHtml(output)}</div>` : ''}
+            ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
+        </div>
+    `;
+}
+
+// 后端异步执行任务
+async function executeGovTaskOnBackend(files, inputText) {
+    if (!currentGovTask) return;
+
+    const taskId = currentGovTask.id;
+
+    // 更新 UI 显示运行中
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>正在上传文件...</span></div></div>';
+
+    try {
+        // 构建 multipart 表单
+        const formData = new FormData();
+        formData.append('input_text', inputText || '');
+
+        if (files && files.length > 0) {
+            for (const file of files) {
+                formData.append('files', file);
+            }
+        }
+
+        // 调用后端 run 接口
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/run`, {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.message || '任务启动失败');
+        }
+
+        const runId = result.run_id;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>任务已入队，后台执行中...</span><span class="gov-log-status running">运行中</span></div></div>`;
+
+        // 开始轮询进度
+        await pollTaskProgress(taskId, runId);
+
+    } catch (error) {
+        currentGovTask.status = 'error';
+        currentGovTask.last_error = error.message;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span style="color:red">错误: ${escapeHtml(error.message)}</span></div></div>`;
+        renderGovTaskList();
+    }
+}
+
+/**
+ * 轮询任务执行进度
+ * 每 2 秒查询一次后端进度接口，直到任务完成或出错
+ * @param {string} taskId - 任务 ID
+ * @param {string} runId - 执行 ID
+ * @returns {Promise<void>}
+ */
+async function pollTaskProgress(taskId, runId) {
+    const container = document.getElementById('govTaskOutput');
+
+    const pollInterval = 2000; // 2秒轮询一次
+    let lastProcessed = 0;
+
+    // 渲染执行结果表格
+    function renderGovResultTable(container, output) {
+        if (!output) return;
+        // 尝试解析 JSON 表格数据
+        try {
+            const data = JSON.parse(output);
+            if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+                const headers = Object.keys(data[0]);
+                let html = '<div class="gov-result-table-wrap"><table class="gov-result-table"><thead><tr>';
+                headers.forEach(h => { html += `<th>${escapeHtml(h)}</th>`; });
+                html += '</tr></thead><tbody>';
+                data.forEach(row => {
+                    html += '<tr>';
+                    headers.forEach(h => { html += `<td>${escapeHtml(row[h] ?? '')}</td>`; });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                container.innerHTML = html;
+                return;
+            }
+        } catch (e) {}
+
+        // 尝试解析 markdown 表格
+        const tableHtml = parseMarkdownTable(output);
+        if (tableHtml) {
+            container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>执行成功</span><span class="gov-log-status success">成功</span></div><div class="gov-log-output">${tableHtml}</div></div>`;
+            return;
+        }
+
+        // 非 JSON，直接显示文本
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>执行成功</span><span class="gov-log-status success">成功</span></div><div class="gov-log-output"><pre>${escapeHtml(output)}</pre></div></div>`;
+    }
+
+    const poll = async () => {
+        try {
+            const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`);
+            const data = await response.json();
+
+            if (!data.success) {
+                console.error('获取进度失败:', data.message);
+                return;
+            }
+
+            const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
+
+            // 更新进度显示（有文件时显示进度条；无文件的后台任务仍显示状态与 last_output，便于看到 gov.log 汇总输出）
+            if (total_files > 0) {
+                container.innerHTML = `
+                    <div class="gov-log-entry">
+                        <div class="gov-log-header">
+                            <span>进度: ${processed_files}/${total_files} (${percent}%)</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
+                        </div>
+                        ${current_file ? `<div class="gov-log-input">当前: ${escapeHtml(current_file)}</div>` : ''}
+                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
+                    </div>`;
+            } else {
+                container.innerHTML = `
+                    <div class="gov-log-entry">
+                        <div class="gov-log-header">
+                            <span>后台执行${status === 'running' ? '中…' : ''}</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '错误'}</span>
+                        </div>
+                        ${last_output ? `<div class="gov-log-output">${escapeHtml(last_output)}</div>` : ''}
+                        ${last_error ? `<div class="gov-log-error">${escapeHtml(last_error)}</div>` : ''}
+                    </div>`;
+            }
+
+            // 如果任务完成，停止轮询
+            if (status !== 'running') {
+                // 刷新任务详情与持久化执行日志（后端异步任务会写入 /logs）
+                await loadGovernanceTasks();
+                const task = govTasks.find(t => t.id === taskId);
+                if (task) {
+                    currentGovTask = task;
+                    showGovTaskDetail(task);
+                }
+                // 显示执行结果表格（成功且有输出时，不再加载历史日志，避免覆盖表格）
+                if (status === 'success' && last_output) {
+                    renderGovResultTable(container, last_output);
+                } else {
+                    // 其他情况（错误或无输出）加载历史日志
+                    await loadGovTaskLogs();
+                }
+                return;
+            }
+
+            // 继续轮询
+            setTimeout(poll, pollInterval);
+
+        } catch (error) {
+            console.error('轮询进度失败:', error);
+            // 出错后继续轮询
+            setTimeout(poll, pollInterval);
+        }
+    };
+
+    await poll();
 }
 
 // ==================== 浏览器端 JS 执行引擎 ====================
 
 let govLibsLoaded = false;
 
+/**
+ * 动态加载治理任务所需的第三方库（XLSX, PapaParse, mammoth, PizZip, docxtemplater）
+ * 采用延迟加载策略，仅在首次执行治理任务时加载
+ * @returns {Promise<void>}
+ */
 async function ensureGovLibsLoaded() {
     if (govLibsLoaded) return;
     const libs = [
         { global: 'XLSX',    src: '../../lib/xlsx.full.min.js' },
         { global: 'Papa',    src: '../../lib/papaparse.min.js' },
         { global: 'mammoth', src: '../../lib/mammoth.browser.min.js' },
+        { global: 'PizZip',  src: 'lib/pizzip.js' },
     ];
     for (const lib of libs) {
         if (!window[lib.global]) {
@@ -5100,17 +6772,106 @@ async function ensureGovLibsLoaded() {
             });
         }
     }
+    if (!_govGetDocxtemplaterClass()) {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'lib/docxtemplater.js';
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('加载 docxtemplater 失败'));
+            document.head.appendChild(s);
+        });
+    }
+    if (!_govGetDocxtemplaterClass()) {
+        throw new Error('Docxtemplater 不可用');
+    }
     govLibsLoaded = true;
 }
 
-function createGovHelper(logLines) {
-    const token = localStorage.getItem('dataOntologyToken');
+function _govGetDocxtemplaterClass() {
+    if (typeof window.Docxtemplater !== 'undefined') return window.Docxtemplater;
+    const d = window.docxtemplater;
+    if (d && (d.default || d.Docxtemplater)) return d.default || d.Docxtemplater;
+    return null;
+}
+
+function _govExcelCellForValue(val) {
+    if (val === null || val === undefined) return null;
+    if (typeof val === 'number' && !isNaN(val)) return { t: 'n', v: val };
+    if (val instanceof Date) return { t: 'd', v: val };
+    if (typeof val === 'boolean') return { t: 'b', v: val };
+    return { t: 's', v: String(val) };
+}
+
+function _govExpandSheetRef(XLSX, ws) {
+    let maxR = 0;
+    let maxC = 0;
+    let has = false;
+    for (const k of Object.keys(ws)) {
+        if (k[0] === '!') continue;
+        try {
+            const cell = XLSX.utils.decode_cell(k);
+            has = true;
+            maxR = Math.max(maxR, cell.r);
+            maxC = Math.max(maxC, cell.c);
+        } catch (e) {
+            /* ignore */
+        }
+    }
+    if (has) {
+        ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
+    }
+}
+
+function _govApplyCellMapToSheet(XLSX, ws, cellMap) {
+    for (const [addr, val] of Object.entries(cellMap)) {
+        if (!addr || addr[0] === '!') continue;
+        try {
+            XLSX.utils.decode_cell(addr);
+        } catch (e) {
+            continue;
+        }
+        const cellObj = _govExcelCellForValue(val);
+        if (cellObj === null) delete ws[addr];
+        else ws[addr] = cellObj;
+    }
+    _govExpandSheetRef(XLSX, ws);
+}
+
+function _govDataIsFlatCellMap(XLSX, data) {
+    const keys = Object.keys(data);
+    if (keys.length === 0) return false;
+    return keys.every(k => {
+        if (typeof k !== 'string') return false;
+        try {
+            XLSX.utils.decode_cell(k);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    });
+}
+
+function createGovHelper(logLines, uploadedFiles) {
+    const uploaded = Array.isArray(uploadedFiles) ? uploadedFiles : [];
     const dbId = currentGovTask?.database_id || '';
 
+    async function _resolveGovTemplateFile(templateFile) {
+        if (templateFile instanceof File || templateFile instanceof Blob) return templateFile;
+        if (typeof templateFile === 'string') {
+            const name = templateFile.trim();
+            if (!name) throw new Error('未指定模板文件名');
+            const found = uploaded.find(f => f && f.name === name)
+                || uploaded.find(f => f && (f.name.endsWith(name) || name.endsWith(f.name)));
+            if (found) return found;
+            throw new Error(`未找到模板文件「${name}」，请上传后传入 File 或匹配的文件名`);
+        }
+        throw new Error('templateFile 须为 File/Blob 或文件名字符串');
+    }
+
     async function _runSQL(databaseId, sql, params = []) {
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: databaseId, sql, params })
         });
         const data = await resp.json();
@@ -5122,6 +6883,23 @@ function createGovHelper(logLines) {
         const db = (databases || []).find(d => d.id === (currentGovTask && currentGovTask.database_id));
         return db ? db.type : '';
     })();
+
+    function _govDownloadBlob(blob, filename) {
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function _govCsvEscapeCell(val) {
+        const s = val === null || val === undefined ? '' : String(val);
+        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+    }
 
     return {
         log(msg) {
@@ -5172,14 +6950,97 @@ function createGovHelper(logLines) {
         },
         // 调用 AI 补全（与 AI 助手共用 URL/API Key/模型），返回结构化文本
         async callAI(prompt) {
-            const resp = await fetch(`${API_BASE}/api/data-ontology/ai/completion`, {
+            const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/completion`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
             });
             const data = await resp.json();
             if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
+        },
+        async fillWordTemplate(templateFile, data, outputFilename) {
+            await ensureGovLibsLoaded();
+            if (!window.PizZip) throw new Error('PizZip 未加载');
+            const DocxCtor = _govGetDocxtemplaterClass();
+            if (!DocxCtor) throw new Error('Docxtemplater 未加载');
+            const fileObj = await _resolveGovTemplateFile(templateFile);
+            const buf = await fileObj.arrayBuffer();
+            const zip = new window.PizZip(buf);
+            const doc = new DocxCtor(zip, { paragraphLoop: true, linebreaks: true });
+            doc.setData(data || {});
+            doc.render();
+            const blob = doc.getZip().generate({
+                type: 'blob',
+                mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            });
+            const base = outputFilename || 'output.docx';
+            const outName = /\.docx$/i.test(base) ? base : `${base}.docx`;
+            _govDownloadBlob(blob, outName);
+        },
+        async fillExcelTemplate(templateFile, data, outputFilename) {
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
+            if (!data || typeof data !== 'object') throw new Error('data 须为对象');
+            const fileObj = await _resolveGovTemplateFile(templateFile);
+            const wb = await this.readExcel(fileObj);
+            const flat = _govDataIsFlatCellMap(XLSX, data);
+            if (flat) {
+                const sn = wb.SheetNames[0];
+                _govApplyCellMapToSheet(XLSX, wb.Sheets[sn], data);
+            } else {
+                for (const [sheetName, cells] of Object.entries(data)) {
+                    if (!cells || typeof cells !== 'object' || Array.isArray(cells)) continue;
+                    const ws = wb.Sheets[sheetName];
+                    if (!ws) throw new Error(`模板中不存在工作表「${sheetName}」`);
+                    _govApplyCellMapToSheet(XLSX, ws, cells);
+                }
+            }
+            const base = outputFilename || 'output.xlsx';
+            const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
+            XLSX.writeFile(wb, outName);
+        },
+        writeExcel(filename, data, options) {
+            if (!filename) throw new Error('未提供文件名');
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
+            const opts = options || {};
+            const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
+            let ws;
+            if (!data || !data.length) {
+                ws = XLSX.utils.aoa_to_sheet([[]]);
+            } else if (Array.isArray(data[0])) {
+                ws = XLSX.utils.aoa_to_sheet(data);
+            } else {
+                ws = XLSX.utils.json_to_sheet(data);
+            }
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            const outName = /\.xlsx?$/i.test(filename) ? filename : `${filename}.xlsx`;
+            XLSX.writeFile(wb, outName);
+        },
+        writeCSV(filename, data) {
+            if (!filename) throw new Error('未提供文件名');
+            if (!Array.isArray(data)) throw new Error('data 须为二维数组');
+            const lines = data.map(row => {
+                if (!Array.isArray(row)) throw new Error('CSV 每行须为数组');
+                return row.map(_govCsvEscapeCell).join(',');
+            });
+            const csv = lines.join('\r\n');
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+            const outName = /\.csv$/i.test(filename) ? filename : `${filename}.csv`;
+            _govDownloadBlob(blob, outName);
+        },
+        writeText(filename, content) {
+            if (!filename) throw new Error('未提供文件名');
+            const text = content === undefined || content === null ? '' : String(content);
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            _govDownloadBlob(blob, filename);
+        },
+        writeJSON(filename, data) {
+            if (!filename) throw new Error('未提供文件名');
+            const text = JSON.stringify(data, null, 2);
+            const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+            const outName = /\.json$/i.test(filename) ? filename : `${filename}.json`;
+            _govDownloadBlob(blob, outName);
         },
     };
 }
@@ -5194,6 +7055,15 @@ function toggleCodeGen() {
     panel.style.display = visible ? 'none' : 'block';
     arrow.classList.toggle('open', !visible);
     if (!visible) refreshCodegenTables();
+}
+
+// 折叠/展开任务代码预览
+function toggleGovTaskCode() {
+    const panel = document.getElementById('govTaskCodePanel');
+    const arrow = document.getElementById('govTaskCodeArrow');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    arrow.classList.toggle('open', !visible);
 }
 
 async function refreshCodegenTables() {
@@ -5211,7 +7081,6 @@ async function refreshCodegenTables() {
     if (!db) return;
 
     sel.innerHTML = '<option value="">加载中...</option>';
-    const token = localStorage.getItem('dataOntologyToken');
 
     try {
         let sql;
@@ -5221,9 +7090,9 @@ async function refreshCodegenTables() {
         else if (db.type === 'oracle') sql = "SELECT table_name as name FROM user_tables WHERE table_name NOT LIKE '%$%' AND table_name NOT LIKE 'ALL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBA\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ACCHK\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ALERT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGMNR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'WRM$%' AND table_name NOT LIKE 'WRI$%' AND table_name NOT LIKE 'AQ\\_%' ESCAPE '\\' AND table_name NOT LIKE 'ATP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AUDIT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'AV\\_%' ESCAPE '\\' AND table_name NOT LIKE 'BDSQL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CATALOG\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CLUSTER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'CQN\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DBMS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'DEF$%' AND table_name NOT LIKE 'ERROR\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FILE\\_%' ESCAPE '\\' AND table_name NOT LIKE 'HELP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGSTDBY%' AND table_name NOT LIKE 'MVIEW\\_%' ESCAPE '\\' AND table_name NOT LIKE 'OLAP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'REPCAT\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SCHEDULER\\_%' ESCAPE '\\' AND table_name NOT LIKE 'SYS\\_%' ESCAPE '\\' AND table_name NOT LIKE 'TRACE\\_%' ESCAPE '\\' AND table_name <> 'DUAL' AND table_name NOT LIKE 'DDL\\_%' ESCAPE '\\' AND table_name NOT LIKE 'FOREIGN\\_%' ESCAPE '\\' AND table_name NOT LIKE 'HANG\\_%' ESCAPE '\\' AND table_name NOT LIKE 'IMPDP\\_%' ESCAPE '\\' AND table_name NOT LIKE 'INC%' AND table_name NOT LIKE 'KU\\_%' ESCAPE '\\' AND table_name NOT LIKE 'LOGMNRC\\_%' ESCAPE '\\' ORDER BY table_name";
         else sql = 'SHOW TABLES';
 
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: dbId, sql, params: [] })
         });
         const result = await resp.json();
@@ -5255,7 +7124,6 @@ async function onCodegenTableChange() {
         return;
     }
 
-    const token = localStorage.getItem('dataOntologyToken');
     try {
         let sql;
         if (db.type === 'sqlite') sql = `PRAGMA table_info('${tableName}')`;
@@ -5263,9 +7131,9 @@ async function onCodegenTableChange() {
         else if (db.type === 'dm' || db.type === 'oracle') sql = `SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, "''").toUpperCase()}' ORDER BY COLUMN_ID`;
         else sql = 'SHOW COLUMNS FROM `' + tableName + '`';
 
-        const resp = await fetch(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/execute-sql`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: dbId, sql, params: [] })
         });
         const result = await resp.json();
@@ -5303,7 +7171,7 @@ function generateImportCode() {
     const dbId = document.getElementById('govTaskDbSelect').value;
     const db = databases.find(d => d.id === dbId);
 
-    if (!tableName) { alert('请先选择目标表'); return; }
+    if (!tableName) { showToast('请先选择目标表', 'warning'); return; }
 
     const checks = document.querySelectorAll('.codegen-col-check');
     const srcs = document.querySelectorAll('.codegen-col-src');
@@ -5315,7 +7183,7 @@ function generateImportCode() {
         }
     });
 
-    if (mappings.length === 0) { alert('请至少勾选一个列'); return; }
+    if (mappings.length === 0) { showToast('请至少勾选一个列', 'warning'); return; }
 
     const q = (db && (db.type === 'mysql' || db.type === 'mariadb')) ? '`' : '"';
     const colList = mappings.map(m => `${q}${m.col}${q}`).join(', ');
@@ -5378,7 +7246,7 @@ async function generateImportCodeWithAI() {
     const db = databases.find(d => d.id === dbId);
 
     if (!dbId || !tableName) {
-        alert('请先选择关联数据库并选择目标表');
+        showToast('请先选择关联数据库并选择目标表', 'warning');
         return;
     }
     const checks = document.querySelectorAll('.codegen-col-check');
@@ -5395,13 +7263,13 @@ async function generateImportCodeWithAI() {
         }
     });
     if (mappings.length === 0) {
-        alert('请至少勾选一个要导入的列');
+        showToast('请至少勾选一个要导入的列', 'warning');
         return;
     }
 
     if (!aiConfig) await loadAiConfig();
     if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
-        alert('请先在「AI助手」中配置 AI 设置（AI服务URL、API Key、模型名称）后再使用 AI 辅助生成');
+        showToast('请先在「AI助手」中配置 AI 设置（AI服务URL、API Key、模型名称）后再使用 AI 辅助生成', 'warning');
         return;
     }
 
@@ -5424,11 +7292,9 @@ async function generateImportCodeWithAI() {
         btn.textContent = '生成中...';
     }
     try {
-        const token = localStorage.getItem('dataOntologyToken');
-        const response = await fetch(`${API_BASE}/api/data-ontology/ai/codegen`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/codegen`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
@@ -5437,10 +7303,10 @@ async function generateImportCodeWithAI() {
         if (data.success && data.code != null) {
             document.getElementById('govCodeInput').value = data.code;
         } else {
-            alert(data.message || 'AI 生成失败');
+            showToast(data.message || 'AI 生成失败', 'error');
         }
     } catch (e) {
-        alert('请求失败: ' + e.message);
+        showToast('请求失败: ' + e.message, 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -5449,10 +7315,123 @@ async function generateImportCodeWithAI() {
     }
 }
 
+/** 单次执行并写入服务端日志，返回结果供单文件或批量汇总使用 */
+async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverride) {
+    const logLines = [];
+    let status = 'success';
+    let errorMsg = '';
+
+    try {
+        await ensureGovLibsLoaded();
+        const uploaded = Array.isArray(allFilesOverride) ? allFilesOverride : (file ? [file] : (govSelectedFiles || []));
+        const gov = createGovHelper(logLines, uploaded);
+        const DocxCtor = _govGetDocxtemplaterClass();
+
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', 'INPUT_FILES', code);
+        const inputFiles = uploaded;
+        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor, inputFiles);
+    } catch (err) {
+        status = 'error';
+        errorMsg = err.message || String(err);
+        logLines.push(`[错误] ${errorMsg}`);
+    }
+
+    const output = logLines.join('\n');
+    let inputDesc = '';
+    if (Array.isArray(allFilesOverride) && allFilesOverride.length) {
+        inputDesc = `files (${allFilesOverride.length}): ${allFilesOverride.map(f => f.name).join('、')}`;
+    } else if (file) {
+        inputDesc = `file: ${file.name}`;
+    } else if (inputText) {
+        inputDesc = `text: ${inputText.substring(0, 50)}`;
+    }
+
+    if (currentGovTask) {
+        const taskId = currentGovTask.id;
+        try {
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
+            });
+        } catch (e) {
+            console.error('保存日志失败:', e);
+        }
+    }
+
+    return { status, output, errorMsg, inputDesc };
+}
+
+async function executeGovTaskBatchInBrowser(code, files, inputText) {
+    if (!currentGovTask || !files || files.length < 2) return;
+
+    currentGovTask.status = 'running';
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const container = document.getElementById('govTaskOutput');
+    const results = [];
+    const startedAt = Date.now();
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        container.innerHTML = `
+            <div class="gov-log-entry">
+                <div class="gov-log-header">
+                    <span>批量处理 ${i + 1}/${files.length}：${escapeHtml(file.name)}</span>
+                    <span class="gov-log-status running">运行中</span>
+                </div>
+            </div>`;
+
+        const r = await executeGovTaskInBrowserOnce(code, file, inputText, [file]);
+        results.push({ fileName: file.name, ...r });
+    }
+
+    const ok = results.filter(r => r.status === 'success').length;
+    const fail = results.length - ok;
+    const overallStatus = fail === 0 ? 'success' : 'error';
+    const summaryLines = [
+        `批量处理完成：共 ${results.length} 个文件，成功 ${ok}，失败 ${fail}。`,
+        ...results.map(r =>
+            (r.status === 'success' ? '✓' : '✗') + ' ' + r.fileName + (r.errorMsg ? ' — ' + r.errorMsg : '')
+        )
+    ];
+    const summaryText = summaryLines.join('\n');
+    const combinedOutput = results.map(r => `--- ${r.fileName} ---\n${r.output || ''}`).join('\n\n');
+
+    currentGovTask.status = overallStatus;
+    currentGovTask.last_output = summaryText + (combinedOutput ? '\n\n' + combinedOutput : '');
+    currentGovTask.last_error = fail > 0 ? `${fail} 个文件处理失败` : '';
+    currentGovTask.last_run_at = new Date().toISOString();
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+
+    const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+    container.innerHTML = `
+        <div class="gov-log-entry">
+            <div class="gov-log-header">
+                <span>${new Date().toLocaleString()} · 耗时 ${durationSec}s</span>
+                <span class="gov-log-status ${overallStatus}">汇总：成功 ${ok} / 失败 ${fail}</span>
+            </div>
+            <div class="gov-log-input">共 ${results.length} 个文件，成功 ${ok}，失败 ${fail}</div>
+            <div class="gov-log-output">${escapeHtml(summaryText)}</div>
+            ${results.map(r => `
+                <div class="gov-log-entry" style="margin-top:10px;border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;">
+                    <div class="gov-log-header">
+                        <span>${escapeHtml(r.fileName)}</span>
+                        <span class="gov-log-status ${r.status}">${r.status === 'success' ? '成功' : '错误'}</span>
+                    </div>
+                    ${r.inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(r.inputDesc)}</div>` : ''}
+                    ${r.output ? `<div class="gov-log-output">${escapeHtml(r.output)}</div>` : ''}
+                    ${r.errorMsg ? `<div class="gov-log-error">${escapeHtml(r.errorMsg)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
+}
+
 async function executeGovTaskInBrowser(code, file, inputText) {
     if (!currentGovTask) return;
-    const logLines = [];
-    const taskId = currentGovTask.id;
 
     currentGovTask.status = 'running';
     showGovTaskDetail(currentGovTask);
@@ -5461,23 +7440,7 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     const container = document.getElementById('govTaskOutput');
     container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
 
-    let status = 'success';
-    let errorMsg = '';
-
-    try {
-        await ensureGovLibsLoaded();
-        const gov = createGovHelper(logLines);
-
-        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', code);
-        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth);
-    } catch (err) {
-        status = 'error';
-        errorMsg = err.message || String(err);
-        logLines.push(`[错误] ${errorMsg}`);
-    }
-
-    const output = logLines.join('\n');
+    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText);
 
     currentGovTask.status = status;
     currentGovTask.last_output = output;
@@ -5486,7 +7449,6 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     showGovTaskDetail(currentGovTask);
     renderGovTaskList();
 
-    const inputDesc = file ? `file: ${file.name}` : (inputText ? `text: ${inputText.substring(0, 50)}` : '');
     container.innerHTML = `
         <div class="gov-log-entry">
             <div class="gov-log-header">
@@ -5498,17 +7460,6 @@ async function executeGovTaskInBrowser(code, file, inputText) {
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
-
-    try {
-        const token = localStorage.getItem('dataOntologyToken');
-        await fetch(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/save-log`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
-        });
-    } catch (e) {
-        console.error('保存日志失败:', e);
-    }
 }
 
 // ==================== gov API 帮助 ====================
@@ -5552,6 +7503,42 @@ const GOV_API_DOCS = [
                 signature: 'await gov.readWord(file) → {value: string, messages: [...]}',
                 desc: '读取上传的 Word 文件（.docx），提取纯文本内容。返回 mammoth 的结果对象，value 为正文文本。',
                 example: 'const result = await gov.readWord(INPUT_FILE);\nconst text = result.value;\ngov.log(\'字数: \' + text.length);'
+            },
+            {
+                name: 'gov.writeExcel',
+                signature: 'gov.writeExcel(filename, data, options?)',
+                desc: '从空白生成 Excel 并下载。data 为二维数组或对象数组；options 可选 { sheetName }。若需基于已有 .xlsx 模板只填单元格，请用 gov.fillExcelTemplate。',
+                example: '// 二维数组\nconst rows = [[\'姓名\', \'分数\'], [\'张三\', 90]];\ngov.writeExcel(\'结果.xlsx\', rows, { sheetName: \'Sheet1\' });\n\n// 对象数组\nconst objs = [{ name: \'张三\', score: 90 }];\ngov.writeExcel(\'导出.xlsx\', objs);'
+            },
+            {
+                name: 'gov.fillWordTemplate',
+                signature: 'await gov.fillWordTemplate(templateFile, data, outputFilename)',
+                desc: '基于 .docx 模板（占位符 {name}、循环 {#items}...{/items}、条件 {#show}...{/show}）用 docxtemplater 渲染并下载。templateFile 为 File/Blob，或与已上传文件同名的字符串。',
+                example: 'await gov.fillWordTemplate(INPUT_FILE, {\n  name: \'张三\',\n  date: \'2024-01-01\',\n  items: [{ x: 1 }, { x: 2 }],\n  show: true\n}, \'报告.docx\');'
+            },
+            {
+                name: 'gov.fillExcelTemplate',
+                signature: 'await gov.fillExcelTemplate(templateFile, data, outputFilename)',
+                desc: '读取 .xlsx 模板，按单元格地址写入 data 后下载。data 可为 { A1: \'值\', B2: 123 }（默认第一个工作表），或 { Sheet1: { A1: \'值\' }, Sheet2: { B2: 2 } }。',
+                example: '// 单表\nawait gov.fillExcelTemplate(INPUT_FILE, { A1: \'标题\', B2: 100 }, \'导出.xlsx\');\n\n// 多表\nawait gov.fillExcelTemplate(\'tpl.xlsx\', {\n  Sheet1: { A1: \'a\' },\n  数据: { B3: \'b\' }\n}, \'结果.xlsx\');'
+            },
+            {
+                name: 'gov.writeCSV',
+                signature: 'gov.writeCSV(filename, data)',
+                desc: '将二维数组转为 CSV 并下载（UTF-8 BOM，便于 Excel 打开中文）。',
+                example: 'const rows = [[\'a\', \'b\'], [\'1\', \'2\']];\ngov.writeCSV(\'数据.csv\', rows);'
+            },
+            {
+                name: 'gov.writeText',
+                signature: 'gov.writeText(filename, content)',
+                desc: '将字符串写入纯文本文件并下载。',
+                example: 'gov.writeText(\'报告.txt\', \'第一行\\n第二行\');'
+            },
+            {
+                name: 'gov.writeJSON',
+                signature: 'gov.writeJSON(filename, data)',
+                desc: '将对象或数组格式化为 JSON（缩进 2 空格）并下载。',
+                example: 'const rows = await gov.querySQL(\'SELECT id, name FROM t LIMIT 10\');\ngov.writeJSON(\'查询结果.json\', rows);'
             },
             {
                 name: 'gov.querySQL',
@@ -5599,6 +7586,12 @@ const GOV_API_DOCS = [
                 signature: 'INPUT_TEXT : string | ""',
                 desc: '交互任务中用户输入的文本字符串。仅当任务输入方式含"文本输入"时有效，否则为空字符串。',
                 example: 'if (INPUT_TEXT) {\n  const rows = await gov.readCSV(INPUT_TEXT);\n  // ...\n}'
+            },
+            {
+                name: 'INPUT_FILES',
+                signature: 'INPUT_FILES : File[]',
+                desc: '当任务「多文件执行」为「合并为一次执行」时，为用户上传的全部文件数组；否则与单文件时一致（第一个文件同 INPUT_FILE）。',
+                example: 'for (const f of INPUT_FILES) {\n  gov.log(f.name);\n}'
             }
         ]
     },
@@ -5608,8 +7601,8 @@ const GOV_API_DOCS = [
             {
                 name: 'XLSX',
                 signature: 'XLSX (SheetJS)',
-                desc: '完整的 SheetJS 库，用于 Excel 文件读写。常用：XLSX.utils.sheet_to_json、XLSX.utils.json_to_sheet、XLSX.writeFile。',
-                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\n// 带表头的对象数组\nconst data = XLSX.utils.sheet_to_json(sheet);\n// 原始二维数组\nconst raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });'
+                desc: '完整的 SheetJS 库，用于 Excel 文件读写。常用：XLSX.utils.sheet_to_json、XLSX.utils.json_to_sheet、XLSX.writeFile。导出可直接用 gov.writeExcel（内部调用 XLSX.writeFile）。',
+                example: 'const wb = await gov.readExcel(INPUT_FILE);\nconst sheet = wb.Sheets[wb.SheetNames[0]];\n// 带表头的对象数组\nconst data = XLSX.utils.sheet_to_json(sheet);\n// 原始二维数组\nconst raw = XLSX.utils.sheet_to_json(sheet, { header: 1 });\n// 或导出：gov.writeExcel(\'out.xlsx\', raw);'
             },
             {
                 name: 'Papa',
@@ -5622,10 +7615,25 @@ const GOV_API_DOCS = [
                 signature: 'mammoth',
                 desc: 'Word 文档处理库。mammoth.extractRawText({ arrayBuffer }) 提取 .docx 纯文本，convertToHtml 转为 HTML。gov.readWord 已封装常用用法。',
                 example: '// gov.readWord 已封装，直接使用：\nconst result = await gov.readWord(INPUT_FILE);\ngov.log(result.value); // 纯文本'
+            },
+            {
+                name: 'PizZip',
+                signature: 'PizZip',
+                desc: '读写 docx 的 zip 结构。gov.fillWordTemplate 已封装；也可在任务代码中直接 new PizZip(arrayBuffer) 做自定义处理。',
+                example: 'const zip = new PizZip(buf);'
+            },
+            {
+                name: 'Docxtemplater',
+                signature: 'Docxtemplater',
+                desc: 'Word 模板占位符替换。gov.fillWordTemplate 已封装；也可 new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true }) 后 setData、render、getZip().generate。',
+                example: 'const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });\ndoc.setData({ name: \'x\' });\ndoc.render();'
             }
         ]
     }
 ];
+
+/** 治理任务函数说明（与 GOV_API_DOCS 相同，供帮助面板与检索） */
+const governanceFunctions = GOV_API_DOCS;
 
 function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');
@@ -5646,7 +7654,7 @@ function filterGovApiHelp(query) {
 function renderGovApiDocs(query) {
     const body = document.getElementById('govApiBody');
     let html = '';
-    for (const cat of GOV_API_DOCS) {
+    for (const cat of governanceFunctions) {
         const items = cat.items.filter(item =>
             !query ||
             item.name.toLowerCase().includes(query) ||
@@ -5679,6 +7687,8 @@ let ontoData = null;
 let ontoSimulation = null;
 let ontoInsightExpanded = true;
 let ontoSelectedDbId = null;
+let ontoGraphViewMode = '2d';
+let ontoThreeState = null;
 
 // ---- 颜色与配置 ----
 const ONTO_COLORS = {
@@ -5776,6 +7786,411 @@ function ontoNodeRadius(d) {
     return 18 + (d.importance || 0.5) * 16;
 }
 
+function ontoNodeRadius3D(d) {
+    return (ontoNodeRadius(d) / 14) * 0.85;
+}
+
+function syncOntologyViewToggleUI() {
+    const b2 = document.getElementById('ontoView2dBtn');
+    const b3 = document.getElementById('ontoView3dBtn');
+    if (b2) b2.classList.toggle('active', ontoGraphViewMode === '2d');
+    if (b3) b3.classList.toggle('active', ontoGraphViewMode === '3d');
+}
+
+function setOntologyGraphView(mode) {
+    ontoGraphViewMode = mode === '3d' ? '3d' : '2d';
+    syncOntologyViewToggleUI();
+    if (ontoData) renderOntologyGraph(ontoData, false);
+}
+
+function disposeOntologyGraph3D() {
+    if (!ontoThreeState) return;
+    const st = ontoThreeState;
+    if (st.raf) cancelAnimationFrame(st.raf);
+    if (st.onResize) window.removeEventListener('resize', st.onResize);
+    const domEl = st.renderer && st.renderer.domElement;
+    if (domEl && st._pickDown) domEl.removeEventListener('mousedown', st._pickDown);
+    if (domEl && st._pickUp) domEl.removeEventListener('mouseup', st._pickUp);
+    if (st.controls) {
+        if (typeof st.controls.dispose === 'function') st.controls.dispose();
+    }
+    if (st.sharedSphereGeom) st.sharedSphereGeom.dispose();
+    if (st.meshes) {
+        st.meshes.forEach(({ mesh }) => {
+            if (mesh.material) mesh.material.dispose();
+        });
+    }
+    if (st.lineBundles) {
+        st.lineBundles.forEach(b => {
+            if (b.glowGeo) b.glowGeo.dispose();
+            if (b.dashGeo) b.dashGeo.dispose();
+            if (b.glowMat) b.glowMat.dispose();
+            if (b.dashMat) b.dashMat.dispose();
+        });
+    }
+    if (st.renderer) {
+        st.renderer.dispose();
+        if (st.renderer.domElement && st.renderer.domElement.parentNode) {
+            st.renderer.domElement.parentNode.removeChild(st.renderer.domElement);
+        }
+    }
+    ontoThreeState = null;
+}
+
+/** 简单 3D 力导向一步：斥力 + 弹簧边 + 质心引力 + 阻尼 */
+function ontoForceLayout3DStep(nodes, links, opts) {
+    const repulsion = opts.repulsion ?? 1200;
+    const attraction = opts.attraction ?? 0.06;
+    const centerGrav = opts.centerGrav ?? 0.018;
+    const damping = opts.damping ?? 0.88;
+    const dt = opts.dt ?? 0.45;
+    const n = nodes.length;
+    for (let i = 0; i < n; i++) {
+        nodes[i].ax = 0;
+        nodes[i].ay = 0;
+        nodes[i].az = 0;
+    }
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            let dx = nodes[j].x - nodes[i].x;
+            let dy = nodes[j].y - nodes[i].y;
+            let dz = nodes[j].z - nodes[i].z;
+            let distSq = dx * dx + dy * dy + dz * dz;
+            const dist = Math.sqrt(distSq) || 0.01;
+            const f = repulsion / distSq;
+            dx /= dist;
+            dy /= dist;
+            dz /= dist;
+            nodes[i].ax -= f * dx;
+            nodes[i].ay -= f * dy;
+            nodes[i].az -= f * dz;
+            nodes[j].ax += f * dx;
+            nodes[j].ay += f * dy;
+            nodes[j].az += f * dz;
+        }
+    }
+    for (let li = 0; li < links.length; li++) {
+        const l = links[li];
+        const a = l.source;
+        const b = l.target;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dz = b.z - a.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.01;
+        dx /= dist;
+        dy /= dist;
+        dz /= dist;
+        const ideal = l.idealLength ?? 7;
+        const f = (dist - ideal) * attraction;
+        a.ax += f * dx;
+        a.ay += f * dy;
+        a.az += f * dz;
+        b.ax -= f * dx;
+        b.ay -= f * dy;
+        b.az -= f * dz;
+    }
+    for (let i = 0; i < n; i++) {
+        const p = nodes[i];
+        p.ax -= p.x * centerGrav;
+        p.ay -= p.y * centerGrav;
+        p.az -= p.z * centerGrav;
+        p.vx = (p.vx + p.ax * dt) * damping;
+        p.vy = (p.vy + p.ay * dt) * damping;
+        p.vz = (p.vz + p.az * dt) * damping;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+    }
+}
+
+function createOntoOrbitControls(camera, domElement) {
+    if (typeof THREE === 'undefined') return null;
+    const OC = THREE.OrbitControls || (typeof OrbitControls !== 'undefined' ? OrbitControls : null);
+    if (OC) {
+        const c = new OC(camera, domElement);
+        c.enableDamping = true;
+        c.dampingFactor = 0.06;
+        c.minDistance = 8;
+        c.maxDistance = 120;
+        return c;
+    }
+    const target = new THREE.Vector3(0, 0, 0);
+    let radius = 42;
+    let phi = Math.acos(0.45);
+    let theta = 0.55;
+    function updateCam() {
+        const sp = Math.sin(phi);
+        camera.position.set(
+            target.x + radius * sp * Math.cos(theta),
+            target.y + radius * Math.cos(phi),
+            target.z + radius * sp * Math.sin(theta)
+        );
+        camera.lookAt(target);
+    }
+    updateCam();
+    let down = false;
+    let lx = 0;
+    let ly = 0;
+    const onDown = e => { down = true; lx = e.clientX; ly = e.clientY; };
+    const onMove = e => {
+        if (!down) return;
+        theta += (e.clientX - lx) * 0.01;
+        phi += (e.clientY - ly) * 0.01;
+        phi = Math.max(0.12, Math.min(Math.PI - 0.12, phi));
+        lx = e.clientX;
+        ly = e.clientY;
+        updateCam();
+    };
+    const onUp = () => { down = false; };
+    const onWheel = e => {
+        e.preventDefault();
+        radius *= 1 + e.deltaY * 0.0012;
+        radius = Math.max(8, Math.min(140, radius));
+        updateCam();
+    };
+    domElement.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    domElement.addEventListener('wheel', onWheel, { passive: false });
+    return {
+        target,
+        update: () => {},
+        dispose: () => {
+            domElement.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            domElement.removeEventListener('wheel', onWheel);
+        },
+    };
+}
+
+/**
+ * Three.js 3D 力导向知识图谱（复用 ontoData / ONTO_COLORS）
+ */
+function renderOntologyGraph3D(data, animate) {
+    if (typeof THREE === 'undefined') return;
+    disposeOntologyGraph3D();
+
+    const container = document.getElementById('ontoGraph3d');
+    if (!container) return;
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 600;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0d1020, 0.012);
+
+    const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
+    camera.position.set(0, 6, 38);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(W, H);
+    renderer.setClearColor(0x0d1020, 1);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0x6a7ba8, 0.35));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.55);
+    dir.position.set(12, 24, 20);
+    scene.add(dir);
+    const pt = new THREE.PointLight(0x8899ff, 0.4, 80);
+    pt.position.set(-10, 10, 10);
+    scene.add(pt);
+
+    const nodes = (data.concepts || []).map(c => ({
+        ...c,
+        x: (Math.random() - 0.5) * 22,
+        y: (Math.random() - 0.5) * 18,
+        z: (Math.random() - 0.5) * 22,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+    }));
+    const nodeById = {};
+    nodes.forEach(n => { nodeById[n.id] = n; });
+    const links = (data.relations || [])
+        .filter(r => nodeById[r.source] && nodeById[r.target])
+        .map(r => ({
+            ...r,
+            source: nodeById[r.source],
+            target: nodeById[r.target],
+            idealLength: r.type === 'conflict' ? 5.5 : 8.2,
+        }));
+
+    for (let s = 0; s < 140; s++) {
+        ontoForceLayout3DStep(nodes, links, { repulsion: 1400, attraction: 0.07, damping: 0.9, dt: 0.38 });
+    }
+
+    const meshes = [];
+    const sphereGeomShared = new THREE.SphereGeometry(1, 28, 28);
+    nodes.forEach((d, idx) => {
+        const cfg = ONTO_COLORS[d.category] || ONTO_COLORS.entity;
+        const col = new THREE.Color(cfg.fill);
+        const mat = new THREE.MeshStandardMaterial({
+            color: col,
+            emissive: col,
+            emissiveIntensity: 0.32,
+            metalness: 0.25,
+            roughness: 0.42,
+        });
+        const mesh = new THREE.Mesh(sphereGeomShared, mat);
+        const r = ontoNodeRadius3D(d);
+        mesh.scale.setScalar(r);
+        mesh.position.set(d.x, d.y, d.z);
+        mesh.userData.ontoId = d.id;
+        mesh.userData.phase = idx * 0.73;
+        scene.add(mesh);
+        meshes.push({ mesh, data: d, baseR: r });
+    });
+
+    const lineBundles = [];
+    links.forEach(l => {
+        const isConflict = l.type === 'conflict';
+        const cGlow = new THREE.Color(isConflict ? 0xe17055 : 0x8899ff);
+        const glowGeo = new THREE.BufferGeometry();
+        const glowPos = new Float32Array(6);
+        glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
+        const glowMat = new THREE.LineBasicMaterial({
+            color: cGlow,
+            transparent: true,
+            opacity: isConflict ? 0.55 : 0.38,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+        const glowLine = new THREE.Line(glowGeo, glowMat);
+        scene.add(glowLine);
+
+        const dashGeo = new THREE.BufferGeometry();
+        const dashPos = new Float32Array(6);
+        dashGeo.setAttribute('position', new THREE.BufferAttribute(dashPos, 3));
+        const dashMat = new THREE.LineDashedMaterial({
+            color: isConflict ? 0xff8a70 : 0xb4c4ff,
+            dashSize: 0.55,
+            gapSize: 0.38,
+            transparent: true,
+            opacity: 0.92,
+        });
+        const dashLine = new THREE.Line(dashGeo, dashMat);
+        scene.add(dashLine);
+
+        lineBundles.push({ l, glowGeo, dashGeo, glowMat, dashMat, glowLine, dashLine });
+    });
+
+    const controls = createOntoOrbitControls(camera, renderer.domElement);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let pickDownX = 0;
+    let pickDownY = 0;
+
+    const st = {
+        raf: null,
+        renderer,
+        scene,
+        camera,
+        controls,
+        meshes,
+        lineBundles,
+        nodes,
+        links,
+        selectedId: null,
+        clock: new THREE.Clock(),
+        timeEnter: performance.now(),
+        sharedSphereGeom: sphereGeomShared,
+        didAnimateEnter: !!animate,
+    };
+    ontoThreeState = st;
+
+    const onResize = () => {
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w < 2 || h < 2) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    };
+    st.onResize = onResize;
+    window.addEventListener('resize', onResize);
+
+    st._pickDown = e => { pickDownX = e.clientX; pickDownY = e.clientY; };
+    st._pickUp = e => {
+        if (Math.hypot(e.clientX - pickDownX, e.clientY - pickDownY) > 10) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const objs = meshes.map(m => m.mesh);
+        const hits = raycaster.intersectObjects(objs, false);
+        if (hits.length) {
+            const d = hits[0].object.userData.ontoNodeRef || nodes.find(n => n.id === hits[0].object.userData.ontoId);
+            if (d) showNodeDetail(d, nodes, links);
+        } else {
+            closeNodeDetail();
+        }
+    };
+    renderer.domElement.addEventListener('mousedown', st._pickDown);
+    renderer.domElement.addEventListener('mouseup', st._pickUp);
+
+    // 供 raycast 与详情面板使用完整节点、边（与 D3 一致的对象引用）
+    meshes.forEach(({ mesh, data }) => {
+        mesh.userData.ontoNodeRef = data;
+    });
+
+    function animate() {
+        st.raf = requestAnimationFrame(animate);
+        const t = st.clock.getElapsedTime();
+        let enterScale = 1;
+        if (st.didAnimateEnter) {
+            const u = Math.min(1, (performance.now() - st.timeEnter) / 880);
+            enterScale = 0.04 + (1 - 0.04) * (1 - Math.pow(1 - u, 3));
+            if (u >= 1) st.didAnimateEnter = false;
+        }
+
+        ontoForceLayout3DStep(nodes, links, { repulsion: 320, attraction: 0.035, damping: 0.92, dt: 0.28 });
+
+        meshes.forEach(({ mesh, data, baseR }) => {
+            const phase = mesh.userData.phase || 0;
+            const hover = Math.sin(t * 1.6 + phase) * 0.22;
+            mesh.position.set(data.x, data.y + hover, data.z);
+            const sel = st.selectedId && data.id === st.selectedId;
+            mesh.material.emissiveIntensity = sel ? 0.72 : 0.3 + Math.sin(t * 2.2 + phase) * 0.06;
+            const pulse = sel ? 1.14 : 1 + Math.sin(t * 1.9 + phase) * 0.04;
+            mesh.scale.setScalar(baseR * pulse * enterScale);
+        });
+
+        lineBundles.forEach(b => {
+            const a = b.l.source;
+            const bnode = b.l.target;
+            const tA = meshes.find(m => m.data.id === a.id);
+            const tB = meshes.find(m => m.data.id === bnode.id);
+            if (!tA || !tB) return;
+            const ax = tA.mesh.position.x;
+            const ay = tA.mesh.position.y;
+            const az = tA.mesh.position.z;
+            const bx = tB.mesh.position.x;
+            const by = tB.mesh.position.y;
+            const bz = tB.mesh.position.z;
+            const arrG = b.glowGeo.attributes.position.array;
+            arrG[0] = ax;
+            arrG[1] = ay;
+            arrG[2] = az;
+            arrG[3] = bx;
+            arrG[4] = by;
+            arrG[5] = bz;
+            b.glowGeo.attributes.position.needsUpdate = true;
+            const arrD = b.dashGeo.attributes.position.array;
+            arrD.set(arrG);
+            b.dashGeo.attributes.position.needsUpdate = true;
+            b.dashLine.computeLineDistances();
+            b.dashMat.dashOffset -= 0.045;
+        });
+
+        if (controls && controls.update) controls.update();
+        renderer.render(scene, camera);
+    }
+
+    animate();
+}
+
 // ---- 初始化/渲染知识图谱 ----
 function renderOntologyGraph(data, animate) {
     if (!data) return;
@@ -5786,6 +8201,39 @@ function renderOntologyGraph(data, animate) {
 
     // 隐藏欢迎界面
     document.getElementById('ontoWelcome').style.display = 'none';
+
+    const viewToggle = document.getElementById('ontoViewToggle');
+    const viewSep = document.getElementById('ontoViewToggleSep');
+    if (viewToggle) viewToggle.style.display = 'inline-flex';
+    if (viewSep) viewSep.style.display = '';
+
+    if (ontoGraphViewMode === '3d') {
+        if (typeof THREE === 'undefined') {
+            showOntoToast('⚠️ Three.js 未加载，已切回 2D 视图', true);
+            ontoGraphViewMode = '2d';
+            syncOntologyViewToggleUI();
+        } else {
+            if (ontoSimulation) {
+                ontoSimulation.stop();
+                ontoSimulation = null;
+            }
+            d3.select('#ontoSvg').selectAll('*').remove();
+            svgEl.style.display = 'none';
+            const g3 = document.getElementById('ontoGraph3d');
+            if (g3) g3.style.display = 'block';
+            renderOntologyGraph3D(data, animate);
+            document.getElementById('ontoQueryBar').classList.remove('onto-query-disabled');
+            document.getElementById('ontoClearBtn').style.display = '';
+            updateOntoStats(data);
+            renderInsights(data.insights || []);
+            return;
+        }
+    }
+
+    disposeOntologyGraph3D();
+    svgEl.style.display = '';
+    const g3el = document.getElementById('ontoGraph3d');
+    if (g3el) g3el.style.display = 'none';
 
     const W = svgEl.parentElement.clientWidth;
     const H = svgEl.parentElement.clientHeight;
@@ -5983,6 +8431,8 @@ function highlightInsight(idx) {
 
 // ---- 节点详情 ----
 function showNodeDetail(d, nodes, links) {
+    if (ontoGraphViewMode === '3d' && ontoThreeState) ontoThreeState.selectedId = d.id;
+
     const popup = document.getElementById('ontoNodePopup');
     const badge = document.getElementById('ontoPopupBadge');
     const title = document.getElementById('ontoPopupTitle');
@@ -6039,21 +8489,26 @@ function showNodeDetail(d, nodes, links) {
 
     popup.style.display = '';
 
-    // 高亮当前节点
-    d3.selectAll('.onto-node').each(function(nd) {
-        const active = nd.id === d.id;
-        d3.select(this).select('.onto-node-circle')
-            .transition().duration(200)
-            .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
-            .attr('stroke-width', active ? 4 : 2)
-            .attr('opacity', active ? 1 : 0.55);
-    });
+    // 高亮当前节点（仅 2D SVG）
+    if (ontoGraphViewMode === '2d' && document.querySelector('.onto-node')) {
+        d3.selectAll('.onto-node').each(function(nd) {
+            const active = nd.id === d.id;
+            d3.select(this).select('.onto-node-circle')
+                .transition().duration(200)
+                .attr('filter', active ? 'url(#onto-glow-strong)' : 'url(#onto-glow)')
+                .attr('stroke-width', active ? 4 : 2)
+                .attr('opacity', active ? 1 : 0.55);
+        });
+    }
 }
 
 function closeNodeDetail() {
     document.getElementById('ontoNodePopup').style.display = 'none';
-    d3.selectAll('.onto-node .onto-node-circle')
-        .transition().duration(200).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+    if (ontoThreeState) ontoThreeState.selectedId = null;
+    if (ontoGraphViewMode === '2d' && document.querySelector('.onto-node')) {
+        d3.selectAll('.onto-node .onto-node-circle')
+            .transition().duration(200).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
+    }
 }
 
 // ---- 加载演示数据 ----
@@ -6088,7 +8543,6 @@ function startOntologyExtract() {
     }
     const dbIds = [ontoSelectedDbId];
     showOntologyLoading('AI 正在分析数据库结构...');
-    const token = localStorage.getItem('dataOntologyToken');
 
     let progress2 = 0;
     const pi2 = setInterval(() => {
@@ -6096,12 +8550,16 @@ function startOntologyExtract() {
         document.getElementById('ontoAiProgressBar').style.width = progress2 + '%';
     }, 300);
 
-    fetch('/api/data-ontology/ontology/extract', {
+    fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/extract`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ databases: dbIds }),
     }).then(async res => {
         clearInterval(pi2);
+        if (res.status === 401) {
+            hideOntologyLoading();
+            return;
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = '';
@@ -6157,8 +8615,17 @@ function ontoHandleSSE(type, data) {
 // ---- 清空图谱 ----
 function clearOntology() {
     if (ontoSimulation) { ontoSimulation.stop(); ontoSimulation = null; }
+    disposeOntologyGraph3D();
     ontoData = null;
     d3.select('#ontoSvg').selectAll('*').remove();
+    const svgEl = document.getElementById('ontoSvg');
+    if (svgEl) svgEl.style.display = '';
+    const g3 = document.getElementById('ontoGraph3d');
+    if (g3) g3.style.display = 'none';
+    const viewToggle = document.getElementById('ontoViewToggle');
+    const viewSep = document.getElementById('ontoViewToggleSep');
+    if (viewToggle) viewToggle.style.display = 'none';
+    if (viewSep) viewSep.style.display = 'none';
     document.getElementById('ontoWelcome').style.display = '';
     document.getElementById('ontoQueryBar').classList.add('onto-query-disabled');
     document.getElementById('ontoClearBtn').style.display = 'none';
@@ -6181,15 +8648,15 @@ async function doOntologyQuery() {
 
     const resultEl = document.getElementById('ontoQueryResult');
     resultEl.style.display = '';
-    resultEl.innerHTML = '<span style="color:#667eea">🧠 AI正在进行语义推理...</span>';
+    resultEl.innerHTML = '<span style="color:#667eea">💡 AI正在进行语义推理...</span>';
 
-    const token = localStorage.getItem('dataOntologyToken');
     try {
-        const res = await fetch('/api/data-ontology/ontology/query', {
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/query`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, ontology: ontoData }),
         });
+        if (res.status === 401) return;
         const data = await res.json();
         if (data.success) {
             // 高亮相关节点
@@ -6209,13 +8676,13 @@ async function doOntologyQuery() {
             }
             // 格式化回答
             let answer = data.answer || '';
-            answer = answer.replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
+            answer = escapeHtml(answer).replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
             resultEl.innerHTML = answer;
         } else {
-            resultEl.innerHTML = `<span style="color:#E17055">❌ ${data.message}</span>`;
+            resultEl.innerHTML = `<span style="color:#E17055">❌ ${escapeHtml(data.message)}</span>`;
         }
     } catch (e) {
-        resultEl.innerHTML = `<span style="color:#E17055">❌ 请求失败：${e.message}</span>`;
+        resultEl.innerHTML = `<span style="color:#E17055">❌ 请求失败：${escapeHtml(e.message)}</span>`;
     }
     btn.disabled = false;
     btn.innerHTML = '<span>🔍</span> 语义分析';
@@ -6260,7 +8727,7 @@ const DB_TYPE_ICONS = {
 };
 
 function getDbIcon(type) {
-    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '🗄️';
+    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '📦';
 }
 
 // ---- 自定义下拉：开关 ----
@@ -6297,6 +8764,10 @@ document.addEventListener('click', () => {
     const btn = document.getElementById('ontoDbBtn');
     if (dd) dd.classList.remove('open');
     if (btn) btn.classList.remove('active');
+    const ldd = document.getElementById('lineageDbDropdown');
+    const lbtn = document.getElementById('lineageDbBtn');
+    if (ldd) ldd.classList.remove('open');
+    if (lbtn) lbtn.classList.remove('active');
 });
 
 // ---- 初始化：本体论 tab 激活时同步数据库列表 ----
@@ -6347,8 +8818,858 @@ function initOntologyTab() {
     }
 }
 
+// ---- 数据血缘 ----
+let lineageSelectedDbId = null;
+let lineageSimulation = null;
+let lineageFocusTableId = null;
+let lineageParticleRafId = null;
+
+function lineageStopParticleLoop() {
+    if (lineageParticleRafId != null) {
+        cancelAnimationFrame(lineageParticleRafId);
+        lineageParticleRafId = null;
+    }
+}
+
+function lineageQuadBezierPoint(p0, p1, p2, t) {
+    const u = 1 - t;
+    return {
+        x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+        y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y
+    };
+}
+
+function lineageShortTableName(full) {
+    if (!full) return '';
+    const s = String(full);
+    const i = s.lastIndexOf('.');
+    return i >= 0 ? s.slice(i + 1) : s;
+}
+
+function toggleLineageDbPicker(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('lineageDbDropdown');
+    const btn = document.getElementById('lineageDbBtn');
+    if (!dd || !btn) return;
+    const isOpen = dd.classList.contains('open');
+    dd.classList.toggle('open', !isOpen);
+    btn.classList.toggle('active', !isOpen);
+}
+
+function selectLineageDb(dbId, dbName, dbType) {
+    lineageSelectedDbId = dbId;
+    const textEl = document.getElementById('lineageDbBtnText');
+    if (textEl) {
+        textEl.textContent = `${getDbIcon(dbType)} ${dbName}`;
+        textEl.classList.remove('placeholder');
+    }
+    document.querySelectorAll('.lineage-db-option').forEach(el => {
+        const sel = el.dataset.dbId === dbId;
+        el.classList.toggle('selected', sel);
+        const c = el.querySelector('.lineage-db-option-check');
+        if (c) c.style.display = sel ? '' : 'none';
+    });
+    const dd = document.getElementById('lineageDbDropdown');
+    const btn = document.getElementById('lineageDbBtn');
+    if (dd) dd.classList.remove('open');
+    if (btn) btn.classList.remove('active');
+}
+
+function initLineageTab() {
+    const dropdown = document.getElementById('lineageDbDropdown');
+    const emptyEl = document.getElementById('lineageDbDropdownEmpty');
+    if (!dropdown) return;
+    dropdown.querySelectorAll('.lineage-db-option').forEach(el => el.remove());
+    if (databases.length === 0) {
+        if (emptyEl) emptyEl.style.display = '';
+    } else {
+        if (emptyEl) emptyEl.style.display = 'none';
+        databases.forEach(db => {
+            const item = document.createElement('div');
+            item.className = 'lineage-db-option';
+            item.dataset.dbId = db.id;
+            const isSelected = db.id === lineageSelectedDbId;
+            if (isSelected) item.classList.add('selected');
+            item.innerHTML = `
+                <span>${getDbIcon(db.type)}</span>
+                <span style="flex:1;min-width:0"><strong>${escapeHtml(db.name)}</strong><br><span style="color:#a0aec0;font-size:11px">${escapeHtml(db.type || '')}</span></span>
+                <span class="lineage-db-option-check" style="display:${isSelected ? '' : 'none'}">✓</span>`;
+            item.onclick = (ev) => {
+                ev.stopPropagation();
+                selectLineageDb(db.id, db.name, db.type);
+            };
+            dropdown.appendChild(item);
+        });
+        if (!lineageSelectedDbId) {
+            const te = document.getElementById('lineageDbBtnText');
+            if (te) { te.textContent = '选择数据库'; te.classList.add('placeholder'); }
+        }
+    }
+    if (!window._lineageResizeRegistered) {
+        window._lineageResizeRegistered = true;
+        window.addEventListener('resize', () => {
+            if (lineageSelectedDbId && window.lineageLastPayload) {
+                renderLineageGraph(window.lineageLastPayload);
+            }
+        });
+    }
+}
+
+function lineageDirectedLinksFromEdges(edges) {
+    return (edges || []).map(e => {
+        if (e.kind === 'etl') {
+            return { s: e.fromTable, t: e.toTable, kind: 'etl', fromColumn: e.fromColumn, toColumn: e.toColumn };
+        }
+        return { s: e.toTable, t: e.fromTable, kind: 'fk', fromColumn: e.fromColumn, toColumn: e.toColumn };
+    });
+}
+
+function lineageNeighborsUp(tableId, dlinks) {
+    const out = new Set();
+    dlinks.forEach(l => {
+        if (l.t === tableId) out.add(l.s);
+    });
+    return out;
+}
+
+function lineageNeighborsDown(tableId, dlinks) {
+    const out = new Set();
+    dlinks.forEach(l => {
+        if (l.s === tableId) out.add(l.t);
+    });
+    return out;
+}
+
+function lineageExpandedUpstreamIds(focusId, dlinks) {
+    const up = lineageNeighborsUp(focusId, dlinks);
+    const down = lineageNeighborsDown(focusId, dlinks);
+    const expanded = new Set(up);
+    down.forEach(c => {
+        lineageNeighborsUp(c, dlinks).forEach(p => {
+            if (p !== focusId) expanded.add(p);
+        });
+    });
+    return expanded;
+}
+
+function lineageDownstreamBfsIds(focusId, dlinks) {
+    const seen = new Set();
+    const q = [focusId];
+    seen.add(focusId);
+    while (q.length) {
+        const n = q.shift();
+        dlinks.forEach(l => {
+            if (l.s === n && !seen.has(l.t)) {
+                seen.add(l.t);
+                q.push(l.t);
+            }
+        });
+    }
+    seen.delete(focusId);
+    return seen;
+}
+
+/** 血缘节点标签拆行：优先 schema.table 两行，否则按长度折行 */
+function lineageTableLabelLines(full) {
+    const s = String(full || '');
+    if (!s) return [''];
+    const max1 = 26;
+    if (s.length <= max1) return [s];
+    const dot = s.lastIndexOf('.');
+    if (dot > 0) {
+        const schema = s.slice(0, dot + 1);
+        const table = s.slice(dot + 1);
+        if (schema.length <= max1 && table.length <= max1) return [schema, table];
+    }
+    const lines = [];
+    for (let i = 0; i < s.length; i += max1) lines.push(s.slice(i, i + max1));
+    return lines;
+}
+
+function lineageMeasureNodeBoxes(svg, nodes) {
+    const tmp = svg.append('text')
+        .attr('class', 'lineage-node-label lineage-node-label-measure')
+        .attr('visibility', 'hidden')
+        .attr('x', -9999)
+        .attr('y', -9999);
+    const lineHeight = 14;
+    const padX = 12;
+    const padY = 8;
+    const maxLabelWidth = 320;
+    const minW = 80;
+    nodes.forEach(d => {
+        d._lines = lineageTableLabelLines(d.full || d.id);
+        let maxW = 0;
+        d._lines.forEach(line => {
+            tmp.text(line);
+            try {
+                const bb = tmp.node().getBBox();
+                maxW = Math.max(maxW, bb.width);
+            } catch (e) {
+                maxW = Math.max(maxW, line.length * 7);
+            }
+        });
+        d._nw = Math.min(maxLabelWidth, Math.max(minW, maxW + padX * 2));
+        d._nh = d._lines.length * lineHeight + padY * 2;
+        d.lw = d._nw / 2;
+        d.lh = d._nh / 2;
+    });
+    tmp.remove();
+}
+
+function lineageLineEndpoints(sx, sy, tx, ty, offS, offT) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) return { x1: sx, y1: sy, x2: tx, y2: ty };
+    const ux = dx / len;
+    const uy = dy / len;
+    return {
+        x1: sx + ux * offS,
+        y1: sy + uy * offS,
+        x2: tx - ux * offT,
+        y2: ty - uy * offT
+    };
+}
+
+function lineageLinkCurveGeom(d, bias) {
+    const offS = Math.hypot(d.source.lw, d.source.lh) + 4;
+    const offT = Math.hypot(d.target.lw, d.target.lh) + 4;
+    const { x1, y1, x2, y2 } = lineageLineEndpoints(
+        d.source.x, d.source.y, d.target.x, d.target.y, offS, offT
+    );
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len;
+    const py = dx / len;
+    const curve = 0.24 * len + (bias || 0);
+    const cx = mx + px * curve;
+    const cy = my + py * curve;
+    return {
+        x1, y1, cx, cy, x2, y2,
+        dPath: `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`
+    };
+}
+
+function applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount) {
+    const dlinks = lineageDirectedLinksFromEdges(edges);
+    const base = `${tables.length} 张表 · ${edgeCount} 条依赖`;
+    if (!statsEl) return;
+    if (!lineageFocusTableId) {
+        statsEl.textContent = `${base} · 单击表节点查看上下游，双击空白处取消`;
+        nodeSel.selectAll('.lineage-node-shape').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', 'url(#lineage-node-stroke-grad)');
+        linkItems.selectAll('path').attr('opacity', 1);
+        linkItems.selectAll('.lineage-particle').attr('opacity', 1);
+        return;
+    }
+    const focus = lineageFocusTableId;
+    const up = lineageExpandedUpstreamIds(focus, dlinks);
+    const down = lineageDownstreamBfsIds(focus, dlinks);
+    const keep = new Set([focus, ...up, ...down]);
+    const upStr = [...up].sort().join(', ') || '—';
+    const downStr = [...down].sort().join(', ') || '—';
+    statsEl.innerHTML = `${escapeHtml(base)} · 选中 <code style="color:#67e8f9">${escapeHtml(focus)}</code> · 上游: ${escapeHtml(upStr)} · 下游: ${escapeHtml(downStr)}`;
+
+    nodeSel.selectAll('.lineage-node-shape')
+        .attr('opacity', d => (keep.has(d.id) ? 1 : 0.15))
+        .attr('stroke-width', d => (d.id === focus ? 3.5 : 2))
+        .attr('stroke', d => (d.id === focus ? '#fbbf24' : 'url(#lineage-node-stroke-grad)'));
+
+    const linkOp = d => {
+        const sid = d.source.id;
+        const tid = d.target.id;
+        return keep.has(sid) && keep.has(tid) ? 1 : 0.12;
+    };
+    linkItems.selectAll('path').attr('opacity', linkOp);
+    linkItems.selectAll('.lineage-particle').attr('opacity', linkOp);
+}
+
+async function loadLineageGraph() {
+    if (!lineageSelectedDbId) {
+        showOntoToast('请先选择数据库', true);
+        return;
+    }
+    lineageFocusTableId = null;
+    try {
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`);
+        const data = await res.json();
+        if (!data.success) {
+            showOntoToast(data.message || '血缘分析失败', true);
+            return;
+        }
+        window.lineageLastPayload = data;
+        renderLineageGraph(data);
+        if (data.message) showOntoToast(data.message);
+    } catch (err) {
+        showOntoToast('请求失败: ' + (err.message || String(err)), true);
+    }
+}
+
+function renderLineageGraph(data) {
+    const svgEl = document.getElementById('lineageSvg');
+    const ph = document.getElementById('lineagePlaceholder');
+    const statsEl = document.getElementById('lineageStats');
+    const listEl = document.getElementById('lineageEdgeList');
+    if (!svgEl || !data) return;
+
+    const tables = data.tables || [];
+    const edges = data.edges || [];
+    const edgeCount = data.edgeCount != null ? data.edgeCount : edges.length;
+
+    if (listEl) {
+        if (edges.length === 0) {
+            listEl.innerHTML = '<div style="color:#a0aec0;padding:12px">未检测到外键约束</div>';
+        } else {
+            listEl.innerHTML = edges.map(e => {
+                const ft = escapeHtml(e.fromTable || '');
+                const fc = escapeHtml(e.fromColumn || '');
+                const tt = escapeHtml(e.toTable || '');
+                const tc = escapeHtml(e.toColumn || '');
+                const tag = e.kind === 'etl' ? ' <span style="color:#f6ad55;font-size:11px">ETL</span>' : '';
+                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> → <code>${tt}</code>.<code>${tc}</code>${tag}</div>`;
+            }).join('');
+        }
+    }
+
+    const nodeById = new Map();
+    tables.forEach(t => nodeById.set(t, { id: t, label: lineageShortTableName(t), full: t }));
+    edges.forEach(e => {
+        if (!nodeById.has(e.fromTable)) nodeById.set(e.fromTable, { id: e.fromTable, label: lineageShortTableName(e.fromTable), full: e.fromTable });
+        if (!nodeById.has(e.toTable)) nodeById.set(e.toTable, { id: e.toTable, label: lineageShortTableName(e.toTable), full: e.toTable });
+    });
+    const nodes = Array.from(nodeById.values());
+    const links = edges.map(e => {
+        if (e.kind === 'etl') {
+            return {
+                source: e.fromTable,
+                target: e.toTable,
+                fromColumn: e.fromColumn,
+                toColumn: e.toColumn,
+                kind: 'etl'
+            };
+        }
+        return {
+            source: e.toTable,
+            target: e.fromTable,
+            fromColumn: e.fromColumn,
+            toColumn: e.toColumn,
+            kind: 'fk'
+        };
+    });
+
+    if (nodes.length === 0) {
+        lineageStopParticleLoop();
+        if (ph) ph.style.display = '';
+        d3.select('#lineageSvg').selectAll('*').remove();
+        if (lineageSimulation) { lineageSimulation.stop(); lineageSimulation = null; }
+        return;
+    }
+    if (ph) ph.style.display = 'none';
+
+    const wrap = document.getElementById('lineageChartWrap');
+    const W = (wrap && wrap.clientWidth) || svgEl.parentElement.clientWidth || 600;
+    const H = (wrap && wrap.clientHeight) || svgEl.parentElement.clientHeight || 400;
+
+    lineageStopParticleLoop();
+    const svg = d3.select('#lineageSvg').attr('width', W).attr('height', H);
+    svg.selectAll('*').remove();
+
+    const defs = svg.append('defs');
+    const nodeFillGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-node-fill-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+    nodeFillGrad.append('stop').attr('offset', '0%').attr('stop-color', '#1e3a5f');
+    nodeFillGrad.append('stop').attr('offset', '55%').attr('stop-color', '#312e81');
+    nodeFillGrad.append('stop').attr('offset', '100%').attr('stop-color', '#4c1d95');
+
+    const nodeStrokeGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-node-stroke-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+    nodeStrokeGrad.append('stop').attr('offset', '0%').attr('stop-color', '#22d3ee');
+    nodeStrokeGrad.append('stop').attr('offset', '100%').attr('stop-color', '#a78bfa');
+
+    const arrowGrad = defs.append('linearGradient')
+        .attr('id', 'lineage-arrow-grad')
+        .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '0%');
+    arrowGrad.append('stop').attr('offset', '0%').attr('stop-color', '#67e8f9');
+    arrowGrad.append('stop').attr('offset', '100%').attr('stop-color', '#c4b5fd');
+
+    const m = defs.append('marker')
+        .attr('id', 'lineage-arrow')
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 9)
+        .attr('refY', 0)
+        .attr('markerWidth', 7)
+        .attr('markerHeight', 7)
+        .attr('orient', 'auto');
+    m.append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'url(#lineage-arrow-grad)');
+
+    const mainG = svg.append('g').attr('class', 'lineage-main-g');
+    const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', ev => mainG.attr('transform', ev.transform));
+    svg.call(zoom).on('dblclick.zoom', null);
+
+    const nodeMap = {};
+    nodes.forEach(n => { n.x = W / 2 + (Math.random() - 0.5) * 200; n.y = H / 2 + (Math.random() - 0.5) * 200; nodeMap[n.id] = n; });
+    const linkData = links.filter(l => nodeMap[l.source] && nodeMap[l.target]).map(l => ({
+        source: nodeMap[l.source],
+        target: nodeMap[l.target],
+        fromColumn: l.fromColumn,
+        toColumn: l.toColumn,
+        kind: l.kind || 'fk'
+    }));
+
+    const pairCount = new Map();
+    linkData.forEach(d => {
+        const key = `${d.source.id}\0${d.target.id}`;
+        const n = pairCount.get(key) || 0;
+        pairCount.set(key, n + 1);
+        d._curveBias = (n % 2 === 0 ? 1 : -1) * (Math.floor(n / 2) + 1) * 14;
+    });
+
+    lineageMeasureNodeBoxes(svg, nodes);
+
+    if (lineageSimulation) lineageSimulation.stop();
+    lineageSimulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(linkData).id(d => d.id).distance(d => (d.kind === 'etl' ? 150 : 125)))
+        .force('charge', d3.forceManyBody().strength(-420))
+        .force('center', d3.forceCenter(W / 2, H / 2))
+        .force('collision', d3.forceCollide().radius(d => Math.hypot(d.lw, d.lh) + 22));
+
+    const linkG = mainG.append('g').attr('class', 'lineage-links-layer');
+    const linkItems = linkG.selectAll('g.lineage-link-item')
+        .data(linkData)
+        .enter()
+        .append('g')
+        .attr('class', d => `lineage-link-item ${d.kind === 'etl' ? 'lineage-link-item-etl' : 'lineage-link-item-fk'}`);
+
+    linkItems.each(function (d) {
+        const g = d3.select(this);
+        const baseKind = d.kind === 'etl' ? 'lineage-link-kind-etl' : 'lineage-link-kind-fk';
+        g.append('path')
+            .attr('class', `lineage-link-base lineage-link-path ${baseKind}`)
+            .attr('fill', 'none')
+            .attr('marker-end', 'url(#lineage-arrow)');
+        const flowClass = d.kind === 'etl' ? 'lineage-link-flow lineage-link-flow-etl' : 'lineage-link-flow lineage-link-flow-fk';
+        g.append('path')
+            .attr('class', flowClass)
+            .attr('fill', 'none')
+            .attr('pointer-events', 'none');
+        const radii = [3.4, 2.6, 2.2];
+        radii.forEach((r, i) => {
+            g.append('circle')
+                .attr('class', `lineage-particle lineage-particle-${i}`)
+                .attr('r', r)
+                .attr('pointer-events', 'none');
+        });
+    });
+
+    const nodeG = mainG.append('g').attr('class', 'lineage-nodes-layer');
+    const nodeSel = nodeG.selectAll('g.lineage-node').data(nodes).enter().append('g')
+        .attr('class', 'lineage-node')
+        .style('cursor', 'grab')
+        .call(d3.drag()
+            .on('start', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0.35).restart(); d.fx = d.x; d.fy = d.y; })
+            .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+            .on('end', (ev, d) => { if (!ev.active) lineageSimulation.alphaTarget(0); d.fx = null; d.fy = null; })
+        );
+
+    const inner = nodeSel.append('g').attr('class', 'lineage-node-inner');
+    const hitPad = 10;
+    inner.append('rect')
+        .attr('class', 'lineage-node-hit')
+        .attr('x', d => -d._nw / 2 - hitPad)
+        .attr('y', d => -d._nh / 2 - hitPad)
+        .attr('width', d => d._nw + hitPad * 2)
+        .attr('height', d => d._nh + hitPad * 2)
+        .attr('rx', 12)
+        .attr('ry', 12)
+        .attr('fill', 'transparent')
+        .attr('stroke', 'none')
+        .attr('pointer-events', 'all');
+    inner.append('rect')
+        .attr('class', 'lineage-node-shape')
+        .attr('x', d => -d._nw / 2)
+        .attr('y', d => -d._nh / 2)
+        .attr('width', d => d._nw)
+        .attr('height', d => d._nh)
+        .attr('rx', 10)
+        .attr('ry', 10)
+        .attr('fill', 'url(#lineage-node-fill-grad)')
+        .attr('stroke', 'url(#lineage-node-stroke-grad)')
+        .attr('stroke-width', 2);
+
+    inner.append('text')
+        .attr('class', 'lineage-node-label')
+        .attr('text-anchor', 'middle')
+        .attr('pointer-events', 'none')
+        .each(function (d) {
+            const el = d3.select(this);
+            const lh = 14;
+            const lines = d._lines || [d.full || d.id];
+            lines.forEach((line, i) => {
+                el.append('tspan')
+                    .attr('x', 0)
+                    .attr('dy', i === 0 ? `${-(lines.length - 1) * lh / 2}` : `${lh}`)
+                    .text(line);
+            });
+        });
+
+    nodeSel.append('title').text(d => d.full || d.id);
+
+    nodeSel.on('click', (ev, d) => {
+        ev.stopPropagation();
+        lineageFocusTableId = d.id;
+        applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
+    });
+
+    svg.on('dblclick', (ev) => {
+        if (ev.target && ev.target.id === 'lineageSvg') {
+            lineageFocusTableId = null;
+            applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
+        }
+    });
+
+    applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount);
+
+    lineageSimulation.on('tick', () => {
+        linkItems.each(function (d) {
+            const geom = lineageLinkCurveGeom(d, d._curveBias || 0);
+            d._curve = geom;
+            d3.select(this).selectAll('path').attr('d', geom.dPath);
+        });
+        nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+    const phases = [0, 0.33, 0.66];
+    const stepParticles = () => {
+        const tBase = (performance.now() / 2200) % 1;
+        linkItems.each(function (d) {
+            const c = d._curve;
+            if (!c) return;
+            const p0 = { x: c.x1, y: c.y1 };
+            const p1 = { x: c.cx, y: c.cy };
+            const p2 = { x: c.x2, y: c.y2 };
+            const g = d3.select(this);
+            g.selectAll('.lineage-particle').each(function (_, i) {
+                const t = (tBase + phases[i % phases.length]) % 1;
+                const pt = lineageQuadBezierPoint(p0, p1, p2, t);
+                d3.select(this).attr('cx', pt.x).attr('cy', pt.y);
+            });
+        });
+        lineageParticleRafId = requestAnimationFrame(stepParticles);
+    };
+    lineageParticleRafId = requestAnimationFrame(stepParticles);
+}
+
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && document.getElementById('govApiHelpModal')?.style.display !== 'none') {
         closeGovApiHelp();
     }
 });
+
+// ============================================================
+// 模型管理模块
+// ============================================================
+
+let llmModels = [];
+let smallModels = [];
+let editingLLMModelId = null;
+let editingSmallModelId = null;
+
+// 初始化模型管理
+function initModelsTab() {
+    loadSmallModels();
+}
+
+// ========== 大模型管理 ==========
+
+async function loadLLMModels() {
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm`);
+        const data = await resp.json();
+        if (data.success) {
+            llmModels = data.models || [];
+            renderLLMModels();
+        }
+    } catch (e) {
+        console.error('加载大模型失败:', e);
+    }
+}
+
+function renderLLMModels() {
+    const container = document.getElementById('llmModelsList');
+    if (llmModels.length === 0) {
+        container.innerHTML = '<div class="models-empty">暂无大模型配置，点击"添加模型"创建</div>';
+        return;
+    }
+    
+    const typeIcons = { llm: '🤖', rerank: '🔄', embedding: '📊', asr: '🎤', tts: '🔊' };
+    const typeLabels = { llm: 'LLM', rerank: 'Rerank', embedding: 'Embedding', asr: 'ASR', tts: 'TTS' };
+    
+    container.innerHTML = llmModels.map(m => {
+        const safeMId = escapeHtml(m.id);
+        return `
+        <div class="model-card ${m.enabled ? '' : 'disabled'}">
+            <div class="model-card-header">
+                <span class="model-icon">${typeIcons[m.type] || '🤖'}</span>
+                <span class="model-name">${escapeHtml(m.name)}</span>
+                <span class="model-type-badge">${typeLabels[m.type] || m.type}</span>
+            </div>
+            <div class="model-card-body">
+                <div class="model-info"><strong>服务商:</strong> ${escapeHtml(m.provider || 'custom')}</div>
+                <div class="model-info"><strong>模型:</strong> ${escapeHtml(m.model || '-')}</div>
+                <div class="model-info"><strong>地址:</strong> ${escapeHtml(m.url)}</div>
+                ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
+            </div>
+            <div class="model-card-footer">
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
+                <div class="model-actions">
+                    <button class="btn btn-sm" onclick="editLLMModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${safeMId}')">删除</button>
+                </div>
+            </div>
+        </div>
+    `;}).join('');
+}
+
+function showAddLLMModelModal() {
+    editingLLMModelId = null;
+    document.getElementById('llmModalTitle').textContent = '添加大模型';
+    document.getElementById('llmModelForm').reset();
+    document.getElementById('llmEnabledInput').checked = true;
+    document.getElementById('llmModelModal').classList.add('show');
+}
+
+function editLLMModel(id) {
+    const model = llmModels.find(m => m.id === id);
+    if (!model) return;
+    editingLLMModelId = id;
+    document.getElementById('llmModalTitle').textContent = '编辑大模型';
+    document.getElementById('llmNameInput').value = model.name;
+    document.getElementById('llmTypeInput').value = model.type;
+    document.getElementById('llmProviderInput').value = model.provider || 'custom';
+    document.getElementById('llmModelNameInput').value = model.model || '';
+    document.getElementById('llmUrlInput').value = model.url;
+    document.getElementById('llmApiKeyInput').value = model.api_key || '';
+    document.getElementById('llmDescInput').value = model.description || '';
+    document.getElementById('llmEnabledInput').checked = model.enabled;
+    document.getElementById('llmModelModal').classList.add('show');
+}
+
+function hideLLMModelModal() {
+    document.getElementById('llmModelModal').classList.remove('show');
+}
+
+async function handleLLMModelSubmit(e) {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('llmNameInput').value.trim(),
+        type: document.getElementById('llmTypeInput').value,
+        provider: document.getElementById('llmProviderInput').value,
+        model: document.getElementById('llmModelNameInput').value.trim(),
+        url: document.getElementById('llmUrlInput').value.trim(),
+        api_key: document.getElementById('llmApiKeyInput').value,
+        description: document.getElementById('llmDescInput').value.trim(),
+        enabled: document.getElementById('llmEnabledInput').checked,
+    };
+    
+    try {
+        const url = editingLLMModelId
+            ? `${API_BASE}/api/data-ontology/models/llm/${editingLLMModelId}`
+            : `${API_BASE}/api/data-ontology/models/llm`;
+        const method = editingLLMModelId ? 'PUT' : 'POST';
+        const resp = await fetchWithAuth(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (result.success) {
+            hideLLMModelModal();
+            loadLLMModels();
+        } else {
+            showToast(result.message || '保存失败', 'error');
+        }
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+async function deleteLLMModel(id) {
+    if (!confirm('确定删除该模型？')) return;
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm/${id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (result.success) loadLLMModels();
+        else showToast(result.message || '删除失败', 'error');
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+
+// ========== 小模型管理 ==========
+
+async function loadSmallModels() {
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small`);
+        const data = await resp.json();
+        if (data.success) {
+            smallModels = data.models || [];
+            renderSmallModels();
+        }
+    } catch (e) {
+        console.error('加载小模型失败:', e);
+    }
+}
+
+function renderSmallModels() {
+    const container = document.getElementById('smallModelsList');
+    if (smallModels.length === 0) {
+        container.innerHTML = `
+            <div class="models-empty">
+                <p>暂无小模型配置，点击"添加模型"创建</p>
+                <div style="margin-top:16px;padding:12px;background:#f7fafc;border-radius:6px;text-align:left;">
+                    <p style="font-size:12px;color:#718096;margin-bottom:8px;">📝 示例：JSON 数据转换</p>
+                    <p style="font-size:11px;color:#4a5568;"><strong>输入:</strong> <code>{"name": "test"}</code></p>
+                    <p style="font-size:11px;color:#4a5568;"><strong>输出:</strong> <code>{"name": "TEST", "processed": true}</code></p>
+                </div>
+            </div>`;
+        return;
+    }
+    
+    container.innerHTML = smallModels.map(m => {
+        const safeMId = escapeHtml(m.id);
+        return `
+        <div class="model-card ${m.enabled ? '' : 'disabled'}">
+            <div class="model-card-header">
+                <span class="model-icon">📝</span>
+                <span class="model-name">${escapeHtml(m.name)}</span>
+            </div>
+            <div class="model-card-body">
+                ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
+                <div class="model-info"><strong>输入:</strong> ${m.input_type || 'text'}</div>
+                <div class="model-info"><strong>输出:</strong> ${m.output_type || 'text'}</div>
+            </div>
+            <div class="model-card-footer">
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '✓ 已启用' : '✗ 已禁用'}</span>
+                <div class="model-actions">
+                    <button class="btn btn-sm" onclick="runSmallModel('${safeMId}')">运行</button>
+                    <button class="btn btn-sm" onclick="editSmallModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${safeMId}')">删除</button>
+                </div>
+            </div>
+        </div>
+    `;}).join('');
+}
+
+function showAddSmallModelModal() {
+    editingSmallModelId = null;
+    document.getElementById('smallModalTitle').textContent = '添加小模型';
+    document.getElementById('smallModelForm').reset();
+    document.getElementById('smallEnabledInput').checked = true;
+    populateSmallModelDbSelect();
+    document.getElementById('smallModelModal').classList.add('show');
+}
+
+function editSmallModel(id) {
+    const model = smallModels.find(m => m.id === id);
+    if (!model) return;
+    editingSmallModelId = id;
+    document.getElementById('smallModalTitle').textContent = '编辑小模型';
+    populateSmallModelDbSelect();
+    document.getElementById('smallNameInput').value = model.name;
+    document.getElementById('smallDescInput').value = model.description || '';
+    document.getElementById('smallDbSelect').value = model.database_id || '';
+    document.getElementById('smallInputTypeInput').value = model.input_type || 'text';
+    document.getElementById('smallAcceptExtsInput').value = model.accept_exts || '';
+    document.getElementById('smallOutputTypeInput').value = model.output_type || 'text';
+    document.getElementById('smallCodeInput').value = model.js_code || '';
+    document.getElementById('smallEnabledInput').checked = model.enabled;
+    document.getElementById('smallModelModal').classList.add('show');
+}
+
+function hideSmallModelModal() {
+    document.getElementById('smallModelModal').classList.remove('show');
+}
+
+function populateSmallModelDbSelect() {
+    const select = document.getElementById('smallDbSelect');
+    select.innerHTML = '<option value="">不关联数据库</option>';
+    databases.forEach(db => {
+        select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
+    });
+}
+
+async function handleSmallModelSubmit(e) {
+    e.preventDefault();
+    const data = {
+        name: document.getElementById('smallNameInput').value.trim(),
+        description: document.getElementById('smallDescInput').value.trim(),
+        database_id: document.getElementById('smallDbSelect').value,
+        input_type: document.getElementById('smallInputTypeInput').value,
+        accept_exts: document.getElementById('smallAcceptExtsInput').value.trim(),
+        output_type: document.getElementById('smallOutputTypeInput').value,
+        js_code: document.getElementById('smallCodeInput').value,
+        enabled: document.getElementById('smallEnabledInput').checked,
+    };
+    
+    try {
+        const url = editingSmallModelId
+            ? `${API_BASE}/api/data-ontology/models/small/${editingSmallModelId}`
+            : `${API_BASE}/api/data-ontology/models/small`;
+        const method = editingSmallModelId ? 'PUT' : 'POST';
+        const resp = await fetchWithAuth(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (result.success) {
+            hideSmallModelModal();
+            loadSmallModels();
+        } else {
+            showToast(result.message || '保存失败', 'error');
+        }
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+async function deleteSmallModel(id) {
+    if (!confirm('确定删除该模型？')) return;
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}`, { method: 'DELETE' });
+        const result = await resp.json();
+        if (result.success) loadSmallModels();
+        else showToast(result.message || '删除失败', 'error');
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+
+async function runSmallModel(id) {
+    const model = smallModels.find(m => m.id === id);
+    if (!model) return;
+    
+    const inputText = prompt('请输入文本内容:');
+    if (inputText === null) return;
+    
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_text: inputText })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            showToast('运行结果:\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)), 'success', 10000);
+        } else {
+            showToast('运行失败: ' + result.message, 'error');
+        }
+    } catch (e) {
+        showToast('运行失败: ' + e.message, 'error');
+    }
+}

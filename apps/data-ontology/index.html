@@ -6,6 +6,8 @@
     <title>数据本体池</title>
     <link rel="stylesheet" href="style.css">
     <script src="/lib/d3.min.js"></script>
+    <script src="lib/three.min.js"></script>
+    <script src="lib/orbit-controls-wrapper.js"></script>
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -39,9 +41,9 @@
         <div class="login-container">
             <div class="login-box">
                 <div class="login-header">
-                    <div class="login-icon">🗄️</div>
+                    <div class="login-icon">📦</div>
                     <h1>数据本体池</h1>
-                    <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象</p>
+                    <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象 · 数据血缘</p>
                 </div>
                 <form id="loginForm" class="login-form">
                     <div class="form-group">
@@ -64,24 +66,32 @@
         <div class="header">
             <div class="header-content">
                 <div class="header-left">
-                    <h1>🗄️ 数据本体池</h1>
+                    <h1>📦 数据本体池</h1>
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
                         <button class="nav-tab" data-tab="ontology">本体论抽象</button>
+                        <button class="nav-tab" data-tab="lineage">数据血缘</button>
                         <button class="nav-tab" data-tab="api">接口分发</button>
                         <button class="nav-tab" data-tab="mcp">MCP</button>
                         <button class="nav-tab" data-tab="ai">AI助手</button>
+                        <button class="nav-tab" data-tab="models">模型管理</button>
+                        <button class="nav-tab" data-tab="quality" title="数据质量审核">数据质量审核</button>
                     </div>
                 </div>
                 <div class="header-right">
                     <div class="user-info">
                         <span id="currentUser">admin</span>
+                        <button type="button" id="settingsBtn" class="settings-header-btn" title="设置" aria-label="设置">⚙️</button>
+                        <button type="button" id="userMgmtHeaderBtn" class="user-mgmt-header-btn" title="用户管理" style="display:none;" aria-label="用户管理">👤</button>
                         <button id="logoutBtn" class="btn btn-sm">退出</button>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- 嵌入模式浮动设置按钮 -->
+        <button id="embedSettingsBtn" class="embed-settings-btn" title="设置" style="display:none;">⚙️</button>
 
         <!-- API Key 弹层：放在主页面内、侧栏外，避免遮挡接口列表 -->
         <div id="apikeyPopover" class="apikey-popover">
@@ -111,7 +121,7 @@
 
                 <div class="main-content">
                     <div id="welcomeView" class="welcome-view">
-                        <div class="welcome-icon">🗄️</div>
+                        <div class="welcome-icon">📦</div>
                         <h2>欢迎使用数据库管理</h2>
                         <p>请在左侧添加或选择一个数据库开始使用</p>
                     </div>
@@ -173,13 +183,56 @@
             </div>
         </div>
 
+        <div id="userMgmtDrawerRoot" class="user-mgmt-drawer-root" aria-hidden="true">
+            <div id="userMgmtDrawerBackdrop" class="user-mgmt-drawer-backdrop"></div>
+            <aside id="userMgmtDrawer" class="user-mgmt-drawer" role="dialog" aria-labelledby="userMgmtDrawerTitle">
+                <div class="user-mgmt-drawer-hd">
+                    <h2 id="userMgmtDrawerTitle">用户管理</h2>
+                    <button type="button" id="userMgmtCloseBtn" class="user-mgmt-drawer-close" aria-label="关闭">×</button>
+                </div>
+                <div class="user-mgmt-drawer-bd">
+                    <div class="tables-section user-mgmt-drawer-section">
+                        <h3>创建用户</h3>
+                        <div class="db-info user-mgmt-create-row">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label for="newUserName">用户名</label>
+                                <input type="text" id="newUserName" placeholder="新用户名" autocomplete="off">
+                            </div>
+                            <div class="user-mgmt-pwd-stack" style="display:flex;flex-direction:column;gap:8px;align-self:flex-end;">
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserPassword">密码</label>
+                                    <input type="password" id="newUserPassword" placeholder="密码" autocomplete="new-password">
+                                </div>
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <label for="newUserPasswordConfirm">确认密码</label>
+                                    <input type="password" id="newUserPasswordConfirm" placeholder="再次输入密码" autocomplete="new-password">
+                                </div>
+                                <div id="userMgmtCreatePwdHint" class="error-message" style="margin-top:0;"></div>
+                            </div>
+                            <div class="form-group" style="margin-bottom:0;align-self:flex-end;">
+                                <button type="button" id="createUserBtn" class="btn btn-sm btn-primary">创建</button>
+                            </div>
+                        </div>
+                        <div id="userMgmtCreateMsg" class="error-message"></div>
+                    </div>
+                    <div class="tables-section user-mgmt-drawer-section">
+                        <h3>用户列表</h3>
+                        <div id="userMgmtList" class="user-mgmt-table-wrap"></div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
         <!-- 其他标签页（暂未实现） -->
         <div id="governanceTab" class="tab-content">
             <div class="container">
                 <div class="sidebar">
                     <div class="sidebar-header">
                         <h3>任务列表</h3>
-                        <button id="addGovernanceTaskBtn" class="btn btn-sm btn-primary">+ 新建</button>
+                        <div class="gov-sidebar-actions">
+                            <button type="button" id="govRefreshExamplesBtn" class="btn btn-sm btn-secondary" style="display:none;" onclick="govReloadExamplesFromEmbed()">刷新示例</button>
+                            <button id="addGovernanceTaskBtn" class="btn btn-sm btn-primary">+ 新建</button>
+                        </div>
                     </div>
                     <div class="sidebar-search">
                         <input type="text" id="govTaskSearchInput" placeholder="搜索任务名称..." oninput="filterGovTaskList()">
@@ -256,9 +309,10 @@
                                 <div id="govFileUploadArea" class="gov-file-upload" style="display:none;">
                                     <div class="gov-upload-zone" id="govDropZone">
                                         <div class="gov-upload-icon">📁</div>
-                                        <p>拖拽文件到此处，或 <label for="govFileInput" class="gov-upload-link">点击上传</label></p>
+                                        <p>拖拽文件到此处，或 <label for="govFileInput" class="gov-upload-link">点击上传</label>（可多选）</p>
                                         <p class="gov-upload-hint" id="govAcceptExts"></p>
-                                        <input type="file" id="govFileInput" style="display:none;" onchange="handleGovFileSelect(event)">
+                                        <p class="gov-upload-hint" id="govSingleBatchHint" style="display:none;">合并执行：请同时上传综合日报模板与各单位日报（可多选），任务代码中可使用 INPUT_FILES。</p>
+                                        <input type="file" id="govFileInput" multiple style="display:none;" onchange="handleGovFileSelect(event)">
                                     </div>
                                     <div id="govSelectedFile" class="gov-selected-file" style="display:none;">
                                         <span id="govFileName"></span>
@@ -273,9 +327,14 @@
                         </div>
 
                         <div class="tables-section">
-                            <h3>任务代码 (JavaScript)</h3>
-                            <div class="sql-display">
-                                <pre id="govTaskCode"></pre>
+                            <div class="gov-code-toggle" onclick="toggleGovTaskCode()">
+                                <h3>任务代码 (JavaScript)</h3>
+                                <span id="govTaskCodeArrow" class="gov-code-arrow">▶</span>
+                            </div>
+                            <div id="govTaskCodePanel" class="gov-code-panel" style="display:none;">
+                                <div class="sql-display">
+                                    <pre id="govTaskCode"></pre>
+                                </div>
                             </div>
                         </div>
 
@@ -295,18 +354,19 @@
 
         <!-- 本体论抽象标签页 -->
         <div id="ontologyTab" class="tab-content">
+            <div class="tab-content-wrap">
             <div class="onto-workspace">
                 <!-- 顶部工具栏 -->
                 <div class="onto-toolbar">
                     <div class="onto-toolbar-left">
                         <span class="onto-brand">
-                            <span class="onto-brand-icon">🧠</span>
+                            <span class="onto-brand-icon">💡</span>
                             <span class="onto-brand-text">本体论知识图谱</span>
                         </span>
                         <div class="onto-toolbar-sep"></div>
                         <div class="onto-db-picker" id="ontoDbPicker">
                             <button class="onto-db-btn" id="ontoDbBtn" onclick="toggleDbPicker(event)" type="button">
-                                <span class="onto-db-btn-icon">🗄️</span>
+                                <span class="onto-db-btn-icon">📦</span>
                                 <span class="onto-db-btn-text" id="ontoDbBtnText">选择数据库</span>
                                 <span class="onto-db-btn-arrow" id="ontoDbBtnArrow">▾</span>
                             </button>
@@ -321,8 +381,13 @@
                             <span>🎯</span> 演示场景
                         </button>
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
-                            <span>🗑️</span> 清空
+                            <span>❌</span> 清空
                         </button>
+                        <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
+                        <div class="onto-view-toggle" id="ontoViewToggle" style="display:none" title="图谱视图">
+                            <button type="button" id="ontoView2dBtn" class="onto-btn onto-view-btn active" onclick="setOntologyGraphView('2d')">2D</button>
+                            <button type="button" id="ontoView3dBtn" class="onto-btn onto-view-btn" onclick="setOntologyGraphView('3d')">3D</button>
+                        </div>
                     </div>
                     <div class="onto-toolbar-right">
                         <div class="onto-stats" id="ontoStats">
@@ -354,7 +419,7 @@
                             <div class="onto-orb onto-orb-c"></div>
                         </div>
                         <div class="onto-welcome-body">
-                            <div class="onto-welcome-icon">🧠</div>
+                            <div class="onto-welcome-icon">💡</div>
                             <h2 class="onto-welcome-title">本体论抽象模块</h2>
                             <p class="onto-welcome-desc">将数据库结构升华为业务语义知识图谱<br>AI深度理解数据本质，发现隐藏的治理价值</p>
                             <div class="onto-feature-grid">
@@ -388,11 +453,14 @@
                     <!-- D3 知识图谱 SVG -->
                     <svg id="ontoSvg" class="onto-svg"></svg>
 
+                    <!-- Three.js 3D 力导向图 -->
+                    <div id="ontoGraph3d" class="onto-graph-3d" aria-hidden="true"></div>
+
                     <!-- AI 处理动画层 -->
                     <div class="onto-ai-overlay" id="ontoAiOverlay" style="display:none">
                         <div class="onto-ai-ring"></div>
                         <div class="onto-ai-ring onto-ai-ring-2"></div>
-                        <div class="onto-ai-core">🧠</div>
+                        <div class="onto-ai-core">💡</div>
                         <div class="onto-ai-text" id="ontoAiText">AI 正在分析...</div>
                         <div class="onto-ai-progress">
                             <div class="onto-ai-progress-bar" id="ontoAiProgressBar"></div>
@@ -448,6 +516,43 @@
                     </div>
                     <div class="onto-query-result" id="ontoQueryResult" style="display:none"></div>
                 </div>
+            </div>
+            </div>
+        </div>
+
+        <div id="lineageTab" class="tab-content">
+            <div class="tab-content-wrap">
+            <div class="lineage-workspace">
+                <div class="lineage-toolbar">
+                    <span class="lineage-brand"><span class="lineage-brand-icon">🔗</span> 数据血缘分析</span>
+                    <div class="lineage-toolbar-sep"></div>
+                    <div class="lineage-db-picker" id="lineageDbPicker">
+                        <button class="lineage-db-btn" id="lineageDbBtn" type="button" onclick="toggleLineageDbPicker(event)">
+                            <span class="lineage-db-btn-icon">📦</span>
+                            <span class="lineage-db-btn-text placeholder" id="lineageDbBtnText">选择数据库</span>
+                            <span class="lineage-db-btn-arrow">▾</span>
+                        </button>
+                        <div class="lineage-db-dropdown" id="lineageDbDropdown">
+                            <div class="lineage-db-dropdown-empty" id="lineageDbDropdownEmpty">暂无数据库</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="lineageRefreshBtn" onclick="loadLineageGraph()">分析 / 刷新</button>
+                    <div class="lineage-stats" id="lineageStats"></div>
+                </div>
+                <div class="lineage-main">
+                    <div class="lineage-chart-wrap" id="lineageChartWrap">
+                        <svg id="lineageSvg" class="lineage-svg"></svg>
+                        <div class="lineage-placeholder" id="lineagePlaceholder">
+                            <p>选择数据库后点击「分析 / 刷新」</p>
+                            <p class="lineage-hint">基于外键约束：箭头从被引用表指向引用表（数据流向）</p>
+                        </div>
+                    </div>
+                    <aside class="lineage-side">
+                        <h4>外键明细</h4>
+                        <div class="lineage-edge-list" id="lineageEdgeList"></div>
+                    </aside>
+                </div>
+            </div>
             </div>
         </div>
 
@@ -542,6 +647,7 @@
         </div>
 
         <div id="mcpTab" class="tab-content">
+            <div class="tab-content-wrap">
             <div class="mcp-container">
                 <div class="mcp-header">
                     <h2>🔌 MCP 模块</h2>
@@ -610,9 +716,11 @@
                     </ul>
                 </div>
             </div>
+            </div>
         </div>
 
         <div id="aiTab" class="tab-content">
+            <div class="tab-content-wrap">
             <div class="ai-assistant-container">
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
@@ -663,6 +771,259 @@
                     </div>
                 </div>
             </div>
+            </div>
+        </div>
+
+        <!-- 模型管理 Tab -->
+        <div id="modelsTab" class="tab-content">
+            <div class="tab-content-wrap">
+            <div class="models-container">
+                <div class="models-sidebar">
+                    <div class="models-sidebar-header">
+                        <h3>模型管理</h3>
+                    </div>
+                </div>
+                <div class="models-main">
+                    <!-- 小模型管理 -->
+                    <div id="smallModelsPanel" class="models-panel active">
+                        <div class="models-panel-header">
+                            <h3>小模型管理</h3>
+                            <button class="btn btn-primary btn-sm" onclick="showAddSmallModelModal()">+ 添加模型</button>
+                        </div>
+                        <div class="models-desc">
+                            <p>通过 JavaScript 代码实现自定义数据处理逻辑，可调用已注册的数据库。</p>
+                            <p style="margin-top:8px;color:#718096;font-size:12px;">示例输入：JSON 对象或文本 | 示例输出：处理后的数据</p>
+                        </div>
+                        <div id="smallModelsList" class="models-list"></div>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div id="qualityTab" class="tab-content">
+            <div class="tab-content-wrap">
+                <div class="qa-page">
+                    <div id="qaMsg" class="qa-msg"></div>
+                    <div class="qa-topbar">
+                        <button type="button" class="btn btn-sm qa-tpl-open-btn" id="qaOpenReportTpl" title="配置报告样式与页眉页脚">报告模板</button>
+                    </div>
+                    <div class="qa-layout">
+                        <div class="qa-panel">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                <label style="font-weight:bold;"><input type="checkbox" id="qaTreeSelectAll" style="margin-right:6px;">规则树</label>
+                                <div style="display:flex;gap:6px;">
+                                    <button type="button" class="btn btn-sm" id="qaToggleExpand">展开全部</button>
+                                    <button type="button" class="btn btn-sm btn-danger" id="qaBatchDelete" style="background:#dc3545;color:#fff;">批量删除</button>
+                                </div>
+                            </div>
+                            <div id="qaTree" class="qa-tree"></div>
+                        </div>
+                        <div>
+                            <div class="qa-panel" style="margin-bottom:12px;">
+                                <strong>规则编辑</strong>
+                                <div class="qa-form">
+                                    <label>NM（6位）</label>
+                                    <input type="text" id="qaNm" maxlength="6" placeholder="010000">
+                                    <label>层级编码 XH</label>
+                                    <input type="text" id="qaXh" placeholder="01 / 0101 / 010101">
+                                    <label>规则名称</label>
+                                    <input type="text" id="qaName">
+                                    <label>类别</label>
+                                    <input type="text" id="qaCategory">
+                                    <label>SQL（Oracle 方言，将自动转换）</label>
+                                    <textarea id="qaSql" placeholder="SELECT ..."></textarea>
+                                    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                                        <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
+                                        <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>
+                                        <button type="button" class="btn btn-sm" id="qaPasteExcel">从 Excel 粘贴导入</button>
+                                        <label class="btn btn-sm" style="margin:0;cursor:pointer;">Excel 文件导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="qa-panel">
+                                <strong>填报率配置</strong>
+                                <div class="qa-tabs">
+                                    <button type="button" class="qa-tab active" data-fr="item">项填报率</button>
+                                    <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
+                                </div>
+                                <div id="qaFillItem">
+                                    <div class="qa-fill-header qa-fill-table-header">
+                                        <span class="qa-fill-th" style="width:60px;"><label style="cursor:pointer;"><input type="checkbox" id="qaFillItemAll"> 全选</label></span>
+                                        <span class="qa-fill-th">表名</span>
+                                        <span class="qa-fill-th">字段名</span>
+                                        <span class="qa-fill-th">分子</span>
+                                        <span class="qa-fill-th">分母</span>
+                                    </div>
+                                    <div id="qaFillItemTree" class="qa-fill-list"></div>
+                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowItem">+ 行</button>
+                                </div>
+                                <div id="qaFillRecord" style="display:none;">
+                                    <div class="qa-fill-header qa-fill-table-header">
+                                        <span class="qa-fill-th" style="width:60px;"><label style="cursor:pointer;"><input type="checkbox" id="qaFillRecordAll"> 全选</label></span>
+                                        <span class="qa-fill-th">表名</span>
+                                        <span class="qa-fill-th">字段名</span>
+                                        <span class="qa-fill-th">分子</span>
+                                        <span class="qa-fill-th">分母</span>
+                                    </div>
+                                    <div id="qaFillRecordTree" class="qa-fill-list"></div>
+                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowRecord">+ 行</button>
+                                </div>
+                                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+                                    <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>
+                                    <button type="button" class="btn btn-sm" id="qaPasteFill">粘贴导入</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="qa-bottom">
+                        <label>目标数据库</label>
+                        <select id="qaDbSelect" style="min-width:220px;padding:6px;"></select>
+                        <button type="button" class="btn btn-primary" id="qaRun">一键审核</button>
+                        <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
+                    </div>
+                    <div id="qaAuditResult" class="qa-audit-result" style="display:none;" aria-live="polite"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑大模型弹窗 -->
+    <div id="llmModelModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="llmModalTitle">添加大模型</h2>
+                <button class="modal-close" onclick="hideLLMModelModal()">&times;</button>
+            </div>
+            <form id="llmModelForm" class="modal-body" onsubmit="handleLLMModelSubmit(event)">
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="llmNameInput">模型名称</label>
+                        <input type="text" id="llmNameInput" placeholder="如: GPT-4o" required>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="llmTypeInput">模型类型</label>
+                        <select id="llmTypeInput" required>
+                            <option value="llm">LLM (大语言模型)</option>
+                            <option value="rerank">Rerank (重排序)</option>
+                            <option value="embedding">Embedding (向量化)</option>
+                            <option value="asr">ASR (语音识别)</option>
+                            <option value="tts">TTS (语音合成)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="llmProviderInput">服务商</label>
+                        <select id="llmProviderInput">
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="ollama">Ollama</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="llmModelNameInput">模型标识</label>
+                        <input type="text" id="llmModelNameInput" placeholder="如: gpt-4o">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="llmUrlInput">API 地址</label>
+                    <input type="text" id="llmUrlInput" placeholder="https://api.openai.com/v1" required>
+                </div>
+                <div class="form-group">
+                    <label for="llmApiKeyInput">API Key</label>
+                    <input type="password" id="llmApiKeyInput" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label for="llmDescInput">描述</label>
+                    <input type="text" id="llmDescInput" placeholder="可选描述">
+                </div>
+                <div class="form-group">
+                    <label>启用状态</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="llmEnabledInput" checked>
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="llmEnabledLabel">已启用</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 添加/编辑小模型弹窗 -->
+    <div id="smallModelModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="smallModalTitle">添加小模型</h2>
+                <button class="modal-close" onclick="hideSmallModelModal()">&times;</button>
+            </div>
+            <form id="smallModelForm" class="modal-body" onsubmit="handleSmallModelSubmit(event)">
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label for="smallNameInput">模型名称</label>
+                        <input type="text" id="smallNameInput" placeholder="如: 文本分类器" required>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label for="smallDbSelect">关联数据库（可选）</label>
+                        <select id="smallDbSelect">
+                            <option value="">不关联数据库</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="smallDescInput">描述</label>
+                    <input type="text" id="smallDescInput" placeholder="可选描述">
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-group-third">
+                        <label for="smallInputTypeInput">输入类型</label>
+                        <select id="smallInputTypeInput">
+                            <option value="text">文本</option>
+                            <option value="file">文件</option>
+                            <option value="both">文本+文件</option>
+                        </select>
+                    </div>
+                    <div class="form-group form-group-third">
+                        <label for="smallAcceptExtsInput">接受文件类型</label>
+                        <input type="text" id="smallAcceptExtsInput" placeholder=".csv,.txt,.json">
+                    </div>
+                    <div class="form-group form-group-third">
+                        <label for="smallOutputTypeInput">输出类型</label>
+                        <select id="smallOutputTypeInput">
+                            <option value="text">文本</option>
+                            <option value="json">JSON</option>
+                            <option value="file">文件</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="smallCodeInput">模型代码 (JavaScript)</label>
+                    <textarea id="smallCodeInput" rows="12" placeholder="// 可用: INPUT_TEXT, INPUT_FILE, gov.*, XLSX, Papa
+// gov.querySQL(sql) - 查询关联数据库
+// gov.executeSQL(sql) - 执行 SQL
+// gov.log(msg) - 输出日志
+// return 结果文本或对象" style="font-family: monospace;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>启用状态</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="smallEnabledInput" checked>
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="smallEnabledLabel">已启用</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -678,12 +1039,12 @@
                     <label for="dbTypeInput">数据库类型</label>
                     <select id="dbTypeInput" required>
                         <optgroup label="关系型数据库(SQL)">
+                            <option value="dm">达梦(DM)</option>
+                            <option value="oracle">Oracle</option>
                             <option value="mysql">MySQL</option>
                             <option value="mariadb">MariaDB</option>
                             <option value="postgresql">PostgreSQL</option>
                             <option value="sqlserver">SQL Server</option>
-                            <option value="oracle">Oracle</option>
-                            <option value="dm">达梦(DM)</option>
                             <option value="sqlite">SQLite</option>
                             <option value="duckdb">DuckDB</option>
                         </optgroup>
@@ -908,6 +1269,74 @@
         </div>
     </div>
 
+    <!-- 设置弹窗 -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>设置</h2>
+                <button class="modal-close" id="closeSettingsModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h3 class="settings-section-title">界面管理</h3>
+                    <p class="settings-section-desc">选择要显示的标签页（至少保留一个）</p>
+                    <div class="settings-checkbox-group" id="tabVisibilitySettings">
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="database" checked>
+                            <span>数据库管理</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="governance" checked>
+                            <span>数据治理</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="ontology" checked>
+                            <span>本体论抽象</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="lineage" checked>
+                            <span>数据血缘</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="api" checked>
+                            <span>接口分发</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="mcp" checked>
+                            <span>MCP</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="ai" checked>
+                            <span>AI助手</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="models" checked>
+                            <span>模型管理</span>
+                        </label>
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" data-tab="quality" checked>
+                            <span>数据质量审核</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3 class="settings-section-title">嵌入模式</h3>
+                    <p class="settings-section-desc">开启后隐藏标题栏、用户信息和退出按钮，适合内嵌到其他页面</p>
+                    <div class="settings-checkbox-group">
+                        <label class="settings-checkbox-item">
+                            <input type="checkbox" id="embedModeToggle">
+                            <span>启用嵌入模式</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn" id="resetTabSettingsBtn">恢复默认</button>
+                    <button type="button" class="btn btn-primary" id="saveTabSettingsBtn">保存设置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 创建表弹窗 -->
     <div id="createTableModal" class="modal">
         <div class="modal-content modal-large">
@@ -1048,6 +1477,50 @@
                             <small>逗号分隔，留空则接受所有类型</small>
                         </div>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
+                            <label for="govFileBatchModeSelect">多文件执行</label>
+                            <select id="govFileBatchModeSelect">
+                                <option value="per_file">每个文件单独执行</option>
+                                <option value="single">合并为一次执行（INPUT_FILES）</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label for="govRuntimeSelect">运行环境</label>
+                            <select id="govRuntimeSelect">
+                                <option value="backend">后端执行（推荐）</option>
+                                <option value="frontend">前端执行（浏览器）</option>
+                            </select>
+                            <small>后端执行稳定，前端执行适合调试</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>注册为 API 接口</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="govRegisterAPIInput" onchange="onGovRegisterAPIChange()">
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="govRegisterAPILabel">未注册</span>
+                    </div>
+                    <small>启用后，该任务可通过 API 接口调用执行</small>
+                </div>
+                <div id="govAPIFields" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
+                            <label for="govAPIPathInput">API 路径</label>
+                            <input type="text" id="govAPIPathInput" placeholder="/api/tasks/my-task">
+                            <small>以 /api/ 开头的路径</small>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label for="govAPIMethodInput">请求方法</label>
+                            <select id="govAPIMethodInput">
+                                <option value="POST">POST</option>
+                                <option value="GET">GET</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <div class="gov-codegen-toggle" onclick="toggleCodeGen()">
@@ -1098,11 +1571,17 @@
                         <span>任务代码 (JavaScript)</span>
                         <button type="button" class="btn btn-sm" onclick="openGovApiHelp()" style="font-size:12px;">📖 API 参考</button>
                     </label>
-                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth
+                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
 // gov.log(msg)                      - 输出日志
 // gov.getDatabases()                - 返回 [{id,name,type},...] 可入多个库
 // gov.readExcel(file)               - 读取Excel，返回workbook
 // gov.readCSV(text)                 - 解析CSV，返回二维数组
+// gov.writeExcel(fn, data, opt?)    - 导出 Excel（二维数组或对象数组），浏览器下载
+// await gov.fillWordTemplate(file, data, fn)   - .docx 模板 {占位符} 渲染下载
+// await gov.fillExcelTemplate(file, data, fn)  - .xlsx 模板按 A1、Sheet1!A1 等填格下载
+// gov.writeCSV(fn, rows)            - 导出 CSV（二维数组），浏览器下载
+// gov.writeText(fn, str)            - 导出纯文本，浏览器下载
+// gov.writeJSON(fn, obj)            - 导出格式化 JSON，浏览器下载
 // gov.querySQL(sql, params?)        - 当前关联库查询
 // gov.executeSQL(sql, params?)      - 当前关联库执行
 // gov.querySQLForDb(dbId, sql, params?)   - 指定库查询
@@ -1147,6 +1626,152 @@
         </div>
     </div>
 
+    <div id="userPasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="userPasswordModalTitle">修改密码</h2>
+                <button type="button" class="modal-close" id="closeUserPasswordModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editPasswordInput">新密码</label>
+                    <input type="password" id="editPasswordInput" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="editPasswordConfirmInput">确认新密码</label>
+                    <input type="password" id="editPasswordConfirmInput" placeholder="再次输入新密码" autocomplete="new-password">
+                </div>
+                <div id="userPasswordModalPwdHint" class="error-message" style="margin-top:0;"></div>
+                <div class="modal-footer">
+                    <button type="button" id="submitUserPasswordBtn" class="btn btn-primary">保存</button>
+                </div>
+                <div id="userPasswordModalErr" class="error-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 质量审核：报告模板配置（默认仅通过「报告模板」按钮打开） -->
+    <div id="qaTplModal" class="qa-tpl-modal" aria-hidden="true">
+        <div class="qa-tpl-backdrop" id="qaTplBackdrop"></div>
+        <div class="qa-tpl-shell" role="dialog" aria-labelledby="qaTplModalTitle" aria-modal="true">
+            <div class="qa-tpl-head">
+                <div class="qa-tpl-head-text">
+                    <span class="qa-tpl-head-badge">报告</span>
+                    <h2 id="qaTplModalTitle" class="qa-tpl-title">报告模板</h2>
+                    <p class="qa-tpl-sub">左侧调整样式，右侧实时预览示例报告</p>
+                </div>
+                <button type="button" class="qa-tpl-icon-close" id="qaTplCloseX" aria-label="关闭">×</button>
+            </div>
+            <div class="qa-tpl-body">
+                <aside class="qa-tpl-config">
+                    <div class="qa-tpl-scroll">
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">基本信息</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplId">模板 ID</label>
+                                <input type="text" id="qaTplId" autocomplete="off" placeholder="default">
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplName">名称</label>
+                                <input type="text" id="qaTplName" autocomplete="off" placeholder="默认报告模板">
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplType">类型</label>
+                                <select id="qaTplType">
+                                    <option value="html">HTML</option>
+                                    <option value="docx">Word（导出）</option>
+                                </select>
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplDocTitle">报告标题</label>
+                                <input type="text" id="qaTplDocTitle" placeholder="数据质量审核报告">
+                            </div>
+                            <label class="qa-tpl-switch">
+                                <input type="checkbox" id="qaTplIsDefault" checked>
+                                <span>设为默认模板（生成报告时优先使用）</span>
+                            </label>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">标题样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplTitleFont">字体</label>
+                                <input type="text" id="qaTplTitleFont" placeholder="Microsoft YaHei, sans-serif">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field">
+                                    <label for="qaTplTitleSize">大小</label>
+                                    <input type="text" id="qaTplTitleSize" placeholder="24px">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTitleColor">颜色</label>
+                                    <input type="color" id="qaTplTitleColor" value="#1a202c" title="标题颜色">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">章节样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplSectionFont">字体</label>
+                                <input type="text" id="qaTplSectionFont" placeholder="Microsoft YaHei, sans-serif">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field">
+                                    <label for="qaTplSectionSize">大小</label>
+                                    <input type="text" id="qaTplSectionSize" placeholder="16px">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplSectionColor">颜色</label>
+                                    <input type="color" id="qaTplSectionColor" value="#2d3748" title="章节颜色">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">表格样式</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplTblBorder">边框（CSS）</label>
+                                <input type="text" id="qaTplTblBorder" placeholder="1px solid #cbd5e1">
+                            </div>
+                            <div class="qa-tpl-field-row">
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTblHead">表头背景</label>
+                                    <input type="color" id="qaTplTblHead" value="#edf2f7" title="表头背景">
+                                </div>
+                                <div class="qa-tpl-field qa-tpl-color-field">
+                                    <label for="qaTplTblAlt">交替行</label>
+                                    <input type="color" id="qaTplTblAlt" value="#f8fafc" title="交替行背景">
+                                </div>
+                            </div>
+                        </section>
+                        <section class="qa-tpl-card">
+                            <h3 class="qa-tpl-card-title">页眉页脚</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplHeader">页眉文本</label>
+                                <textarea id="qaTplHeader" rows="2" placeholder="可选，显示在报告顶部"></textarea>
+                            </div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplFooter">页脚文本</label>
+                                <textarea id="qaTplFooter" rows="2" placeholder="可选，显示在报告底部"></textarea>
+                            </div>
+                        </section>
+                    </div>
+                </aside>
+                <div class="qa-tpl-preview-wrap">
+                    <div class="qa-tpl-preview-label">实时预览</div>
+                    <iframe id="qaTplPreviewFrame" class="qa-tpl-preview-frame" title="报告预览"></iframe>
+                </div>
+            </div>
+            <div class="qa-tpl-foot">
+                <button type="button" class="btn btn-sm" id="qaTplCloseBtn">关闭</button>
+                <button type="button" class="btn btn-sm btn-primary" id="qaTplSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="lib/pizzip.js"></script>
+    <script src="lib/docxtemplater.js"></script>
+    <script src="/lib/xlsx.full.min.js"></script>
     <script src="script.js"></script>
+    <script src="quality-audit.js"></script>
+    <script src="governance.js"></script>
 </body>
 </html>
