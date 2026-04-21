@@ -558,26 +558,26 @@ func seedQualityAuditSampleData(db *sql.DB) {
 		}
 	}
 
-	itemRows := []struct{ tableName, num, den string }{
-		{"用户信息表", `SELECT COUNT(*) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(*) FROM 用户信息表`},
-		{"订单表", `SELECT COUNT(*) FROM 订单表 WHERE 订单号 IS NOT NULL AND 金额 IS NOT NULL`, `SELECT COUNT(*) FROM 订单表`},
+	itemRows := []struct{ tableName, fieldName, num, den string }{
+		{"用户信息表", "姓名", `SELECT COUNT(*) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(*) FROM 用户信息表`},
+		{"订单表", "订单号", `SELECT COUNT(*) FROM 订单表 WHERE 订单号 IS NOT NULL`, `SELECT COUNT(*) FROM 订单表`},
 	}
 	for _, r := range itemRows {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO item_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
-			r.tableName, r.num, r.den, 1, now); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO item_fill_rate (TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?,?)`,
+			r.tableName, r.fieldName, r.num, r.den, 1, now); err != nil {
 			rollback()
 			log.Printf("quality-audit 插入 item_fill_rate 示例失败: %v", err)
 			return
 		}
 	}
 
-	recRows := []struct{ tableName, num, den string }{
-		{"用户信息表", `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表`},
-		{"订单表", `SELECT COUNT(*) FROM 订单表 WHERE 状态 = '已完成'`, `SELECT COUNT(*) FROM 订单表`},
+	recRows := []struct{ tableName, fieldName, num, den string }{
+		{"用户信息表", "姓名", `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表 WHERE 姓名 IS NOT NULL`, `SELECT COUNT(DISTINCT 用户ID) FROM 用户信息表`},
+		{"订单表", "状态", `SELECT COUNT(*) FROM 订单表 WHERE 状态 = '已完成'`, `SELECT COUNT(*) FROM 订单表`},
 	}
 	for _, r := range recRows {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO record_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
-			r.tableName, r.num, r.den, 1, now); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO record_fill_rate (TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?,?)`,
+			r.tableName, r.fieldName, r.num, r.den, 1, now); err != nil {
 			rollback()
 			log.Printf("quality-audit 插入 record_fill_rate 示例失败: %v", err)
 			return
@@ -1330,8 +1330,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	// 写入缓存
 	qaCacheSet(cacheKey, ruleResults)
 
-	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
-	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
+	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
+	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
 
 	itemStats := runFillStats(targetDB, dialect, itemRows)
 	recStats := runFillStats(targetDB, dialect, recRows)
