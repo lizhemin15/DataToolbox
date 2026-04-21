@@ -877,8 +877,13 @@
         var root = document.getElementById(treeId);
         if (!root) return;
         root.innerHTML = '';
+        // 添加表头行
+        var header = document.createElement('div');
+        header.className = 'qa-fill-header';
+        header.innerHTML = '<span class="qa-fill-header-cb"></span><span class="qa-fill-header-cell">表名</span><span class="qa-fill-header-cell">字段名</span><span class="qa-fill-header-cell">分子 SQL</span><span class="qa-fill-header-cell">分母 SQL</span><span class="qa-fill-header-action"></span>';
+        root.appendChild(header);
         if (!rows || !rows.length) {
-            rows = [{ table_name: '', numerator: '', denominator: '', checked: true }];
+            rows = [{ table_name: '', field_name: '', numerator: '', denominator: '', checked: true }];
         }
         rows.forEach(function (r) {
             root.appendChild(createFillNode(r));

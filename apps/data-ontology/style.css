@@ -5438,6 +5438,43 @@ textarea#testApiParams {
     max-height: 400px;
     overflow-y: auto;
 }
+.qa-fill-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 2px solid #cbd5e1;
+    margin-bottom: 4px;
+    background: #f1f5f9;
+}
+.qa-fill-header-cb {
+    flex-shrink: 0;
+    width: 60px;
+    text-align: center;
+}
+.qa-fill-header-cell {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    text-align: center;
+}
+.qa-fill-header-cell:nth-child(2) {
+    width: 140px;
+    flex-shrink: 0;
+}
+.qa-fill-header-cell:nth-child(3) {
+    width: 140px;
+    flex-shrink: 0;
+}
+.qa-fill-header-cell:nth-child(4),
+.qa-fill-header-cell:nth-child(5) {
+    flex: 1;
+    min-width: 80px;
+}
+.qa-fill-header-action {
+    flex-shrink: 0;
+    width: 40px;
+}
 .qa-fill-node {
     display: flex;
     align-items: flex-start;
@@ -5455,6 +5492,17 @@ textarea#testApiParams {
     cursor: pointer;
 }
 .qa-fill-table-name {
+    flex-shrink: 0;
+    width: 140px;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+    box-sizing: border-box;
+    min-height: 3em;
+    height: 3em;
+}
+.qa-fill-field-name {
     flex-shrink: 0;
     width: 140px;
     padding: 6px 8px;
