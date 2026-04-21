@@ -9221,7 +9221,11 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 			}
 			return &GovRunnerResult{Success: false, Error: "执行失败: " + errMsg}
 		}
-		return &GovRunnerResult{Success: false, Error: "gov-runner 无输出"}
+		errMsg := "gov-runner 无输出"
+		if len(errBytes) > 0 {
+			errMsg += " | stderr: " + string(errBytes)
+		}
+		return &GovRunnerResult{Success: false, Error: errMsg}
 	}
 
 	var result GovRunnerResult

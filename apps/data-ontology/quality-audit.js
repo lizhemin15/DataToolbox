@@ -341,13 +341,13 @@
         var fillBlocks = '';
         function fillSection(title, rows) {
             if (!rows || !rows.length) return '';
-            var thead = '<thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th><th>备注</th></tr></thead>';
+            var thead = '<thead><tr><th>表名</th><th>字段名</th><th>填报率</th><th>备注</th></tr></thead>';
             var body = '<tbody>' + rows.map(function (x) {
                 var rate = x.rate_percent != null ? (Number(x.rate_percent).toFixed(2) + '%') : '—';
                 var note = '';
                 if (x.numerator_error) note += '分子: ' + x.numerator_error + ' ';
                 if (x.denominator_error) note += '分母: ' + x.denominator_error;
-                return '<tr><td>' + escapeHtml(x.table_name || '') + '</td><td>' + formatCellVal(x.numerator) + '</td><td>' + formatCellVal(x.denominator) + '</td><td>' + escapeHtml(rate) + '</td><td>' + escapeHtml(note.trim()) + '</td></tr>';
+                return '<tr><td>' + escapeHtml(x.table_name || '') + '</td><td>' + escapeHtml(x.field_name || '') + '</td><td>' + escapeHtml(rate) + '</td><td>' + escapeHtml(note.trim()) + '</td></tr>';
             }).join('') + '</tbody>';
             return '<div class="qa-fill-section"><strong>' + escapeHtml(title) + '</strong><table class="qa-result-table qa-fill-rate-table">' + thead + body + '</table></div>';
         }
@@ -497,28 +497,49 @@
         });
     }
 
-    /** 填报率：列顺序 表名、分子、分母。多行单元格应用 Excel 引号粘贴，由 parseExcelTSVWithQuotes 解析；无引号续行时首列为空则按列并入分子/分母 */
+    /** 填报率：列顺序 表名、字段名、分子、分母。多行单元格应用 Excel 引号粘贴，由 parseExcelTSVWithQuotes 解析；无引号续行时首列为空则按列并入分子/分母 */
     function mergeFillContinuationRows(parsedRows) {
         var out = [];
         var cur = null;
+        var lastTableName = '';
         (parsedRows || []).forEach(function (p) {
             if (!p || !p.length) return;
-            if (p.length >= 3 && String(p[0] || '').trim() !== '') {
+            // 支持3列或4列格式
+            var colCount = p.length;
+            var tableName = String(p[0] || '').trim();
+            var fieldName = '';
+            var numerator = '';
+            var denominator = '';
+            
+            if (colCount >= 4) {
+                // 4列格式：表名、字段名、分子、分母
+                fieldName = String(p[1] || '').trim();
+                numerator = p[2] != null ? String(p[2]) : '';
+                denominator = p[3] != null ? String(p[3]) : '';
+            } else if (colCount >= 3) {
+                // 3列格式：表名、分子、分母（兼容旧格式）
+                numerator = p[1] != null ? String(p[1]) : '';
+                denominator = p[2] != null ? String(p[2]) : '';
+            }
+            
+            // 如果表名为空，从上一个非空行填充
+            if (tableName === '' && lastTableName !== '') {
+                tableName = lastTableName;
+            }
+            
+            if (tableName !== '') {
                 if (cur) out.push(cur);
                 cur = {
-                    table_name: String(p[0] || '').trim(),
-                    numerator: p[1] != null ? String(p[1]) : '',
-                    denominator: p[2] != null ? String(p[2]) : ''
+                    table_name: tableName,
+                    field_name: fieldName,
+                    numerator: numerator,
+                    denominator: denominator
                 };
+                lastTableName = tableName;
             } else if (cur) {
-                if (p.length >= 3 && String(p[0] || '').trim() === '') {
-                    var ns = p[1] != null ? String(p[1]) : '';
-                    var ds = p[2] != null ? String(p[2]) : '';
-                    if (ns) cur.numerator += '\n' + ns;
-                    if (ds) cur.denominator += '\n' + ds;
-                } else {
-                    cur.numerator += '\n' + p.join('\t');
-                }
+                // 续行：并入当前行的分子/分母
+                if (numerator) cur.numerator += '\n' + numerator;
+                if (denominator) cur.denominator += '\n' + denominator;
             }
         });
         if (cur) out.push(cur);
@@ -529,25 +550,41 @@
         var lines = String(raw || '').split(/\n/);
         var rows = [];
         var cur = null;
+        var lastTableName = '';
         lines.forEach(function (line) {
             var p = line.split('\t');
-            if (p.length >= 3 && String(p[0] || '').trim() !== '') {
+            var colCount = p.length;
+            var tableName = String(p[0] || '').trim();
+            var fieldName = '';
+            var numerator = '';
+            var denominator = '';
+            
+            if (colCount >= 4) {
+                fieldName = String(p[1] || '').trim();
+                numerator = p[2] != null ? String(p[2]) : '';
+                denominator = p[3] != null ? String(p[3]) : '';
+            } else if (colCount >= 3) {
+                numerator = p[1] != null ? String(p[1]) : '';
+                denominator = p[2] != null ? String(p[2]) : '';
+            }
+            
+            // 如果表名为空，从上一个非空行填充
+            if (tableName === '' && lastTableName !== '') {
+                tableName = lastTableName;
+            }
+            
+            if (tableName !== '') {
                 if (cur) rows.push(cur);
                 cur = {
-                    table_name: String(p[0] || '').trim(),
-                    numerator: p[1] != null ? String(p[1]) : '',
-                    denominator: p[2] != null ? String(p[2]) : ''
+                    table_name: tableName,
+                    field_name: fieldName,
+                    numerator: numerator,
+                    denominator: denominator
                 };
+                lastTableName = tableName;
             } else if (cur) {
-                var pp = line.split('\t');
-                if (pp.length >= 3 && String(pp[0] || '').trim() === '') {
-                    var ns2 = pp[1] != null ? String(pp[1]) : '';
-                    var ds2 = pp[2] != null ? String(pp[2]) : '';
-                    if (ns2) cur.numerator += '\n' + ns2;
-                    if (ds2) cur.denominator += '\n' + ds2;
-                } else {
-                    cur.numerator += '\n' + line;
-                }
+                if (numerator) cur.numerator += '\n' + numerator;
+                if (denominator) cur.denominator += '\n' + denominator;
             }
         });
         if (cur) rows.push(cur);
@@ -755,6 +792,7 @@
         row = row || {};
         return {
             table_name: row.table_name != null ? String(row.table_name) : '',
+            field_name: row.field_name != null ? String(row.field_name) : '',
             numerator: row.numerator != null ? String(row.numerator) : '',
             denominator: row.denominator != null ? String(row.denominator) : '',
             checked: row.checked !== false
@@ -778,6 +816,11 @@
         nameIn.className = 'qa-fill-table-name';
         nameIn.placeholder = '表名';
         nameIn.value = row.table_name;
+        var fieldIn = document.createElement('input');
+        fieldIn.type = 'text';
+        fieldIn.className = 'qa-fill-field-name';
+        fieldIn.placeholder = '字段名';
+        fieldIn.value = row.field_name;
         var taN = document.createElement('textarea');
         taN.className = 'qa-fill-sql';
         taN.setAttribute('data-k', 'n');
@@ -795,6 +838,7 @@
         rm.title = '删除';
         wrap.appendChild(cb);
         wrap.appendChild(nameIn);
+        wrap.appendChild(fieldIn);
         wrap.appendChild(taN);
         wrap.appendChild(taD);
         wrap.appendChild(rm);
@@ -868,10 +912,12 @@
             var t = tIn && String(tIn.value || '').trim();
             if (!t) return;
             var cb = node.querySelector('.qa-fill-cb');
+            var fIn = node.querySelector('.qa-fill-field-name');
             var n = node.querySelector('textarea[data-k="n"]');
             var d = node.querySelector('textarea[data-k="d"]');
             rows.push({
                 table_name: t,
+                field_name: fIn ? String(fIn.value || '').trim() : '',
                 numerator: n ? n.value : '',
                 denominator: d ? d.value : '',
                 checked: !!(cb && cb.checked)
@@ -1012,7 +1058,7 @@
         });
 
         document.getElementById('qaPasteFill').addEventListener('click', function () {
-            var raw = prompt('请从 Excel 复制多行（列顺序：表名, 分子, 分母），粘贴到此处：');
+            var raw = prompt('请从 Excel 复制多行（列顺序：表名, 字段名, 分子, 分母），粘贴到此处：');
             if (!raw) return;
             var parsed = parseExcelPasteFillRates(raw);
             if (!parsed.length) { showMsg('未解析到有效行', true); return; }

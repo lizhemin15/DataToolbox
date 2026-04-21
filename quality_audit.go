@@ -297,18 +297,22 @@ CREATE TABLE IF NOT EXISTS rule_versions (
   change_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS item_fill_rate (
-  TABLE_NAME TEXT PRIMARY KEY,
+  TABLE_NAME TEXT NOT NULL,
+  FIELD_NAME TEXT NOT NULL,
   NUMERATOR TEXT NOT NULL,
   DENOMINATOR TEXT NOT NULL,
   CHECKED INTEGER NOT NULL DEFAULT 1,
-  UPDATED_AT TEXT NOT NULL
+  UPDATED_AT TEXT NOT NULL,
+  PRIMARY KEY (TABLE_NAME, FIELD_NAME)
 );
 CREATE TABLE IF NOT EXISTS record_fill_rate (
-  TABLE_NAME TEXT PRIMARY KEY,
+  TABLE_NAME TEXT NOT NULL,
+  FIELD_NAME TEXT NOT NULL,
   NUMERATOR TEXT NOT NULL,
   DENOMINATOR TEXT NOT NULL,
   CHECKED INTEGER NOT NULL DEFAULT 1,
-  UPDATED_AT TEXT NOT NULL
+  UPDATED_AT TEXT NOT NULL,
+  PRIMARY KEY (TABLE_NAME, FIELD_NAME)
 );
 CREATE TABLE IF NOT EXISTS report_templates (
   id TEXT PRIMARY KEY,
@@ -1057,6 +1061,7 @@ ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.S
 
 type fillRow struct {
 	TableName   string `json:"table_name"`
+	FieldName   string `json:"field_name"`
 	Numerator   string `json:"numerator"`
 	Denominator string `json:"denominator"`
 	Checked     bool   `json:"checked"`
@@ -1065,6 +1070,7 @@ type fillRow struct {
 
 type fillRowIn struct {
 	TableName   string `json:"table_name"`
+	FieldName   string `json:"field_name"`
 	Numerator   string `json:"numerator"`
 	Denominator string `json:"denominator"`
 	Checked     *bool  `json:"checked"`
@@ -1085,8 +1091,8 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		item, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME`)
-		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME`)
+		item, _ := scanFillTable(db, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate ORDER BY TABLE_NAME, FIELD_NAME`)
+		rec, _ := scanFillTable(db, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate ORDER BY TABLE_NAME, FIELD_NAME`)
 		qaRespondSuccess(w, map[string]interface{}{
 			"item_fill_rate":   item,
 			"record_fill_rate": rec,
@@ -1117,8 +1123,8 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		if coalesceFillChecked(row.Checked) {
 			ch = 1
 		}
-		_, err = tx.Exec(`INSERT INTO item_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
-			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
+		_, err = tx.Exec(`INSERT INTO item_fill_rate (TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?,?)`,
+			strings.TrimSpace(row.TableName), strings.TrimSpace(row.FieldName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
 			apiInternalError(w, err.Error())
@@ -1133,8 +1139,8 @@ func qaFillRates(w http.ResponseWriter, r *http.Request, username string) {
 		if coalesceFillChecked(row.Checked) {
 			ch = 1
 		}
-		_, err = tx.Exec(`INSERT INTO record_fill_rate (TABLE_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?)`,
-			strings.TrimSpace(row.TableName), row.Numerator, row.Denominator, ch, now)
+		_, err = tx.Exec(`INSERT INTO record_fill_rate (TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT) VALUES (?,?,?,?,?,?)`,
+			strings.TrimSpace(row.TableName), strings.TrimSpace(row.FieldName), row.Numerator, row.Denominator, ch, now)
 		if err != nil {
 			_ = tx.Rollback()
 			apiInternalError(w, err.Error())
@@ -1158,7 +1164,7 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 	for rows.Next() {
 		var r fillRow
 		var ch int
-		if err := rows.Scan(&r.TableName, &r.Numerator, &r.Denominator, &ch, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.TableName, &r.FieldName, &r.Numerator, &r.Denominator, &ch, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		r.Checked = ch != 0
@@ -2278,7 +2284,7 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		if m == nil {
 			continue
 		}
-		addPara(fmt.Sprintf("表 %v：填报率 %v%%（分子 %v / 分母 %v）", m["table_name"], m["rate_percent"], m["numerator"], m["denominator"]))
+		addPara(fmt.Sprintf("表 %v 字段 %v：填报率 %v%%", m["table_name"], m["field_name"], m["rate_percent"]))
 	}
 	addPara("")
 	addParaStyled("三、记录填报率", styles.Section)
@@ -2287,7 +2293,7 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		if m == nil {
 			continue
 		}
-		addPara(fmt.Sprintf("表 %v：填报率 %v%%（分子 %v / 分母 %v）", m["table_name"], m["rate_percent"], m["numerator"], m["denominator"]))
+		addPara(fmt.Sprintf("表 %v 字段 %v：填报率 %v%%", m["table_name"], m["field_name"], m["rate_percent"]))
 	}
 
 	if strings.TrimSpace(styles.PageFooter) != "" {
@@ -2640,7 +2646,7 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		b.WriteString(`</div>`)
 	}
 	b.WriteString(`<h2 class="qa-sec">二、项填报率</h2>`)
-	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th></tr></thead><tbody>`)
+	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
 	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
@@ -2655,16 +2661,14 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		b.WriteString(`<tr><td>`)
 		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
 		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["numerator"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["denominator"])))
+		b.WriteString(html.EscapeString(fmt.Sprint(m["field_name"])))
 		b.WriteString(`</td><td>`)
 		b.WriteString(html.EscapeString(rate))
 		b.WriteString(`</td></tr>`)
 	}
 	b.WriteString(`</tbody></table>`)
 	b.WriteString(`<h2 class="qa-sec">三、记录填报率</h2>`)
-	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>分子</th><th>分母</th><th>填报率</th></tr></thead><tbody>`)
+	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
 	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
@@ -2679,9 +2683,7 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		b.WriteString(`<tr><td>`)
 		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
 		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["numerator"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["denominator"])))
+		b.WriteString(html.EscapeString(fmt.Sprint(m["field_name"])))
 		b.WriteString(`</td><td>`)
 		b.WriteString(html.EscapeString(rate))
 		b.WriteString(`</td></tr>`)
