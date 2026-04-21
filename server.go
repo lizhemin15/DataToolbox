@@ -5961,6 +5961,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 解析AI返回的SQL和回复文本
+		aiResponse = cleanAIResponse(aiResponse)
 		sqlQuery, targetDBID, responseText := parseAIResponse(aiResponse, dbSchemas)
 		if sqlQuery == "" {
 			lastError = "AI未能生成有效的SQL查询"
@@ -6455,9 +6456,9 @@ func getModulePromptPrefix(modules []string) string {
 	}
 
 	if moduleSet["db-manage"] {
-		return "你是一个专业的数据库管理助手，聚焦于SQL查询、数据写入、表结构操作。请根据用户的问题和数据库结构生成SQL语句。\n\n"
+		return "你是一个专业的数据库管理助手。你必须优先生成可执行、最小化、单条 SQL，并严格遵守数据库方言。若信息不足，只保留最核心的查询意图，不要扩写。\n\n"
 	}
-	return "你是一个专业的数据库助手。用户想要查询数据库，请根据用户的问题和数据库结构生成SQL查询语句。\n\n"
+	return "你是一个专业的数据库助手。你必须优先生成可执行、最小化、单条 SQL，并严格遵守数据库方言。若信息不足，只保留最核心的查询意图，不要扩写。\n\n"
 }
 
 // ReflectionResult 反思结果
@@ -6601,7 +6602,8 @@ func buildAIPrompt(userMessage string, dbSchemas []map[string]interface{}, modul
 	prompt += "2. 【必须】只使用上面列出的真实表名和字段名，绝对不要编造列名！\n"
 	prompt += "3. 【禁止】不要使用 UNION ALL 合并不同表的数据（列数和类型不同会报错）\n"
 	prompt += "4. 对于INSERT操作：必须使用表中实际存在的字段名；标记为[自增主键,INSERT时跳过]的列绝对不要包含在INSERT语句中；根据字段类型填入合理的示例数据\n"
-	prompt += "5. 使用子查询或聚合函数来统计多个表的信息\n\n"
+	prompt += "5. 使用子查询或聚合函数来统计多个表的信息\n"
+	prompt += "6. 如果问题信息不足，只能基于已知结构给出最小可执行查询，必要时先返回最相关的表或字段\n\n"
 	prompt += "📚 根据问题类型选择正确的SQL：\n\n"
 	prompt += "🔍 查询表结构/字段信息：\n"
 	prompt += queryColumns + "\n\n"
@@ -6758,6 +6760,43 @@ func buildRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, la
 	return sb.String()
 }
 
+// cleanAIResponse 清洗模型输出，去掉 think、代码块和多余空白
+func cleanAIResponse(response string) string {
+	response = strings.TrimSpace(response)
+	response = strings.ReplaceAll(response, "\r\n", "\n")
+	response = strings.ReplaceAll(response, "\r", "\n")
+
+	for _, marker := range []string{"<think>", "</think>", "<analysis>", "</analysis>"} {
+		response = strings.ReplaceAll(response, marker, "")
+	}
+
+	response = strings.TrimSpace(response)
+	if idx := strings.Index(response, "```json"); idx >= 0 {
+		response = response[idx+len("```json"):]
+	}
+	if idx := strings.Index(response, "```sql"); idx >= 0 && strings.Index(response, "```json") < 0 {
+		response = response[idx+len("```sql"):]
+	}
+	if idx := strings.Index(response, "```"); idx >= 0 {
+		response = response[idx+len("```"):]
+	}
+	response = strings.TrimSpace(response)
+	if idx := strings.LastIndex(response, "```"); idx >= 0 {
+		response = response[:idx]
+	}
+	return strings.TrimSpace(response)
+}
+
+func extractJSONObject(s string) string {
+	s = cleanAIResponse(s)
+	start := strings.Index(s, "{")
+	end := strings.LastIndex(s, "}")
+	if start >= 0 && end > start {
+		return strings.TrimSpace(s[start : end+1])
+	}
+	return ""
+}
+
 // callAIService 调用AI服务
 func callAIService(config *AIConfig, prompt string) (string, error) {
 	// 构建请求体
@@ -6832,15 +6871,12 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 
 // extractCodeFromAIResponse 从 AI 返回中提取代码（去掉 ```js 等包裹）
 func extractCodeFromAIResponse(s string) string {
-	s = strings.TrimSpace(s)
-	for _, prefix := range []string{"```javascript", "```js", "```"} {
-		if strings.HasPrefix(s, prefix) {
-			s = s[len(prefix):]
-			break
-		}
+	s = cleanAIResponse(s)
+	if idx := strings.Index(s, "function "); idx >= 0 {
+		return strings.TrimSpace(s[idx:])
 	}
-	if idx := strings.Index(s, "```"); idx >= 0 {
-		s = s[:idx]
+	if idx := strings.Index(s, "const "); idx >= 0 {
+		return strings.TrimSpace(s[idx:])
 	}
 	return strings.TrimSpace(s)
 }
@@ -7047,17 +7083,11 @@ func handleOntologyExtract(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 解析 JSON
-	cleaned := strings.TrimSpace(aiResp)
-	for _, prefix := range []string{"```json", "```"} {
-		if strings.HasPrefix(cleaned, prefix) {
-			cleaned = cleaned[len(prefix):]
-			break
-		}
+	cleaned := extractJSONObject(aiResp)
+	if cleaned == "" {
+		cleaned = cleanAIResponse(aiResp)
 	}
-	if idx := strings.Index(cleaned, "```"); idx >= 0 {
-		cleaned = cleaned[:idx]
-	}
-	cleaned = strings.TrimSpace(cleaned)
+	cleaned = extractJSONObject(cleaned)
 
 	var ontology map[string]interface{}
 	if err := json.Unmarshal([]byte(cleaned), &ontology); err != nil {
@@ -7145,14 +7175,26 @@ func handleAIOntologyQuery(w http.ResponseWriter, flusher http.Flusher, queryReq
 
 用户问题：%s
 
-请用中文给出详细的语义分析和治理建议。`, string(schemaJSON), queryReq.Message)
+请用中文给出详细的语义分析和治理建议。最后一行输出 HIGHLIGHT:concept_id1,concept_id2，列出应高亮的概念id。`, string(schemaJSON), queryReq.Message)
 
 	aiResp, err := callAIService(aiConfig, prompt)
 	if err != nil {
 		sendSSE(w, "error", map[string]interface{}{"message": "AI调用失败: " + err.Error()})
 		return
 	}
-	sendSSE(w, "answer", map[string]interface{}{"text": aiResp})
+
+	answer := aiResp
+	highlighted := []string{}
+	if idx := strings.LastIndex(aiResp, "HIGHLIGHT:"); idx >= 0 {
+		answer = strings.TrimSpace(aiResp[:idx])
+		ids := strings.TrimSpace(aiResp[idx+10:])
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				highlighted = append(highlighted, id)
+			}
+		}
+	}
+	sendSSE(w, "answer", map[string]interface{}{"text": answer, "highlighted": highlighted})
 	sendSSE(w, "done", map[string]interface{}{})
 	flusher.Flush()
 }
@@ -7436,13 +7478,14 @@ func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *
 	})
 	flusher.Flush()
 
-	// 构建提示词
 	prompt := "你是数据质量审核专家。用户需要创建数据质量审核规则，请根据用户需求和以下数据库结构生成规则配置。\n\n"
 	prompt += "数据库结构：\n"
 	for _, schema := range dbSchemas {
 		prompt += fmt.Sprintf("- 数据库: %s (类型: %s)\n", schema["name"], schema["type"])
-		if tables, ok := schema["tables"].([]string); ok {
-			prompt += fmt.Sprintf("  表: %s\n", strings.Join(tables, ", "))
+		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, t := range tables {
+				prompt += fmt.Sprintf("  - 表: %s\n", t["name"])
+			}
 		}
 	}
 	prompt += "\n用户需求：" + queryReq.Message + "\n\n"
@@ -7469,17 +7512,7 @@ func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *
 		return
 	}
 
-	// 解析JSON
-	jsonStart := strings.Index(aiResponse, "```json")
-	if jsonStart != -1 {
-		jsonStart = strings.Index(aiResponse[jsonStart:], "{")
-		if jsonStart != -1 {
-			jsonStart += strings.Index(aiResponse, "```json")
-		}
-	}
-	if jsonStart == -1 {
-		jsonStart = strings.Index(aiResponse, "{")
-	}
+	jsonStart := strings.Index(aiResponse, "{")
 	jsonEnd := strings.LastIndex(aiResponse, "}")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
 		sendSSE(w, "error", map[string]interface{}{"message": "未能解析规则配置", "response": aiResponse})
@@ -7488,7 +7521,11 @@ func handleAIQualityRule(w http.ResponseWriter, flusher http.Flusher, queryReq *
 		return
 	}
 
-	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	jsonStr := extractJSONObject(aiResponse[jsonStart : jsonEnd+1])
+	if jsonStr == "" {
+		jsonStr = cleanAIResponse(aiResponse[jsonStart : jsonEnd+1])
+	}
+	jsonStr = extractJSONObject(jsonStr)
 	var rule map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &rule); err != nil {
 		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
@@ -7536,7 +7573,6 @@ func handleAISmallModel(w http.ResponseWriter, flusher http.Flusher, queryReq *A
 		return
 	}
 
-	// 解析JSON
 	jsonStart := strings.Index(aiResponse, "{")
 	jsonEnd := strings.LastIndex(aiResponse, "}")
 	if jsonStart == -1 || jsonEnd == -1 {
@@ -7546,7 +7582,10 @@ func handleAISmallModel(w http.ResponseWriter, flusher http.Flusher, queryReq *A
 		return
 	}
 
-	jsonStr := aiResponse[jsonStart : jsonEnd+1]
+	jsonStr := extractJSONObject(aiResponse[jsonStart : jsonEnd+1])
+	if jsonStr == "" {
+		jsonStr = cleanAIResponse(aiResponse[jsonStart : jsonEnd+1])
+	}
 	var model map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &model); err != nil {
 		sendSSE(w, "error", map[string]interface{}{"message": "JSON解析失败: " + err.Error(), "response": aiResponse})
@@ -7800,7 +7839,11 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 		return nil, "找到代码块开始标记但未找到结束标记"
 	}
 
-	jsonStr := strings.TrimSpace(response[contentStart : contentStart+jsonEnd])
+	jsonStr := cleanAIResponse(strings.TrimSpace(response[contentStart : contentStart+jsonEnd]))
+	jsonStr = extractJSONObject(jsonStr)
+	if jsonStr == "" {
+		jsonStr = strings.TrimSpace(response[contentStart : contentStart+jsonEnd])
+	}
 
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {

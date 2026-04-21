@@ -4544,17 +4544,24 @@ async function handleSendAiMessage() {
             if (done) break;
             
             buffer += decoder.decode(value, {stream: true});
-            const lines = buffer.split('\n\n');
-            buffer = lines.pop() || '';
+            const chunks = buffer.split(/\n\n+/);
+            buffer = chunks.pop() || '';
             
-            for (const line of lines) {
-                if (!line.trim()) continue;
-                
-                const eventMatch = line.match(/^event: (.+)\ndata: (.+)$/);
-                if (eventMatch) {
-                    const eventType = eventMatch[1];
-                    const data = JSON.parse(eventMatch[2]);
+            for (const chunk of chunks) {
+                if (!chunk.trim()) continue;
+                const eventLines = chunk.split('\n');
+                let eventType = '';
+                const dataLines = [];
+                for (const line of eventLines) {
+                    if (line.startsWith('event:')) eventType = line.slice(6).trim();
+                    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+                }
+                if (!eventType || dataLines.length === 0) continue;
+                try {
+                    const data = JSON.parse(dataLines.join('\n'));
                     handleStreamEvent(streamMessageId, eventType, data, message);
+                } catch (err) {
+                    console.warn('SSE JSON parse failed', eventType, dataLines.join('\n'), err);
                 }
             }
         }
@@ -4930,15 +4937,19 @@ function addAiStreamMessage() {
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     const messageHtml = `
-        <div class="ai-message assistant" id="${messageId}">
+        <div class="ai-message assistant ai-process-card" id="${messageId}">
             <div class="ai-message-avatar">${avatar}</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
                     <div id="${messageId}-status" class="ai-stream-status"></div>
+                    <div id="${messageId}-timeline" class="ai-process-timeline"></div>
                     <div id="${messageId}-content" class="ai-stream-content"></div>
                     <div id="${messageId}-attempts" class="ai-stream-attempts" style="display:none;"></div>
                 </div>
-                <div class="ai-message-meta">${time}</div>
+                <div class="ai-message-meta">
+                    <span>${time}</span>
+                    <button type="button" class="ai-process-toggle" id="${messageId}-toggle" onclick="toggleAiProcess('${messageId}')" style="display:none;">收起过程</button>
+                </div>
             </div>
         </div>
     `;
@@ -4949,20 +4960,77 @@ function addAiStreamMessage() {
     return messageId;
 }
 
+function appendAiProcessStep(messageId, title, detail, state, phase) {
+    const timelineEl = document.getElementById(`${messageId}-timeline`);
+    if (!timelineEl) return;
+    const safeTitle = escapeHtml(title);
+    const safeDetail = detail ? escapeHtml(detail) : '';
+    const safePhase = phase ? escapeHtml(phase) : '';
+    const stepId = `${messageId}-step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    timelineEl.insertAdjacentHTML('beforeend', `
+        <div class="ai-process-step ${state || 'pending'}" id="${stepId}">
+            <div class="ai-process-step-dot"></div>
+            <div class="ai-process-step-body">
+                ${safePhase ? `<div class="ai-process-step-phase">${safePhase}</div>` : ''}
+                <div class="ai-process-step-title">${safeTitle}</div>
+                ${safeDetail ? `<div class="ai-process-step-detail">${safeDetail}</div>` : ''}
+            </div>
+        </div>
+    `);
+}
+
+function setAiProcessCollapsed(messageId, collapsed) {
+    const card = document.getElementById(messageId);
+    if (!card) return;
+    card.classList.toggle('ai-process-collapsed', collapsed);
+    const toggle = document.getElementById(`${messageId}-toggle`);
+    if (toggle) toggle.textContent = collapsed ? '展开过程' : '收起过程';
+}
+
+function toggleAiProcess(messageId) {
+    const card = document.getElementById(messageId);
+    if (!card) return;
+    setAiProcessCollapsed(messageId, !card.classList.contains('ai-process-collapsed'));
+}
+
+function finalizeAiProcess(messageId) {
+    const toggle = document.getElementById(`${messageId}-toggle`);
+    if (toggle) toggle.style.display = 'inline-flex';
+    setAiProcessCollapsed(messageId, true);
+}
+
 // 处理流式事件
 function handleStreamEvent(messageId, eventType, data, userMessage) {
     const statusEl = document.getElementById(`${messageId}-status`);
     const contentEl = document.getElementById(`${messageId}-content`);
     const attemptsEl = document.getElementById(`${messageId}-attempts`);
     const messagesEl = document.getElementById('aiChatMessages');
+
+    function stageLabel(type) {
+        if (type === 'start' || type === 'thinking') return '分析阶段';
+        if (type === 'retry' || type === 'attempt_failed') return '修正阶段';
+        if (type === 'sql_generated' || type === 'api_config_generated' || type === 'governance_task_draft' || type === 'quality_rule_draft' || type === 'small_model_draft') return '生成阶段';
+        if (type === 'executing') return '执行阶段';
+        if (type === 'confirm_write') return '确认阶段';
+        return '结果阶段';
+    }
+    const markStep = (title, detail, state) => appendAiProcessStep(messageId, title, detail, state, stageLabel(eventType));
+    const showTimeline = () => {
+        const toggle = document.getElementById(`${messageId}-toggle`);
+        if (toggle) toggle.style.display = 'inline-flex';
+    };
     
     switch (eventType) {
         case 'start':
             statusEl.innerHTML = `<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> ${escapeHtml(data.message)}</div>`;
+            markStep('开始处理', data.message || '正在初始化任务', 'running');
+            showTimeline();
             break;
             
         case 'thinking':
             statusEl.innerHTML = `<div class="ai-status-thinking">🤔 ${escapeHtml(data.message)}</div>`;
+            markStep('智能体分析', data.message || '正在分析上下文', 'running');
+            showTimeline();
             break;
             
         case 'retry':
@@ -4970,6 +5038,8 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', retryHtml);
             statusEl.innerHTML = `<div class="ai-status-thinking">🔄 ${escapeHtml(data.message)}</div>`;
+            markStep('重试中', data.error || data.message || '前一步未成功，正在重试', 'warning');
+            showTimeline();
             break;
             
         case 'sql_generated':
@@ -4981,16 +5051,22 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
             `;
+            markStep('SQL 已生成', '已获得可执行的查询草稿', 'done');
+            showTimeline();
             break;
             
         case 'executing':
             statusEl.innerHTML = `<div class="ai-status-executing">⚡ ${escapeHtml(data.message)}</div>`;
+            markStep('执行 SQL', data.message || '正在查询数据库', 'running');
+            showTimeline();
             break;
             
         case 'attempt_failed':
             const failedHtml = `<div class="ai-attempt-failed">❌ 尝试 ${data.attempt} 失败: ${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:11px;padding:6px;margin-top:3px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', failedHtml);
+            markStep(`尝试 ${data.attempt} 失败`, data.error || '执行失败', 'warning');
+            showTimeline();
             break;
             
         case 'success':
@@ -5011,7 +5087,6 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     </div>`;
             }
             
-            // 显示重试信息（如果有）
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 resultHtml += `
@@ -5071,12 +5146,13 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             
             contentEl.innerHTML = resultHtml;
             attemptsEl.style.display = 'none';
+            markStep('任务完成', '已生成最终结果', 'done');
+            finalizeAiProcess(messageId);
             break;
 
         case 'confirm_write':
             statusEl.innerHTML = '';
             const confirmId = 'confirm-' + messageId;
-            // 使用 data-* 属性存储 JSON 数据，避免 XSS
             const confirmSqlData = encodeURIComponent(JSON.stringify(data.sql));
             const confirmDbIdData = encodeURIComponent(JSON.stringify(data.dbId));
             let confirmHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
@@ -5098,13 +5174,13 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             `;
             contentEl.innerHTML = confirmHtml;
             attemptsEl.style.display = 'none';
+            markStep('等待确认', '用户确认后才会执行写操作', 'warning');
+            showTimeline();
             break;
             
         case 'error':
             statusEl.innerHTML = '';
             let errorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(data.message)}</div>`;
-            
-            // 显示AI原始响应（用于调试）
             if (data.response) {
                 const debugId = 'debug-' + messageId;
                 errorHtml += `
@@ -5119,7 +5195,6 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     </div>
                 `;
             }
-            
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 errorHtml += `
@@ -5138,19 +5213,16 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     </div>
                 `;
             }
-            
             errorHtml += '</div>';
             contentEl.innerHTML = errorHtml;
             attemptsEl.style.display = 'none';
+            markStep('任务失败', data.message || '执行失败', 'warning');
+            finalizeAiProcess(messageId);
             break;
             
         case 'api_config_generated':
             statusEl.innerHTML = '';
-            
-            // 显示接口配置预览
             const config = data.config;
-            
-            // 构建默认参数显示
             let defaultParamsHtml = '';
             if (config.default_params && Object.keys(config.default_params).length > 0) {
                 const paramsEntries = Object.entries(config.default_params).map(([key, value]) => {
@@ -5165,7 +5237,6 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     </div>
                 `;
             }
-            
             const configHtml = `
                 <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview">
@@ -5178,10 +5249,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                         <div class="config-item"><span class="config-label">接口路径:</span> <span class="config-value">${escapeHtml(config.path)}</span></div>
                         <div class="config-item"><span class="config-label">请求方法:</span> <span class="config-value">${escapeHtml(config.method)}</span></div>
                         <div class="config-item"><span class="config-label">接口描述:</span> <span class="config-value">${escapeHtml(config.description || '')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;">
-                            <span class="config-label">SQL语句:</span>
-                            <div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div>
-                        </div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL语句:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div></div>
                         ${defaultParamsHtml}
                     </div>
                     <div class="ai-api-config-actions">
@@ -5190,9 +5258,10 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                     </div>
                 </div>
             `;
-            
             contentEl.innerHTML = configHtml;
             attemptsEl.style.display = 'none';
+            markStep('接口草稿生成', '已生成可确认的接口配置', 'done');
+            finalizeAiProcess(messageId);
             break;
 
         case 'governance_task_draft':
@@ -5217,10 +5286,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                         ${govDraft.type === 'scheduled' ? `<div class="config-item"><span class="config-label">Cron:</span> <span class="config-value">${govCronDisplay}</span></div>` : ''}
                         ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">输入方式:</span> <span class="config-value">${govInputTypeDisplay}</span></div>` : ''}
                         ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">接受扩展名:</span> <span class="config-value">${govExtsDisplay}</span></div>` : ''}
-                        <div class="config-item" style="grid-column: 1 / -1;">
-                            <span class="config-label">脚本代码:</span>
-                            <div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((govDraft.js_code || '').slice(0, 500))}${(govDraft.js_code || '').length > 500 ? '...' : ''}</div>
-                        </div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">脚本代码:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((govDraft.js_code || '').slice(0, 500))}${(govDraft.js_code || '').length > 500 ? '...' : ''}</div></div>
                     </div>
                     <div class="ai-api-config-actions">
                         <button class="btn btn-primary" onclick="confirmCreateGovTaskFromAI('${messageId}')">✓ 确认创建任务</button>
@@ -5230,10 +5296,68 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             `;
             contentEl.innerHTML = govTaskHtml;
             attemptsEl.style.display = 'none';
+            markStep('治理任务草稿', '已生成可确认的治理任务配置', 'done');
+            finalizeAiProcess(messageId);
+            break;
+
+        case 'quality_rule_draft':
+            statusEl.innerHTML = '';
+            const rule = data.rule || {};
+            const ruleHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview ai-quality-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">数据质量规则草稿</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">规则编号:</span> <span class="config-value">${escapeHtml(rule.nm || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">层级编码:</span> <span class="config-value">${escapeHtml(rule.xh || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">规则名称:</span> <span class="config-value">${escapeHtml(rule.name || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">类别:</span> <span class="config-value">${escapeHtml(rule.category || '—')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL语句:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(rule.sql || '')}</div></div>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = ruleHtml;
+            attemptsEl.style.display = 'none';
+            markStep('质量规则草稿', '已生成可确认的规则配置', 'done');
+            finalizeAiProcess(messageId);
+            break;
+
+        case 'small_model_draft':
+            statusEl.innerHTML = '';
+            const model = data.model || {};
+            const modelHtml = `
+                <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
+                <div class="ai-api-config-preview ai-quality-preview">
+                    <div class="ai-api-config-header">
+                        <span style="font-weight: 600;">小模型草稿</span>
+                    </div>
+                    <div class="ai-api-config-body">
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(model.name || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(model.description || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${escapeHtml(model.input_type || '—')}</span></div>
+                        <div class="config-item"><span class="config-label">输出类型:</span> <span class="config-value">${escapeHtml(model.output_type || '—')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">代码:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((model.js_code || '').slice(0, 500))}${(model.js_code || '').length > 500 ? '...' : ''}</div></div>
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = modelHtml;
+            attemptsEl.style.display = 'none';
+            markStep('小模型草稿', '已生成可确认的小模型配置', 'done');
+            finalizeAiProcess(messageId);
+            break;
+
+        case 'answer':
+            statusEl.innerHTML = '';
+            contentEl.innerHTML = `<div style="margin-bottom: 6px;">${formatAIText(data.text || data.message || '')}</div>`;
+            attemptsEl.style.display = 'none';
+            markStep('语义回答完成', '已生成本体图谱回答', 'done');
+            finalizeAiProcess(messageId);
             break;
             
         case 'done':
-            // 完成，不需要特别处理
+            finalizeAiProcess(messageId);
             break;
     }
     
@@ -8418,6 +8542,25 @@ function ontoHandleSSE(type, data) {
         case 'onto-start':
         case 'onto-thinking':
             document.getElementById('ontoAiText').textContent = data.message || 'AI 思考中...';
+            break;
+        case 'answer':
+            document.getElementById('ontoAiProgressBar').style.width = '100%';
+            setTimeout(() => {
+                hideOntologyLoading();
+                const payload = {
+                    concepts: [],
+                    relations: [],
+                    insights: []
+                };
+                renderOntologyGraph(payload, true);
+                const resultEl = document.getElementById('ontoQueryResult');
+                if (resultEl) {
+                    let answer = data.text || '';
+                    answer = escapeHtml(answer).replace(/【([^】]+)】/g, '<span class="onto-highlight-badge">$1</span>');
+                    resultEl.innerHTML = answer;
+                }
+                showOntoToast('✅ 语义回答完成');
+            }, 400);
             break;
         case 'onto-result':
             document.getElementById('ontoAiProgressBar').style.width = '100%';
