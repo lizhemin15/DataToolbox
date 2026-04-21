@@ -868,9 +868,10 @@ type ApiInfo struct {
 
 // AIConfig AI配置
 type AIConfig struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-	Model  string `json:"model"`
+	URL     string `json:"url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+	Timeout int    `json:"timeout"` // 超时时间（秒），默认60
 }
 
 // LLMModelConfig 大模型配置
@@ -6781,9 +6782,13 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	// 发送请求
+	// 使用配置的超时时间，默认60秒
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 60
+	}
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: time.Duration(timeout) * time.Second,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -7728,8 +7733,14 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (map[string]interface{}, string) {
 	// 提取JSON代码块
 	jsonStart := strings.Index(response, "```json")
-	if jsonStart == -1 {
+	jsonBlockOffset := 0
+	if jsonStart != -1 {
+		jsonBlockOffset = len("```json")
+	} else {
 		jsonStart = strings.Index(response, "```")
+		if jsonStart != -1 {
+			jsonBlockOffset = len("```")
+		}
 	}
 
 	if jsonStart == -1 {
@@ -7744,20 +7755,48 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 			}
 			return config, ""
 		}
+		// 尝试提取 { } 包裹的 JSON 对象
+		objStart := strings.Index(response, "{")
+		objEnd := strings.LastIndex(response, "}")
+		if objStart != -1 && objEnd != -1 && objEnd > objStart {
+			jsonStr := response[objStart : objEnd+1]
+			if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
+				if len(dbSchemas) > 0 {
+					if id, ok := dbSchemas[0]["id"].(string); ok {
+						config["database_id"] = id
+					}
+				}
+				return config, ""
+			}
+		}
 		return nil, "未找到JSON代码块，且响应内容无法直接解析为JSON"
 	}
 
-	jsonStart = strings.Index(response[jsonStart:], "\n")
-	if jsonStart == -1 {
+	// 找到代码块起始位置后的换行符
+	newlineIdx := strings.Index(response[jsonStart+jsonBlockOffset:], "\n")
+	if newlineIdx == -1 {
 		return nil, "找到代码块标记但格式不正确"
 	}
+	contentStart := jsonStart + jsonBlockOffset + newlineIdx + 1
 
-	jsonEnd := strings.Index(response[jsonStart+1:], "```")
+	// 找到代码块结束标记
+	jsonEnd := strings.Index(response[contentStart:], "```")
 	if jsonEnd == -1 {
+		// 没有结束标记，尝试从 contentStart 解析到结尾
+		jsonStr := strings.TrimSpace(response[contentStart:])
+		var config map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &config); err == nil {
+			if len(dbSchemas) > 0 {
+				if id, ok := dbSchemas[0]["id"].(string); ok {
+					config["database_id"] = id
+				}
+			}
+			return config, ""
+		}
 		return nil, "找到代码块开始标记但未找到结束标记"
 	}
 
-	jsonStr := strings.TrimSpace(response[jsonStart+1 : jsonStart+1+jsonEnd])
+	jsonStr := strings.TrimSpace(response[contentStart : contentStart+jsonEnd])
 
 	var config map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
