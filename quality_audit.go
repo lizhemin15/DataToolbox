@@ -2236,9 +2236,6 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 			continue
 		}
 		addPara(fmt.Sprintf("%d. %v（%v）", i+1, row["name"], row["nm"]))
-		if s, ok := row["sql_executed"].(string); ok && s != "" {
-			addPara("执行 SQL：" + s)
-		}
 		addPara(fmt.Sprintf("结果：违规数 %v   通过：%v", row["violation_count"], row["passed"]))
 		if e, ok := row["error"].(string); ok && e != "" {
 			addPara("错误：" + e)
