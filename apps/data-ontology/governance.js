@@ -8,11 +8,17 @@ async function govDownloadExampleSingle(path) {
         return;
     }
     const blob = await response.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = safe.split('/').pop() || 'example.docx';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const shared = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+    const download = typeof shared.govDownloadBlob === 'function'
+        ? shared.govDownloadBlob
+        : function (blob, filename) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        };
+    download(blob, safe.split('/').pop() || 'example.docx');
 }
 
 async function govDownloadExampleZip(files) {
@@ -32,11 +38,17 @@ async function govDownloadExampleZip(files) {
         return;
     }
     const blob = await response.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'governance-examples.zip';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const shared = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+    const download = typeof shared.govDownloadBlob === 'function'
+        ? shared.govDownloadBlob
+        : function (blob, filename) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        };
+    download(blob, 'governance-examples.zip');
 }
 
 function govDownloadExamplesForTask(taskId) {

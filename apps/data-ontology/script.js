@@ -6746,61 +6746,30 @@ function _govGetDocxtemplaterClass() {
     return null;
 }
 
+function _govShared() {
+    return window.GOV_SHARED || globalThis.GOV_SHARED || {};
+}
+
 function _govExcelCellForValue(val) {
-    if (val === null || val === undefined) return null;
-    if (typeof val === 'number' && !isNaN(val)) return { t: 'n', v: val };
-    if (val instanceof Date) return { t: 'd', v: val };
-    if (typeof val === 'boolean') return { t: 'b', v: val };
-    return { t: 's', v: String(val) };
+    const shared = _govShared();
+    if (typeof shared.govExcelCellForValue === 'function') return shared.govExcelCellForValue(val);
+    return val === null || val === undefined ? null : { t: 's', v: String(val) };
 }
 
 function _govExpandSheetRef(XLSX, ws) {
-    let maxR = 0;
-    let maxC = 0;
-    let has = false;
-    for (const k of Object.keys(ws)) {
-        if (k[0] === '!') continue;
-        try {
-            const cell = XLSX.utils.decode_cell(k);
-            has = true;
-            maxR = Math.max(maxR, cell.r);
-            maxC = Math.max(maxC, cell.c);
-        } catch (e) {
-            /* ignore */
-        }
-    }
-    if (has) {
-        ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
-    }
+    const shared = _govShared();
+    if (typeof shared.govExpandSheetRef === 'function') return shared.govExpandSheetRef(XLSX, ws);
 }
 
 function _govApplyCellMapToSheet(XLSX, ws, cellMap) {
-    for (const [addr, val] of Object.entries(cellMap)) {
-        if (!addr || addr[0] === '!') continue;
-        try {
-            XLSX.utils.decode_cell(addr);
-        } catch (e) {
-            continue;
-        }
-        const cellObj = _govExcelCellForValue(val);
-        if (cellObj === null) delete ws[addr];
-        else ws[addr] = cellObj;
-    }
-    _govExpandSheetRef(XLSX, ws);
+    const shared = _govShared();
+    if (typeof shared.govApplyCellMapToSheet === 'function') return shared.govApplyCellMapToSheet(XLSX, ws, cellMap);
 }
 
 function _govDataIsFlatCellMap(XLSX, data) {
-    const keys = Object.keys(data);
-    if (keys.length === 0) return false;
-    return keys.every(k => {
-        if (typeof k !== 'string') return false;
-        try {
-            XLSX.utils.decode_cell(k);
-            return true;
-        } catch (e) {
-            return false;
-        }
-    });
+    const shared = _govShared();
+    if (typeof shared.govDataIsFlatCellMap === 'function') return shared.govDataIsFlatCellMap(XLSX, data);
+    return false;
 }
 
 function createGovHelper(logLines, uploadedFiles) {
@@ -6837,6 +6806,8 @@ function createGovHelper(logLines, uploadedFiles) {
     })();
 
     function _govDownloadBlob(blob, filename) {
+        const shared = _govShared();
+        if (typeof shared.govDownloadBlob === 'function') return shared.govDownloadBlob(blob, filename);
         const a = document.createElement('a');
         const url = URL.createObjectURL(blob);
         a.href = url;
@@ -6848,27 +6819,32 @@ function createGovHelper(logLines, uploadedFiles) {
     }
 
     function _govCsvEscapeCell(val) {
+        if (typeof window.govCsvEscapeCell === 'function') return window.govCsvEscapeCell(val);
+        if (typeof globalThis.govCsvEscapeCell === 'function') return globalThis.govCsvEscapeCell(val);
         const s = val === null || val === undefined ? '' : String(val);
         if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
         return s;
     }
 
+    const showTable = (data) => {
+        if (!Array.isArray(data)) {
+            logLines.push('__TABLE__:[]');
+            return;
+        }
+        try {
+            const jsonStr = JSON.stringify(data);
+            logLines.push(`__TABLE__:${jsonStr}`);
+        } catch (e) {
+            logLines.push(`__TABLE__:[] // Error serializing data: ${e.message}`);
+        }
+    };
+
     return {
         log(msg) {
             logLines.push(String(msg));
         },
-        showTable(data) {
-            if (!Array.isArray(data)) {
-                logLines.push('__TABLE__:[]');
-                return;
-            }
-            try {
-                const jsonStr = JSON.stringify(data);
-                logLines.push(`__TABLE__:${jsonStr}`);
-            } catch (e) {
-                logLines.push(`__TABLE__:[] // Error serializing data: ${e.message}`);
-            }
-        },
+        showTable,
+        table: showTable,
         getDbType() {
             return dbType;
         },
@@ -7428,9 +7404,10 @@ async function executeGovTaskInBrowser(code, file, inputText) {
 
 // ==================== gov API ?? ====================
 
-const GOV_API_SECTIONS = window.GOV_API_SECTIONS || globalThis.GOV_API_SECTIONS || [];
-const GOV_API_DOCS = window.GOV_API_DOCS || globalThis.GOV_API_DOCS || GOV_API_SECTIONS;
-const governanceFunctions = GOV_API_DOCS;
+const GOV_SHARED = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+const GOV_API_SECTIONS = GOV_SHARED.GOV_API_SECTIONS || window.GOV_API_SECTIONS || globalThis.GOV_API_SECTIONS || [];
+const GOV_API_DOCS = GOV_SHARED.GOV_API_DOCS || window.GOV_API_DOCS || globalThis.GOV_API_DOCS || GOV_API_SECTIONS;
+const governanceFunctions = GOV_SHARED.governanceFunctions || window.governanceFunctions || globalThis.governanceFunctions || GOV_API_DOCS;
 
 function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');
