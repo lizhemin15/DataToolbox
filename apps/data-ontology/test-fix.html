@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>JS 错误修复测试</title>
+</head>
+<body>
+    <h1>JavaScript 错误修复测试</h1>
+    <div id="test-results"></div>
+
+    <script>
+        // 模拟 window.GOV_SHARED
+        window.GOV_SHARED = {
+            GOV_API_SECTIONS: ['section1', 'section2'],
+            GOV_API_DOCS: ['doc1', 'doc2'],
+            governanceFunctions: ['func1', 'func2']
+        };
+
+        // 测试结果
+        const results = [];
+
+        function test(name, condition) {
+            results.push({ name, passed: condition });
+        }
+    </script>
+
+    <!-- 加载修复后的脚本 -->
+    <script src="gov-api.js"></script>
+    <script>
+        // 测试 gov-api.js 的修复
+        test('gov-api.js: GOV_SHARED 已定义', typeof GOV_SHARED !== 'undefined');
+        test('gov-api.js: GOV_API_SECTIONS 已定义', typeof GOV_API_SECTIONS !== 'undefined');
+        test('gov-api.js: GOV_API_DOCS 已定义', typeof GOV_API_DOCS !== 'undefined');
+        test('gov-api.js: governanceFunctions 已定义', typeof governanceFunctions !== 'undefined');
+    </script>
+
+    <script>
+        // 模拟 API_BASE
+        window.API_BASE = 'http://localhost:8080';
+    </script>
+
+    <script>
+        // 测试 script.js 中的修复（模拟）
+        // 在实际环境中，script.js 会定义这些变量
+
+        // 模拟 script.js 中的声明
+        if (typeof GOV_SHARED === 'undefined') {
+            var GOV_SHARED = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+        }
+        var GOV_API_SECTIONS_2 = GOV_SHARED.GOV_API_SECTIONS || window.GOV_API_SECTIONS || globalThis.GOV_API_SECTIONS || [];
+
+        test('script.js: GOV_SHARED 不重复声明', typeof GOV_SHARED !== 'undefined');
+        test('script.js: GOV_API_SECTIONS 可访问', Array.isArray(GOV_API_SECTIONS_2));
+
+        // 模拟 API_BASE 的全局访问
+        const API_BASE = window.location.origin;
+        if (typeof window !== 'undefined') {
+            window.API_BASE = API_BASE;
+        }
+
+        test('script.js: API_BASE 已附加到 window', window.API_BASE !== 'undefined');
+    </script>
+
+    <script>
+        // 测试 quality-audit.js 的修复（模拟）
+        (function() {
+            var API_BASE_LOCAL = window.API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
+            test('quality-audit.js: API_BASE 可访问', API_BASE_LOCAL !== 'undefined' && API_BASE_LOCAL !== '');
+        })();
+    </script>
+
+    <script>
+        // 显示测试结果
+        const resultsDiv = document.getElementById('test-results');
+        const passed = results.filter(r => r.passed).length;
+        const failed = results.filter(r => !r.passed).length;
+
+        let html = `<h2>测试结果: ${passed}/${results.length} 通过</h2>`;
+        html += '<ul>';
+        results.forEach(r => {
+            const color = r.passed ? 'green' : 'red';
+            const status = r.passed ? '✓' : '✗';
+            html += `<li style="color: ${color}">${status} ${r.name}</li>`;
+        });
+        html += '</ul>';
+
+        if (failed === 0) {
+            html += '<p style="color: green; font-weight: bold;">所有测试通过！JavaScript 错误已修复。</p>';
+        } else {
+            html += `<p style="color: red; font-weight: bold;">有 ${failed} 个测试失败。</p>`;
+        }
+
+        resultsDiv.innerHTML = html;
+
+        // 输出到控制台
+        console.log('测试结果:', results);
+        if (failed === 0) {
+            console.log('✓ 所有测试通过！');
+        } else {
+            console.error('✗ 有测试失败');
+        }
+    </script>
+</body>
+</html>

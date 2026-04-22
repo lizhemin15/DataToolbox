@@ -71,6 +71,10 @@ let aiSessionContext = {
 
 // API??URL
 const API_BASE = window.location.origin;
+// Make API_BASE globally accessible for quality-audit.js
+if (typeof window !== 'undefined') {
+    window.API_BASE = API_BASE;
+}
 
 const RETURN_URL_KEY = 'dataOntologyReturnUrl';
 
@@ -7468,10 +7472,13 @@ async function executeGovTaskInBrowser(code, file, inputText) {
 
 // ==================== gov API ?? ====================
 
-const GOV_SHARED = window.GOV_SHARED || globalThis.GOV_SHARED || {};
-const GOV_API_SECTIONS = GOV_SHARED.GOV_API_SECTIONS || window.GOV_API_SECTIONS || globalThis.GOV_API_SECTIONS || [];
-const GOV_API_DOCS = GOV_SHARED.GOV_API_DOCS || window.GOV_API_DOCS || globalThis.GOV_API_DOCS || GOV_API_SECTIONS;
-const governanceFunctions = GOV_SHARED.governanceFunctions || window.governanceFunctions || globalThis.governanceFunctions || GOV_API_DOCS;
+// Use existing GOV_SHARED if already defined, otherwise create it
+if (typeof GOV_SHARED === 'undefined') {
+    var GOV_SHARED = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+}
+var GOV_API_SECTIONS = GOV_SHARED.GOV_API_SECTIONS || window.GOV_API_SECTIONS || globalThis.GOV_API_SECTIONS || [];
+var GOV_API_DOCS = GOV_SHARED.GOV_API_DOCS || window.GOV_API_DOCS || globalThis.GOV_API_DOCS || GOV_API_SECTIONS;
+var governanceFunctions = GOV_SHARED.governanceFunctions || window.governanceFunctions || globalThis.governanceFunctions || GOV_API_DOCS;
 
 function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');

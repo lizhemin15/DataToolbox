@@ -2,6 +2,8 @@
  * 数据质量审核：嵌入主应用 tab，依赖 script.js 中的 API_BASE、fetchWithAuth。
  */
 (function () {
+    // Get API_BASE from window (set by script.js) or use current origin
+    var API_BASE = window.API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
     var PREFIX = API_BASE + '/api/data-ontology/quality-audit/';
     var ruleTree = [];
     var flatRules = [];
