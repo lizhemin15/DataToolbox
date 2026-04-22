@@ -29,3 +29,9 @@ apps/web-nav/links-store.json
 *.tmp
 *.temp
 
+# Claude Code 权限配置
+.claude/
+
+# 临时 web 目录
+web/
+

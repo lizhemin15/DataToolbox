@@ -36,7 +36,7 @@ const GOV_API_SECTIONS = [
                 name: 'gov.readCSV',
                 signature: 'await gov.readCSV(text) → string[][]',
                 desc: '解析 CSV 文本，返回二维字符串数组（行×列）。',
-                example: 'const rows = await gov.readCSV(INPUT_TEXT);\nfor (const row of rows) {\n  gov.log(row.join(\' | \\'));\n}'
+                example: 'const rows = await gov.readCSV(INPUT_TEXT);\nfor (const row of rows) {\n  gov.log(row.join(\' | \'));\n}'
             },
             {
                 name: 'gov.readWord',

@@ -8445,7 +8445,7 @@ function ontoHandleSSE(type, data) {
                 const resultEl = document.getElementById('ontoQueryResult');
                 if (resultEl) {
                     let answer = data.text || '';
-                    answer = escapeHtml(answer).replace(/?([^?]+)?/g, '<span class="onto-highlight-badge">$1</span>');
+                    answer = escapeHtml(answer).replace(/\?([^?]+)\?/g, '<span class="onto-highlight-badge">$1</span>');
                     resultEl.innerHTML = answer;
                 }
                 showOntoToast('? ??????');
@@ -8533,7 +8533,7 @@ async function doOntologyQuery() {
             }
             // ?????
             let answer = data.answer || '';
-            answer = escapeHtml(answer).replace(/?([^?]+)?/g, '<span class="onto-highlight-badge">$1</span>');
+            answer = escapeHtml(answer).replace(/\?([^?]+)\?/g, '<span class="onto-highlight-badge">$1</span>');
             resultEl.innerHTML = answer;
         } else {
             resultEl.innerHTML = `<span style="color:#E17055">? ${escapeHtml(data.message)}</span>`;
