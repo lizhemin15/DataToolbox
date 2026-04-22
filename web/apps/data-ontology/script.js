@@ -6857,6 +6857,18 @@ function createGovHelper(logLines, uploadedFiles) {
         log(msg) {
             logLines.push(String(msg));
         },
+        showTable(data) {
+            if (!Array.isArray(data)) {
+                logLines.push('__TABLE__:[]');
+                return;
+            }
+            try {
+                const jsonStr = JSON.stringify(data);
+                logLines.push(`__TABLE__:${jsonStr}`);
+            } catch (e) {
+                logLines.push(`__TABLE__:[] // Error serializing data: ${e.message}`);
+            }
+        },
         getDbType() {
             return dbType;
         },
