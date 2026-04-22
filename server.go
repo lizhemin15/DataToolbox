@@ -956,9 +956,11 @@ type GovernanceTask struct {
 	RegisterAsAPI bool                    `json:"register_as_api"`           // 是否注册为 API 接口
 	APIPath       string                  `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
 	APIMethod     string                  `json:"api_method,omitempty"`      // API 方法（GET/POST）
-	FileBatchMode string                  `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
-	Runtime       string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境）
-	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
+	FileBatchMode  string                  `json:"file_batch_mode,omitempty"`  // "" | "per_file" | "single"（多文件一次执行）
+	Runtime        string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境，旧字段）
+	RunMode        string                  `json:"run_mode,omitempty"`        // "backend" | "frontend"（前端新字段）
+	ExecutionMode  string                  `json:"execution_mode,omitempty"`  // 兼容前端/后端两种命名
+	ExampleFiles   []GovernanceExampleFile `json:"example_files,omitempty"`
 	CreatedAt     string                  `json:"created_at"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`
 	Status        string                  `json:"status"` // "idle" | "running" | "success" | "error"
@@ -1051,6 +1053,8 @@ type DataOntologyStore struct {
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
 }
 
+var getDataOntologyStorePathFn = getDataOntologyStorePath
+
 // 获取持久化文件路径
 func getDataOntologyStorePath() string {
 	// 获取可执行文件所在目录
@@ -1065,7 +1069,7 @@ func getDataOntologyStorePath() string {
 
 // 加载持久化数据
 func loadDataOntologyStore() error {
-	storePath := getDataOntologyStorePath()
+	storePath := getDataOntologyStorePathFn()
 
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
@@ -1146,7 +1150,7 @@ func loadDataOntologyStore() error {
 
 // 保存持久化数据
 func saveDataOntologyStore() error {
-	storePath := getDataOntologyStorePath()
+	storePath := getDataOntologyStorePathFn()
 
 	// 确保目录存在
 	storeDir := filepath.Dir(storePath)
@@ -7988,6 +7992,12 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 		if task.Type == "scheduled" && task.Enabled {
 			task.Enabled = true
 		}
+		if task.RunMode == "" {
+			task.RunMode = task.Runtime
+		}
+		if task.ExecutionMode == "" {
+			task.ExecutionMode = task.RunMode
+		}
 
 		dataOntologyMu.Lock()
 		governanceTasks[task.ID] = &task
@@ -8081,6 +8091,21 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			task.DatabaseID = update.DatabaseID
 		}
+		if update.Runtime != "" {
+			task.Runtime = update.Runtime
+		}
+		if update.RunMode != "" {
+			task.RunMode = update.RunMode
+		}
+		if update.ExecutionMode != "" {
+			task.ExecutionMode = update.ExecutionMode
+		}
+		if task.RunMode == "" {
+			task.RunMode = task.Runtime
+		}
+		if task.ExecutionMode == "" {
+			task.ExecutionMode = task.RunMode
+		}
 		if update.CronExpr != "" {
 			task.CronExpr = update.CronExpr
 		}
@@ -8099,6 +8124,21 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if update.APIMethod != "" {
 			task.APIMethod = update.APIMethod
+		}
+		if update.Runtime != "" {
+			task.Runtime = update.Runtime
+		}
+		if update.RunMode != "" {
+			task.RunMode = update.RunMode
+		}
+		if update.ExecutionMode != "" {
+			task.ExecutionMode = update.ExecutionMode
+		}
+		if task.RunMode == "" {
+			task.RunMode = task.Runtime
+		}
+		if task.ExecutionMode == "" {
+			task.ExecutionMode = task.RunMode
 		}
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()

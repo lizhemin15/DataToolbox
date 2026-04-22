@@ -5434,44 +5434,38 @@ function escapeHtml(text) {
 // Render gov.showTable() output as HTML table
 function renderGovOutput(text) {
     if (typeof text !== 'string') return escapeHtml(String(text));
-    
-    // Check for __TABLE__: prefix
-    if (text.startsWith('__TABLE__:')) {
-        const jsonStr = text.substring(10);
-        try {
-            const data = JSON.parse(jsonStr);
-            if (!Array.isArray(data) || data.length === 0) {
-                return '<div class="gov-table-empty">???</div>';
-            }
-            
-            // Get all unique keys from all objects
-            const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
-            
-            // Build HTML table
-            let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
-            keys.forEach(key => {
-                html += `<th>${escapeHtml(key)}</th>`;
-            });
-            html += '</tr></thead><tbody>';
-            
-            data.forEach(row => {
-                html += '<tr>';
-                keys.forEach(key => {
-                    const val = row[key];
-                    html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
-                });
-                html += '</tr>';
-            });
-            
-            html += '</tbody></table></div>';
-            return html;
-        } catch (e) {
-            return escapeHtml(text);
+
+    const prefix = '__TABLE__:';
+    const tryRender = function (jsonStr) {
+        const data = JSON.parse(jsonStr);
+        if (!Array.isArray(data) || data.length === 0) {
+            return '<div class="gov-table-empty">暂无数据</div>';
         }
-    }
-    
+        const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
+        let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
+        keys.forEach(key => {
+            html += `<th>${escapeHtml(key)}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        data.forEach(row => {
+            html += '<tr>';
+            keys.forEach(key => {
+                const val = row[key];
+                html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        return html;
+    };
+
+    try {
+        if (text.startsWith(prefix)) return tryRender(text.substring(prefix.length));
+        if (text.startsWith('__TABLE_ROWS__')) return tryRender(text.substring('__TABLE_ROWS__'.length));
+    } catch (e) {}
+
     // Default: escape HTML
-    return escapeHtml(text);
+    return escapeHtml(text).replace(/\n/g, '<br>');
 }
 
 function formatAIText(text) {
@@ -6142,6 +6136,12 @@ function showGovTaskDetail(task) {
 
     document.getElementById('govTaskCode').textContent = task.js_code;
 
+    const execMode = task.run_mode || task.execution_mode || task.exec_mode || 'backend';
+    const execModeEl = document.getElementById('govTaskRunMode');
+    if (execModeEl) {
+        execModeEl.textContent = execMode === 'frontend' ? '前端运行' : '后端运行';
+    }
+
     // ????
     const interactiveSection = document.getElementById('govInteractiveSection');
     if (task.type === 'interactive') {
@@ -6247,6 +6247,9 @@ function editGovTask() {
     document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
     document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
     document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
+    const currentRunMode = currentGovTask.run_mode || currentGovTask.execution_mode || currentGovTask.exec_mode || 'backend';
+    const runModeSelect = document.getElementById('govRunModeSelect');
+    if (runModeSelect) runModeSelect.value = currentRunMode;
     populateGovDbSelect();
     document.getElementById('govTaskDbSelect').value = currentGovTask.database_id || '';
     onGovTaskTypeChange();
@@ -6265,6 +6268,10 @@ function onGovTaskTypeChange() {
     const type = document.getElementById('govTaskTypeInput').value;
     document.getElementById('govScheduledFields').style.display = type === 'scheduled' ? '' : 'none';
     document.getElementById('govInteractiveFields').style.display = type === 'interactive' ? '' : 'none';
+    const runModeGroup = document.getElementById('govRunModeGroup');
+    if (runModeGroup) {
+        runModeGroup.style.display = type === 'interactive' ? '' : 'none';
+    }
 }
 
 // ????????
@@ -6337,6 +6344,7 @@ async function handleGovTaskSubmit(e) {
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
     const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
+    const runMode = document.getElementById('govRunModeSelect') ? document.getElementById('govRunModeSelect').value : (currentGovTask?.run_mode || 'backend');
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
         type: type,
@@ -6351,6 +6359,8 @@ async function handleGovTaskSubmit(e) {
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
+        run_mode: runMode,
+        execution_mode: runMode
     };
 
     if (!taskData.name || !taskData.js_code) {
@@ -6373,16 +6383,51 @@ async function handleGovTaskSubmit(e) {
         });
         const data = await response.json();
         if (data.success) {
-            document.getElementById('govFormSuccess').textContent = isEditGovMode ? '????' : '????';
+            const savedId = data?.task?.id || data?.id || editingGovTaskId || null;
+            document.getElementById('govFormSuccess').textContent = isEditGovMode ? '已保存' : '已创建';
             document.getElementById('govFormSuccess').classList.add('show');
-            setTimeout(() => {
-                hideGovTaskModal();
-                loadGovernanceTasks().then(() => {
-                    if (data.task) selectGovTask(data.task.id);
-                });
+            setTimeout(async () => {
+                try {
+                    hideGovTaskModal();
+                    await loadGovernanceTasks();
+                    if (savedId) {
+                        const fresh = govTasks.find(t => t.id === savedId);
+                        if (fresh) {
+                            const expected = {
+                                name: taskData.name,
+                                type: taskData.type,
+                                description: taskData.description,
+                                js_code: taskData.js_code,
+                                database_id: taskData.database_id,
+                                cron_expr: taskData.cron_expr,
+                                enabled: taskData.enabled,
+                                input_type: taskData.input_type,
+                                accept_exts: taskData.accept_exts,
+                                file_batch_mode: taskData.file_batch_mode,
+                                register_as_api: taskData.register_as_api,
+                                api_path: taskData.api_path,
+                                api_method: taskData.api_method,
+                                run_mode: taskData.run_mode,
+                                execution_mode: taskData.execution_mode
+                            };
+                            const mismatched = [];
+                            for (const key of Object.keys(expected)) {
+                                const a = Array.isArray(expected[key]) ? JSON.stringify(expected[key]) : String(expected[key] ?? '');
+                                const b = Array.isArray(fresh[key]) ? JSON.stringify(fresh[key]) : String(fresh[key] ?? '');
+                                if (a !== b) mismatched.push(key);
+                            }
+                            if (mismatched.length > 0) {
+                                showToast('保存已返回成功，但服务端回读字段不一致：' + mismatched.join(', '), 'warning', 6000);
+                            }
+                            selectGovTask(fresh.id);
+                        }
+                    }
+                } catch (verifyErr) {
+                    showToast('保存成功，但回读验证失败：' + verifyErr.message, 'warning', 6000);
+                }
             }, 600);
         } else {
-            document.getElementById('govFormError').textContent = data.message || '????';
+            document.getElementById('govFormError').textContent = data.message || '保存失败';
             document.getElementById('govFormError').classList.add('show');
         }
     } catch (error) {
@@ -6429,9 +6474,23 @@ async function deleteGovTask() {
     }
 }
 
+function getGovTaskRunMode(task) {
+    const mode = String(task?.run_mode || task?.execution_mode || task?.exec_mode || 'backend').toLowerCase();
+    if (mode === 'frontend' || mode === 'browser' || mode === 'client') return 'frontend';
+    if (mode === 'backend' || mode === 'server' || mode === 'remote') return 'backend';
+    return 'backend';
+}
+
 async function runGovTask() {
     if (!currentGovTask) return;
-    await executeGovTaskInBrowser(currentGovTask.js_code, null, '');
+
+    const runMode = getGovTaskRunMode(currentGovTask);
+    if (runMode === 'frontend') {
+        await executeGovTaskInBrowser(currentGovTask.js_code, null, '');
+        return;
+    }
+
+    await executeGovTaskOnBackend([], '');
 }
 
 async function toggleGovTask() {
@@ -6518,23 +6577,28 @@ async function executeInteractiveTask() {
     const inputType = currentGovTask.input_type || 'file';
     const inputText = document.getElementById('govInputText')?.value || '';
     const files = govSelectedFiles;
+    const runMode = getGovTaskRunMode(currentGovTask);
 
     if ((inputType === 'file' || inputType === 'both') && files.length === 0 && !inputText) {
-        showToast('??????????', 'warning');
+        showToast('请输入文件或文本后再运行', 'warning');
         return;
     }
     if (inputType === 'text' && !inputText) {
-        showToast('???????', 'warning');
+        showToast('请输入文本内容后再运行', 'warning');
         return;
     }
 
-    const batchMode = currentGovTask.file_batch_mode || 'per_file';
-    if (currentGovTask.type === 'interactive' && batchMode === 'single') {
-        if (files.length < 2) {
-            showToast('????? 2 ????1 ????? Word ?? + ?? 1 ?????', 'warning');
+    if (runMode === 'frontend') {
+        const batchMode = currentGovTask.file_batch_mode || 'per_file';
+        if (currentGovTask.type === 'interactive' && batchMode === 'single') {
+            if (files.length < 2) {
+                showToast('当前前端模式要求至少 2 个文件，才能一次合并处理', 'warning');
+                return;
+            }
+            await executeGovTaskAggregateInBrowser(files, inputText);
             return;
         }
-        await executeGovTaskAggregateInBrowser(files, inputText);
+        await executeGovTaskInBrowser(currentGovTask.js_code, files[0] || null, inputText);
         return;
     }
 
@@ -6547,7 +6611,7 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
     showGovTaskDetail(currentGovTask);
     renderGovTaskList();
     const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>???...</span><span class="gov-log-status running">???</span></div></div>';
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>处理中...</span><span class="gov-log-status running">运行中</span></div></div>';
 
     const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(currentGovTask.js_code, null, inputText, files);
 
@@ -6583,7 +6647,7 @@ async function executeGovTaskOnBackend(files, inputText) {
     renderGovTaskList();
 
     const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>??????...</span></div></div>';
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>后端运行中...</span></div></div>';
 
     try {
         // ?? multipart ??
@@ -6609,7 +6673,7 @@ async function executeGovTaskOnBackend(files, inputText) {
         }
 
         const runId = result.run_id;
-        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>???????????...</span><span class="gov-log-status running">???</span></div></div>`;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>已提交后端执行，等待进度...</span><span class="gov-log-status running">运行中</span></div></div>`;
 
         // ??????
         await pollTaskProgress(taskId, runId);
