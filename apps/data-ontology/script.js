@@ -7473,11 +7473,11 @@ async function executeGovTaskInBrowser(code, file, inputText) {
 // ==================== gov API ?? ====================
 
 // Get GOV_SHARED from window/globalThis (defined in gov-shared.js)
-// Avoid redeclaring global identifiers that may already exist in other bundles.
-const GOV_SHARED_REF = window.GOV_SHARED || globalThis.GOV_SHARED || {};
-const GOV_API_SECTIONS_LOCAL = GOV_SHARED_REF.GOV_API_SECTIONS || [];
-const GOV_API_DOCS_LOCAL = GOV_SHARED_REF.GOV_API_DOCS || GOV_API_SECTIONS_LOCAL;
-const governanceFunctionsLocal = GOV_SHARED_REF.governanceFunctions || GOV_API_DOCS_LOCAL;
+// Use var so repeated script evaluation does not crash on redeclaration.
+var GOV_SHARED_REF = window.__GOV_SHARED_REF__ || (window.__GOV_SHARED_REF__ = (window.GOV_SHARED || globalThis.GOV_SHARED || {}));
+var GOV_API_SECTIONS_LOCAL = GOV_SHARED_REF.GOV_API_SECTIONS || [];
+var GOV_API_DOCS_LOCAL = GOV_SHARED_REF.GOV_API_DOCS || GOV_API_SECTIONS_LOCAL;
+var governanceFunctionsLocal = GOV_SHARED_REF.governanceFunctions || GOV_API_DOCS_LOCAL;
 
 function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');
