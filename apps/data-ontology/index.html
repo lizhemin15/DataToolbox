@@ -782,17 +782,32 @@
                     <div class="models-sidebar-header">
                         <h3>模型管理</h3>
                     </div>
+                    <div class="models-tabs">
+                        <button class="models-tab-btn active" data-model-tab="llm">🤖 大模型</button>
+                        <button class="models-tab-btn" data-model-tab="small">📝 小模型</button>
+                    </div>
                 </div>
                 <div class="models-main">
+                    <!-- 大模型管理 -->
+                    <div id="llmModelsPanel" class="models-panel active">
+                        <div class="models-panel-header">
+                            <h3>大模型管理</h3>
+                            <button class="btn btn-primary btn-sm" onclick="showAddLLMModelModal()">+ 添加模型</button>
+                        </div>
+                        <div class="models-desc">
+                            <p>配置 LLM、Rerank、向量化、语音识别等 AI 服务的转发接口。</p>
+                        </div>
+                        <div id="llmModelsList" class="models-list"></div>
+                    </div>
+                    
                     <!-- 小模型管理 -->
-                    <div id="smallModelsPanel" class="models-panel active">
+                    <div id="smallModelsPanel" class="models-panel" style="display:none;">
                         <div class="models-panel-header">
                             <h3>小模型管理</h3>
                             <button class="btn btn-primary btn-sm" onclick="showAddSmallModelModal()">+ 添加模型</button>
                         </div>
                         <div class="models-desc">
                             <p>通过 JavaScript 代码实现自定义数据处理逻辑，可调用已注册的数据库。</p>
-                            <p style="margin-top:8px;color:#718096;font-size:12px;">示例输入：JSON 对象或文本 | 示例输出：处理后的数据</p>
                         </div>
                         <div id="smallModelsList" class="models-list"></div>
                     </div>
@@ -813,7 +828,7 @@
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                                 <label style="font-weight:bold;"><input type="checkbox" id="qaTreeSelectAll" style="margin-right:6px;">规则树</label>
                                 <div style="display:flex;gap:6px;">
-                                    <button type="button" class="btn btn-sm" id="qaToggleExpand">展开全部</button>
+                                    <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
                                     <button type="button" class="btn btn-sm btn-danger" id="qaBatchDelete" style="background:#dc3545;color:#fff;">批量删除</button>
                                 </div>
                             </div>
@@ -851,7 +866,6 @@
                                     <div class="qa-fill-header qa-fill-table-header">
                                         <span class="qa-fill-th" style="width:60px;"><label style="cursor:pointer;"><input type="checkbox" id="qaFillItemAll"> 全选</label></span>
                                         <span class="qa-fill-th">表名</span>
-                                        <span class="qa-fill-th">字段名</span>
                                         <span class="qa-fill-th">分子</span>
                                         <span class="qa-fill-th">分母</span>
                                     </div>
@@ -862,7 +876,6 @@
                                     <div class="qa-fill-header qa-fill-table-header">
                                         <span class="qa-fill-th" style="width:60px;"><label style="cursor:pointer;"><input type="checkbox" id="qaFillRecordAll"> 全选</label></span>
                                         <span class="qa-fill-th">表名</span>
-                                        <span class="qa-fill-th">字段名</span>
                                         <span class="qa-fill-th">分子</span>
                                         <span class="qa-fill-th">分母</span>
                                     </div>
@@ -1260,6 +1273,11 @@
                     <label for="aiModelInput">模型名称</label>
                     <input type="text" id="aiModelInput" placeholder="例如: gpt-3.5-turbo" required>
                 </div>
+                <div class="form-group">
+                    <label for="aiTimeoutInput">请求超时（秒）</label>
+                    <input type="number" id="aiTimeoutInput" min="1" step="1" placeholder="例如: 120">
+                    <small>用于控制调用大模型时等待上游响应头的最长时间</small>
+                </div>
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存配置</button>
                 </div>
@@ -1484,14 +1502,6 @@
                                 <option value="per_file">每个文件单独执行</option>
                                 <option value="single">合并为一次执行（INPUT_FILES）</option>
                             </select>
-                        </div>
-                        <div class="form-group form-group-half">
-                            <label for="govRuntimeSelect">运行环境</label>
-                            <select id="govRuntimeSelect">
-                                <option value="backend">后端执行（推荐）</option>
-                                <option value="frontend">前端执行（浏览器）</option>
-                            </select>
-                            <small>后端执行稳定，前端执行适合调试</small>
                         </div>
                     </div>
                 </div>
@@ -1770,6 +1780,7 @@
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
+    <script src="gov-api.js"></script>
     <script src="script.js"></script>
     <script src="quality-audit.js"></script>
     <script src="governance.js"></script>

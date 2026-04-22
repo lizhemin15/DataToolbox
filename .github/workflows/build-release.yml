@@ -98,7 +98,7 @@ jobs:
           cp server.config.json package/
           cp install.sh README_DEPLOY.md package/
           chmod +x package/install.sh
-          # 复制静态文件到 web 目录
+          # 复制静态文件到发布目录
           cp -r index.html apps css js lib package/web/
           # 复制 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then

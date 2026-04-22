@@ -1,7 +1,0 @@
-# 数据本体池持久化存储文件
-data-store.json
-quality-audit.db
-
-# go embed 会排除被 gitignore 匹配的文件；部分环境的全局忽略规则会匹配 index.html，
-# 导致 apps/data-ontology/index.html 未进入二进制而 script.js 正常。强制包含本入口文件。
-!index.html
