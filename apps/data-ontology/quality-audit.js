@@ -695,7 +695,8 @@
         if (listenersBound) return;
         try {
         bindQaTplModalOnce();
-        document.getElementById('qaSaveRule').addEventListener('click', function () {
+        var qaSaveRule = document.getElementById('qaSaveRule');
+        if (qaSaveRule) qaSaveRule.addEventListener('click', function () {
             var body = {
                 nm: padNm(document.getElementById('qaNm').value),
                 xh: document.getElementById('qaXh').value.trim(),
@@ -713,7 +714,8 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaDelRule').addEventListener('click', function () {
+        var qaDelRule = document.getElementById('qaDelRule');
+        if (qaDelRule) qaDelRule.addEventListener('click', function () {
             var nm = padNm(document.getElementById('qaNm').value);
             if (!nm || !confirm('确定删除 ' + nm + ' ?')) return;
             fetchWithAuth(PREFIX + 'rules/' + encodeURIComponent(nm), { method: 'DELETE' })
@@ -726,7 +728,8 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaPasteExcel').addEventListener('click', function () {
+        var qaPasteExcel = document.getElementById('qaPasteExcel');
+        if (qaPasteExcel) qaPasteExcel.addEventListener('click', function () {
             var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：');
             if (!raw) return;
             var rules = parseExcelPasteRules(raw);
@@ -741,7 +744,8 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaXlsxFile').addEventListener('change', function (ev) {
+        var qaXlsxFile = document.getElementById('qaXlsxFile');
+        if (qaXlsxFile) qaXlsxFile.addEventListener('change', function (ev) {
             var f = ev.target.files && ev.target.files[0];
             ev.target.value = '';
             if (!f || typeof XLSX === 'undefined') return;
@@ -786,21 +790,25 @@
             });
         });
 
-        document.getElementById('qaFillItemAll').addEventListener('change', function (e) {
+        var qaFillItemAll = document.getElementById('qaFillItemAll');
+        if (qaFillItemAll) qaFillItemAll.addEventListener('change', function (e) {
             setFillTreeChecked('qaFillItemTree', e.target.checked);
         });
-        document.getElementById('qaFillRecordAll').addEventListener('change', function (e) {
+        var qaFillRecordAll = document.getElementById('qaFillRecordAll');
+        if (qaFillRecordAll) qaFillRecordAll.addEventListener('change', function (e) {
             setFillTreeChecked('qaFillRecordTree', e.target.checked);
         });
 
-        document.getElementById('qaAddRowItem').addEventListener('click', function () {
+        var qaAddRowItem = document.getElementById('qaAddRowItem');
+        if (qaAddRowItem) qaAddRowItem.addEventListener('click', function () {
             var root = document.getElementById('qaFillItemTree');
             if (root) {
                 root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
                 updateFillSelectAll();
             }
         });
-        document.getElementById('qaAddRowRecord').addEventListener('click', function () {
+        var qaAddRowRecord = document.getElementById('qaAddRowRecord');
+        if (qaAddRowRecord) qaAddRowRecord.addEventListener('click', function () {
             var root = document.getElementById('qaFillRecordTree');
             if (root) {
                 root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
@@ -808,7 +816,8 @@
             }
         });
 
-        document.getElementById('qaSaveFill').addEventListener('click', function () {
+        var qaSaveFill = document.getElementById('qaSaveFill');
+        if (qaSaveFill) qaSaveFill.addEventListener('click', function () {
             var body = {
                 item_fill_rate: collectFill('qaFillItemTree'),
                 record_fill_rate: collectFill('qaFillRecordTree')
@@ -822,7 +831,8 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaPasteFill').addEventListener('click', function () {
+        var qaPasteFill = document.getElementById('qaPasteFill');
+        if (qaPasteFill) qaPasteFill.addEventListener('click', function () {
             var raw = prompt('请从 Excel 复制多行（列顺序：表名, 字段名, 分子, 分母），粘贴到此处：');
             if (!raw) return;
             var parsed = parseExcelPasteFillRates(raw);
@@ -849,7 +859,8 @@
 
         // 规则树全选/取消全选
         // 展开/折叠切换按钮
-        document.getElementById('qaToggleExpand').addEventListener('click', function () {
+        var qaToggleExpand = document.getElementById('qaToggleExpand');
+        if (qaToggleExpand) qaToggleExpand.addEventListener('click', function () {
             var btn = this;
             var details = document.querySelectorAll('#qualityTab .qa-tree details');
             var allOpen = Array.from(details).every(function(d) { return d.open; });
@@ -863,7 +874,8 @@
                 btn.textContent = '折叠全部';
             }
         });
-        document.getElementById('qaTreeSelectAll').addEventListener('change', function (e) {
+        var qaTreeSelectAll = document.getElementById('qaTreeSelectAll');
+        if (qaTreeSelectAll) qaTreeSelectAll.addEventListener('change', function (e) {
             var checked = e.target.checked;
             // 从 flatRules 获取所有规则 NM
             flatRules.forEach(function (r) {
@@ -885,7 +897,8 @@
         });
 
         // 批量删除
-        document.getElementById('qaBatchDelete').addEventListener('click', function () {
+        var qaBatchDelete = document.getElementById('qaBatchDelete');
+        if (qaBatchDelete) qaBatchDelete.addEventListener('click', function () {
             var toDelete = Object.keys(selectedNms).filter(function (nm) { return selectedNms[nm]; });
             if (!toDelete.length) { showMsg('请先勾选要删除的规则', true); return; }
             if (!confirm('确定删除选中的 ' + toDelete.length + ' 条规则？此操作不可恢复。')) return;
@@ -904,7 +917,8 @@
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaRun').addEventListener('click', function () {
+        var qaRun = document.getElementById('qaRun');
+        if (qaRun) qaRun.addEventListener('click', function () {
             var dbId = document.getElementById('qaDbSelect').value;
             var ruleNms = Object.keys(selectedNms);
             if (!dbId) { showMsg('请选择数据库', true); return; }
@@ -921,7 +935,8 @@
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
-        document.getElementById('qaReport').addEventListener('click', function () {
+        var qaReport = document.getElementById('qaReport');
+        if (qaReport) qaReport.addEventListener('click', function () {
             if (!lastAudit) { showMsg('请先执行一键审核', true); return; }
             var repPayload = { audit: lastAudit };
             if (qaReportTemplateId) repPayload.template_id = qaReportTemplateId;
