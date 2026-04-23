@@ -1611,7 +1611,8 @@ func initDataOntology() {
 			Name:        "国际新闻入库",
 			Type:        "interactive",
 			Description: "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
-			JsCode: `* 国际新闻入库脚本 — DataToolbox Gov Task
+			JsCode: `/**
+ * 国际新闻入库脚本 — DataToolbox Gov Task
  *
  * 三张表：
  *   1. intl_news        国际新闻动态  (新闻内码, 时间, 区域, 事件)
@@ -1626,35 +1627,35 @@ func initDataOntology() {
 // 1. DDL — 达梦建表语句（在任务中执行一次即可）
 // ============================================================
 
-const DDL = [
-    '-- 国际新闻动态',
-    'CREATE TABLE IF NOT EXISTS intl_news (',
-    '    news_id       VARCHAR(64)   NOT NULL,',
-    '    news_time     TIMESTAMP,',
-    '    region        VARCHAR(128),',
-    '    event         TEXT,',
-    '    PRIMARY KEY (news_id)',
-    ');',
-    '',
-    '-- 运输保障情况',
-    'CREATE TABLE IF NOT EXISTS transport_support (',
-    '    support_id    VARCHAR(64)   NOT NULL,',
-    '    support_time  TIMESTAMP,',
-    '    region        VARCHAR(128),',
-    '    transport_info TEXT,',
-    '    PRIMARY KEY (support_id)',
-    ');',
-    '',
-    '-- 保障力量出动情况',
-    'CREATE TABLE IF NOT EXISTS dispatch_force (',
-    '    dispatch_id   VARCHAR(64)   NOT NULL,',
-    '    support_id    VARCHAR(64),',
-    '    equip_model   VARCHAR(128),',
-    '    sorties       INT,',
-    '    batches       INT,',
-    '    PRIMARY KEY (dispatch_id)',
-    ');',
-].join('\n');
+const DDL = \`
+-- 国际新闻动态
+CREATE TABLE IF NOT EXISTS intl_news (
+    news_id       VARCHAR(64)   NOT NULL,
+    news_time     TIMESTAMP,
+    region        VARCHAR(128),
+    event         TEXT,
+    PRIMARY KEY (news_id)
+);
+
+-- 运输保障情况
+CREATE TABLE IF NOT EXISTS transport_support (
+    support_id    VARCHAR(64)   NOT NULL,
+    support_time  TIMESTAMP,
+    region        VARCHAR(128),
+    transport_info TEXT,
+    PRIMARY KEY (support_id)
+);
+
+-- 保障力量出动情况
+CREATE TABLE IF NOT EXISTS dispatch_force (
+    dispatch_id   VARCHAR(64)   NOT NULL,
+    support_id    VARCHAR(64),
+    equip_model   VARCHAR(128),
+    sorties       INT,
+    batches       INT,
+    PRIMARY KEY (dispatch_id)
+);
+\`;
 
 // ============================================================
 // 2. AI Prompt 模板
@@ -1664,59 +1665,59 @@ const DDL = [
  * 核心 Prompt：要求 LLM 从新闻文本中提取三张表的结构化数据
  * 输出严格 JSON，方便后续直接解析入库
  */
-const EXTRACT_PROMPT = [
-    '',
-    '要求：',
-    '1. 提取所有新闻事件，每条事件包含：时间、区域、事件描述',
-    '2. 提取所有运输保障相关信息，每条包含：时间、区域、运输情况描述',
-    '3. 对每条运输保障，提取对应的保障力量出动信息：装备型号、架次、批次',
-    '',
-    '输出格式（严格遵守，不要输出任何其他内容）：',
-    '{',
-    '  "news": [',
-    '    {',
-    '      "news_id": "NWS_yyyyMMdd_HHmmss_序号",',
-    '      "news_time": "2025-01-15 08:30:00",',
-    '      "region": "某某区域",',
-    '      "event": "事件描述"',
-    '    }',
-    '  ],',
-    '  "transport_support": [',
-    '    {',
-    '      "support_id": "TRS_yyyyMMdd_HHmmss_序号",',
-    '      "support_time": "2025-01-15 10:00:00",',
-    '      "region": "某某区域",',
-    '      "transport_info": "运输情况描述",',
-    '      "dispatch_force": [',
-    '        {',
-    '          "dispatch_id": "DSP_yyyyMMdd_HHmmss_序号",',
-    '          "equip_model": "运-20",',
-    '          "sorties": 3,',
-    '          "batches": 1',
-    '        }',
-    '      ]',
-    '    }',
-    '  ]',
-    '}',
-    '',
-    '规则：',
-    '- news_id 格式：NWS_时间戳_序号，时间取事件发生时间，序号从1开始',
-    '- support_id 格式：TRS_时间戳_序号',
-    '- dispatch_id 格式：DSP_时间戳_序号',
-    '- 时间格式：yyyy-MM-dd HH:mm:ss，无法确定具体时间的用新闻发布时间',
-    '- 如果某条新闻没有运输保障信息，transport_support 数组为空即可',
-    '- dispatch_force 中的 support_id 必须与上层 transport_support 的 support_id 一致',
-    '- sorties（架次）和 batches（批次）必须为整数，无法提取则为 null',
-].join('\n');
+const EXTRACT_PROMPT = \`你是一个军事新闻信息提取专家。请从以下新闻文本中提取结构化信息，输出严格 JSON 格式。
+
+要求：
+1. 提取所有新闻事件，每条事件包含：时间、区域、事件描述
+2. 提取所有运输保障相关信息，每条包含：时间、区域、运输情况描述
+3. 对每条运输保障，提取对应的保障力量出动信息：装备型号、架次、批次
+
+输出格式（严格遵守，不要输出任何其他内容）：
+{
+  "news": [
+    {
+      "news_id": "NWS_yyyyMMdd_HHmmss_序号",
+      "news_time": "2025-01-15 08:30:00",
+      "region": "某某区域",
+      "event": "事件描述"
+    }
+  ],
+  "transport_support": [
+    {
+      "support_id": "TRS_yyyyMMdd_HHmmss_序号",
+      "support_time": "2025-01-15 10:00:00",
+      "region": "某某区域",
+      "transport_info": "运输情况描述",
+      "dispatch_force": [
+        {
+          "dispatch_id": "DSP_yyyyMMdd_HHmmss_序号",
+          "equip_model": "运-20",
+          "sorties": 3,
+          "batches": 1
+        }
+      ]
+    }
+  ]
+}
+
+规则：
+- news_id 格式：NWS_时间戳_序号，时间取事件发生时间，序号从1开始
+- support_id 格式：TRS_时间戳_序号
+- dispatch_id 格式：DSP_时间戳_序号
+- 时间格式：yyyy-MM-dd HH:mm:ss，无法确定具体时间的用新闻发布时间
+- 如果某条新闻没有运输保障信息，transport_support 数组为空即可
+- dispatch_force 中的 support_id 必须与上层 transport_support 的 support_id 一致
+- sorties（架次）和 batches（批次）必须为整数，无法提取则为 null
+- 只输出 JSON，不要输出任何其他文字\`;
 
 /**
  * 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
  */
-const CHUNK_EXTRACT_PROMPT = [
-    '',
-    '{base_prompt}',
-    '',
-].join('\n');
+const CHUNK_EXTRACT_PROMPT = \`你是一个军事新闻信息提取专家。请从以下【第 {chunk_index}/{total_chunks} 块】新闻文本中提取结构化信息。
+
+{base_prompt}
+
+注意：这是第 {chunk_index}/{total_chunks} 块，同一条新闻可能跨越多块，请只提取本块中完整出现的信息。\`;
 
 // ============================================================
 // 3. 核心逻辑
@@ -1734,7 +1735,7 @@ function generateId(prefix, index = 1) {
         String(now.getHours()).padStart(2, '0') +
         String(now.getMinutes()).padStart(2, '0') +
         String(now.getSeconds()).padStart(2, '0');
-    return prefix + '_' + ts + '_' + String(index).padStart(3, '0');
+    return \`\${prefix}_\${ts}_\${String(index).padStart(3, '0')}\`;
 }
 
 /**
@@ -1770,12 +1771,12 @@ function chunkText(text, maxChars = 3000) {
 function parseAIResponse(text) {
     // 去掉可能的 markdown 代码块包裹
     let cleaned = text.trim();
-    if (cleaned.startsWith(''''json')) {
+    if (cleaned.startsWith('\\`\\`\\`json')) {
         cleaned = cleaned.slice(7);
-    } else if (cleaned.startsWith(''''')) {
+    } else if (cleaned.startsWith('\\`\\`\\`')) {
         cleaned = cleaned.slice(3);
     }
-    if (cleaned.endsWith(''''')) {
+    if (cleaned.endsWith('\\`\\`\\`')) {
         cleaned = cleaned.slice(0, -3);
     }
     cleaned = cleaned.trim();
@@ -1791,10 +1792,10 @@ function parseAIResponse(text) {
             try {
                 return JSON.parse(jsonStr);
             } catch (e2) {
-        throw new Error('JSON 解析失败: ' + e2.message + '\\\\n原始文本: ' + cleaned.slice(0, 200));
+                throw new Error(\`JSON 解析失败: \${e2.message}\\n原始文本: \${cleaned.slice(0, 200)}\`);
             }
         }
-        throw new Error('AI 返回内容中未找到有效 JSON: ' + cleaned.slice(0, 200));
+        throw new Error(\`AI 返回内容中未找到有效 JSON: \${cleaned.slice(0, 200)}\`);
     }
 }
 
@@ -1847,7 +1848,7 @@ function mergeChunkResults(results) {
 function deduplicateNews(newsList) {
     const seen = new Set();
     return newsList.filter(item => {
-        const key = (item.news_time + '|' + item.region + '|' + item.event).slice(0, 200);
+        const key = \`\${item.news_time}|\${item.region}|\${item.event}\`.slice(0, 200);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -1863,7 +1864,7 @@ async function insertToDatabase(data) {
     // 1. 入库国际新闻
     for (const item of data.news) {
         try {
-            const sql = 'INSERT INTO intl_news (news_id, news_time, region, event) VALUES (?, ?, ?, ?)';
+            const sql = \`INSERT INTO intl_news (news_id, news_time, region, event) VALUES (?, ?, ?, ?)\`;
             const affected = await gov.executeSQL(sql, [
                 item.news_id,
                 item.news_time,
@@ -1872,15 +1873,15 @@ async function insertToDatabase(data) {
             ]);
             results.news += affected;
         } catch (e) {
-            results.errors.push('新闻入库失败 [' + item.news_id + ']: ' + e.message);
-            gov.log('⚠ 新闻入库失败 [' + item.news_id + ']: ' + e.message);
+            results.errors.push(\`新闻入库失败 [\${item.news_id}]: \${e.message}\`);
+            gov.log(\`⚠ 新闻入库失败 [\${item.news_id}]: \${e.message}\`);
         }
     }
 
     // 2. 入库运输保障 + 保障力量出动
     for (const item of data.transport_support) {
         try {
-            const sql = 'INSERT INTO transport_support (support_id, support_time, region, transport_info) VALUES (?, ?, ?, ?)';
+            const sql = \`INSERT INTO transport_support (support_id, support_time, region, transport_info) VALUES (?, ?, ?, ?)\`;
             const affected = await gov.executeSQL(sql, [
                 item.support_id,
                 item.support_time,
@@ -1889,8 +1890,8 @@ async function insertToDatabase(data) {
             ]);
             results.transport_support += affected;
         } catch (e) {
-            results.errors.push('运保入库失败 [' + item.support_id + ']: ' + e.message);
-            gov.log('⚠ 运保入库失败 [' + item.support_id + ']: ' + e.message);
+            results.errors.push(\`运保入库失败 [\${item.support_id}]: \${e.message}\`);
+            gov.log(\`⚠ 运保入库失败 [\${item.support_id}]: \${e.message}\`);
             continue; // 运保失败则跳过对应的出动
         }
 
@@ -1898,7 +1899,7 @@ async function insertToDatabase(data) {
         if (item.dispatch_force) {
             for (const df of item.dispatch_force) {
                 try {
-                    const sql = 'INSERT INTO dispatch_force (dispatch_id, support_id, equip_model, sorties, batches) VALUES (?, ?, ?, ?, ?)';
+                    const sql = \`INSERT INTO dispatch_force (dispatch_id, support_id, equip_model, sorties, batches) VALUES (?, ?, ?, ?, ?)\`;
                     const affected = await gov.executeSQL(sql, [
                         df.dispatch_id,
                         df.support_id,
@@ -1908,8 +1909,8 @@ async function insertToDatabase(data) {
                     ]);
                     results.dispatch_force += affected;
                 } catch (e) {
-            results.errors.push('动出入库失败 [' + df.dispatch_id + ']: ' + e.message);
-                    gov.log('⚠ 动出入库失败 [' + df.dispatch_id + ']: ' + e.message);
+                    results.errors.push(\`动出入库失败 [\${df.dispatch_id}]: \${e.message}\`);
+                    gov.log(\`⚠ 动出入库失败 [\${df.dispatch_id}]: \${e.message}\`);
                 }
             }
         }
@@ -1932,7 +1933,7 @@ async function checkExistingData() {
             dispatch_force: dispatchCount[0]?.CNT || 0
         };
     } catch (e) {
-        gov.log('查询已有数据失败（表可能不存在）: ' + e.message);
+        gov.log(\`查询已有数据失败（表可能不存在）: \${e.message}\`);
         return null;
     }
 }
@@ -1963,7 +1964,7 @@ async function main() {
         }
         gov.log('✓ 数据库表初始化完成');
     } catch (e) {
-        gov.log('⚠ 建表可能已存在，跳过: ' + e.message);
+        gov.log(\`⚠ 建表可能已存在，跳过: \${e.message}\`);
     }
 
     // -- Step 1: 获取输入 --
@@ -1972,16 +1973,16 @@ async function main() {
         gov.log('✗ 未提供新闻文本输入（INPUT_TEXT 为空）');
         return;
     }
-    gov.log('✓ 获取输入文本，共 ' + rawText.length + ' 字符');
+    gov.log(\`✓ 获取输入文本，共 \${rawText.length} 字符\`);
 
     // -- Step 2: 分块 + AI 提取 --
     const chunks = chunkText(rawText);
-    gov.log('✓ 文本分为 ' + chunks.length + ' 块进行处理');
+    gov.log(\`✓ 文本分为 \${chunks.length} 块进行处理\`);
 
     const extractResults = [];
     for (let i = 0; i < chunks.length; i++) {
         const chunkIndex = i + 1;
-        gov.log('→ 正在处理第 ' + chunkIndex + '/' + chunks.length + ' 块...');
+        gov.log(\`→ 正在处理第 \${chunkIndex}/\${chunks.length} 块...\`);
 
         let prompt;
         if (chunks.length === 1) {
@@ -1998,9 +1999,9 @@ async function main() {
             const aiResponse = await gov.callAI(prompt);
             const parsed = parseAIResponse(aiResponse);
             extractResults.push(parsed);
-            gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + parsed.news?.length || 0 + ' 条新闻, ' + parsed.transport_support?.length || 0 + ' 条运保');
+            gov.log(\`  ✓ 第 \${chunkIndex} 块提取完成: \${parsed.news?.length || 0} 条新闻, \${parsed.transport_support?.length || 0} 条运保\`);
         } catch (e) {
-            gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败: ' + e.message);
+            gov.log(\`  ✗ 第 \${chunkIndex} 块 AI 提取失败: \${e.message}\`);
             // 继续下一块
         }
     }
@@ -2014,7 +2015,7 @@ async function main() {
     const merged = mergeChunkResults(extractResults);
     merged.news = deduplicateNews(merged.news);
 
-    gov.log('✓ 合并后共: ' + merged.news.length + ' 条新闻, ' + merged.transport_support.length + ' 条运保');
+    gov.log(\`✓ 合并后共: \${merged.news.length} 条新闻, \${merged.transport_support.length} 条运保\`);
 
     // 展示提取结果
     gov.showTable(merged.news.map(n => ({
@@ -2029,12 +2030,12 @@ async function main() {
     const insertResult = await insertToDatabase(merged);
 
     gov.log('=== 入库结果 ===');
-    gov.log('  国际新闻: ' + insertResult.news + ' 条');
-    gov.log('  运输保障: ' + insertResult.transport_support + ' 条');
-    gov.log('  保障力量出动: ' + insertResult.dispatch_force + ' 条');
+    gov.log(\`  国际新闻: \${insertResult.news} 条\`);
+    gov.log(\`  运输保障: \${insertResult.transport_support} 条\`);
+    gov.log(\`  保障力量出动: \${insertResult.dispatch_force} 条\`);
     if (insertResult.errors.length > 0) {
-        gov.log('  ⚠ 错误: ' + insertResult.errors.length + ' 条');
-        insertResult.errors.forEach(e => gov.log('    - ' + e));
+        gov.log(\`  ⚠ 错误: \${insertResult.errors.length} 条\`);
+        insertResult.errors.forEach(e => gov.log(\`    - \${e}\`));
     }
 
     // -- Step 5: 验证 --
@@ -2053,7 +2054,8 @@ async function main() {
 
 // 执行
 main().catch(e => {
-    gov.log('✗ 流程异常: ' + e.message);`,
+    gov.log(\`✗ 流程异常: \${e.message}\`);
+});`,
 			InputType:   "file",
 			AcceptExts:  []string{".docx"},
 			ExampleFiles: []GovernanceExampleFile{
