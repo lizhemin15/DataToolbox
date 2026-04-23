@@ -43,7 +43,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed governance-examples governance-scripts
+//go:embed examples/governance scripts
 var governanceExamplesFS embed.FS
 
 // 条件编译：仅在支持CGO时导入这些驱动
@@ -935,7 +935,7 @@ type AICodegenColumn struct {
 	SourceIndex int    `json:"source_index"`
 }
 
-// GovernanceExampleFile 预置任务示例文件（供下载，path 为 governance-examples 下相对路径）
+// GovernanceExampleFile 预置任务示例文件（供下载，path 为 examples/governance 下相对路径）
 type GovernanceExampleFile struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -1389,7 +1389,7 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func loadGovernanceAggregateDailyReportJS() string {
-	b, err := governanceExamplesFS.ReadFile("governance-examples/aggregate-daily-report.js")
+	b, err := governanceExamplesFS.ReadFile("examples/governance/aggregate-daily-report.js")
 	if err != nil {
 		log.Printf("读取 aggregate-daily-report.js 失败: %v", err)
 		return ""
@@ -1398,7 +1398,7 @@ func loadGovernanceAggregateDailyReportJS() string {
 }
 
 func loadGovernancePresetJS(name string) string {
-	b, err := governanceExamplesFS.ReadFile("governance-scripts/" + name)
+	b, err := governanceExamplesFS.ReadFile("scripts/" + name)
 	if err != nil {
 		log.Printf("读取治理预置脚本 %s 失败: %v", name, err)
 		return ""
@@ -9118,7 +9118,7 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	data, err := governanceExamplesFS.ReadFile("governance-examples/" + safe)
+	data, err := governanceExamplesFS.ReadFile("examples/governance/" + safe)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
@@ -9197,7 +9197,7 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, it := range items {
-		data, err := governanceExamplesFS.ReadFile("governance-examples/" + it.diskPath)
+		data, err := governanceExamplesFS.ReadFile("examples/governance/" + it.diskPath)
 		if err != nil {
 			zw.Close()
 			w.Header().Set("Content-Type", "application/json")
