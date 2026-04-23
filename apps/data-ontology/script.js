@@ -595,6 +595,7 @@ function showServerError(detail) {
 // 绑定页面事件。
 function initEventListeners() {
     document.getElementById('loginForm').addEventListener('submit', handleLogin);
+}
 
 // 全局错误处理。
 function setupGlobalErrorHandlers() {
