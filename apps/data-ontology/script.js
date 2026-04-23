@@ -697,7 +697,7 @@ function initEventListeners() {
     document.getElementById('dbTypeInput').addEventListener('change', handleDbTypeChange);
 
     // 显示后自动淡入。
-    document.querySelector('.modal-close').addEventListener('click', hideAddDbModal);
+    document.getElementById('closeAddDbModal').addEventListener('click', hideAddDbModal);
     document.getElementById('addDbModal').addEventListener('click', function(e) {
         if (e.target === this) {
             hideAddDbModal();
