@@ -1603,6 +1603,46 @@ func initDataOntology() {
 			Status:    "idle",
 		}
 
+		// 示例7: 交互任务 - 国际新闻入库
+		newsTaskID := uuid.New().String()
+		governanceTasks[newsTaskID] = &GovernanceTask{
+			ID:          newsTaskID,
+			Owner:       "admin",
+			Name:        "国际新闻入库",
+			Type:        "interactive",
+			Description: "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
+			JsCode: `// Word 文档解析 + AI 结构化入库
+const result = await gov.readWord(INPUT_FILE);
+const rawText = result.value || '';
+gov.log('Word 原文长度: ' + rawText.length + ' 字符');
+
+// AI 结构化
+const prompt = '你是一个文本结构化助手。请将下面从 Word 文档提取的国际新闻与运输情况通报内容，整理为结构化数据。\n要求：输出 JSON 数组，每项包含 date（日期）、region（地区）、category（类别：新闻/运输）、type（类型：海上/空中/陆上，仅运输类）、content（内容摘要）。仅输出 JSON。\n\n原文：\n' + rawText.slice(0, 8000);
+
+let structured = [];
+try {
+  const aiText = await gov.callAI(prompt);
+  const jsonMatch = aiText.match(/\[([\s\S]*)\]/);
+  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;
+  structured = JSON.parse(jsonStr);
+  gov.log('AI 结构化得到 ' + structured.length + ' 条');
+  structured.slice(0, 5).forEach((r, i) => gov.log('  [' + (i+1) + '] ' + (r.region || '') + ' - ' + (r.category || '') + ': ' + (r.content || '').slice(0, 50)));
+} catch (e) {
+  gov.log('AI 结构化失败: ' + e.message);
+}
+
+gov.log('文档处理完成');`,
+			InputType:   "file",
+			AcceptExts:  []string{".docx"},
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "19990101_国际新闻与运输情况通报_模拟数据.docx", Path: "19990101_国际新闻与运输情况通报_模拟数据.docx"},
+				{Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"},
+				{Name: "19990103_国际新闻与运输情况通报_模拟数据.docx", Path: "19990103_国际新闻与运输情况通报_模拟数据.docx"},
+			},
+			CreatedAt: now,
+			Status:    "idle",
+		}
+
 		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
 
 		dataOntologyMu.Unlock()
