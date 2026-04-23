@@ -43,7 +43,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed governance-examples
+//go:embed governance-examples governance-scripts
 var governanceExamplesFS embed.FS
 
 // 条件编译：仅在支持CGO时导入这些驱动
