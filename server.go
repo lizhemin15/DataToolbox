@@ -1415,6 +1415,14 @@ func governancePresetExampleFilesByName(taskName string) ([]GovernanceExampleFil
 	}
 }
 
+// governancePresetTaskNames 返回所有内置预置任务名称。
+func governancePresetTaskNames() []string {
+	return []string{
+		"Word文档内容提取",
+		"综合日报生成器",
+	}
+}
+
 // exampleFilesListsEqual 比较两个示例列表是否一致（顺序敏感）
 func exampleFilesListsEqual(a, b []GovernanceExampleFile) bool {
 	if len(a) != len(b) {
@@ -1434,8 +1442,15 @@ func exampleFilesListsEqual(a, b []GovernanceExampleFile) bool {
 func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 	now := time.Now().Format(time.RFC3339)
 	updated := 0
+	presetNames := make(map[string]struct{}, len(governancePresetTaskNames()))
+	for _, name := range governancePresetTaskNames() {
+		presetNames[name] = struct{}{}
+	}
 	for _, t := range governanceTasks {
 		if t == nil {
+			continue
+		}
+		if _, ok := presetNames[t.Name]; !ok {
 			continue
 		}
 		files, ok := governancePresetExampleFilesByName(t.Name)
@@ -1445,18 +1460,17 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 		changed := false
 		if !exampleFilesListsEqual(t.ExampleFiles, files) {
 			t.ExampleFiles = files
-			t.UpdatedAt = now
 			changed = true
 		}
 		if includeJS && t.Name == "综合日报生成器" {
 			js := loadGovernanceAggregateDailyReportJS()
 			if js != "" && t.JsCode != js {
 				t.JsCode = js
-				t.UpdatedAt = now
 				changed = true
 			}
 		}
 		if changed {
+			t.UpdatedAt = now
 			updated++
 		}
 	}
@@ -1769,13 +1783,14 @@ function chunkText(text, maxChars = 3000) {
  */
 function parseAIResponse(text) {
     // 去掉可能的 markdown 代码块包裹
+    const BACKTICK3 = String.fromCharCode(96,96,96);
     let cleaned = text.trim();
-    if (cleaned.startsWith(''''json')) {
+    if (cleaned.startsWith(BACKTICK3 + 'json')) {
         cleaned = cleaned.slice(7);
-    } else if (cleaned.startsWith(''''')) {
+    } else if (cleaned.startsWith(BACKTICK3)) {
         cleaned = cleaned.slice(3);
     }
-    if (cleaned.endsWith(''''')) {
+    if (cleaned.endsWith(BACKTICK3)) {
         cleaned = cleaned.slice(0, -3);
     }
     cleaned = cleaned.trim();
@@ -9116,15 +9131,16 @@ func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
 
 	dataOntologyMu.Lock()
 	n := syncGovernancePresetExamplesFromEmbed(body.IncludeJS)
-	dataOntologyMu.Unlock()
-
 	if n > 0 {
 		if err := saveDataOntologyStore(); err != nil {
+			dataOntologyMu.Unlock()
 			log.Printf("保存治理预置示例同步失败: %v", err)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存失败"})
 			return
 		}
 	}
+	dataOntologyMu.Unlock()
+
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n})
 }
 

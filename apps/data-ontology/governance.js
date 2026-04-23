@@ -67,7 +67,7 @@ async function govReloadExamplesFromEmbed() {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/reload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify({ include_js: true })
         });
         const data = await response.json();
         if (!data.success) {
