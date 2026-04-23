@@ -1,4 +1,4 @@
-// ????
+// 数据本体池主脚本
 let currentUser = null;
 let databases = [];
 let currentDb = null;
@@ -25,42 +25,42 @@ function clearUserPasswordModalPwdHint() {
     }
 }
 
-/** ??????????????????hintEl ?? .error-message ????? */
+/** 校验用户密码和确认密码是否一致，并在提示元素中显示错误。 */
 function validateUserPasswordPair(password, confirm, hintEl) {
     if (!hintEl) return false;
     hintEl.classList.remove('show');
     hintEl.textContent = '';
     if (password.length < USER_MIN_PASSWORD_LEN) {
-        hintEl.textContent = '????4?';
+        hintEl.textContent = '密码至少 4 位';
         hintEl.classList.add('show');
         return false;
     }
     if (password !== confirm) {
-        hintEl.textContent = '?????????';
+        hintEl.textContent = '两次输入的密码不一致';
         hintEl.classList.add('show');
         return false;
     }
     return true;
 }
 
-// ??????
+// 接口管理状态
 let apis = [];
 let currentApi = null;
 let isEditApiMode = false;
 let editingApiId = null;
 let currentApiKey = '';
 
-// AI????
+// AI 助手状态
 let aiConfig = null;
 let aiMessages = [];
 let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
 const aiModules = [
-    { id: 'db-manage', name: '?????', icon: '??', description: '???????????' },
-    { id: 'api-dispatch', name: '????', icon: '??', description: '?????????' },
-    { id: 'data-governance', name: '????', icon: '??', description: '?????????' },
-    { id: 'ontology', name: '?????', icon: '??', description: '???...' },
+    { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '管理数据库连接与表结构' },
+    { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '统一分发和调用数据接口' },
+    { id: 'data-governance', name: '数据治理', icon: '🧭', description: '治理规则、质量与权限管理' },
+    { id: 'ontology', name: '本体论抽象', icon: '📐', description: '从数据中抽象业务本体' },
 ];
 
 let aiSessionContext = {
@@ -69,7 +69,7 @@ let aiSessionContext = {
     history: []
 };
 
-// API??URL
+// API 基础地址
 const API_BASE = window.location.origin;
 // Make API_BASE globally accessible for quality-audit.js
 if (typeof window !== 'undefined') {
@@ -116,7 +116,7 @@ async function fetchWithAuth(input, init) {
         const cloned = response.clone();
         try {
             const data = await cloned.json();
-            if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('???') !== -1) {
+            if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
                 handleUnauthorizedFromApi();
             }
         } catch (e) {}
@@ -125,17 +125,17 @@ async function fetchWithAuth(input, init) {
 }
 
 /**
- * ??? API ??????
- * @param {string} endpoint - API ??????? API_BASE?
- * @param {Object} options - ????
- * @param {string} options.method - HTTP ????? GET?
- * @param {Object} options.body - ??????? JSON ????
- * @param {string} options.errorPrefix - ????????? '????'?
- * @param {boolean} options.showToastOnError - ???????? toast??? true?
+ * 发送 API 请求并自动附带认证信息。
+ * @param {string} endpoint - API 路径，拼接到 API_BASE 后面。
+ * @param {Object} options - 请求选项。
+ * @param {string} options.method - HTTP 方法，默认 GET。
+ * @param {Object} options.body - 请求体对象，将被序列化为 JSON。
+ * @param {string} options.errorPrefix - 错误提示前缀，默认“请求失败”。
+ * @param {boolean} options.showToastOnError - 是否在失败时提示 toast，默认 true。
  * @returns {Promise<{success: boolean, data?: any, error?: string}>}
  */
 async function apiRequest(endpoint, options = {}) {
-    const { method = 'GET', body, errorPrefix = '????', showToastOnError = true } = options;
+    const { method = 'GET', body, errorPrefix = '请求失败', showToastOnError = true } = options;
     
     const init = { method };
     if (body) {
@@ -148,20 +148,20 @@ async function apiRequest(endpoint, options = {}) {
         const data = await response.json();
         
         if (!data.success && showToastOnError) {
-            showToast(`${errorPrefix}?${data.message || '????'}`, 'error');
+            showToast(`${errorPrefix}：${data.message || '未知错误'}`, 'error');
         }
         
-        return { success: data.success, data, error: data.success ? null : (data.message || '????') };
+        return { success: data.success, data, error: data.success ? null : (data.message || '未知错误') };
     } catch (error) {
-        const errorMsg = error.message || '????';
+        const errorMsg = error.message || '未知错误';
         if (showToastOnError) {
-            showToast(`${errorPrefix}?${errorMsg}`, 'error');
+            showToast(`${errorPrefix}：${errorMsg}`, 'error');
         }
         return { success: false, error: errorMsg };
     }
 }
 
-// ---- ???????? SQLite ??????????? ID?----
+// ---- 演示数据库（内存 SQLite）----
 const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
 
 const DEMO_ONTOLOGY_TABLES = {
@@ -172,8 +172,8 @@ const DEMO_ONTOLOGY_TABLES = {
             { name: 'email', type: 'TEXT', nullable: true }
         ],
         rows: [
-            { id: 1, name: '??', email: 'zhang@example.com' },
-            { id: 2, name: '??', email: 'li@example.com' }
+            { id: 1, name: '张三', email: 'zhang@example.com' },
+            { id: 2, name: '李四', email: 'li@example.com' }
         ]
     },
     products: {
@@ -183,8 +183,8 @@ const DEMO_ONTOLOGY_TABLES = {
             { name: 'price', type: 'REAL', nullable: false }
         ],
         rows: [
-            { id: 101, name: '???', price: 5999 },
-            { id: 102, name: '??', price: 99 }
+            { id: 101, name: '笔记本电脑', price: 5999 },
+            { id: 102, name: '鼠标', price: 99 }
         ]
     },
     orders: {
@@ -233,27 +233,27 @@ const DEMO_ONTOLOGY_TABLES = {
             { name: 'revenue', type: 'REAL', nullable: false }
         ],
         rows: [
-            { period: '2025-03', sku: '???', qty_sold: 1, revenue: 5999 },
-            { period: '2025-03', sku: '??', qty_sold: 2, revenue: 198 }
+            { period: '2025-03', sku: 'Laptop', qty_sold: 1, revenue: 5999 },
+            { period: '2025-03', sku: 'Mouse', qty_sold: 2, revenue: 198 }
         ]
     }
 };
 
-/** ?? + ETL?kind==='etl' ?? from ??? to?? FK ??????? */
+/** 数据血缘示例：包含 ETL 汇总到 `report_sales` 的关系。 */
 const DEMO_ONTOLOGY_LINEAGE_EDGES = [
     { fromTable: 'orders', fromColumn: 'customer_id', toTable: 'customers', toColumn: 'id' },
     { fromTable: 'order_items', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
     { fromTable: 'order_items', fromColumn: 'product_id', toTable: 'products', toColumn: 'id' },
     { fromTable: 'payments', fromColumn: 'order_id', toTable: 'orders', toColumn: 'id' },
-    { fromTable: 'orders', fromColumn: '(??)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' },
-    { fromTable: 'order_items', fromColumn: '(??)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' }
+    { fromTable: 'orders', fromColumn: '(ETL)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' },
+    { fromTable: 'order_items', fromColumn: '(ETL)', toTable: 'report_sales', toColumn: '(ETL)', kind: 'etl' }
 ];
 
 function getDemoDatabaseListEntry() {
     return {
         id: DEMO_ONTOLOGY_DB_ID,
         type: 'sqlite',
-        name: '?????????',
+        name: '内存示例库',
         host: '',
         port: 0,
         path: ':memory:',
@@ -326,7 +326,7 @@ function handleDemoOntologyFetch(url, init) {
             if (i >= 0) databases.splice(i, 1);
             return demoOntologyJsonResponse({ success: true });
         }
-        return demoOntologyJsonResponse({ success: false, message: '?????????' }, 400);
+        return demoOntologyJsonResponse({ success: false, message: '不支持的请求方法' }, 400);
     }
 
     if (parsed.kind === 'lineage' && method === 'GET') {
@@ -337,14 +337,14 @@ function handleDemoOntologyFetch(url, init) {
             tables,
             edges: DEMO_ONTOLOGY_LINEAGE_EDGES,
             edgeCount: DEMO_ONTOLOGY_LINEAGE_EDGES.length,
-            message: '????????? + ETL?report_sales?'
+            message: '示例数据血缘已加载，包含订单到报表表的 ETL 汇总关系'
         });
     }
 
     if (parsed.kind === 'table') {
         const tdef = DEMO_ONTOLOGY_TABLES[parsed.table];
         if (!tdef) {
-            return demoOntologyJsonResponse({ success: false, message: '????' }, 404);
+            return demoOntologyJsonResponse({ success: false, message: '表不存在' }, 404);
         }
         if (parsed.sub === '/structure' && method === 'GET') {
             return demoOntologyJsonResponse({ success: true, columns: tdef.columns });
@@ -352,10 +352,10 @@ function handleDemoOntologyFetch(url, init) {
         if (parsed.sub === '' && method === 'GET') {
             return demoOntologyJsonResponse({ success: true, data: tdef.rows });
         }
-        return demoOntologyJsonResponse({ success: false, message: '??????' }, 400);
+        return demoOntologyJsonResponse({ success: false, message: '请求参数错误' }, 400);
     }
 
-    return demoOntologyJsonResponse({ success: false, message: '????????' }, 404);
+    return demoOntologyJsonResponse({ success: false, message: '未找到对应资源' }, 404);
 }
 
 (function installDemoOntologyFetchInterceptor() {
@@ -374,9 +374,9 @@ function initDemoData() {
     mergeDemoDatabaseIntoList();
 }
 
-// ==================== ??????? Toast ???? ====================
+// ==================== 提示消息组件 ====================
 
-// Toast ??????? alert????????
+// Toast 组件替代 alert，提供更友好的视觉反馈。
 let toastContainer = null;
 
 function initToastContainer() {
@@ -397,19 +397,19 @@ function initToastContainer() {
 }
 
 /**
- * ?? Toast ??
- * @param {string} message - ????
- * @param {string} type - ??: 'success' | 'error' | 'warning' | 'info'
- * @param {number} duration - ??????????? 3000
+ * 显示一条 Toast 提示。
+ * @param {string} message - 提示内容。
+ * @param {string} type - 类型：'success' | 'error' | 'warning' | 'info'
+ * @param {number} duration - 显示时长，默认 3000ms。
  */
 function showToast(message, type = 'info', duration = 3000) {
     if (!toastContainer) initToastContainer();
     
     const colors = {
-        success: { bg: '#10b981', icon: '?' },
-        error: { bg: '#ef4444', icon: '?' },
-        warning: { bg: '#f59e0b', icon: '?' },
-        info: { bg: '#3b82f6', icon: '?' }
+        success: { bg: '#10b981', icon: '✓' },
+        error: { bg: '#ef4444', icon: '✕' },
+        warning: { bg: '#f59e0b', icon: '!' },
+        info: { bg: '#3b82f6', icon: 'i' }
     };
     const config = colors[type] || colors.info;
     
@@ -437,13 +437,13 @@ function showToast(message, type = 'info', duration = 3000) {
     toast.onclick = () => removeToast(toast);
     toastContainer.appendChild(toast);
     
-    // ????
+    // 使用 requestAnimationFrame 触发进入动画。
     requestAnimationFrame(() => {
         toast.style.opacity = '1';
         toast.style.transform = 'translateX(0)';
     });
     
-    // ????
+    // 自动关闭。
     if (duration > 0) {
         setTimeout(() => removeToast(toast), duration);
     }
@@ -459,9 +459,9 @@ function removeToast(toast) {
 }
 
 /**
- * ???????
- * @param {string} modalId - ?????ID
- * @param {boolean} show - true???false??
+ * 切换模态框显示状态。
+ * @param {string} modalId - 模态框 ID
+ * @param {boolean} show - true 表示显示，false 表示隐藏。
  */
 function toggleModal(modalId, show) {
     const modal = document.getElementById(modalId);
@@ -475,9 +475,9 @@ function toggleModal(modalId, show) {
 }
 
 /**
- * ??????????/????
- * @param {string} modalId - ???ID
- * @param {string[]} clearIds - ???????/??????ID??
+ * 显示模态框，并隐藏其他需要清理的模态框。
+ * @param {string} modalId - 目标模态框 ID
+ * @param {string[]} clearIds - 需要隐藏的其他模态框 ID 列表。
  */
 function showModal(modalId, clearIds = []) {
     toggleModal(modalId, true);
@@ -485,21 +485,21 @@ function showModal(modalId, clearIds = []) {
 }
 
 /**
- * ?????
- * @param {string} modalId - ???ID
+ * 隐藏指定模态框。
+ * @param {string} modalId - 模态框 ID
  */
 function hideModal(modalId) {
     toggleModal(modalId, false);
 }
 
 /**
- * ????????????????
- * @param {string} text - ??????
- * @param {HTMLElement} btnEl - ?????????????????
- * @param {string} successText - ????????? '???'?
- * @param {number} duration - ???????????? 1500?
+ * 复制文本到剪贴板，并在按钮上显示成功提示。
+ * @param {string} text - 要复制的文本。
+ * @param {HTMLElement} btnEl - 触发复制的按钮元素。
+ * @param {string} successText - 成功提示文本，默认“已复制”。
+ * @param {number} duration - 提示回退时长，默认 1500ms。
  */
-function copyToClipboard(text, btnEl, successText = '???', duration = 1500) {
+function copyToClipboard(text, btnEl, successText = '已复制', duration = 1500) {
     if (!text) return Promise.resolve(false);
     return navigator.clipboard.writeText(text).then(() => {
         if (btnEl) {
@@ -509,50 +509,43 @@ function copyToClipboard(text, btnEl, successText = '???', duration = 1500) {
         }
         return true;
     }).catch(err => {
-        console.error('????:', err);
-        showToast('????', 'error');
+        console.error('复制失败:', err);
+        showToast('复制失败', 'error');
         return false;
     });
 }
 
-// ?????????? setupGlobalErrorHandlers ?????
-
-// ??????????
+// 安装全局错误处理器。
 function setupGlobalErrorHandlers() {
-    // ?????? Promise rejection
+    // 捕获 Promise 未处理拒绝。
     window.addEventListener('unhandledrejection', function(event) {
-        console.error('???? Promise ??:', event.reason);
-        const msg = event.reason?.message || String(event.reason) || '????';
-        showToast('????: ' + msg, 'error', 5000);
-        event.preventDefault(); // ????????????
+        console.error('Promise 未处理拒绝:', event.reason);
+        const msg = event.reason?.message || String(event.reason) || '未知错误';
+        showToast('运行异常：' + msg, 'error', 5000);
+        event.preventDefault();
     });
     
-    // ???? JavaScript ??
+    // 捕获 JavaScript 运行错误。
     window.addEventListener('error', function(event) {
-        // ???????????????????
         if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
             return;
         }
-        console.error('JavaScript ??:', event.message);
-        // ???????????????
+        console.error('JavaScript 错误:', event.message);
         if (event.message && !event.message.includes('Script error')) {
-            showToast('????????????', 'error', 4000);
+            showToast('页面发生异常，请稍后重试', 'error', 4000);
         }
     }, true);
 }
 
-// ???
+// 初始化页面。
 document.addEventListener('DOMContentLoaded', async function() {
-    // ?????????
     setupGlobalErrorHandlers();
     initToastContainer();
     
-    // ???????????
     if (!checkServerAvailability()) {
-        return; // ????????????????????
+        return;
     }
 
-    // ??????
     const token = localStorage.getItem('dataOntologyToken');
     if (token) {
         currentUser = localStorage.getItem('dataOntologyUser');
@@ -566,57 +559,128 @@ document.addEventListener('DOMContentLoaded', async function() {
     initEventListeners();
 });
 
-// ?????????
+// 检查当前运行环境。
 function checkServerAvailability() {
-    // ??1: ?????? file:// ????
     if (window.location.protocol === 'file:') {
-        showServerError('????? file:// ????????????' + window.location.protocol);
+        showServerError('请通过服务端访问，不要直接打开 file:// 页面。当前协议：' + window.location.protocol);
         return false;
     }
 
-    // ??2: ?????????????
     if (!window.location.origin || window.location.origin === 'null') {
-        showServerError('??????????????');
+        showServerError('当前页面来源无效，请通过正式站点访问。');
         return false;
     }
 
-    // ??3: ????????????????????true?
-    // ???API????????????
     return true;
 }
 
-// ?????????
+// 显示服务端错误页面。
 function showServerError(detail) {
-    // ??????
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('mainPage').style.display = 'none';
     
-    // ??????
     const errorPage = document.getElementById('serverErrorPage');
     errorPage.style.display = 'block';
     
-    // ??????
     document.getElementById('serverErrorDetail').textContent = detail;
     
-    // ????????
     const returnBtn = document.getElementById('returnToMainBtn');
     if (returnBtn) {
         returnBtn.onclick = function() {
-            // ?????????
             window.location.href = '../../index.html';
         };
     }
 }
 
-// ???????
+// 绑定页面事件。
 function initEventListeners() {
-    // ????
     document.getElementById('loginForm').addEventListener('submit', handleLogin);
 
-    // ????
+// 全局错误处理。
+function setupGlobalErrorHandlers() {
+    // 捕获 Promise 未处理拒绝。
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('Promise 未处理拒绝:', event.reason);
+        const msg = event.reason?.message || String(event.reason) || '未知错误';
+        showToast('运行异常：' + msg, 'error', 5000);
+        event.preventDefault();
+    });
+    
+    // 捕获 JavaScript 运行错误。
+    window.addEventListener('error', function(event) {
+        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK' || event.target.tagName === 'IMG')) {
+            return;
+        }
+        console.error('JavaScript 错误:', event.message);
+        if (event.message && !event.message.includes('Script error')) {
+            showToast('页面发生异常，请稍后重试', 'error', 4000);
+        }
+    }, true);
+}
+
+// 初始化页面。
+document.addEventListener('DOMContentLoaded', async function() {
+    setupGlobalErrorHandlers();
+    initToastContainer();
+    
+    if (!checkServerAvailability()) {
+        return;
+    }
+
+    const token = localStorage.getItem('dataOntologyToken');
+    if (token) {
+        currentUser = localStorage.getItem('dataOntologyUser');
+        if (currentUser) {
+            showMainPage();
+            loadDatabases();
+            loadGovernanceTasks();
+        }
+    }
+
+    initEventListeners();
+});
+
+// 检查当前运行环境。
+function checkServerAvailability() {
+    if (window.location.protocol === 'file:') {
+        showServerError('请通过服务端访问，不要直接打开 file:// 页面。当前协议：' + window.location.protocol);
+        return false;
+    }
+
+    if (!window.location.origin || window.location.origin === 'null') {
+        showServerError('当前页面来源无效，请通过正式站点访问。');
+        return false;
+    }
+
+    return true;
+}
+
+// 显示服务端错误页面。
+function showServerError(detail) {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('mainPage').style.display = 'none';
+    
+    const errorPage = document.getElementById('serverErrorPage');
+    errorPage.style.display = 'block';
+    
+    document.getElementById('serverErrorDetail').textContent = detail;
+    
+    const returnBtn = document.getElementById('returnToMainBtn');
+    if (returnBtn) {
+        returnBtn.onclick = function() {
+            window.location.href = '../../index.html';
+        };
+    }
+}
+
+// 绑定页面事件。
+function initEventListeners() {
+    document.getElementById('loginForm').addEventListener('submit', handleLogin);
+
+    // 页面状态与事件绑定。
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
 
-    // ?????
+    // 复制当前数据库信息到表单。
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.addEventListener('click', function() {
             if (!this.disabled) {
@@ -625,13 +689,13 @@ function initEventListeners() {
         });
     });
 
-    // ?????
+    // 回填当前 API 信息。
     document.getElementById('addDbBtn').addEventListener('click', showAddDbModal);
 
-    // ???????
+    // 用户管理面板。
     document.getElementById('dbTypeInput').addEventListener('change', handleDbTypeChange);
 
-    // ????
+    // 显示后自动淡入。
     document.querySelector('.modal-close').addEventListener('click', hideAddDbModal);
     document.getElementById('addDbModal').addEventListener('click', function(e) {
         if (e.target === this) {
@@ -639,28 +703,28 @@ function initEventListeners() {
         }
     });
 
-    // ????
+    // 重新渲染当前 API。
     document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
 
-    // ???????
+    // 加载数据库下拉选项。
     document.getElementById('addDbForm').addEventListener('submit', handleAddDatabase);
 
-    // ?????
+    // 根据接口类型填充示例参数。
     document.getElementById('editDbBtn').addEventListener('click', handleEditDatabase);
 
-    // ?????
+    // 刷新当前数据库详情。
     document.getElementById('refreshDbBtn').addEventListener('click', function() {
         if (currentDb) {
             loadDatabaseDetail(currentDb.id);
         }
     });
 
-    // ?????
+    // 删除当前数据库。
     document.getElementById('deleteDbBtn').addEventListener('click', handleDeleteDatabase);
 
-    // ???????closePreview??????
+    // closePreview 在预览区后半段定义。
     
-    // ?????
+    // 创建数据表。
     document.getElementById('createTableForm').addEventListener('submit', handleCreateTable);
     document.getElementById('addColumnBtn').addEventListener('click', addTableColumn);
     document.getElementById('closeCreateTableModal').addEventListener('click', hideCreateTableModal);
@@ -670,7 +734,7 @@ function initEventListeners() {
         }
     });
 
-    // ??????
+    // API 与鉴权逻辑。
     document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
         e.stopPropagation();
         const popover = document.getElementById('apikeyPopover');
@@ -680,7 +744,7 @@ function initEventListeners() {
             var rect = btn.getBoundingClientRect();
             var popoverW = 270;
             var sidebarWidth = 330;
-            // ?????????????????????left ??? sidebarWidth?
+            // 避免弹层被左侧栏遮挡，固定到右侧安全区域。
             var targetLeft = Math.max(rect.right, sidebarWidth);
             if (targetLeft + popoverW <= window.innerWidth) {
                 popover.style.left = targetLeft + 'px';
@@ -692,7 +756,7 @@ function initEventListeners() {
             popover.style.top = rect.top + 'px';
         }
     });
-    // API Key ????????????????????
+    // API Key 弹层点击空白处自动关闭。
     if (!window._apikeyPopoverClickHandler) {
         window._apikeyPopoverClickHandler = function(e) {
             const popover = document.getElementById('apikeyPopover');
@@ -720,7 +784,7 @@ function initEventListeners() {
     document.getElementById('testApiBtn').addEventListener('click', showTestApiModal);
     document.getElementById('deleteApiBtn').addEventListener('click', handleDeleteApi);
 
-    // MCP ????
+    // MCP 相关按钮。
     const mcpCopyBaseUrlBtn = document.getElementById('mcpCopyBaseUrlBtn');
     if (mcpCopyBaseUrlBtn) mcpCopyBaseUrlBtn.addEventListener('click', function() {
         copyToClipboard(API_BASE || window.location.origin, this);
@@ -739,10 +803,10 @@ function initEventListeners() {
     if (mcpCopyConfigBtn) mcpCopyConfigBtn.addEventListener('click', function() {
         const pre = document.getElementById('mcpConfigPre');
         if (!pre) return;
-        copyToClipboard(pre.textContent, this, '???');
+        copyToClipboard(pre.textContent, this, '已复制');
     });
     
-    // ??????
+    // 基础校验。
     document.getElementById('closeTestApiModal').addEventListener('click', hideTestApiModal);
     document.getElementById('testApiModal').addEventListener('click', function(e) {
         if (e.target === this) {
@@ -751,7 +815,7 @@ function initEventListeners() {
     });
     document.getElementById('executeTestBtn').addEventListener('click', executeApiTest);
     
-    // AI????
+    // AI 相关按钮。
     document.getElementById('aiSettingsBtn').addEventListener('click', showAiSettingsModal);
     document.getElementById('closeAiSettingsModal').addEventListener('click', hideAiSettingsModal);
     document.getElementById('aiSettingsModal').addEventListener('click', function(e) {
@@ -764,7 +828,7 @@ function initEventListeners() {
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
     
-    // ??????
+    // 设置面板按钮。
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
     document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);
     document.getElementById('settingsModal').addEventListener('click', function(e) {
@@ -775,7 +839,7 @@ function initEventListeners() {
     document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
     document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
     
-    // ??AI??????????????
+    // AI 设置入口的事件绑定。
 
     const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
     if (userMgmtHeaderBtn) {
@@ -814,7 +878,7 @@ function initEventListeners() {
     if (editPwdConfirm) editPwdConfirm.addEventListener('input', clearUserPasswordModalPwdHint);
 }
 
-// ????
+// 提示框相关工具。
 async function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('username').value;
@@ -850,16 +914,16 @@ async function handleLogin(e) {
                 }
             } catch (e) {}
         } else {
-            errorEl.textContent = data.message || '????';
+            errorEl.textContent = data.message || '请求失败';
             errorEl.classList.add('show');
         }
     } catch (error) {
-        errorEl.textContent = '?????' + error.message;
+        errorEl.textContent = '加载失败：' + error.message;
         errorEl.classList.add('show');
     }
 }
 
-// ????
+// 数据库类型切换相关。
 function handleLogout() {
     closeUserMgmtPanel(true);
     try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
@@ -874,7 +938,7 @@ function handleLogout() {
     showLoginPage();
 }
 
-// ??????
+// 折叠数据查询结果面板。
 function showLoginPage() {
     document.getElementById('loginPage').classList.add('active');
     document.getElementById('mainPage').classList.remove('active');
@@ -883,15 +947,15 @@ function showLoginPage() {
     document.getElementById('loginError').classList.remove('show');
 }
 
-// ?????
+// 显示主页面。
 function showMainPage() {
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('mainPage').classList.add('active');
     document.getElementById('currentUser').textContent = currentUser;
     updateUserMgmtNavVisibility();
-    // ??????????
+    // 加载数据库后再选中目标库。
     applyTabVisibility();
-    // ???????
+    // 将引用的模块写入会话上下文。
     initEmbedMode();
     try {
         if (location.hash === '#quality') {
@@ -927,19 +991,19 @@ function switchTab(tabName) {
             }
         }
     }
-    // ????????
+    // 表单与模态框控制。
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.classList.remove('active');
     });
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
 
-    // ??????
+    // 自动调整输入框高度。
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     document.getElementById(`${tabName}Tab`).classList.add('active');
 
-    // ??????????
+    // 按标签页加载对应数据。
     if (tabName === 'api') {
         loadApis();
         loadApiKey();
@@ -973,9 +1037,8 @@ function switchTab(tabName) {
     }
 }
 
-// ???????????
+// 数据库列表与详情管理。
 const dbTypeDefaults = {
-    // ??????
     mysql: { port: 3306, requiresDb: true },
     mariadb: { port: 3306, requiresDb: true },
     postgresql: { port: 5432, requiresDb: true },
@@ -985,18 +1048,18 @@ const dbTypeDefaults = {
     sqlite: { port: 0, requiresDb: false, isFile: true },
     duckdb: { port: 0, requiresDb: false, isFile: true },
     
-    // ??????
+    // 移除欢迎提示。
     tidb: { port: 4000, requiresDb: true },
     cockroachdb: { port: 26257, requiresDb: true },
     
-    // ??????
+    // 展开重试详情。
     mongodb: { port: 27017, requiresDb: true },
     
     // KV??/??
     redis: { port: 6379, requiresDb: false },
     memcached: { port: 11211, requiresDb: false },
     
-    // ?????
+    // 清空输入框并复位高度。
     clickhouse: { port: 9000, requiresDb: true },
     cassandra: { port: 9042, requiresDb: true },
     hbase: { port: 9090, requiresDb: false },
@@ -1005,38 +1068,38 @@ const dbTypeDefaults = {
     influxdb: { port: 8086, requiresDb: true },
     timescaledb: { port: 5432, requiresDb: true },
     
-    // ????
+    // 重置表单。
     elasticsearch: { port: 9200, requiresDb: false },
     
-    // ????
+    // 判断 SQL 是否需要 DDL 特殊处理。
     neo4j: { port: 7687, requiresDb: false }
 };
 
-// ?????????
+// 数据库类型图标。
 const dbTypeIcons = {
-    mysql: '??',
-    mariadb: '??',
-    postgresql: '??',
-    sqlserver: '??',
-    oracle: '??',
-    dm: '??',
-    sqlite: '??',
-    duckdb: '??',
-    tidb: '??',
-    cockroachdb: '??',
-    mongodb: '??',
-    redis: '??',
-    memcached: '??',
-    clickhouse: '?',
-    cassandra: '??',
-    hbase: '???',
-    influxdb: '??',
-    timescaledb: '?',
-    elasticsearch: '??',
-    neo4j: '???'
+    mysql: '🛢️',
+    mariadb: '🛢️',
+    postgresql: '🐘',
+    sqlserver: '🪟',
+    oracle: '🏛️',
+    dm: '🔶',
+    sqlite: '📄',
+    duckdb: '🦆',
+    tidb: '🌐',
+    cockroachdb: '🪳',
+    mongodb: '🍃',
+    redis: '🧠',
+    memcached: '⚡',
+    clickhouse: '📊',
+    cassandra: '🔗',
+    hbase: '🗂️',
+    influxdb: '📈',
+    timescaledb: '⏱️',
+    elasticsearch: '🔎',
+    neo4j: '🕸️'
 };
 
-// ?????????
+// 根据数据库类型切换表单字段。
 function handleDbTypeChange() {
     const dbType = document.getElementById('dbTypeInput').value;
     const config = dbTypeDefaults[dbType];
@@ -1046,42 +1109,42 @@ function handleDbTypeChange() {
     const dbDatabaseGroup = document.getElementById('dbDatabaseGroup');
     
     if (config.isFile) {
-        // ????? (SQLite, DuckDB)
+        // 文件型数据库（SQLite、DuckDB）。
         sqlFields.style.display = 'none';
         sqliteFields.style.display = 'block';
         document.getElementById('dbPathInput').placeholder = 
-            dbType === 'duckdb' ? '??: /path/to/database.duckdb' : '??: /path/to/database.db';
+            dbType === 'duckdb' ? '路径：/path/to/database.duckdb' : '路径：/path/to/database.db';
     } else {
-        // ?????
+        // 非文件型数据库。
         sqlFields.style.display = 'block';
         sqliteFields.style.display = 'none';
         
-        // ??????
+        // 自动填充默认端口。
         document.getElementById('dbPortInput').value = config.port;
         
-        // ?????????/????????
+        // 根据是否需要默认库名，控制输入项显示。
         if (config.requiresDb) {
             dbDatabaseGroup.style.display = 'block';
             document.getElementById('dbDatabaseInput').required = true;
             
-            // ????????
+            // 表单与模态框控制。
             const label = document.querySelector('#dbDatabaseGroup label');
             const input = document.getElementById('dbDatabaseInput');
             if (dbType === 'redis') {
-                label.textContent = '?????';
-                input.placeholder = '??: 0 (??)';
+                label.textContent = '数据库编号';
+                input.placeholder = '例如：0（内置）';
             } else if (dbType === 'cassandra') {
                 label.textContent = 'Keyspace';
-                input.placeholder = '??: my_keyspace';
+                input.placeholder = '例如：my_keyspace';
             } else if (dbType === 'neo4j') {
-                label.textContent = '?????';
-                input.placeholder = '??: neo4j';
+                label.textContent = '图数据库编号';
+                input.placeholder = '例如：neo4j';
             } else if (dbType === 'oracle') {
-                label.textContent = 'SID/???';
-                input.placeholder = '??: ORCL?XE ????';
+                label.textContent = 'SID/实例名';
+                input.placeholder = '例如：ORCL 或 XE 实例';
             } else {
-                label.textContent = '????';
-                input.placeholder = '???????';
+                label.textContent = '数据库名';
+                input.placeholder = '请输入数据库名';
             }
         } else {
             dbDatabaseGroup.style.display = 'none';
@@ -1090,11 +1153,11 @@ function handleDbTypeChange() {
     }
 }
 
-// ?????????
+// 显示新增数据库弹窗。
 function showAddDbModal() {
     isEditMode = false;
     editingDbId = null;
-    document.getElementById('modalTitle').textContent = '?????';
+    document.getElementById('modalTitle').textContent = '新增数据库';
     document.getElementById('addDbModal').classList.add('show');
     document.getElementById('addDbForm').reset();
     document.getElementById('dbTypeInput').value = 'mysql';
@@ -1104,13 +1167,13 @@ function showAddDbModal() {
     document.getElementById('dbFormSuccess').classList.remove('show');
 }
 
-// ?????????
+// 显示编辑数据库弹窗。
 function handleEditDatabase() {
     if (!currentDb) return;
     
     isEditMode = true;
     editingDbId = currentDb.id;
-    document.getElementById('modalTitle').textContent = '?????';
+    document.getElementById('modalTitle').textContent = '编辑数据库';
     document.getElementById('addDbModal').classList.add('show');
     
     // ?????
@@ -1124,8 +1187,8 @@ function handleEditDatabase() {
         document.getElementById('dbHostInput').value = currentDb.host || '';
         document.getElementById('dbPortInput').value = currentDb.port || '';
         document.getElementById('dbUserInput').value = currentDb.user || '';
-        document.getElementById('dbPasswordInput').value = ''; // ?????
-        document.getElementById('dbPasswordInput').placeholder = '?????????';
+        document.getElementById('dbPasswordInput').value = ''; // 编辑时默认不回填密码。
+        document.getElementById('dbPasswordInput').placeholder = '请输入新密码（可留空）';
         if (dbTypeDefaults[currentDb.type].requiresDb) {
             document.getElementById('dbDatabaseInput').value = currentDb.database || '';
         }
@@ -1136,10 +1199,10 @@ function handleEditDatabase() {
     document.getElementById('dbFormSuccess').classList.remove('show');
 }
 
-// ?????????
+// 隐藏新增/编辑数据库弹窗。
 function hideAddDbModal() {
     document.getElementById('addDbModal').classList.remove('show');
-    document.getElementById('dbPasswordInput').placeholder = '?????';
+    document.getElementById('dbPasswordInput').placeholder = '请输入密码';
     isEditMode = false;
     editingDbId = null;
 }
@@ -1177,7 +1240,7 @@ async function loadUsers() {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
         const data = await response.json();
         if (!data.success) {
-            listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '????') + '</div>';
+            listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
             return;
         }
         renderUserMgmtList(data.users || []);
@@ -1192,12 +1255,12 @@ function renderUserMgmtList(users) {
     listEl.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'user-mgmt-row um-head';
-    head.innerHTML = '<div class="um-col">???</div><div class="um-col">API Key</div><div class="um-actions">??</div>';
+    head.innerHTML = '<div class="um-col">用户名</div><div class="um-col">API Key</div><div class="um-actions">操作</div>';
     listEl.appendChild(head);
     users.forEach(u => {
         const name = u.username || '';
         const key = u.api_key || '';
-        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '?' + key.slice(-8) : key) : '???';
+        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '未生成';
         const row = document.createElement('div');
         row.className = 'user-mgmt-row';
         const col1 = document.createElement('div');
@@ -1215,13 +1278,13 @@ function renderUserMgmtList(users) {
         const copyBtn = document.createElement('button');
         copyBtn.type = 'button';
         copyBtn.className = 'btn btn-sm';
-        copyBtn.textContent = key ? '?? Key' : '?? Key';
+        copyBtn.textContent = key ? '复制 Key' : '生成 Key';
         copyBtn.onclick = async function () {
             if (key) {
                 const label = copyBtn.textContent;
                 try {
                     await navigator.clipboard.writeText(key);
-                    copyBtn.textContent = '???';
+                    copyBtn.textContent = '已复制';
                     setTimeout(() => { copyBtn.textContent = label; }, 1000);
                 } catch (e) {
                     console.error(e);
@@ -1238,19 +1301,19 @@ function renderUserMgmtList(users) {
                 });
                 const data = await response.json();
                 if (data.success) {
-                    showToast('?????', 'success');
+                    showToast('API Key 已生成', 'success');
                     loadUsers();
                 } else {
-                    showToast(data.message || '????', 'error');
+                    showToast(data.message || '操作失败', 'error');
                 }
             } catch (e) {
-                showToast(e.message || '????', 'error');
+                showToast(e.message || '操作失败', 'error');
             }
         };
         const passBtn = document.createElement('button');
         passBtn.type = 'button';
         passBtn.className = 'btn btn-sm';
-        passBtn.textContent = '??';
+        passBtn.textContent = '改密';
         passBtn.onclick = function () {
             openUserPasswordModal(name);
         };
@@ -1260,7 +1323,7 @@ function renderUserMgmtList(users) {
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
             delBtn.className = 'btn btn-sm btn-danger';
-            delBtn.textContent = '??';
+            delBtn.textContent = '删除';
             delBtn.onclick = function () {
                 userMgmtDelete(name);
             };
@@ -1276,7 +1339,7 @@ function renderUserMgmtList(users) {
 function openUserPasswordModal(username) {
     userPasswordTarget = username;
     const title = document.getElementById('userPasswordModalTitle');
-    if (title) title.textContent = '???? ? ' + username;
+    if (title) title.textContent = '修改密码 · ' + username;
     const inp = document.getElementById('editPasswordInput');
     if (inp) inp.value = '';
     const inp2 = document.getElementById('editPasswordConfirmInput');
@@ -1300,7 +1363,7 @@ async function submitUserPasswordChange() {
     if (!userPasswordTarget) return;
     errEl.classList.remove('show');
     if (!pwd || !pwdConfirm) {
-        errEl.textContent = '????????????';
+        errEl.textContent = '请先输入新密码和确认密码';
         errEl.classList.add('show');
         return;
     }
@@ -1315,11 +1378,11 @@ async function submitUserPasswordChange() {
         });
         const data = await response.json();
         if (data.success) {
-            showToast('??????', 'success');
+            showToast('密码已更新', 'success');
             hideUserPasswordModal();
             if (userMgmtMode) loadUsers();
         } else {
-            errEl.textContent = data.message || '????';
+            errEl.textContent = data.message || '操作失败';
             errEl.classList.add('show');
         }
     } catch (e) {
@@ -1329,12 +1392,12 @@ async function submitUserPasswordChange() {
 }
 
 async function userMgmtDelete(username) {
-    if (!confirm('???????' + username + '??')) return;
+    if (!confirm('确定删除用户 ' + username + ' 吗？')) return;
     
     const btn = event.target;
     const originalText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '???...';
+    btn.textContent = '删除中...';
     
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/${encodeURIComponent(username)}`, {
@@ -1342,15 +1405,15 @@ async function userMgmtDelete(username) {
         });
         const data = await response.json();
         if (data.success) {
-            showToast('?????', 'success');
+            showToast('删除成功', 'success');
             loadUsers();
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '操作失败', 'error');
             btn.disabled = false;
             btn.textContent = originalText;
         }
     } catch (e) {
-        showToast(e.message || '????', 'error');
+        showToast(e.message || '操作失败', 'error');
         btn.disabled = false;
         btn.textContent = originalText;
     }
@@ -1365,12 +1428,12 @@ async function handleCreateUser() {
     msgEl.classList.remove('show');
     clearUserMgmtCreatePwdHint();
     if (!name) {
-        msgEl.textContent = '??????';
+        msgEl.textContent = '请输入用户名';
         msgEl.classList.add('show');
         return;
     }
     if (!pwd || !pwdConfirm) {
-        msgEl.textContent = '??????????';
+        msgEl.textContent = '请输入密码并再次确认';
         msgEl.classList.add('show');
         return;
     }
@@ -1390,7 +1453,7 @@ async function handleCreateUser() {
             document.getElementById('newUserPasswordConfirm').value = '';
             loadUsers();
         } else {
-            msgEl.textContent = data.message || '????';
+            msgEl.textContent = data.message || '操作失败';
             msgEl.classList.add('show');
         }
     } catch (e) {
@@ -1399,7 +1462,7 @@ async function handleCreateUser() {
     }
 }
 
-// ???????
+// 测试数据库连接。
 async function testConnection() {
     const dbType = document.getElementById('dbTypeInput').value;
     const config = {
@@ -1413,12 +1476,12 @@ async function testConnection() {
         config.port = parseInt(document.getElementById('dbPortInput').value);
         config.user = document.getElementById('dbUserInput').value;
         
-        // ??????????????????????
+        // 编辑模式下，如果密码为空则复用旧密码。
         const password = document.getElementById('dbPasswordInput').value;
         if (isEditMode && password === '' && currentDb) {
-            // ?????????
+            // 编辑时必须输入旧密码才能进行连通性测试。
             const errorEl = document.getElementById('dbFormError');
-            errorEl.textContent = '??????????????????????????????????';
+            errorEl.textContent = '编辑模式下测试连接需要输入密码';
             errorEl.classList.add('show');
             return;
         }
@@ -1434,12 +1497,12 @@ async function testConnection() {
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
 
-    // ??????
+    // 绑定测试按钮状态。
     const testBtn = document.getElementById('testConnectionBtn');
     const originalText = testBtn ? testBtn.textContent : '';
     if (testBtn) {
         testBtn.disabled = true;
-        testBtn.textContent = '???...';
+        testBtn.textContent = '测试中...';
     }
 
     try {
@@ -1454,25 +1517,25 @@ async function testConnection() {
         const data = await response.json();
 
         if (data.success) {
-            successEl.textContent = '?????';
+            successEl.textContent = '连接成功';
             successEl.classList.add('show');
         } else {
-            errorEl.textContent = data.message || '????';
+            errorEl.textContent = data.message || '测试失败';
             errorEl.classList.add('show');
         }
     } catch (error) {
-        errorEl.textContent = '?????' + error.message;
+        errorEl.textContent = '测试失败：' + error.message;
         errorEl.classList.add('show');
     } finally {
-        // ??????
+        // 恢复按钮状态。
         if (testBtn) {
             testBtn.disabled = false;
-            testBtn.textContent = originalText || '????';
+            testBtn.textContent = originalText || '测试连接';
         }
     }
 }
 
-// ??/?????
+// 新增或编辑数据库。
 async function handleAddDatabase(e) {
     e.preventDefault();
 
@@ -1484,9 +1547,9 @@ async function handleAddDatabase(e) {
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
     
-    // ????
+    // 校验数据库名称。
     if (!dbName) {
-        errorEl.textContent = '????????';
+        errorEl.textContent = '请输入数据库名称';
         errorEl.classList.add('show');
         return;
     }
@@ -1499,7 +1562,7 @@ async function handleAddDatabase(e) {
     if (dbTypeDefaults[dbType].isFile) {
         const dbPath = document.getElementById('dbPathInput').value.trim();
         if (!dbPath) {
-            errorEl.textContent = '??????????';
+            errorEl.textContent = '请输入文件路径';
             errorEl.classList.add('show');
             return;
         }
@@ -1510,17 +1573,17 @@ async function handleAddDatabase(e) {
         const dbUser = document.getElementById('dbUserInput').value.trim();
         
         if (!dbHost) {
-            errorEl.textContent = '???????';
+            errorEl.textContent = '请输入主机地址';
             errorEl.classList.add('show');
             return;
         }
         if (!dbPort || isNaN(parseInt(dbPort)) || parseInt(dbPort) <= 0) {
-            errorEl.textContent = '?????????';
+            errorEl.textContent = '请输入正确的端口号';
             errorEl.classList.add('show');
             return;
         }
         if (!dbUser) {
-            errorEl.textContent = '??????';
+            errorEl.textContent = '请输入用户名';
             errorEl.classList.add('show');
             return;
         }
@@ -1530,9 +1593,9 @@ async function handleAddDatabase(e) {
         config.user = dbUser;
         const password = document.getElementById('dbPasswordInput').value;
         
-        // ??????????????????
+        // 编辑时若未输入密码，则沿用原密码。
         if (isEditMode && password === '') {
-            // ???password???????????
+            // 不回填密码字段。
         } else {
             config.password = password;
         }
@@ -1540,7 +1603,7 @@ async function handleAddDatabase(e) {
         if (dbTypeDefaults[dbType].requiresDb) {
             const dbDatabase = document.getElementById('dbDatabaseInput').value.trim();
             if (!dbDatabase) {
-                errorEl.textContent = '???????';
+                errorEl.textContent = '请输入数据库名';
                 errorEl.classList.add('show');
                 return;
             }
@@ -1566,31 +1629,30 @@ async function handleAddDatabase(e) {
         const data = await response.json();
 
         if (data.success) {
-            successEl.textContent = isEditMode ? '????????' : '????????';
+            successEl.textContent = isEditMode ? '数据库已更新' : '数据库已添加';
             successEl.classList.add('show');
             setTimeout(() => {
                 hideAddDbModal();
                 loadDatabases();
                 if (isEditMode && currentDb && currentDb.id === editingDbId) {
-                    // ????????????
+                    // 刷新详情视图。
                     setTimeout(() => {
                         loadDatabaseDetail(editingDbId);
                     }, 300);
                 }
             }, 1000);
         } else {
-            errorEl.textContent = data.message || (isEditMode ? '????' : '????');
+            errorEl.textContent = data.message || (isEditMode ? '更新失败' : '新增失败');
             errorEl.classList.add('show');
         }
     } catch (error) {
-        errorEl.textContent = (isEditMode ? '?????' : '?????') + error.message;
+        errorEl.textContent = (isEditMode ? '更新失败：' : '新增失败：') + error.message;
         errorEl.classList.add('show');
     }
 }
 
-// ???????
+// 加载数据库列表并刷新当前选中项。
 /**
- * ????????????? UI
  * @returns {Promise<void>}
  */
 async function loadDatabases() {
@@ -1604,7 +1666,7 @@ async function loadDatabases() {
             initDemoData();
             renderDatabaseList();
             
-            // ??????????????????currentDb
+            // 如果当前数据库仍存在，则同步刷新引用。
             if (currentDb) {
                 const updatedDb = databases.find(db => db.id === currentDb.id);
                 if (updatedDb) {
@@ -1617,21 +1679,21 @@ async function loadDatabases() {
             }
         }
     } catch (error) {
-        console.error('??????????', error);
-        showToast('?????????', 'error');
+        console.error('加载数据库详情失败', error);
+        showToast('加载数据库列表失败', 'error');
     }
 }
 
-// ???????
+// 渲染数据库列表。
 function renderDatabaseList() {
     const listEl = document.getElementById('dbList');
     
     if (databases.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">?????</div>';
+        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无数据库</div>';
         return;
     }
 
-    // ?????(dm)?Oracle????
+    // 达梦和 Oracle 排在前面。
     const priorityTypes = ['dm', 'oracle'];
     const sortedDatabases = [...databases].sort((a, b) => {
         const aIsPriority = priorityTypes.includes(a.type);
@@ -1642,7 +1704,7 @@ function renderDatabaseList() {
     });
 
     listEl.innerHTML = sortedDatabases.map(db => {
-        const typeIcon = dbTypeIcons[db.type] || '??';
+        const typeIcon = dbTypeIcons[db.type] || '🗃️';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? db.path : `${db.host}:${db.port}`;
         
@@ -1659,7 +1721,7 @@ function renderDatabaseList() {
     }).join('');
 }
 
-// ?????
+// 选择数据库并加载详情。
 function selectDatabase(dbId) {
     closeUserMgmtPanel(true);
     currentDb = databases.find(db => db.id === dbId);
@@ -1670,29 +1732,29 @@ function selectDatabase(dbId) {
     }
 }
 
-// ?????????
+// 显示数据库加载状态。
 function showDatabaseLoading() {
     closeUserMgmtPanel(true);
     document.getElementById('welcomeView').style.display = 'none';
     document.getElementById('dbDetailView').style.display = 'block';
     
-    // ??????
-    document.getElementById('dbName').innerHTML = '<span style="color:#718096;">???...</span>';
-    document.getElementById('dbStatus').textContent = '???...';
+    // 先显示占位信息。
+    document.getElementById('dbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
+    document.getElementById('dbStatus').textContent = '加载中...';
     document.getElementById('dbStatus').className = 'info-value status';
     
     const listEl = document.getElementById('tablesList');
     listEl.innerHTML = `
         <div style="text-align:center;padding:40px;color:#718096;">
             <div class="loading-spinner"></div>
-            <div style="margin-top:12px;">?????????...</div>
+            <div style="margin-top:12px;">正在加载数据库详情...</div>
         </div>
     `;
     
     document.getElementById('tablePreview').style.display = 'none';
 }
 
-// ???????
+// 加载数据库详情。
 async function loadDatabaseDetail(dbId) {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${dbId}`);
@@ -1709,7 +1771,7 @@ async function loadDatabaseDetail(dbId) {
                 postgresql: 'PostgreSQL',
                 sqlserver: 'SQL Server',
                 oracle: 'Oracle',
-                dm: '??',
+                dm: '达梦',
                 sqlite: 'SQLite',
                 duckdb: 'DuckDB',
                 tidb: 'TiDB',
@@ -1734,39 +1796,39 @@ async function loadDatabaseDetail(dbId) {
             
             const statusEl = document.getElementById('dbStatus');
             if (data.database.connected) {
-                statusEl.textContent = '???';
+                statusEl.textContent = '已连接';
                 statusEl.className = 'info-value status connected';
             } else {
-                statusEl.textContent = '???';
+                statusEl.textContent = '未连接';
                 statusEl.className = 'info-value status disconnected';
             }
 
             renderTablesList(data.database.tables || []);
             document.getElementById('tablePreview').style.display = 'none';
         } else {
-            // ??????????
+            // 数据库未连接时展示错误状态。
             const listEl = document.getElementById('tablesList');
             listEl.innerHTML = `
                 <div style="text-align:center;padding:40px;color:#e53e3e;">
-                    <div style="font-size:48px;margin-bottom:12px;">??</div>
-                    <div>?????${escapeHtml(data.message || '????')}</div>
+                    <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                    <div>加载失败：${escapeHtml(data.message || '未知错误')}</div>
                 </div>
             `;
         }
     } catch (error) {
-        console.error('??????????', error);
-        // ?????????
+        console.error('加载数据库详情失败', error);
+        // 退回到通用错误状态。
         const listEl = document.getElementById('tablesList');
         listEl.innerHTML = `
             <div style="text-align:center;padding:40px;color:#e53e3e;">
-                <div style="font-size:48px;margin-bottom:12px;">??</div>
-                <div>????????????????</div>
+                <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                <div>无法加载数据库详情，请稍后重试</div>
             </div>
         `;
     }
 }
 
-// ?????
+// 渲染数据表列表。
 function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
     
@@ -1777,15 +1839,15 @@ function renderTablesList(tables) {
         let hint = '';
         if (currentDb && currentDb.type === 'mongodb') {
             hint = `<div style="margin-top:12px;font-size:13px;color:#a0aec0;">
-                ???????: <strong style="color:#718096;">${currentDbName}</strong><br/>
-                ????????????????????????????? sample_mflix?
+                当前库：<strong style="color:#718096;">${currentDbName}</strong><br/>
+                如果是 MongoDB，请先检查是否选择了示例库 sample_mflix。
             </div>`;
         }
         
         listEl.innerHTML = `
             <div style="text-align:center;color:#718096;padding:40px;">
-                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">??</div>
-                <div style="font-size:16px;">?????</div>
+                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">📭</div>
+                <div style="font-size:16px;">当前没有表数据</div>
                 ${hint}
             </div>
         `;
@@ -1801,59 +1863,59 @@ function renderTablesList(tables) {
     listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
 }
 
-// ???????
+// 当前预览的表。
 let currentPreviewTable = null;
 let isTableEditMode = false;
 
-// ?????
+// 预览指定数据表。
 async function previewTable(tableName, keepEditMode = false) {
     if (!currentDb) {
-        console.error('???????');
+        console.error('当前没有选中数据库');
         return;
     }
 
     currentPreviewTable = tableName;
     
-    // ??????????????
+    // 默认退出编辑模式。
     if (!keepEditMode) {
         isTableEditMode = false;
     }
 
-    // ??????
+    // 显示表格预览区域。
     document.getElementById('tablePreview').style.display = 'block';
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
         <div style="text-align:center;padding:60px;color:#718096;">
             <div class="loading-spinner"></div>
-            <div style="margin-top:16px;">???????...</div>
+            <div style="margin-top:16px;">正在加载表结构...</div>
         </div>
     `;
 
     try {
-        // ???????
+        // 先加载字段结构。
         const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
         const structureData = await structureResponse.json();
         
-        // ???????
+        // 再加载表数据。
         const dataResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}`);
         const data = await dataResponse.json();
 
         if (data.success) {
             document.getElementById('tablePreview').style.display = 'block';
             
-            // ????????
+            // 更新预览头部按钮。
             updatePreviewHeader();
             
             const previewContent = document.getElementById('previewContent');
             
-            // ???????????????????????
+            // 优先使用结构接口返回的字段名，其次使用首行数据推断。
             let columns = [];
             if (structureData.success && structureData.columns && structureData.columns.length > 0) {
                 columns = structureData.columns.map(col => col.name);
             } else if (data.data && data.data.length > 0) {
                 columns = Object.keys(data.data[0]);
             } else {
-                // ????????????????????????????????
+                // 如果结构接口失败，重试一次以避免偶发网络错误。
                 const retryResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
                 const retryData = await retryResp.json();
                 if (retryData.success && retryData.columns && retryData.columns.length > 0) {
@@ -1861,21 +1923,21 @@ async function previewTable(tableName, keepEditMode = false) {
                 }
             }
             if (columns.length === 0) {
-                // ??????????????????????????
+                // 仍然无法获取字段时，显示空状态。
                 previewContent.innerHTML = `
                     <div style="text-align:center;padding:40px;">
-                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">??</div>
-                        <div style="color:#718096;font-size:16px;margin-bottom:12px;">??????????</div>
-                        <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">???????????</div>
-                        <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">???????</button>
+                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">📭</div>
+                        <div style="color:#718096;font-size:16px;margin-bottom:12px;">当前表没有字段</div>
+                        <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">请先确认数据库表结构是否可访问</div>
+                        <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">重新加载</button>
                     </div>
                 `;
                 return;
             }
             
-            // ???????????
+            // 数据库连接测试与提交。
             const hasData = data.data && data.data.length > 0;
-            const actionColumnHtml = isTableEditMode ? '<th class="action-column">??</th>' : '';
+            const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
             const tableHtml = `
                 <table class="preview-table" id="dataTable">
                     <thead>
@@ -1894,13 +1956,13 @@ async function previewTable(tableName, keepEditMode = false) {
                                         const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
                                         return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
                                     }).join('')}
-                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="???">?</button></td>` : ''}
+                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button></td>` : ''}
                                 </tr>
                             `;
                         }).join('') : `
                             <tr class="empty-row">
                                 <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
-                                    ${isTableEditMode ? '???????????"+ ???"??????' : '??????'}
+                                    ${isTableEditMode ? '当前无数据，可点击“添加行”继续编辑' : '暂无数据'}
                                 </td>
                             </tr>
                         `}
@@ -1926,39 +1988,39 @@ async function previewTable(tableName, keepEditMode = false) {
             }
         }
     } catch (error) {
-        console.error('????????', error);
+        console.error('预览表格失败', error);
         const previewContent = document.getElementById('previewContent');
-        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">?????' + escapeHtml(error.message) + '</div>';
+        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + escapeHtml(error.message) + '</div>';
     }
 }
 
-// ?????????????????
+// 防止重复加载表结构。
 let structureLoadingLock = false;
 
-// ????????????????????????????????????
+// 加载表结构并渲染空表格骨架。
 async function loadStructureAndRenderTable(addOneRow) {
     if (!currentDb || !currentPreviewTable) return;
     if (structureLoadingLock) return;
     const previewContent = document.getElementById('previewContent');
     if (!previewContent) return;
     structureLoadingLock = true;
-    previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">???????...</div>';
+    previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载结构...</div>';
     try {
         const structureResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
         });
         const structureData = await structureResponse.json();
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
-            const msg = (structureData.message && structureData.message.trim()) ? structureData.message : '?????????????';
+            const msg = (structureData.message && structureData.message.trim()) ? structureData.message : '无法获取表结构';
             previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">' + escapeHtml(msg) + '</div>';
             structureLoadingLock = false;
             return;
         }
         const columns = structureData.columns.map(col => col.name);
-        const actionColumnHtml = isTableEditMode ? '<th class="action-column">??</th>' : '';
+        const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
         const emptyRowHtml = `
             <tr class="empty-row">
                 <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
-                    ???????????"+ ???"??????
+                    当前无数据，可点击“添加行”继续编辑
                 </td>
             </tr>
         `;
@@ -1985,73 +2047,73 @@ async function loadStructureAndRenderTable(addOneRow) {
         }
         if (addOneRow) addTableRow();
     } catch (e) {
-        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">?????' + escapeHtml(e.message) + '</div>';
+        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">加载失败：' + escapeHtml(e.message) + '</div>';
     }
     structureLoadingLock = false;
 }
 
-// ????????
+// 更新预览头部按钮与表名。
 function updatePreviewHeader() {
     const actionsContainer = document.querySelector('#tablePreview .preview-actions');
     const tableNameEl = document.getElementById('previewTableName');
     
     if (!actionsContainer || !tableNameEl) {
-        console.error('?????????');
+        console.error('预览头部容器缺失');
         return;
     }
     
-    // ????
+    // 更新当前表名。
     tableNameEl.textContent = currentPreviewTable;
     
-    // ????
+    // 根据是否编辑模式生成按钮。
     const actionsHtml = isTableEditMode ? `
-        <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ ???</button>
-        <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">?? ??</button>
-        <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">??</button>
+        <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ 添加行</button>
+        <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">保存数据</button>
+        <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
     ` : `
-        <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">?? ????</button>
-        <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">?? ????</button>
-        <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">?? ????</button>
-        <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">???</button>
-        <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">??</button>
+        <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">编辑数据</button>
+        <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">编辑结构</button>
+        <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">重命名</button>
+        <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除</button>
+        <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
     `;
     
     actionsContainer.innerHTML = actionsHtml;
 }
 
-// ????????
+// 启用表格编辑模式。
 function enableTableEditMode() {
     if (!currentPreviewTable) {
-        showToast('???????', 'warning');
+        showToast('请先选择表', 'warning');
         return;
     }
 
     if (!currentDb) {
-        showToast('???????', 'warning');
+        showToast('请先选择数据库表', 'warning');
         return;
     }
     
     isTableEditMode = true;
     
-    // ??????
+    // 显示编辑模式加载态。
     const previewContent = document.getElementById('previewContent');
     if (previewContent) {
-        const loadingHtml = '<div style="text-align:center;padding:40px;color:#667eea;"><div style="font-size:24px;margin-bottom:12px;">?</div><div>????????...</div></div>';
+        const loadingHtml = '<div style="text-align:center;padding:40px;color:#667eea;"><div style="font-size:24px;margin-bottom:12px;">⏳</div><div>正在进入编辑模式...</div></div>';
         previewContent.innerHTML = loadingHtml;
     }
     
-    // ????????
+    // 创建流式消息占位。
     previewTable(currentPreviewTable, true);
 }
 
-// ????????
+// 启用表格单元格编辑。
 function enableTableEditing() {
     const cells = document.querySelectorAll('.editable-cell');
     cells.forEach(cell => {
         cell.contentEditable = 'true';
         cell.classList.add('editing');
         
-        // ??NULL????
+        // 清空 NULL 占位符。
         const focusHandler = function() {
             const nullEl = this.querySelector('.null-value');
             if (nullEl) {
@@ -2063,50 +2125,50 @@ function enableTableEditing() {
             if (this.textContent.trim() === '') {
                 this.innerHTML = '<i class="null-value">NULL</i>';
             }
-            // ????
+            // 刷新编辑统计。
             updateEditStats();
         };
         
-        // ???????????????
+        // 绑定一次焦点和失焦事件。
         cell.removeEventListener('focus', focusHandler);
         cell.removeEventListener('blur', blurHandler);
         
-        // ?????????
+        // 绑定焦点和失焦事件。
         cell.addEventListener('focus', focusHandler);
         cell.addEventListener('blur', blurHandler);
         
-        // ?????????????
+        // 保存事件句柄，便于后续清理。
         cell._focusHandler = focusHandler;
         cell._blurHandler = blurHandler;
     });
     
-    // ???????
+    // 更新编辑统计。
     updateEditStats();
 }
 
-// ????????
+// 显示保存成功提示。
 function showSaveSuccess(message) {
-    // ??????
+    // 创建成功提示浮层。
     const toast = document.createElement('div');
     toast.className = 'save-success-toast';
     toast.innerHTML = `
-        <div class="toast-icon">?</div>
+        <div class="toast-icon">✓</div>
         <div class="toast-message">${message.replace(/\n/g, '<br>')}</div>
     `;
     
     document.body.appendChild(toast);
     
-    // ????
+    // 解析用户输入的 JSON 参数。
     setTimeout(() => toast.classList.add('show'), 10);
     
-    // ????
+    // 结束后自动消失。
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
     }, 1200);
 }
 
-// ??????
+// 更新编辑统计。
 function updateEditStats() {
     const table = document.getElementById('dataTable');
     if (!table || !isTableEditMode) return;
@@ -2129,7 +2191,7 @@ function updateEditStats() {
         }
     });
     
-    // ???????????
+    // 如果统计条还不存在则创建。
     let statsEl = document.getElementById('editStats');
     if (!statsEl) {
         statsEl = document.createElement('div');
@@ -2142,17 +2204,17 @@ function updateEditStats() {
     const totalChanges = newCount + deletedCount;
     const statsHtml = totalChanges > 0 ? `
         <span class="stats-item">
-            <span class="stats-label">?? ?????</span>
-            ${normalCount > 0 ? `<span class="stats-badge stats-normal">${normalCount} ???</span>` : ''}
-            ${newCount > 0 ? `<span class="stats-badge stats-new">+ ${newCount} ???</span>` : ''}
-            ${deletedCount > 0 ? `<span class="stats-badge stats-deleted">- ${deletedCount} ???</span>` : ''}
+            <span class="stats-label">编辑统计</span>
+            ${normalCount > 0 ? `<span class="stats-badge stats-normal">${normalCount} 行原始</span>` : ''}
+            ${newCount > 0 ? `<span class="stats-badge stats-new">+ ${newCount} 行新增</span>` : ''}
+            ${deletedCount > 0 ? `<span class="stats-badge stats-deleted">- ${deletedCount} 行删除</span>` : ''}
         </span>
-    ` : '<span class="stats-item"><span class="stats-label">?? ????</span></span>';
+    ` : '<span class="stats-item"><span class="stats-label">无改动</span></span>';
     
     statsEl.innerHTML = statsHtml;
 }
 
-// ????????
+// 禁用表格编辑。
 function disableTableEditing() {
     const cells = document.querySelectorAll('.editable-cell');
     cells.forEach(cell => {
@@ -2161,12 +2223,12 @@ function disableTableEditing() {
     });
 }
 
-// ????
+// 取消表格编辑。
 function cancelTableEdit() {
     isTableEditMode = false;
     disableTableEditing();
     
-    // ??????
+    // 移除编辑统计条。
     const statsEl = document.getElementById('editStats');
     if (statsEl) {
         statsEl.remove();
@@ -2175,20 +2237,20 @@ function cancelTableEdit() {
     previewTable(currentPreviewTable);
 }
 
-// ?????
+// 新增表格行。
 function addTableRow() {
     const table = document.getElementById('dataTable');
     if (!table) {
-        // ????????????????????????????
+        // 如果表格不存在，先加载结构再继续。
         loadStructureAndRenderTable(true);
         return;
     }
     const tbody = table.querySelector('tbody');
     const headers = Array.from(table.querySelectorAll('thead th'))
-        .slice(0, -1) // ?????
+        .slice(0, -1) // 去掉操作列
         .map(th => th.textContent);
     
-    // ??????
+    // 去除空状态行。
     const emptyRow = tbody.querySelector('.empty-row');
     if (emptyRow) {
         emptyRow.remove();
@@ -2202,77 +2264,77 @@ function addTableRow() {
         `<td data-column="${escapeHtml(col)}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
     ).join('') + `
         <td class="action-column">
-            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="???">?</button>
+            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button>
         </td>
     `;
     
     tbody.appendChild(newRow);
     
-    // ?????????
+    // 自动聚焦第一格。
     const firstCell = newRow.querySelector('.editable-cell');
     if (firstCell) {
         firstCell.focus();
-        // ??NULL??
+        // 清除默认 NULL 占位。
         if (firstCell.querySelector('.null-value')) {
             firstCell.textContent = '';
         }
     }
     
-    // ????
+    // 刷新统计。
     updateEditStats();
 }
 
-// ?????
+// 删除或恢复表格行。
 function deleteTableRow(rowId) {
     const row = document.querySelector(`tr[data-row-id="${rowId}"]`);
     if (!row) {
         return;
     }
     
-    // ???????????DOM
+    // 新增行直接移除，已有行切换删除状态。
     if (row.dataset.isNew === 'true') {
         row.remove();
         
-        // ????????????????
+        // 如果删除后为空，恢复空状态行。
         const tbody = document.getElementById('dataTable').querySelector('tbody');
         if (tbody.children.length === 0) {
             const columns = Array.from(document.querySelectorAll('#dataTable thead th')).length;
             tbody.innerHTML = `
                 <tr class="empty-row">
                     <td colspan="${columns}" style="text-align:center;color:#718096;padding:20px;">
-                        ???????????"+ ???"??????
+                        当前无数据，可点击“添加行”继续编辑
                     </td>
                 </tr>
             `;
         }
     } else {
-        // ????????????????
+        // 切换行删除标记。
         const deleteBtn = row.querySelector('.btn-icon-delete');
         
         if (row.dataset.deleted === 'true') {
-            // ??????
+            // 显示重试详情。
             row.dataset.deleted = 'false';
             row.classList.remove('row-deleted');
             if (deleteBtn) {
-                deleteBtn.textContent = '?';
-                deleteBtn.title = '???';
+                deleteBtn.textContent = '×';
+                deleteBtn.title = '删除';
             }
         } else {
-            // ?????
+            // 渲染返回答案。
             row.dataset.deleted = 'true';
             row.classList.add('row-deleted');
             if (deleteBtn) {
-                deleteBtn.textContent = '?';
-                deleteBtn.title = '????';
+                deleteBtn.textContent = '↩';
+                deleteBtn.title = '恢复';
             }
         }
     }
     
-    // ????
+    // 颜色渐变。
     updateEditStats();
 }
 
-// ??????
+// 保存表格数据变更。
 async function saveTableData() {
     if (!currentDb || !currentPreviewTable) return;
     
@@ -2312,19 +2374,19 @@ async function saveTableData() {
         }
     });
     
-    // ???????
+    // 没有改动时直接返回。
     if (updates.length === 0 && inserts.length === 0 && deletes.length === 0) {
-        showToast('??????', 'info');
+        showToast('没有需要保存的改动', 'info');
         return;
     }
     
-    // ????
-    const message = `???????\n??: ${updates.length} ?\n??: ${inserts.length} ?\n??: ${deletes.length} ?`;
+    // 生成确认信息。
+    const message = `确定保存以下变更？\n更新：${updates.length} 行\n新增：${inserts.length} 行\n删除：${deletes.length} 行`;
     if (!confirm(message)) {
         return;
     }
     
-    // ??????
+    // 清理欢迎区。
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
@@ -2341,29 +2403,29 @@ async function saveTableData() {
         const data = await response.json();
         
         if (data.success) {
-            // ??????
-            const successMsg = `?????\n? ??: ${updates.length} ?\n? ??: ${inserts.length} ?\n? ??: ${deletes.length} ?`;
+            // 保存成功后的提示信息。
+            const successMsg = `保存成功\n更新：${updates.length} 行\n新增：${inserts.length} 行\n删除：${deletes.length} 行`;
             
-            // ????????? alert
+            // 使用自定义提示而不是 alert。
             showSaveSuccess(successMsg);
             
-            // ?????????????
+            // 重新加载当前表格内容。
             setTimeout(() => {
                 previewTable(currentPreviewTable, true);
             }, 1500);
         } else {
-            showToast('?????' + (data.message || '????'), 'error');
+            showToast('保存失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('保存失败：' + error.message, 'error');
     }
 }
 
-// ???
+// 删除当前数据表。
 async function dropTable() {
     if (!currentDb || !currentPreviewTable) return;
     
-    if (!confirm(`?????? "${currentPreviewTable}" ??????????`)) {
+    if (!confirm(`确定删除数据表 “${currentPreviewTable}” 吗？此操作不可恢复。`)) {
         return;
     }
     
@@ -2375,47 +2437,47 @@ async function dropTable() {
         const data = await response.json();
         
         if (data.success) {
-            showToast('??????', 'success');
+            showToast('删除成功', 'success');
             closePreview();
             loadDatabaseDetail(currentDb.id);
         } else {
-            showToast('?????' + (data.message || '????'), 'error');
+            showToast('删除失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('删除失败：' + error.message, 'error');
     }
 }
 
-// ????
+// 关闭表格预览。
 function closePreview() {
     document.getElementById('tablePreview').style.display = 'none';
     currentPreviewTable = null;
     isTableEditMode = false;
 }
 
-// ??????????
+// 打开结构编辑弹窗。
 async function showEditStructureModal() {
     if (!currentDb || !currentPreviewTable) return;
     
     try {
-        // ???????
+        // 读取当前表结构。
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`);
         const data = await response.json();
         
         if (!data.success) {
-            showToast('????????' + (data.message || '????'), 'error');
+            showToast('读取结构失败：' + (data.message || '未知错误'), 'error');
             return;
         }
         
-        // ??????
+        // 渲染结构编辑表单。
         renderEditStructure(data.columns || []);
         document.getElementById('editStructureModal').style.display = 'block';
     } catch (error) {
-        showToast('????????' + error.message, 'error');
+        showToast('读取结构失败：' + error.message, 'error');
     }
 }
 
-// ????????
+// 渲染结构编辑表单。
 function renderEditStructure(columns) {
     const container = document.getElementById('structureColumnsContainer');
     
@@ -2425,12 +2487,12 @@ function renderEditStructure(columns) {
             <div class="structure-column-item" data-index="${index}">
                 <div class="structure-column-header">
                     <span class="column-number">#${index + 1}</span>
-                    <input type="text" class="form-control" value="${col.name}" data-field="name" placeholder="??" />
-                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="???">?</button>
+                    <input type="text" class="form-control" value="${col.name}" data-field="name" placeholder="字段名" />
+                    <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除">×</button>
                 </div>
                 <div class="structure-column-fields">
                     <div class="form-group">
-                        <label>??</label>
+                        <label>类型</label>
                         <select class="form-control" data-field="type">
                             <option value="INT" ${col.type.toUpperCase().includes('INT') ? 'selected' : ''}>INT</option>
                             <option value="BIGINT" ${col.type.toUpperCase().includes('BIGINT') ? 'selected' : ''}>BIGINT</option>
@@ -2446,14 +2508,14 @@ function renderEditStructure(columns) {
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>??</label>
+                        <label>长度</label>
                         <input type="text" class="form-control" data-field="size" placeholder="?: 255" 
                             value="${extractSize(col.type)}" />
                     </div>
                     <div class="form-group-inline">
                         <label>
                             <input type="checkbox" data-field="nullable" ${col.nullable ? 'checked' : ''} />
-                            ??NULL
+                            可为空
                         </label>
                     </div>
                 </div>
@@ -2464,13 +2526,13 @@ function renderEditStructure(columns) {
     container.innerHTML = html;
 }
 
-// ??????????
+// 提取字段类型中的长度信息。
 function extractSize(typeStr) {
     const match = typeStr.match(/\((\d+)\)/);
     return match ? match[1] : '';
 }
 
-// ????
+// 新增结构字段。
 function addStructureColumn() {
     const container = document.getElementById('structureColumnsContainer');
     const index = container.children.length;
@@ -2481,12 +2543,12 @@ function addStructureColumn() {
     newColumn.innerHTML = `
         <div class="structure-column-header">
             <span class="column-number">#${index + 1}</span>
-            <input type="text" class="form-control" data-field="name" placeholder="??" />
-            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="???">?</button>
+            <input type="text" class="form-control" data-field="name" placeholder="字段名" />
+            <button type="button" class="btn-icon-delete" onclick="removeStructureColumn(${index})" title="删除">×</button>
         </div>
         <div class="structure-column-fields">
             <div class="form-group">
-                <label>??</label>
+                <label>类型</label>
                 <select class="form-control" data-field="type">
                     <option value="INT">INT</option>
                     <option value="BIGINT">BIGINT</option>
@@ -2502,13 +2564,13 @@ function addStructureColumn() {
                 </select>
             </div>
             <div class="form-group">
-                <label>??</label>
-                <input type="text" class="form-control" data-field="size" placeholder="?: 255" value="255" />
+                <label>长度</label>
+                <input type="text" class="form-control" data-field="size" placeholder="例如：255" value="255" />
             </div>
             <div class="form-group-inline">
                 <label>
                     <input type="checkbox" data-field="nullable" checked />
-                    ??NULL
+                    可为空
                 </label>
             </div>
         </div>
@@ -2517,7 +2579,7 @@ function addStructureColumn() {
     container.appendChild(newColumn);
 }
 
-// ???
+// 删除结构字段。
 function removeStructureColumn(index) {
     const item = document.querySelector(`.structure-column-item[data-index="${index}"]`);
     if (item) {
@@ -2525,7 +2587,7 @@ function removeStructureColumn(index) {
     }
 }
 
-// ???????
+// 保存表结构变更。
 async function saveTableStructure() {
     if (!currentDb || !currentPreviewTable) return;
     
@@ -2550,11 +2612,11 @@ async function saveTableStructure() {
     });
     
     if (newColumns.length === 0) {
-        showToast('???????', 'warning');
+        showToast('请至少保留一个字段', 'warning');
         return;
     }
     
-    if (!confirm(`?????? "${currentPreviewTable}" ?????\n????????????`)) {
+    if (!confirm(`确定保存表 “${currentPreviewTable}” 的结构变更吗？\n此操作可能影响现有数据。`)) {
         return;
     }
     
@@ -2570,23 +2632,23 @@ async function saveTableStructure() {
         const data = await response.json();
         
         if (data.success) {
-            showToast('????????', 'success');
+            showToast('结构已更新', 'success');
             closeEditStructureModal();
             previewTable(currentPreviewTable);
         } else {
-            showToast('?????' + (data.message || '????'), 'error');
+            showToast('保存结构失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('保存结构失败：' + error.message, 'error');
     }
 }
 
-// ?????????
+// 关闭结构编辑弹窗。
 function closeEditStructureModal() {
     document.getElementById('editStructureModal').style.display = 'none';
 }
 
-// ?????????
+// 打开重命名表弹窗。
 function showRenameTableModal() {
     if (!currentDb || !currentPreviewTable) return;
     document.getElementById('renameTableNewName').value = currentPreviewTable;
@@ -2603,7 +2665,7 @@ async function submitRenameTable() {
     if (!currentDb || !currentPreviewTable) return;
     const newName = document.getElementById('renameTableNewName').value.trim();
     if (!newName) {
-        showToast('??????', 'warning');
+        showToast('请先输入新的表名', 'warning');
         return;
     }
     if (newName === currentPreviewTable) {
@@ -2625,25 +2687,25 @@ async function submitRenameTable() {
             updatePreviewHeader();
             loadDatabaseDetail(currentDb.id).then(() => previewTable(newName));
         } else {
-            showToast('??????' + (data.message || '????'), 'error');
+            showToast('重命名失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (e) {
-        showToast('??????' + e.message, 'error');
+        showToast('重命名失败：' + e.message, 'error');
     }
 }
 
-// ?????
+// 删除当前数据库。
 async function handleDeleteDatabase() {
     if (!currentDb) return;
 
-    if (!confirm(`???????? "${currentDb.name}" ??????????`)) {
+    if (!confirm(`确定删除数据库 “${currentDb.name}” 吗？此操作不可恢复。`)) {
         return;
     }
 
     const deleteBtn = document.getElementById('deleteDbBtn');
     const originalText = deleteBtn.textContent;
     deleteBtn.disabled = true;
-    deleteBtn.textContent = '???...';
+    deleteBtn.textContent = '删除中...';
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}`, {
@@ -2660,20 +2722,20 @@ async function handleDeleteDatabase() {
             document.getElementById('tablePreview').style.display = 'none';
             loadDatabases();
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '删除失败', 'error');
             deleteBtn.disabled = false;
             deleteBtn.textContent = originalText;
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('删除失败：' + error.message, 'error');
         deleteBtn.disabled = false;
         deleteBtn.textContent = originalText;
     }
 }
 
-// ==================== ?????? ====================
+// ==================== API Key 管理 ====================
 
-// ---- ApiKey ?? ----
+// ---- API Key ----
 
 async function loadApiKey() {
     try {
@@ -2684,8 +2746,8 @@ async function loadApiKey() {
             renderApiKeyUI();
         }
     } catch (e) {
-        console.error('??ApiKey???', e);
-        showToast('?? API Key ??', 'error');
+        console.error('加载 API Key 失败', e);
+        showToast('加载 API Key 失败', 'error');
     }
 }
 
@@ -2700,21 +2762,21 @@ async function generateApiKey() {
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '生成失败', 'error');
         }
     } catch (e) {
-        console.error('??ApiKey???', e);
-        showToast('?? API Key ??', 'error');
+        console.error('生成 API Key 失败', e);
+        showToast('生成 API Key 失败', 'error');
     }
 }
 
 async function deleteApiKey() {
-    if (!confirm('??????? API Key ????????????????')) return;
+    if (!confirm('确定删除当前 API Key 吗？删除后相关调用将失效。')) return;
     
     const deleteBtn = document.getElementById('deleteApikeyBtn');
     const originalText = deleteBtn.textContent;
     deleteBtn.disabled = true;
-    deleteBtn.textContent = '???...';
+    deleteBtn.textContent = '删除中...';
     
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apikey`, {
@@ -2726,13 +2788,13 @@ async function deleteApiKey() {
             renderApiKeyUI();
             if (currentApi) renderCodeExamples(currentApi);
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '保存失败', 'error');
             deleteBtn.disabled = false;
             deleteBtn.textContent = originalText;
         }
     } catch (e) {
-        console.error('??ApiKey???', e);
-        showToast('?? API Key ??', 'error');
+        console.error('加载 API Key 失败', e);
+        showToast('加载 API Key 失败', 'error');
         deleteBtn.disabled = false;
         deleteBtn.textContent = originalText;
     }
@@ -2750,23 +2812,23 @@ function renderApiKeyUI() {
     const deleteBtn = document.getElementById('deleteApikeyBtn');
 
     if (currentApiKey) {
-        const masked = currentApiKey.substring(0, 8) + '????????' + currentApiKey.substring(currentApiKey.length - 4);
+        const masked = currentApiKey.substring(0, 8) + '********' + currentApiKey.substring(currentApiKey.length - 4);
         const safeKey = escapeHtml(currentApiKey);
         const safeMasked = escapeHtml(masked);
         contentEl.innerHTML = `<code class="apikey-value" title="${safeKey}">${safeMasked}</code>`;
-        generateBtn.textContent = '????';
+        generateBtn.textContent = '重新生成';
         copyBtn.style.display = '';
         deleteBtn.style.display = '';
     } else {
-        contentEl.innerHTML = '<span class="apikey-placeholder">???</span>';
-        generateBtn.textContent = '??';
+        contentEl.innerHTML = '<span class="apikey-placeholder">未生成</span>';
+        generateBtn.textContent = '生成';
         copyBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
     }
     updateMcpDisplay();
 }
 
-// MCP ?????? MCP ???????
+// MCP 配置展示与生成。
 let mcpConfigEnabled = true;
 async function loadMcpInfo() {
     await loadApiKey();
@@ -2813,18 +2875,18 @@ function updateMcpDisplay() {
 
     baseEl.textContent = baseUrl;
     if (currentApiKey) {
-        keyEl.textContent = currentApiKey.substring(0, 8) + '????????' + currentApiKey.substring(currentApiKey.length - 4);
+        keyEl.textContent = currentApiKey.substring(0, 8) + '********' + currentApiKey.substring(currentApiKey.length - 4);
         keyEl.title = currentApiKey;
         if (copyKeyBtn) copyKeyBtn.style.display = '';
-        if (genKeyBtn) genKeyBtn.textContent = '????';
+        if (genKeyBtn) genKeyBtn.textContent = '重新生成';
     } else {
-        keyEl.textContent = '???';
+        keyEl.textContent = '未生成';
         keyEl.title = '';
         if (copyKeyBtn) copyKeyBtn.style.display = 'none';
-        if (genKeyBtn) genKeyBtn.textContent = '?? API Key';
+        if (genKeyBtn) genKeyBtn.textContent = '生成 API Key';
     }
 
-    const key = currentApiKey || '<???? API Key>';
+    const key = currentApiKey || '<YOUR_API_KEY>';
     const clientType = (clientSelect && clientSelect.value) || 'cursor';
     const mcpUrl = baseUrl + '/mcp';
     let configText = '';
@@ -2840,9 +2902,9 @@ function updateMcpDisplay() {
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '??????????????????? MCP ????',
-            '?? Cursor ? Settings ? MCP???"Add new MCP server"??????????? <code>~/.cursor/mcp.json</code>?Windows: <code>%USERPROFILE%\\.cursor\\mcp.json</code>??',
-            '??? Cursor ????????????????????'
+            '请先在当前平台生成 API Key，然后在 MCP 客户端中配置连接。',
+            '在 Cursor 的设置里打开 MCP，点击 “Add new MCP server”，将配置保存到 <code>~/.cursor/mcp.json</code>；Windows 可使用 <code>%USERPROFILE%\\.cursor\\mcp.json</code>。',
+            '完成后重启 Cursor，即可开始使用 MCP。'
         ];
     } else if (clientType === 'claude') {
         const config = {
@@ -2857,9 +2919,9 @@ function updateMcpDisplay() {
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '??????????????????? MCP ????',
-            '? Claude Desktop ?????macOS: <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>?Windows: <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>?????? mcpServers ???',
-            '?? Claude Desktop ???????????????'
+            '在 Claude Desktop 中启用 MCP。',
+            '将配置写入 <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>（macOS）或 <code>%APPDATA%\\Claude\\claude_desktop_config.json</code>（Windows），并确认 <code>mcpServers</code> 配置正确。',
+            '保存后重启 Claude Desktop。'
         ];
     } else if (clientType === 'cherry') {
         const config = {
@@ -2874,9 +2936,9 @@ function updateMcpDisplay() {
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '??????????????????? MCP ????',
-            '?? Cherry Studio ? ?? ? MCP ??????"?????" ? "? JSON ??"??????????????',
-            '????????? MCP ???????????????????'
+            '在 Cherry Studio 中添加 MCP 服务器。',
+            '进入 MCP 配置页，选择导入 JSON 或手动创建服务器配置。',
+            '保存后刷新连接状态。'
         ];
     } else if (clientType === 'dify') {
         const config = {
@@ -2893,37 +2955,23 @@ function updateMcpDisplay() {
         };
         configText = JSON.stringify(config, null, 2);
         steps = [
-            '??????????????????? MCP ????',
-            '? Dify ?????? <code>dify-plugin-tools-mcp_sse</code> ????? GitHub ???<code>junjiem/dify-plugin-tools-mcp_sse</code>??',
-            '???????????? JSON ???"MCP Servers config"???????',
-            '?????? Agent ??????????????????? data-ontology ????',
-            '???? Dify ??? nginx ?????????? .env ??? <code>NGINX_KEEPALIVE_TIMEOUT=650</code>?'
+            '在 Dify 中配置 MCP 工具连接。',
+            '建议先安装可用的 MCP 插件，再在服务器配置中填入当前平台的 MCP 地址。',
+            '如使用反向代理，请确保请求超时足够长。'
         ];
     } else {
-        configText = `# Stdio ?????????????? datatoolbox-server ????
-# ? GitHub Release ????????????
-
-# ????
-export DATA_ONTOLOGY_BASE_URL="${baseUrl}"
-export DATA_ONTOLOGY_API_KEY="${key}"
-
-# ????
-# Linux/macOS: ./datatoolbox-server mcp
-# Windows PowerShell:
-#   $env:DATA_ONTOLOGY_BASE_URL="${baseUrl}"
-#   $env:DATA_ONTOLOGY_API_KEY="${key}"
-#   .\\datatoolbox-server.exe mcp`;
+        configText = `# Stdio 模式示例，适用于本地运行 datatoolbox-server。\n\n# 环境变量\nexport DATA_ONTOLOGY_BASE_URL="${baseUrl}"\nexport DATA_ONTOLOGY_API_KEY="${key}"\n\n# 启动命令\n# Linux/macOS: ./datatoolbox-server mcp\n# Windows PowerShell:\n#   $env:DATA_ONTOLOGY_BASE_URL="${baseUrl}"\n#   $env:DATA_ONTOLOGY_API_KEY="${key}"\n#   .\\datatoolbox-server.exe mcp`;
         steps = [
-            '? GitHub Release ???????? datatoolbox-server ??????<strong>?????</strong>?',
-            '??? stdio MCP ?????????? <code>datatoolbox-server</code>??? <code>mcp</code>?????????????',
-            '?????? HTTP ???????????'
+            '适用于 GitHub Release 或本地构建的 datatoolbox-server。',
+            '使用 stdio 模式启动后，再在 MCP 客户端中填入对应的可执行文件和参数。',
+            '如仅需 HTTP 访问，建议优先使用前面的客户端配置方式。'
         ];
     }
     if (configPre) configPre.textContent = configText;
     if (stepsList) stepsList.innerHTML = steps.map((s, i) => `<li>${s}</li>`).join('');
 }
 
-// ??????
+// 加载 API 列表。
 async function loadApis() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`);
@@ -2935,17 +2983,17 @@ async function loadApis() {
             renderApiList();
         }
     } catch (error) {
-        console.error('?????????', error);
-        showToast('????????', 'error');
+        console.error('加载 API 列表失败', error);
+        showToast('加载 API 列表失败', 'error');
     }
 }
 
-// ??????
+// 过滤 API 列表。
 function filterApiList() {
     renderApiList();
 }
 
-// ??????
+// 渲染 API 列表。
 function renderApiList() {
     const listEl = document.getElementById('apiList');
     const searchInput = document.getElementById('apiSearchInput');
@@ -2959,7 +3007,7 @@ function renderApiList() {
         : apis;
 
     if (filtered.length === 0) {
-        listEl.innerHTML = `<div style="text-align:center;color:#718096;padding:20px;">${keyword ? '?????' : '????'}</div>`;
+        listEl.innerHTML = `<div style="text-align:center;color:#718096;padding:20px;">${keyword ? '未找到匹配 API' : '暂无 API'}</div>`;
         return;
     }
 
@@ -2982,7 +3030,7 @@ function renderApiList() {
                         <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${safeApiPath}
                     </div>
                 </div>
-                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${safeApiId}')" title="${enabled ? '????' : '????'}" style="flex-shrink:0;">
+                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${safeApiId}')" title="${enabled ? '禁用' : '启用'}" style="flex-shrink:0;">
                     <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
                     <span class="switch-slider"></span>
                 </label>
@@ -2991,7 +3039,7 @@ function renderApiList() {
     }).join('');
 }
 
-// ????
+// 选择 API。
 function selectApi(apiId) {
     currentApi = apis.find(api => api.id === apiId);
     if (currentApi) {
@@ -3000,7 +3048,7 @@ function selectApi(apiId) {
     }
 }
 
-// ?????????????????forceEnabled ? undefined ??????????
+// 切换 API 启用状态，forceEnabled 为 undefined 时自动翻转。
 async function toggleApiEnabled(apiId, forceEnabled) {
     const api = apis.find(a => a.id === apiId);
     if (!api) return;
@@ -3023,8 +3071,8 @@ async function toggleApiEnabled(apiId, forceEnabled) {
             }
         }
     } catch (e) {
-        console.error('????????', e);
-        showToast('????????', 'error');
+        console.error('切换 API 状态失败', e);
+        showToast('切换 API 状态失败', 'error');
     }
 }
 
@@ -3035,7 +3083,7 @@ function toggleApiEnabledFromDetail() {
     toggleApiEnabled(currentApi.id, cb.checked);
 }
 
-// ??????
+// 加载 API 详情。
 async function loadApiDetail(apiId) {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${apiId}`);
@@ -3043,7 +3091,7 @@ async function loadApiDetail(apiId) {
         const data = await response.json();
 
         if (data.success) {
-            // ??currentApi????????
+            // 同步当前选中的 API。
             currentApi = data.api;
             
             document.getElementById('apiWelcomeView').style.display = 'none';
@@ -3057,7 +3105,7 @@ async function loadApiDetail(apiId) {
             document.getElementById('apiMethod').textContent = api.method;
 
             const apiType = api.type || 'query';
-            document.getElementById('apiTypeDisplay').textContent = apiType === 'forward' ? 'HTTP??' : '?????';
+            document.getElementById('apiTypeDisplay').textContent = apiType === 'forward' ? 'HTTP 转发' : '查询接口';
 
             if (apiType === 'forward') {
                 document.getElementById('apiDatabaseRow').style.display = 'none';
@@ -3074,24 +3122,24 @@ async function loadApiDetail(apiId) {
                 document.getElementById('apiSqlDisplay').textContent = api.sql;
             }
             
-            // ????????? query ???
+            // 查询接口才需要解析参数。
             const params = apiType === 'forward' ? [] : parseMyBatisParams(api.sql || '');
             renderApiParams(params);
             
-            // ??????
+            // 渲染代码示例。
             renderCodeExamples(api);
         }
     } catch (error) {
-        console.error('?????????', error);
-        showToast('????????', 'error');
+        console.error('加载 API 详情失败', error);
+        showToast('加载 API 详情失败', 'error');
     }
 }
 
-// ??MyBatis??
+// 解析 MyBatis 参数。
 function parseMyBatisParams(sql) {
     const paramsMap = new Map();
     
-    // ?? #{paramName} ??
+    // 匹配 #{paramName} 形式的参数。
     const hashPattern = /#\{([^}]+)\}/g;
     let match;
     while ((match = hashPattern.exec(sql)) !== null) {
@@ -3105,11 +3153,10 @@ function parseMyBatisParams(sql) {
         }
     }
     
-    // ?? ${paramName} ??
+    // 匹配 ${paramName} 形式的直接替换参数。
     const dollarPattern = /\$\{([^}]+)\}/g;
     while ((match = dollarPattern.exec(sql)) !== null) {
         const paramName = match[1].trim();
-        // ??????????? direct ??
         if (!paramsMap.has(paramName)) {
             paramsMap.set(paramName, {
                 name: paramName,
@@ -3122,11 +3169,10 @@ function parseMyBatisParams(sql) {
     return Array.from(paramsMap.values());
 }
 
-// ??????
+// 渲染 SQL 参数区。
 function renderApiParams(params) {
     const displayEl = document.getElementById('apiParamsDisplay');
     
-    // ??SQL????
     let sqlWarningHtml = '';
     if (currentApi && currentApi.sql) {
         const warnings = validateSqlSyntax(currentApi.sql);
@@ -3135,17 +3181,17 @@ function renderApiParams(params) {
             if (errorWarnings.length > 0) {
                 sqlWarningHtml = `
                     <div class="sql-syntax-error">
-                        <div class="error-icon">??</div>
+                        <div class="error-icon">⚠️</div>
                         <div class="error-content">
-                            <div class="error-title">SQL????</div>
+                            <div class="error-title">SQL 语法异常</div>
                             <div class="error-message">${errorWarnings[0].message}</div>
                             <div class="error-fix">
-                                <strong>?????</strong>
+                                <strong>修复建议</strong>
                                 <div class="fix-example">
-                                    <div class="fix-before">? ${escapeHtml(currentApi.sql)}</div>
-                                    <div class="fix-after">? ${escapeHtml(currentApi.sql.replace(/#\{/g, '${'))}</div>
+                                    <div class="fix-before">原始：${escapeHtml(currentApi.sql)}</div>
+                                    <div class="fix-after">修正：${escapeHtml(currentApi.sql.replace(/#\{/g, '${'))}</div>
                                 </div>
-                                <button class="btn btn-sm btn-primary" onclick="quickFixSql()" style="margin-top:8px;">?? ????</button>
+                                <button class="btn btn-sm btn-primary" onclick="quickFixSql()" style="margin-top:8px;">一键修复</button>
                             </div>
                         </div>
                     </div>
@@ -3155,20 +3201,19 @@ function renderApiParams(params) {
     }
     
     if (params.length === 0) {
-        displayEl.innerHTML = sqlWarningHtml + '<div style="text-align:center;color:#718096;padding:12px;">???</div>';
+        displayEl.innerHTML = sqlWarningHtml + '<div style="text-align:center;color:#718096;padding:12px;">暂无参数</div>';
         return;
     }
     
     const paramsHtml = params.map(param => {
-        const typeLabel = param.type === 'prepared' ? '???' : '????';
+        const typeLabel = param.type === 'prepared' ? '预编译' : '直接拼接';
         const typeClass = param.required ? 'required' : 'optional';
-        const requiredLabel = param.required ? '??' : '??';
+        const requiredLabel = param.required ? '必填' : '可选';
         
-        // ?????
         let defaultValue = '';
         if (currentApi && currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
             const val = currentApi.default_params[param.name];
-            defaultValue = `<span style="color:#48bb78;margin-left:8px;font-size:12px;">??: ${typeof val === 'string' ? '"' + val + '"' : val}</span>`;
+            defaultValue = `<span style="color:#48bb78;margin-left:8px;font-size:12px;">默认值: ${typeof val === 'string' ? '"' + val + '"' : val}</span>`;
         }
         
         return `
@@ -3184,8 +3229,7 @@ function renderApiParams(params) {
     displayEl.innerHTML = sqlWarningHtml + paramsHtml;
 }
 
-// ==================== ???????? ====================
-
+// 代码示例上下文。
 function getCodeExampleContext(api) {
     const apiType = api.type || 'query';
     let exampleParams = {};
@@ -3232,9 +3276,9 @@ function generateCodeExamples(api) {
 }
 
 /**
- * ?? JavaScript/Node.js ????????????
- * @param {Object} ctx - ?????
- * @returns {string} ?????
+ * Generate JavaScript/Node.js example code.
+ * @param {Object} ctx - Example context.
+ * @returns {string} Generated code.
  */
 function genJavaScriptOrNode(ctx) {
     if (ctx.isBodyMethod && ctx.hasParams) {
@@ -3272,7 +3316,7 @@ const data = await response.json();
 console.log(data);`;
 }
 
-// JavaScript ? Node.js ???????
+// JavaScript 与 Node.js 共用同一模板。
 const genJavaScript = genJavaScriptOrNode;
 const genNode = genJavaScriptOrNode;
 
@@ -3462,7 +3506,7 @@ function renderCodeExamples(api) {
     container.innerHTML = `
         <div class="code-tabs-header">
             <div class="code-tabs">${tabsHtml}</div>
-            <button class="code-copy-btn" title="????">?? ??</button>
+            <button class="code-copy-btn" title="复制代码">复制</button>
         </div>
         <div class="code-panels">${panelsHtml}</div>
     `;
@@ -3485,7 +3529,7 @@ function renderCodeExamples(api) {
             navigator.clipboard.writeText(text).then(() => {
                 const btn = container.querySelector('.code-copy-btn');
                 const original = btn.textContent;
-                btn.textContent = '? ???';
+                btn.textContent = '已复制';
                 btn.classList.add('copied');
                 setTimeout(() => {
                     btn.textContent = original;
@@ -3496,15 +3540,15 @@ function renderCodeExamples(api) {
     });
 }
 
-// ????SQL
+// 快速修复 SQL 参数语法。
 async function quickFixSql() {
     if (!currentApi) return;
     
-    if (!confirm('? #{} ??? ${}??????')) {
+    if (!confirm('将 SQL 中的 #{} 与 ${} 参数写法统一为合法格式吗？')) {
         return;
     }
     
-    // ??SQL
+    // 替换 SQL 中的参数占位符。
     const fixedSql = currentApi.sql.replace(/#\{/g, '${');
     
     // ????
@@ -3528,17 +3572,17 @@ async function quickFixSql() {
         const data = await response.json();
         
         if (data.success) {
-            showToast('?????', 'success');
+            showToast('修复成功', 'success');
             loadApiDetail(currentApi.id);
         } else {
-            showToast('?????' + (data.message || '????'), 'error');
+            showToast('修复失败：' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('修复失败：' + error.message, 'error');
     }
 }
 
-// ????????/????
+// 切换 API 类型表单字段。
 function switchApiTypeFields(type) {
     const queryFields = document.getElementById('apiQueryFields');
     const forwardFields = document.getElementById('apiForwardFields');
@@ -3560,19 +3604,19 @@ function switchApiTypeFields(type) {
     }
 }
 
-// ????????
+// 打开新增 API 弹窗。
 async function showAddApiModal() {
     isEditApiMode = false;
     editingApiId = null;
-    document.getElementById('apiModalTitle').textContent = '????';
+    document.getElementById('apiModalTitle').textContent = '新增 API';
     document.getElementById('addApiModal').classList.add('show');
     document.getElementById('addApiForm').reset();
     document.getElementById('apiFormError').classList.remove('show');
     document.getElementById('apiFormSuccess').classList.remove('show');
-    // ??? query ??
+    // 默认选择查询接口。
     document.getElementById('apiTypeQuery').checked = true;
     switchApiTypeFields('query');
-    // ???????
+    // 填充默认参数。
     await loadDatabasesForSelect();
 }
 
@@ -3587,12 +3631,12 @@ async function loadDatabasesForSelect() {
             const selectEl = document.getElementById('apiDbSelect');
             const currentValue = selectEl.value;
             
-            selectEl.innerHTML = '<option value="">??????</option>' + 
+            selectEl.innerHTML = '<option value="">请选择数据库</option>' + 
                 (data.databases || []).map(db => 
                     `<option value="${db.id}">${db.name}</option>`
                 ).join('');
             
-            // ???????
+            // 保留当前选中的数据库。
             if (currentValue) {
                 selectEl.value = currentValue;
             }
@@ -3602,14 +3646,14 @@ async function loadDatabasesForSelect() {
     }
 }
 
-// ????????
+// 关闭新增 API 弹窗。
 function hideAddApiModal() {
     const form = document.getElementById('addApiForm');
     document.getElementById('addApiModal').classList.remove('show');
     isEditApiMode = false;
     editingApiId = null;
     
-    // ??AI??
+    // 清除 AI 填充标记。
     delete form.dataset.fromAi;
     delete form.dataset.aiMessageId;
     
@@ -3617,7 +3661,7 @@ function hideAddApiModal() {
     form.reset();
 }
 
-// ??/????
+// 提交新增或编辑 API 表单。
 async function handleAddApi(e) {
     e.preventDefault();
 
@@ -3631,35 +3675,35 @@ async function handleAddApi(e) {
         description: document.getElementById('apiDescInput').value.trim()
     };
 
-    // ??????
+    // 初始化一行默认列。
     if (!apiData.name) {
-        showApiFormError('???????');
+        showApiFormError('请输入 API 名称');
         return;
     }
 
     // ????
     if (!apiData.path) {
-        showApiFormError('???????');
+        showApiFormError('请输入请求路径');
         return;
     }
 
-    // ??????
+    // 初始化默认列。
     if (!apiData.path.startsWith('/')) {
-        showApiFormError('??????? / ??');
+        showApiFormError('路径必须以 / 开头');
         return;
     }
 
     if (apiType === 'forward') {
         apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
         if (!apiData.forward_url) {
-            showApiFormError('???????URL');
+            showApiFormError('请输入转发 URL');
             return;
         }
         // URL????
         try {
             new URL(apiData.forward_url);
         } catch {
-            showApiFormError('????URL?????');
+            showApiFormError('请输入有效的 URL');
             return;
         }
     } else {
@@ -3668,7 +3712,7 @@ async function handleAddApi(e) {
         
         // SQL??
         if (!apiData.sql) {
-            showApiFormError('???SQL??');
+            showApiFormError('请输入 SQL');
             return;
         }
     }
@@ -3679,7 +3723,7 @@ async function handleAddApi(e) {
         try {
             apiData.default_params = JSON.parse(defaultParamsText);
         } catch (error) {
-            showApiFormError('???????????????JSON??');
+            showApiFormError('默认参数必须是合法 JSON');
             return;
         }
     }
@@ -3696,7 +3740,7 @@ async function handleAddApi(e) {
             const warnings = sqlWarnings.filter(w => w.type === 'warning');
             if (warnings.length > 0) {
                 const warningMsg = warnings.map(w => w.message).join('\n\n');
-                if (!confirm('?? SQL?????\n\n' + warningMsg + '\n\n???????')) {
+                if (!confirm('SQL 存在警告，是否仍然继续保存？\n\n' + warningMsg + '\n\n继续将按当前内容提交。')) {
                     return;
                 }
             }
@@ -3728,14 +3772,14 @@ async function handleAddApi(e) {
         if (data.success) {
             const isFromAi = e.target.dataset.fromAi === 'true';
             
-            successEl.textContent = isEditApiMode ? '???????' : '???????';
+            successEl.textContent = isEditApiMode ? 'API 已更新' : 'API 已创建';
             successEl.classList.add('show');
             
             setTimeout(() => {
                 hideAddApiModal();
                 loadApis();
                 
-                // ????AI????????AI?????????
+                // 如果是 AI 生成的表单，回写成功消息。
                 if (isFromAi) {
                     const messagesEl = document.getElementById('aiChatMessages');
                     const messageId = 'msg-success-' + Date.now();
@@ -3744,11 +3788,11 @@ async function handleAddApi(e) {
                             <div class="ai-message-avatar">?</div>
                             <div class="ai-message-content">
                                 <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
-                                    <strong>???????</strong><br>
+                                    <strong>创建成功</strong><br>
                                     <span style="font-size: 13px; margin-top: 4px; display: block;">
-                                        ????: ${escapeHtml(apiData.name)}<br>
-                                        ????: ${escapeHtml(apiData.path)}<br>
-                                        ???"????"????????
+                                        名称：${escapeHtml(apiData.name)}<br>
+                                        路径：${escapeHtml(apiData.path)}<br>
+                                        已同步到“API 列表”中。
                                     </span>
                                 </div>
                             </div>
@@ -3757,7 +3801,7 @@ async function handleAddApi(e) {
                     messagesEl.insertAdjacentHTML('beforeend', messageHtml);
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                     
-                    // ????
+                    // 清理 AI 标记。
                     delete e.target.dataset.fromAi;
                     delete e.target.dataset.aiMessageId;
                 }
@@ -3769,54 +3813,54 @@ async function handleAddApi(e) {
                 }
             }, 1000);
         } else {
-            showApiFormError(data.message || (isEditApiMode ? '????' : '????'));
+            showApiFormError(data.message || (isEditApiMode ? '更新失败' : '创建失败'));
         }
     } catch (error) {
-        showApiFormError((isEditApiMode ? '?????' : '?????') + error.message);
+        showApiFormError((isEditApiMode ? '更新失败：' : '创建失败：') + error.message);
     }
 }
 
-// ????????
+// 显示 API 表单错误。
 function showApiFormError(message) {
     const errorEl = document.getElementById('apiFormError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
 }
 
-// ??SQL??
+// 校验 SQL 语法风险。
 function validateSqlSyntax(sql) {
     const warnings = [];
     
-    // ??DDL????????????
+    // DDL 与参数占位符冲突时给出错误提示。
     const isDDL = /^\s*(CREATE|DROP|ALTER|TRUNCATE)\s+/i.test(sql);
     const hasPreparedParams = /#\{[^}]+\}/g.test(sql);
     
     if (isDDL && hasPreparedParams) {
         warnings.push({
             type: 'error',
-            message: 'DDL???CREATE/DROP/ALTER?????????? #{}???????? ${}'
+            message: 'DDL 语句不应同时使用 #{} 预编译参数；请改用 ${} 或普通 SQL。'
         });
     }
     
-    // ??${} ?SQL????
+    // 检测 ${} 风险占位符。
     const hasDirectReplace = /\$\{[^}]+\}/g.test(sql);
     if (hasDirectReplace && !isDDL) {
         warnings.push({
             type: 'warning',
-            message: '??????? ${}????SQL???????????????? #{}'
+            message: '检测到 ${} 直接拼接参数，若参数来自用户输入，建议改为 #{} 预编译参数。'
         });
     }
     
     return warnings;
 }
 
-// ????
+// 打开编辑 API 弹窗。
 async function handleEditApi() {
     if (!currentApi) return;
     
     isEditApiMode = true;
     editingApiId = currentApi.id;
-    document.getElementById('apiModalTitle').textContent = '????';
+    document.getElementById('apiModalTitle').textContent = '编辑 API';
     document.getElementById('addApiModal').classList.add('show');
     
     // ?????
@@ -3825,7 +3869,7 @@ async function handleEditApi() {
     document.getElementById('apiMethodInput').value = currentApi.method;
     document.getElementById('apiDescInput').value = currentApi.description || '';
     
-    // ???????
+    // 恢复编辑模式时同步配置。
     const editType = currentApi.type || 'query';
     document.getElementById(editType === 'forward' ? 'apiTypeForward' : 'apiTypeQuery').checked = true;
     switchApiTypeFields(editType);
@@ -3843,7 +3887,7 @@ async function handleEditApi() {
         document.getElementById('apiDefaultParamsInput').value = '';
     }
     
-    // ???????????????
+    // 如果有结果，则把结果表附在消息下方。
     await loadDatabasesForSelect();
     document.getElementById('apiDbSelect').value = currentApi.database_id;
     
@@ -3851,18 +3895,18 @@ async function handleEditApi() {
     document.getElementById('apiFormSuccess').classList.remove('show');
 }
 
-// ????
+// 删除当前 API。
 async function handleDeleteApi() {
     if (!currentApi) return;
 
-    if (!confirm(`??????? "${currentApi.name}" ??????????`)) {
+    if (!confirm(`确定删除 API “${currentApi.name}” 吗？此操作不可恢复。`)) {
         return;
     }
 
     const deleteBtn = document.getElementById('deleteApiBtn');
     const originalText = deleteBtn.textContent;
     deleteBtn.disabled = true;
-    deleteBtn.textContent = '???...';
+    deleteBtn.textContent = '删除中...';
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
@@ -3877,18 +3921,18 @@ async function handleDeleteApi() {
             document.getElementById('apiDetailView').style.display = 'none';
             loadApis();
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '删除失败', 'error');
             deleteBtn.disabled = false;
             deleteBtn.textContent = originalText;
         }
     } catch (error) {
-        showToast('?????' + error.message, 'error');
+        showToast('删除失败：' + error.message, 'error');
         deleteBtn.disabled = false;
         deleteBtn.textContent = originalText;
     }
 }
 
-// ????????
+// 打开测试 API 弹窗。
 function showTestApiModal() {
     if (!currentApi) return;
     
@@ -3925,12 +3969,12 @@ function showTestApiModal() {
     }
 }
 
-// ????????
+// 关闭测试 API 弹窗。
 function hideTestApiModal() {
     document.getElementById('testApiModal').classList.remove('show');
 }
 
-// ??????
+// 执行 API 测试。
 async function executeApiTest() {
     if (!currentApi) return;
     
@@ -3942,7 +3986,7 @@ async function executeApiTest() {
         try {
             params = JSON.parse(paramsText);
         } catch (error) {
-            showTestApiError('?????????????JSON??');
+            showTestApiError('测试参数必须是合法 JSON');
             return;
         }
     }
@@ -3969,29 +4013,29 @@ async function executeApiTest() {
         const data = await response.json();
 
         if (data.success) {
-            document.getElementById('testResultStatus').textContent = '??';
+            document.getElementById('testResultStatus').textContent = '成功';
             document.getElementById('testResultStatus').style.color = '#38a169';
             document.getElementById('testResultTime').textContent = duration;
             document.getElementById('testResultContent').textContent = JSON.stringify(data.data, null, 2);
             resultGroup.style.display = 'block';
         } else {
-            showTestApiError(data.message || '????');
+            showTestApiError(data.message || '测试失败');
         }
     } catch (error) {
-        showTestApiError('?????' + error.message);
+        showTestApiError('测试失败：' + error.message);
     }
 }
 
-// ????????
+// 显示测试 API 错误。
 function showTestApiError(message) {
     const errorEl = document.getElementById('testApiError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
 }
 
-// ==================== AI???? ====================
+// ==================== AI 配置 ====================
 
-// ??AI??
+// 加载 AI 配置。
 async function loadAiConfig() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`);
@@ -4002,15 +4046,14 @@ async function loadAiConfig() {
             aiConfig = data.config;
         }
     } catch (error) {
-        console.error('??AI?????', error);
+        console.error('加载 AI 配置失败', error);
     }
 }
 
-// ??AI????
+// 打开 AI 设置弹窗。
 function showAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.add('show');
     
-    // ?????
     if (aiConfig) {
         document.getElementById('aiUrlInput').value = aiConfig.url || '';
         document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
@@ -4024,42 +4067,42 @@ function showAiSettingsModal() {
     document.getElementById('aiSettingsSuccess').classList.remove('show');
 }
 
-// ??AI????
+// 关闭 AI 设置弹窗。
 function hideAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.remove('show');
 }
 
-// ========== ?????? ==========
+// ========== 标签页显示设置 ==========
 const TAB_VISIBILITY_KEY = 'tabVisibilitySettings';
 const ALL_TABS = [
-    { id: 'database', name: '?????' },
-    { id: 'governance', name: '????' },
-    { id: 'ontology', name: '?????' },
-    { id: 'lineage', name: '????' },
-    { id: 'api', name: '????' },
+    { id: 'database', name: '数据库' },
+    { id: 'governance', name: '治理' },
+    { id: 'ontology', name: '本体' },
+    { id: 'lineage', name: '血缘' },
+    { id: 'api', name: 'API' },
     { id: 'mcp', name: 'MCP' },
-    { id: 'ai', name: 'AI??' },
-    { id: 'models', name: '????' },
-    { id: 'quality', name: '??????' }
+    { id: 'ai', name: 'AI 设置' },
+    { id: 'models', name: '模型' },
+    { id: 'quality', name: '质量' }
 ];
 
-// ??????
+// 打开设置弹窗。
 function showSettingsModal() {
     document.getElementById('settingsModal').classList.add('show');
     loadTabSettings();
 }
 
-// ??????
+// 关闭设置弹窗。
 function hideSettingsModal() {
     document.getElementById('settingsModal').classList.remove('show');
 }
 
-// ??????????
+// 加载标签页设置。
 function loadTabSettings() {
     const container = document.getElementById('tabVisibilitySettings');
     if (!container) return;
 
-    // ? localStorage ????
+    // 从 localStorage 读取。
     let settings = null;
     try {
         const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
@@ -4067,10 +4110,10 @@ function loadTabSettings() {
             settings = JSON.parse(stored);
         }
     } catch (e) {
-        console.error('??????????', e);
+        console.error('加载标签页设置失败', e);
     }
 
-    // ????????
+    // 回填复选框。
     const checkboxes = container.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => {
         const tabId = cb.dataset.tab;
@@ -4099,7 +4142,7 @@ function saveTabSettings() {
 
     // ?????????
     if (visibleCount < 1) {
-        showToast('?????????????', 'warning');
+        showToast('请先填写完整参数', 'warning');
         return false;
     }
 
@@ -4119,12 +4162,12 @@ function saveTabSettings() {
     try {
         localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
         applyTabVisibility(settings);
-        showToast('?????', 'success');
+        showToast('保存成功', 'success');
         hideSettingsModal();
         return true;
     } catch (e) {
-        console.error('??????????', e);
-        showToast('??????', 'error');
+        console.error('保存失败', e);
+        showToast('保存失败', 'error');
         return false;
     }
 }
@@ -4220,7 +4263,7 @@ function applyTabVisibility(settings) {
         }
     }
 
-    // ???????????????
+    // 展示返回的行数据。
     if (!settings) return;
 
     // ????????
@@ -4276,22 +4319,22 @@ async function handleSaveAiSettings(e) {
 
         if (data.success) {
             aiConfig = config;
-            successEl.textContent = 'AI???????';
+            successEl.textContent = 'AI 设置已保存';
             successEl.classList.add('show');
             setTimeout(() => {
                 hideAiSettingsModal();
             }, 1000);
         } else {
-            errorEl.textContent = data.message || '????';
+            errorEl.textContent = data.message || '保存失败';
             errorEl.classList.add('show');
         }
     } catch (error) {
-        errorEl.textContent = '?????' + error.message;
+        errorEl.textContent = '保存失败：' + error.message;
         errorEl.classList.add('show');
     }
 }
 
-// ??AI?????
+// 处理 AI 输入框内容变化。
 function handleAiInputChange(e) {
     const input = e.target;
     const value = input.value;
@@ -4301,7 +4344,7 @@ function handleAiInputChange(e) {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     
-    // ??@??
+    // 检测 @ 提示触发词。
     const textBeforeCursor = value.substring(0, cursorPos);
     const atMatch = textBeforeCursor.match(/@(\S*)$/);
     
@@ -4313,7 +4356,7 @@ function handleAiInputChange(e) {
     }
 }
 
-// ??@?????+??????
+// 显示 @ 联想建议。
 function showDbSuggestions(searchTerm) {
     const matchedModules = aiModules.filter(m =>
         m.name.toLowerCase().includes(searchTerm)
@@ -4331,7 +4374,7 @@ function showDbSuggestions(searchTerm) {
     let html = '';
 
     if (matchedModules.length > 0) {
-        html += '<div class="ai-suggestion-group-title">????</div>';
+        html += '<div class="ai-suggestion-group-title">AI 模块</div>';
         html += matchedModules.map(m => {
             const safeMId = escapeHtml(m.id);
             const safeMName = escapeHtml(m.name);
@@ -4348,9 +4391,9 @@ function showDbSuggestions(searchTerm) {
     }
 
     if (matchedDbs.length > 0) {
-        html += '<div class="ai-suggestion-group-title">???</div>';
+        html += '<div class="ai-suggestion-group-title">数据库</div>';
         html += matchedDbs.map(db => {
-            const typeIcon = dbTypeIcons[db.type] || '??';
+            const typeIcon = dbTypeIcons[db.type] || '🗃️';
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
             const info = isFileDb ? db.path : `${db.host}:${db.port}`;
             const safeDbId = escapeHtml(db.id);
@@ -4441,7 +4484,7 @@ function handleAiInputKeydown(e) {
     }
 }
 
-// ??????
+// 更新联想建议高亮。
 function updateSuggestionHighlight(suggestions) {
     suggestions.forEach((el, index) => {
         if (index === dbSuggestionIndex) {
@@ -4453,20 +4496,20 @@ function updateSuggestionHighlight(suggestions) {
     });
 }
 
-// ??AI??????
+// 发送 AI 消息。
 async function handleSendAiMessage() {
     const input = document.getElementById('aiInput');
     const message = input.value.trim();
     
     if (!message) return;
     
-    // ??AI??
+    // 检查 AI 配置是否完整。
     if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
-        showAiError('????AI??');
+        showAiError('请先完成 AI 配置');
         return;
     }
     
-    // ????@???????????
+    // 提取消息中的 @ 引用。
     const allMatches = [...message.matchAll(/@([^\s]+)/g)];
     const dbReferences = [];
     const moduleReferences = [];
@@ -4509,11 +4552,11 @@ async function handleSendAiMessage() {
         modules: aiSessionContext.modules.map(m => m.id)
     });
 
-    // ???????????@?????????????
+    // 如果没有显式选择数据库，则使用已有上下文补足。
     let displayMessage = message;
     if (allMatches.length === 0 && aiSessionContext.databases.length > 0) {
         const contextDbs = aiSessionContext.databases.map(db => `@${db.name}`).join(' ');
-        displayMessage = message + `\n<div class="ai-context-hint">?? ?????: ${contextDbs}</div>`;
+        displayMessage = message + `\n<div class="ai-context-hint">当前上下文：${contextDbs}</div>`;
     }
     addAiMessage('user', displayMessage);
     
@@ -4573,13 +4616,13 @@ async function handleSendAiMessage() {
             }
         }
     } catch (error) {
-        updateStreamMessage(streamMessageId, 'error', {message: '?????' + error.message});
+        updateStreamMessage(streamMessageId, 'error', {message: '发送失败：' + error.message});
     } finally {
         sendBtn.disabled = false;
     }
 }
 
-// ??AI??
+// 添加 AI 消息。
 function addAiMessage(role, content) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
@@ -4590,19 +4633,19 @@ function addAiMessage(role, content) {
         welcomeMsg.remove();
     }
     
-    const avatar = role === 'user' ? '??' : '??';
+    const avatar = role === 'user' ? '我' : 'AI';
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
-    // ???????????????HTML???????????
+    // 保留 HTML 片段并对普通文本做转义。
     let displayContent = content;
     
-    // ??????HTML???????????????
+    // 如果消息里包含 HTML，只处理前缀文本中的 @ 引用。
     if (content.includes('<div')) {
-        // ???HTML??
+        // 先转义前缀文本。
         const parts = content.split('<div');
         displayContent = escapeHtml(parts[0]);
         
-        // ??@????
+        // 高亮 @ 数据库引用。
         const dbMatches = [...parts[0].matchAll(/@([^\s]+)/g)];
         for (const match of dbMatches) {
             const dbName = match[1];
@@ -4612,12 +4655,12 @@ function addAiMessage(role, content) {
             );
         }
         
-        // ??HTML???????
+        // 拼回原始 HTML 后半段。
         if (parts.length > 1) {
             displayContent += '<div' + parts.slice(1).join('<div');
         }
     } else {
-        // ???????????
+        // 普通文本全部转义后再处理引用。
         displayContent = escapeHtml(content);
         const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
         for (const match of dbMatches) {
@@ -4645,21 +4688,21 @@ function addAiMessage(role, content) {
     return messageId;
 }
 
-// ??AI??????SQL????
+// 添加 AI 辅助消息和 SQL 结果。
 function addAiAssistantMessage(content, sql, results) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
     
-    const avatar = '??';
+    const avatar = 'AI';
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     let resultHtml = '';
     
-    // ???SQL???SQL??????
+    // SQL 片段显示在消息下方。
     if (sql) {
         resultHtml += `
             <div style="margin-top: 6px;">
-                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ???SQL???</div>
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">参考 SQL</div>
                 <div class="ai-sql-block">${escapeHtml(sql)}</div>
             </div>
         `;
@@ -4669,7 +4712,7 @@ function addAiAssistantMessage(content, sql, results) {
     if (results && results.length > 0) {
         resultHtml += `
             <div style="margin-top: 6px;">
-                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">查询结果</div>
                 <div class="ai-result-table">
                     <table>
                         <thead>
@@ -4687,16 +4730,16 @@ function addAiAssistantMessage(content, sql, results) {
                     </table>
                 </div>
                 <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
-                    ? ???? <strong>${results.length}</strong> ???${results.length > 10 ? '????10?' : ''}
+                    共返回 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，仅显示前 10 条' : ''}
                 </div>
             </div>
         `;
     } else if (results && results.length === 0) {
         resultHtml += `
             <div style="margin-top: 6px;">
-                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">查询结果</div>
                 <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">
-                    ????
+                    无结果
                 </div>
             </div>
         `;
@@ -4721,12 +4764,12 @@ function addAiAssistantMessage(content, sql, results) {
     return messageId;
 }
 
-// ??AI???????????
+// 添加带重试信息的 AI 助手消息。
 function addAiAssistantMessageWithRetries(content, sql, results, attempts, retries) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
     
-    const avatar = '??';
+    const avatar = 'AI';
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     let resultHtml = '';
@@ -4738,7 +4781,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
             <div style="margin-top: 6px;">
                 <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 5px 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-size: 12px; color: #856404;">
-                        ?? ?? ${retries} ??????
+                        共 ${retries} 次重试
                     </span>
                     <span id="${retryId}-icon" style="font-size: 11px; color: #856404;">?</span>
                 </div>
@@ -4746,7 +4789,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
                     ${attempts.map((attempt, index) => `
                         <div style="margin-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
                             <div style="font-size: 11px; font-weight: 600; color: #e53e3e; margin-bottom: 2px;">
-                                ? ?? ${attempt.attempt}?${escapeHtml(attempt.error)}
+                                第 ${attempt.attempt} 次失败：${escapeHtml(attempt.error)}
                             </div>
                             ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">${escapeHtml(attempt.sql)}</div>` : ''}
                         </div>
@@ -4756,11 +4799,11 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
         `;
     }
     
-    // ???SQL???SQL??????
+    // 在消息下方展示参考 SQL。
     if (sql) {
         resultHtml += `
             <div style="margin-top: 6px;">
-                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">? ?????SQL???</div>
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">参考 SQL</div>
                 <div class="ai-sql-block">${escapeHtml(sql)}</div>
             </div>
         `;
@@ -4770,7 +4813,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     if (results && results.length > 0) {
         resultHtml += `
             <div style="margin-top: 6px;">
-                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">查询结果</div>
                 <div class="ai-result-table">
                     <table>
                         <thead>
@@ -4788,7 +4831,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
                     </table>
                 </div>
                 <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
-                    ? ???? <strong>${results.length}</strong> ???${results.length > 10 ? '????10?' : ''}
+                    共返回 <strong>${results.length}</strong> 条记录${results.length > 10 ? '，仅显示前 10 条' : ''}
                 </div>
             </div>
         `;
@@ -4813,7 +4856,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     return messageId;
 }
 
-// ??AI?????????
+// 显示 AI 错误及重试记录。
 function showAiErrorWithAttempts(message, attempts) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-error-' + Date.now();
@@ -4821,20 +4864,20 @@ function showAiErrorWithAttempts(message, attempts) {
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">??</div>
+            <div class="ai-message-avatar">AI</div>
             <div class="ai-message-content">
                 <div class="ai-error">
                     <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(message)}</div>
-                    <div style="font-size: 11px; margin-bottom: 6px;">??? ${attempts.length} ??????</div>
+                    <div style="font-size: 11px; margin-bottom: 6px;">共 ${attempts.length} 次失败</div>
                     <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 12px;">??????</span>
+                        <span style="font-size: 12px;">展开详情</span>
                         <span id="${retryId}-icon" style="font-size: 11px;">?</span>
                     </div>
                     <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
                         ${attempts.map((attempt, index) => `
                             <div style="margin-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
                                 <div style="font-size: 11px; font-weight: 600; margin-bottom: 2px;">
-                                    ?? ${attempt.attempt}?${escapeHtml(attempt.error)}
+                                    第 ${attempt.attempt} 次失败：${escapeHtml(attempt.error)}
                                 </div>
                                 ${attempt.sql ? `<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">${escapeHtml(attempt.sql)}</div>` : ''}
                             </div>
@@ -4863,7 +4906,7 @@ function toggleRetryDetails(retryId) {
     }
 }
 
-// ? data-* ???? SQL ????????? XSS ?????
+// 通过 data-* 属性安全执行确认 SQL。
 async function executeConfirmedSQLFromElement(confirmId, messageId) {
     const confirmEl = document.getElementById(confirmId);
     if (!confirmEl) return;
@@ -4886,7 +4929,7 @@ async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
     const confirmEl = document.getElementById(confirmId);
     if (!confirmEl) return;
 
-    confirmEl.innerHTML = `<div class="ai-status-executing">? ???????...</div>`;
+    confirmEl.innerHTML = `<div class="ai-status-executing">正在执行 SQL...</div>`;
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/confirm-execute`, {
@@ -4899,11 +4942,11 @@ async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
         const result = await response.json();
 
         if (result.success) {
-            let html = `<div class="ai-status-success" style="margin-bottom: 4px;">? ???????</div>`;
+            let html = `<div class="ai-status-success" style="margin-bottom: 4px;">执行成功</div>`;
             if (result.results && result.results.length > 0) {
                 html += `
                     <div style="margin-top: 6px;">
-                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">执行结果</div>
                         <div class="ai-result-table">
                             <table>
                                 <thead><tr>${Object.keys(result.results[0]).map(col => `<th>${escapeHtml(col)}</th>`).join('')}</tr></thead>
@@ -4912,24 +4955,24 @@ async function executeConfirmedSQL(confirmId, sql, dbId, messageId) {
                         </div>
                     </div>`;
             } else {
-                html += `<div style="font-size: 12px; color: #718096; margin-top: 4px;">????????</div>`;
+                html += `<div style="font-size: 12px; color: #718096; margin-top: 4px;">未返回结果</div>`;
             }
             confirmEl.innerHTML = html;
         } else {
             confirmEl.innerHTML = `<div class="ai-error">${escapeHtml(result.message)}</div>`;
         }
     } catch (error) {
-        confirmEl.innerHTML = `<div class="ai-error">?????${escapeHtml(error.message)}</div>`;
+        confirmEl.innerHTML = `<div class="ai-error">执行失败：${escapeHtml(error.message)}</div>`;
     }
 }
 
 function cancelConfirmedSQL(confirmId, messageId) {
     const confirmEl = document.getElementById(confirmId);
     if (!confirmEl) return;
-    confirmEl.innerHTML = `<div class="ai-status-retry" style="animation: none;">?? ???????????</div>`;
+    confirmEl.innerHTML = `<div class="ai-status-retry" style="animation: none;">已取消，可重新发送</div>`;
 }
 
-// ????????
+// 新建 AI 流式消息卡片。
 function addAiStreamMessage() {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-stream-' + Date.now();
@@ -4940,7 +4983,7 @@ function addAiStreamMessage() {
         welcomeMsg.remove();
     }
     
-    const avatar = '??';
+    const avatar = 'AI';
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     const messageHtml = `
@@ -4955,7 +4998,7 @@ function addAiStreamMessage() {
                 </div>
                 <div class="ai-message-meta">
                     <span>${time}</span>
-                    <button type="button" class="ai-process-toggle" id="${messageId}-toggle" onclick="toggleAiProcess('${messageId}')" style="display:none;">????</button>
+                    <button type="button" class="ai-process-toggle" id="${messageId}-toggle" onclick="toggleAiProcess('${messageId}')" style="display:none;">展开</button>
                 </div>
             </div>
         </div>
@@ -5006,7 +5049,7 @@ function finalizeAiProcess(messageId) {
     setAiProcessCollapsed(messageId, true);
 }
 
-// ??????
+// 处理 AI 流式事件。
 function handleStreamEvent(messageId, eventType, data, userMessage) {
     const statusEl = document.getElementById(`${messageId}-status`);
     const contentEl = document.getElementById(`${messageId}-content`);
@@ -5014,12 +5057,12 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
     const messagesEl = document.getElementById('aiChatMessages');
 
     function stageLabel(type) {
-        if (type === 'start' || type === 'thinking') return '????';
-        if (type === 'retry' || type === 'attempt_failed') return '????';
-        if (type === 'sql_generated' || type === 'api_config_generated' || type === 'governance_task_draft' || type === 'quality_rule_draft' || type === 'small_model_draft') return '????';
-        if (type === 'executing') return '????';
-        if (type === 'confirm_write') return '????';
-        return '????';
+        if (type === 'start' || type === 'thinking') return '思考中';
+        if (type === 'retry' || type === 'attempt_failed') return '重试中';
+        if (type === 'sql_generated' || type === 'api_config_generated' || type === 'governance_task_draft' || type === 'quality_rule_draft' || type === 'small_model_draft') return '已生成';
+        if (type === 'executing') return '执行中';
+        if (type === 'confirm_write') return '待确认';
+        return '处理中';
     }
     const markStep = (title, detail, state) => appendAiProcessStep(messageId, title, detail, state, stageLabel(eventType));
     const showTimeline = () => {
@@ -5030,49 +5073,49 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
     switch (eventType) {
         case 'start':
             statusEl.innerHTML = `<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> ${escapeHtml(data.message)}</div>`;
-            markStep('????', data.message || '???????', 'running');
+            markStep('开始', data.message || '等待 AI 处理', 'running');
             showTimeline();
             break;
             
         case 'thinking':
-            statusEl.innerHTML = `<div class="ai-status-thinking">?? ${escapeHtml(data.message)}</div>`;
-            markStep('?????', data.message || '???????', 'running');
+            statusEl.innerHTML = `<div class="ai-status-thinking">${escapeHtml(data.message)}</div>`;
+            markStep('思考', data.message || '继续分析中', 'running');
             showTimeline();
             break;
             
         case 'retry':
-            const retryHtml = `<div class="ai-status-retry">?? ${escapeHtml(data.message)}<br><span style="font-size:11px;color:#856404;">??: ${escapeHtml(data.error)}</span></div>`;
+            const retryHtml = `<div class="ai-status-retry">${escapeHtml(data.message)}<br><span style="font-size:11px;color:#856404;">原因: ${escapeHtml(data.error)}</span></div>`;
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', retryHtml);
-            statusEl.innerHTML = `<div class="ai-status-thinking">?? ${escapeHtml(data.message)}</div>`;
-            markStep('???', data.error || data.message || '???????????', 'warning');
+            statusEl.innerHTML = `<div class="ai-status-thinking">${escapeHtml(data.message)}</div>`;
+            markStep('失败', data.error || data.message || '发生错误', 'warning');
             showTimeline();
             break;
             
         case 'sql_generated':
-            statusEl.innerHTML = `<div class="ai-status-success">? SQL????</div>`;
+            statusEl.innerHTML = `<div class="ai-status-success">SQL 已生成</div>`;
             contentEl.innerHTML = `
                 <div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>
                 <div style="margin-top: 6px;">
-                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ???SQL???</div>
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">参考 SQL</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
             `;
-            markStep('SQL ???', '???????????', 'done');
+            markStep('SQL 完成', 'SQL 已成功生成', 'done');
             showTimeline();
             break;
             
         case 'executing':
-            statusEl.innerHTML = `<div class="ai-status-executing">? ${escapeHtml(data.message)}</div>`;
-            markStep('?? SQL', data.message || '???????', 'running');
+            statusEl.innerHTML = `<div class="ai-status-executing">${escapeHtml(data.message)}</div>`;
+            markStep('执行 SQL', data.message || '准备执行 SQL', 'running');
             showTimeline();
             break;
             
         case 'attempt_failed':
-            const failedHtml = `<div class="ai-attempt-failed">? ?? ${data.attempt} ??: ${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:11px;padding:6px;margin-top:3px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
+            const failedHtml = `<div class="ai-attempt-failed">第 ${data.attempt} 次失败：${escapeHtml(data.error)}${data.sql ? '<br><div class="ai-sql-block" style="font-size:11px;padding:6px;margin-top:3px;">' + escapeHtml(data.sql) + '</div>' : ''}</div>`;
             attemptsEl.style.display = 'block';
             attemptsEl.insertAdjacentHTML('beforeend', failedHtml);
-            markStep(`?? ${data.attempt} ??`, data.error || '????', 'warning');
+            markStep(`第 ${data.attempt} 次失败`, data.error || '未知错误', 'warning');
             showTimeline();
             break;
             
@@ -5084,11 +5127,11 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             if (data.insight != null && String(data.insight).trim() !== '') {
                 const conf = data.confidence;
                 const confStr = typeof conf === 'number' && conf > 0
-                    ? `<div style="font-size:11px;color:#718096;margin-top:6px;">???: ${conf <= 1 ? Math.round(conf * 100) + '%' : escapeHtml(String(conf))}</div>`
+                    ? `<div style="font-size:11px;color:#718096;margin-top:6px;">置信度: ${conf <= 1 ? Math.round(conf * 100) + '%' : escapeHtml(String(conf))}</div>`
                     : '';
                 resultHtml += `
                     <div class="ai-reflection-insight" style="margin-top:8px;padding:10px 12px;background:#ebf8ff;border-radius:6px;border-left:4px solid #3182ce;">
-                        <div style="font-size:12px;font-weight:600;color:#2c5282;margin-bottom:4px;">?? ????</div>
+                        <div style="font-size:12px;font-weight:600;color:#2c5282;margin-bottom:4px;">AI 反思结果</div>
                         <div style="font-size:13px;color:#2d3748;">${formatAIText(data.insight)}</div>
                         ${confStr}
                     </div>`;
@@ -5099,13 +5142,13 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 resultHtml += `
                     <div style="margin-top: 6px;">
                         <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 5px 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 12px; color: #856404;">?? ?? ${data.retries} ??????</span>
+                            <span style="font-size: 12px; color: #856404;">共 ${data.retries} 次重试</span>
                             <span id="${retryId}-icon" style="font-size: 11px; color: #856404;">?</span>
                         </div>
                         <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: #f8f9fa; border-radius: 5px; border: 1px solid #e2e8f0;">
                             ${data.attempts.map((attempt, index) => `
                                 <div style="margin-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid #e2e8f0' : 'none'};">
-                                    <div style="font-size: 11px; font-weight: 600; color: #e53e3e; margin-bottom: 2px;">? ?? ${attempt.attempt}?${escapeHtml(attempt.error)}</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #e53e3e; margin-bottom: 2px;">第 ${attempt.attempt} 次：${escapeHtml(attempt.error)}</div>
                                     ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
                                 </div>
                             `).join('')}
@@ -5116,7 +5159,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             
             resultHtml += `
                 <div style="margin-top: 6px;">
-                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">${data.attempts && data.attempts.length > 0 ? '? ?????SQL???' : '?? ???SQL???'}</div>
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">${data.attempts && data.attempts.length > 0 ? '参考 SQL' : '生成 SQL'}</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
             `;
@@ -5124,7 +5167,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             if (data.results && data.results.length > 0) {
                 resultHtml += `
                     <div style="margin-top: 6px;">
-                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">查询结果</div>
                         <div class="ai-result-table">
                             <table>
                                 <thead>
@@ -5138,7 +5181,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                             </table>
                         </div>
                         <div style="font-size: 11px; color: #718096; margin-top: 4px; padding-left: 4px;">
-                            ? ???? <strong>${data.results.length}</strong> ???${data.results.length > 10 ? '????10?' : ''}
+                            共返回 <strong>${data.results.length}</strong> 条记录${data.results.length > 10 ? '，仅显示前 10 条' : ''}
                         </div>
                     </div>
                 `;
@@ -5146,14 +5189,14 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 resultHtml += `
                     <div style="margin-top: 6px;">
                         <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
-                        <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">????</div>
+                        <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">暂无结果</div>
                     </div>
                 `;
             }
             
             contentEl.innerHTML = resultHtml;
             attemptsEl.style.display = 'none';
-            markStep('????', '???????', 'done');
+            markStep('完成', 'AI 处理完成', 'done');
             finalizeAiProcess(messageId);
             break;
 
@@ -5165,23 +5208,23 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             let confirmHtml = `<div style="margin-bottom: 6px;">${formatAIText(data.response)}</div>`;
             confirmHtml += `
                 <div style="margin-top: 6px;">
-                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ????SQL?</div>
+                    <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">待确认 SQL</div>
                     <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
                 </div>
                 <div class="ai-confirm-write" id="${confirmId}" data-sql="${confirmSqlData}" data-db-id="${confirmDbIdData}">
                     <div class="ai-confirm-warning">
-                        <span class="ai-confirm-icon">??</span>
-                        <span>????????????????????</span>
+                        <span class="ai-confirm-icon">⚠️</span>
+                        <span>检测到写入操作，请确认后再执行。</span>
                     </div>
                     <div class="ai-confirm-actions">
-                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQLFromElement('${confirmId}', '${messageId}')">? ????</button>
-                        <button class="btn ai-confirm-btn-no" onclick="cancelConfirmedSQL('${confirmId}', '${messageId}')">? ??</button>
+                        <button class="btn ai-confirm-btn-yes" onclick="executeConfirmedSQLFromElement('${confirmId}', '${messageId}')">执行</button>
+                        <button class="btn ai-confirm-btn-no" onclick="cancelConfirmedSQL('${confirmId}', '${messageId}')">取消</button>
                     </div>
                 </div>
             `;
             contentEl.innerHTML = confirmHtml;
             attemptsEl.style.display = 'none';
-            markStep('????', '????????????', 'warning');
+            markStep('待确认', '检测到写入操作，请确认执行', 'warning');
             showTimeline();
             break;
             
@@ -5193,7 +5236,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 errorHtml += `
                     <div style="margin-top: 6px;">
                         <div class="ai-retry-header" onclick="toggleRetryDetails('${debugId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 12px;">??AI????????</span>
+                            <span style="font-size: 12px;">查看 AI 调试信息</span>
                             <span id="${debugId}-icon" style="font-size: 11px;">?</span>
                         </div>
                         <div id="${debugId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
@@ -5205,15 +5248,15 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             if (data.attempts && data.attempts.length > 0) {
                 const retryId = 'retry-' + messageId;
                 errorHtml += `
-                    <div style="font-size: 11px; margin-top: 6px; margin-bottom: 6px;">??? ${data.attempts.length} ??????</div>
+                    <div style="font-size: 11px; margin-top: 6px; margin-bottom: 6px;">共 ${data.attempts.length} 次尝试</div>
                     <div class="ai-retry-header" onclick="toggleRetryDetails('${retryId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 12px;">??????</span>
+                        <span style="font-size: 12px;">展开详情</span>
                         <span id="${retryId}-icon" style="font-size: 11px;">?</span>
                     </div>
                     <div id="${retryId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
                         ${data.attempts.map((attempt, index) => `
                             <div style="margin-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; padding-bottom: ${index < data.attempts.length - 1 ? '6px' : '0'}; border-bottom: ${index < data.attempts.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none'};">
-                                <div style="font-size: 11px; font-weight: 600; margin-bottom: 2px;">?? ${attempt.attempt}?${escapeHtml(attempt.error)}</div>
+                                <div style="font-size: 11px; font-weight: 600; margin-bottom: 2px;">第 ${attempt.attempt} 次：${escapeHtml(attempt.error)}</div>
                                 ${attempt.sql ? '<div class="ai-sql-block" style="font-size: 11px; padding: 6px 8px; margin-top: 3px;">' + escapeHtml(attempt.sql) + '</div>' : ''}
                             </div>
                         `).join('')}
@@ -5223,7 +5266,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             errorHtml += '</div>';
             contentEl.innerHTML = errorHtml;
             attemptsEl.style.display = 'none';
-            markStep('????', data.message || '????', 'warning');
+            markStep('失败', data.message || '未知错误', 'warning');
             finalizeAiProcess(messageId);
             break;
             
@@ -5237,7 +5280,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 }).join('');
                 defaultParamsHtml = `
                     <div class="config-item" style="grid-column: 1 / -1;">
-                        <span class="config-label">????:</span>
+                        <span class="config-label">名称:</span>
                         <div style="margin-top: 6px; padding: 8px; background: rgba(72, 187, 120, 0.05); border-left: 3px solid #48bb78; border-radius: 4px;">
                             ${paramsEntries}
                         </div>
@@ -5248,26 +5291,26 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview">
                     <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">??????</span>
-                        <button class="btn btn-sm" onclick="editApiConfigFromAI('${messageId}', ${escapeHtml(JSON.stringify(config))})">?? ??</button>
+                        <span style="font-weight: 600;">API 配置建议</span>
+                        <button class="btn btn-sm" onclick="editApiConfigFromAI('${messageId}', ${escapeHtml(JSON.stringify(config))})">编辑</button>
                     </div>
                     <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(config.name)}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(config.path)}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(config.method)}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(config.description || '')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL??:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div></div>
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(config.name)}</span></div>
+                        <div class="config-item"><span class="config-label">路径:</span> <span class="config-value">${escapeHtml(config.path)}</span></div>
+                        <div class="config-item"><span class="config-label">方法:</span> <span class="config-value">${escapeHtml(config.method)}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(config.description || '')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(config.sql)}</div></div>
                         ${defaultParamsHtml}
                     </div>
                     <div class="ai-api-config-actions">
-                        <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))}, '${messageId}')">? ????</button>
-                        <button class="btn" onclick="cancelCreateApiFromAI('${messageId}')">? ??</button>
+                        <button class="btn btn-primary" onclick="confirmCreateApiFromAI(${escapeHtml(JSON.stringify(config))}, '${messageId}')">创建</button>
+                        <button class="btn" onclick="cancelCreateApiFromAI('${messageId}')">取消</button>
                     </div>
                 </div>
             `;
             contentEl.innerHTML = configHtml;
             attemptsEl.style.display = 'none';
-            markStep('??????', '???????????', 'done');
+            markStep('创建完成', 'API 配置已生成', 'done');
             finalizeAiProcess(messageId);
             break;
 
@@ -5276,34 +5319,34 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             const govDraft = data.task || {};
             if (!window._aiGovDraftByMessageId) window._aiGovDraftByMessageId = {};
             window._aiGovDraftByMessageId[messageId] = govDraft;
-            const govCronDisplay = govDraft.cron_expr ? escapeHtml(govDraft.cron_expr) : '?';
-            const govInputTypeDisplay = { file: '??', text: '??', both: '??+??' }[govDraft.input_type] || '?';
-            const govExtsDisplay = (govDraft.accept_exts && govDraft.accept_exts.length) ? escapeHtml(govDraft.accept_exts.join(', ')) : '?';
+            const govCronDisplay = govDraft.cron_expr ? escapeHtml(govDraft.cron_expr) : '未设置';
+            const govInputTypeDisplay = { file: '文件', text: '文本', both: '文件+文本' }[govDraft.input_type] || '未设置';
+            const govExtsDisplay = (govDraft.accept_exts && govDraft.accept_exts.length) ? escapeHtml(govDraft.accept_exts.join(', ')) : '未设置';
             const govTaskHtml = `
                 <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview ai-gov-draft-preview" id="gov-draft-${messageId}">
                     <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">????????</span>
-                        <button class="btn btn-sm" onclick="editGovTaskDraftFromAI('${messageId}')">?? ??</button>
+                        <span style="font-weight: 600;">治理任务草稿</span>
+                        <button class="btn btn-sm" onclick="editGovTaskDraftFromAI('${messageId}')">编辑</button>
                     </div>
                     <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(govDraft.name || '')}</span></div>
-                        <div class="config-item"><span class="config-label">??:</span> <span class="config-value">${govDraft.type === 'scheduled' ? '? ??' : '?? ??'}</span></div>
-                        <div class="config-item"><span class="config-label">??:</span> <span class="config-value">${escapeHtml(govDraft.description || '?')}</span></div>
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(govDraft.name || '')}</span></div>
+                        <div class="config-item"><span class="config-label">类型:</span> <span class="config-value">${govDraft.type === 'scheduled' ? '定时' : '交互'}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(govDraft.description || '未填写')}</span></div>
                         ${govDraft.type === 'scheduled' ? `<div class="config-item"><span class="config-label">Cron:</span> <span class="config-value">${govCronDisplay}</span></div>` : ''}
-                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">????:</span> <span class="config-value">${govInputTypeDisplay}</span></div>` : ''}
-                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">?????:</span> <span class="config-value">${govExtsDisplay}</span></div>` : ''}
-                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">????:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((govDraft.js_code || '').slice(0, 500))}${(govDraft.js_code || '').length > 500 ? '...' : ''}</div></div>
+                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${govInputTypeDisplay}</span></div>` : ''}
+                        ${govDraft.type === 'interactive' ? `<div class="config-item"><span class="config-label">允许扩展名:</span> <span class="config-value">${govExtsDisplay}</span></div>` : ''}
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">脚本:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((govDraft.js_code || '').slice(0, 500))}${(govDraft.js_code || '').length > 500 ? '...' : ''}</div></div>
                     </div>
                     <div class="ai-api-config-actions">
-                        <button class="btn btn-primary" onclick="confirmCreateGovTaskFromAI('${messageId}')">? ??????</button>
-                        <button class="btn" onclick="cancelGovTaskDraft('${messageId}')">? ??</button>
+                        <button class="btn btn-primary" onclick="confirmCreateGovTaskFromAI('${messageId}')">确认创建</button>
+                        <button class="btn" onclick="cancelGovTaskDraft('${messageId}')">取消</button>
                     </div>
                 </div>
             `;
             contentEl.innerHTML = govTaskHtml;
             attemptsEl.style.display = 'none';
-            markStep('??????', '?????????????', 'done');
+            markStep('治理任务完成', '治理任务草稿已生成', 'done');
             finalizeAiProcess(messageId);
             break;
 
@@ -5314,20 +5357,20 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview ai-quality-preview">
                     <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">????????</span>
+                        <span style="font-weight: 600;">质量规则草稿</span>
                     </div>
                     <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(rule.nm || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(rule.xh || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(rule.name || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">??:</span> <span class="config-value">${escapeHtml(rule.category || '?')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL??:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(rule.sql || '')}</div></div>
+                        <div class="config-item"><span class="config-label">编号:</span> <span class="config-value">${escapeHtml(rule.nm || '未设置')}</span></div>
+                        <div class="config-item"><span class="config-label">序号:</span> <span class="config-value">${escapeHtml(rule.xh || '未设置')}</span></div>
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(rule.name || '未设置')}</span></div>
+                        <div class="config-item"><span class="config-label">分类:</span> <span class="config-value">${escapeHtml(rule.category || '未设置')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">SQL:</span><div class="ai-sql-block" style="margin-top: 6px;">${escapeHtml(rule.sql || '')}</div></div>
                     </div>
                 </div>
             `;
             contentEl.innerHTML = ruleHtml;
             attemptsEl.style.display = 'none';
-            markStep('??????', '???????????', 'done');
+            markStep('质量规则完成', '质量规则草稿已生成', 'done');
             finalizeAiProcess(messageId);
             break;
 
@@ -5338,20 +5381,20 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
                 <div style="margin-bottom: 6px;">${formatAIText(data.message)}</div>
                 <div class="ai-api-config-preview ai-quality-preview">
                     <div class="ai-api-config-header">
-                        <span style="font-weight: 600;">?????</span>
+                        <span style="font-weight: 600;">小模型草稿</span>
                     </div>
                     <div class="ai-api-config-body">
-                        <div class="config-item"><span class="config-label">??:</span> <span class="config-value">${escapeHtml(model.name || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">??:</span> <span class="config-value">${escapeHtml(model.description || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(model.input_type || '?')}</span></div>
-                        <div class="config-item"><span class="config-label">????:</span> <span class="config-value">${escapeHtml(model.output_type || '?')}</span></div>
-                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">??:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((model.js_code || '').slice(0, 500))}${(model.js_code || '').length > 500 ? '...' : ''}</div></div>
+                        <div class="config-item"><span class="config-label">名称:</span> <span class="config-value">${escapeHtml(model.name || '未命名')}</span></div>
+                        <div class="config-item"><span class="config-label">描述:</span> <span class="config-value">${escapeHtml(model.description || '未填写')}</span></div>
+                        <div class="config-item"><span class="config-label">输入类型:</span> <span class="config-value">${escapeHtml(model.input_type || '未设置')}</span></div>
+                        <div class="config-item"><span class="config-label">输出类型:</span> <span class="config-value">${escapeHtml(model.output_type || '未设置')}</span></div>
+                        <div class="config-item" style="grid-column: 1 / -1;"><span class="config-label">脚本:</span><div class="ai-sql-block" style="margin-top: 6px; max-height: 120px; overflow: auto;">${escapeHtml((model.js_code || '').slice(0, 500))}${(model.js_code || '').length > 500 ? '...' : ''}</div></div>
                     </div>
                 </div>
             `;
             contentEl.innerHTML = modelHtml;
             attemptsEl.style.display = 'none';
-            markStep('?????', '????????????', 'done');
+            markStep('小模型完成', '小模型草稿已生成', 'done');
             finalizeAiProcess(messageId);
             break;
 
@@ -5359,7 +5402,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             statusEl.innerHTML = '';
             contentEl.innerHTML = `<div style="margin-bottom: 6px;">${formatAIText(data.text || data.message || '')}</div>`;
             attemptsEl.style.display = 'none';
-            markStep('??????', '?????????', 'done');
+            markStep('回答完成', '已生成最终回答', 'done');
             finalizeAiProcess(messageId);
             break;
             
@@ -5371,14 +5414,14 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// ??????
+// 添加 AI 加载消息。
 function addAiLoadingMessage() {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-loading-' + Date.now();
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">??</div>
+            <div class="ai-message-avatar">AI</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
                     <div class="ai-loading">
@@ -5397,7 +5440,7 @@ function addAiLoadingMessage() {
     return messageId;
 }
 
-// ??AI??
+// 移除 AI 消息。
 function removeAiMessage(messageId) {
     const messageEl = document.getElementById(messageId);
     if (messageEl) {
@@ -5405,7 +5448,7 @@ function removeAiMessage(messageId) {
     }
 }
 
-// ??AI??
+// 显示 AI 错误消息。
 function showAiError(message) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-error-' + Date.now();
@@ -5423,7 +5466,7 @@ function showAiError(message) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// HTML??
+// HTML 转义。
 function escapeHtml(text) {
     const map = {
         '&': '&amp;',
@@ -5506,35 +5549,35 @@ function updateAiContextDisplay() {
         }
         if (hasDbs) {
             tagsHtml += aiSessionContext.databases.map(db => {
-                const icon = dbTypeIcons[db.type] || '??';
+                const icon = dbTypeIcons[db.type] || '🗃️';
                 return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
             }).join('');
         }
 
         contextEl.innerHTML = `
             <div class="ai-context-info">
-                <span class="ai-context-label">???:</span>
+                <span class="ai-context-label">当前上下文:</span>
                 <span class="ai-context-value">${tagsHtml}</span>
-                <button class="ai-context-clear" onclick="clearAiContext()" title="???????????">?</button>
+                <button class="ai-context-clear" onclick="clearAiContext()" title="清空当前上下文">×</button>
             </div>
         `;
 
         if (input) {
-            input.placeholder = '????... (???? @)';
+            input.placeholder = '输入消息...（可用 @ 引用上下文）';
         }
     } else {
         if (contextEl) {
             contextEl.remove();
         }
         if (input) {
-            input.placeholder = '????... (?? @ ????????)';
+            input.placeholder = '输入消息...（输入 @ 选择上下文）';
         }
     }
 }
 
-// ??AI???
+// 清空 AI 上下文。
 function clearAiContext() {
-    if (confirm('???????????????????????')) {
+    if (confirm('确定清空当前 AI 上下文吗？')) {
         aiSessionContext.databases = [];
         aiSessionContext.modules = [];
         aiSessionContext.history = [];
@@ -5544,10 +5587,10 @@ function clearAiContext() {
         const messageId = 'msg-clear-' + Date.now();
         const messageHtml = `
             <div class="ai-message assistant" id="${messageId}" style="opacity: 0.8;">
-                <div class="ai-message-avatar">??</div>
+                <div class="ai-message-avatar">AI</div>
                 <div class="ai-message-content">
                     <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
-                        ?????????????? @ ??????????????
+                        当前上下文已清空，可继续通过 @ 选择数据库或模块。
                     </div>
                 </div>
             </div>
@@ -5557,17 +5600,17 @@ function clearAiContext() {
     }
 }
 
-// ==================== AI?????? ====================
+// ==================== AI 配置确认 ====================
 
-// ??AI???????
+// 从 AI 生成的配置中打开编辑弹窗。
 function editApiConfigFromAI(messageId, config) {
-    // ??????
+    // 切换到新增模式。
     isEditApiMode = false;
     editingApiId = null;
-    document.getElementById('apiModalTitle').textContent = '??????';
+    document.getElementById('apiModalTitle').textContent = '新增 API';
     document.getElementById('addApiModal').classList.add('show');
     
-    // ??????AI???????? query ???
+    // 默认按 query 接口填充。
     document.getElementById('apiTypeQuery').checked = true;
     switchApiTypeFields('query');
     document.getElementById('apiNameInput').value = config.name || '';
@@ -5576,21 +5619,21 @@ function editApiConfigFromAI(messageId, config) {
     document.getElementById('apiSqlInput').value = config.sql || '';
     document.getElementById('apiDescInput').value = config.description || '';
     
-    // ???????
+    // 填充默认参数。
     if (config.default_params && Object.keys(config.default_params).length > 0) {
         document.getElementById('apiDefaultParamsInput').value = JSON.stringify(config.default_params, null, 2);
     } else {
         document.getElementById('apiDefaultParamsInput').value = '';
     }
     
-    // ??????????
+    // 加载数据库后再选中目标库。
     loadDatabasesForSelect().then(() => {
         if (config.database_id) {
             document.getElementById('apiDbSelect').value = config.database_id;
         }
     });
     
-    // ?????AI???????????
+    // 标记为 AI 生成来源。
     document.getElementById('addApiForm').dataset.fromAi = 'true';
     document.getElementById('addApiForm').dataset.aiMessageId = messageId;
     
@@ -5598,15 +5641,15 @@ function editApiConfigFromAI(messageId, config) {
     document.getElementById('apiFormSuccess').classList.remove('show');
 }
 
-// ????AI?????
+// 确认创建 AI 生成的 API。
 async function confirmCreateApiFromAI(config, messageId) {
-    // ???????
+    // 显示处理中状态。
     const contentEl = document.getElementById(`${messageId}-content`);
     if (contentEl) {
-        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> ??????...</div>';
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
     }
     
-    // ???????
+    // 先刷新数据库下拉框。
     await loadDatabasesForSelect();
     
     const apiData = {
@@ -5619,14 +5662,14 @@ async function confirmCreateApiFromAI(config, messageId) {
         description: config.description || ''
     };
     
-    // ??????
+    // 复制默认参数。
     if (config.default_params) {
         apiData.default_params = config.default_params;
     }
     
     if (!apiData.database_id) {
         if (contentEl) {
-            contentEl.innerHTML = '<div class="ai-error">?????????????</div>';
+            contentEl.innerHTML = '<div class="ai-error">请先选择一个数据库</div>';
         }
         return;
     }
@@ -5643,55 +5686,55 @@ async function confirmCreateApiFromAI(config, messageId) {
         const data = await response.json();
 
         if (data.success) {
-            // ???????
+            // 生成成功后显示结果。
             if (contentEl) {
                 contentEl.innerHTML = `
                     <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
-                        <strong>? ???????</strong><br>
+                        <strong>创建成功</strong><br>
                         <span style="font-size: 13px; margin-top: 4px; display: block;">
-                            ????: ${escapeHtml(apiData.name)}<br>
-                            ????: ${escapeHtml(apiData.path)}<br>
-                            ???"????"????????
+                            名称：${escapeHtml(apiData.name)}<br>
+                            路径：${escapeHtml(apiData.path)}<br>
+                            已同步到“API 列表”。
                         </span>
                     </div>
                 `;
             }
             
-            // ????????????????
+            // 如果当前停留在 API 页，则刷新列表。
             if (document.querySelector('[data-tab="api"]').classList.contains('active')) {
                 loadApis();
             }
         } else {
             if (contentEl) {
-                contentEl.innerHTML = `<div class="ai-error">??????: ${escapeHtml(data.message || '????')}</div>`;
+                contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(data.message || '未知错误')}</div>`;
             }
         }
     } catch (error) {
         if (contentEl) {
-            contentEl.innerHTML = `<div class="ai-error">??????: ${escapeHtml(error.message)}</div>`;
+            contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(error.message)}</div>`;
         }
     }
 }
 
-// ??????
+// 取消 AI 生成的 API 创建。
 function cancelCreateApiFromAI(messageId) {
     const contentEl = document.getElementById(`${messageId}-content`);
     if (contentEl) {
         contentEl.innerHTML = `
             <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
-                ?? ???????
+                已取消创建。
             </div>
         `;
     }
 }
 
-// ???? AI ???????????????????
+// 创建治理任务草稿并提交。
 async function confirmCreateGovTaskFromAI(messageId) {
     const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
     if (!draft) return;
     const contentEl = document.getElementById(`${messageId}-content`);
     if (contentEl) {
-        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> ??????...</div>';
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
     }
     const taskData = {
         name: draft.name,
@@ -5714,14 +5757,14 @@ async function confirmCreateGovTaskFromAI(messageId) {
         if (data.success && contentEl) {
             contentEl.innerHTML = `
                 <div style="padding: 12px; background: #e6ffed; border-left: 3px solid #52c41a; border-radius: 6px; color: #389e0d; font-size: 13px;">
-                    ? ??????????????????
+                    治理任务创建成功。
                 </div>
             `;
             loadGovernanceTasks();
         } else if (contentEl) {
             contentEl.innerHTML = `
                 <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
-                    ${escapeHtml(data.message || '????')}
+                    ${escapeHtml(data.message || '创建失败')}
                 </div>
             `;
         }
@@ -5729,7 +5772,7 @@ async function confirmCreateGovTaskFromAI(messageId) {
         if (contentEl) {
             contentEl.innerHTML = `
                 <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
-                    ${escapeHtml('????: ' + err.message)}
+                    ${escapeHtml('创建失败：' + err.message)}
                 </div>
             `;
         }
@@ -5742,27 +5785,27 @@ function cancelGovTaskDraft(messageId) {
     if (contentEl) {
         contentEl.innerHTML = `
             <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
-                ?? ???????
+                已取消治理任务草稿。
             </div>
         `;
     }
     if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
 }
 
-// ????????????????????????????
+// 从 AI 草稿打开治理任务编辑弹窗。
 function editGovTaskDraftFromAI(messageId) {
     const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
     if (!draft) return;
     isEditGovMode = false;
     editingGovTaskId = null;
-    document.getElementById('govModalTitle').textContent = '?????????';
+    document.getElementById('govModalTitle').textContent = '编辑治理任务';
     document.getElementById('govTaskNameInput').value = draft.name || '';
     document.getElementById('govTaskTypeInput').value = draft.type || 'interactive';
     document.getElementById('govTaskDescInput').value = draft.description || '';
     document.getElementById('govCodeInput').value = draft.js_code || '';
     document.getElementById('govCronInput').value = draft.cron_expr || '';
     document.getElementById('govEnabledInput').checked = true;
-    document.getElementById('govEnabledLabel').textContent = '???';
+    document.getElementById('govEnabledLabel').textContent = '启用';
     document.getElementById('govInputTypeSelect').value = draft.input_type || 'file';
     document.getElementById('govAcceptExtsInput').value = (draft.accept_exts || []).join(', ');
     populateGovDbSelect();
@@ -5775,12 +5818,12 @@ function editGovTaskDraftFromAI(messageId) {
     document.getElementById('govTaskModal').classList.add('show');
 }
 
-// ==================== ?????? ====================
+// ==================== 表结构管理 ====================
 
-// ???????
+// 打开创建表弹窗。
 function showCreateTableModal() {
     if (!currentDb) {
-        showToast('???????', 'warning');
+        showToast('请先选择一个数据库', 'warning');
         return;
     }
     
@@ -5793,7 +5836,7 @@ function showCreateTableModal() {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     columnsContainer.innerHTML = `
         <div class="table-column-item">
-            <input type="text" class="column-name-input" placeholder="??" value="id" required>
+            <input type="text" class="column-name-input" placeholder="列名" value="id" required>
             <select class="column-type-select" required>
                 <option value="INT">INT</option>
                 <option value="VARCHAR">VARCHAR</option>
@@ -5802,11 +5845,11 @@ function showCreateTableModal() {
                 <option value="DECIMAL">DECIMAL</option>
                 <option value="BOOLEAN">BOOLEAN</option>
             </select>
-            <input type="text" class="column-size-input" placeholder="??" value="">
+            <input type="text" class="column-size-input" placeholder="长度" value="">
             <label><input type="checkbox" class="column-notnull" checked> NOT NULL</label>
-            <label><input type="checkbox" class="column-primary" checked> ??</label>
-            <label><input type="checkbox" class="column-autoincrement" checked> ??</label>
-            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="???">?</button>
+            <label><input type="checkbox" class="column-primary" checked> 主键</label>
+            <label><input type="checkbox" class="column-autoincrement" checked> 自增</label>
+            <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除">×</button>
         </div>
     `;
 }
@@ -5822,7 +5865,7 @@ function addTableColumn() {
     const newColumn = document.createElement('div');
     newColumn.className = 'table-column-item';
     newColumn.innerHTML = `
-        <input type="text" class="column-name-input" placeholder="??" required>
+        <input type="text" class="column-name-input" placeholder="列名" required>
         <select class="column-type-select" required>
             <option value="INT">INT</option>
             <option value="VARCHAR" selected>VARCHAR</option>
@@ -5831,11 +5874,11 @@ function addTableColumn() {
             <option value="DECIMAL">DECIMAL</option>
             <option value="BOOLEAN">BOOLEAN</option>
         </select>
-        <input type="text" class="column-size-input" placeholder="??" value="255">
+        <input type="text" class="column-size-input" placeholder="长度" value="255">
         <label><input type="checkbox" class="column-notnull"> NOT NULL</label>
-        <label><input type="checkbox" class="column-primary"> ??</label>
-        <label><input type="checkbox" class="column-autoincrement"> ??</label>
-        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="???">?</button>
+        <label><input type="checkbox" class="column-primary"> 主键</label>
+        <label><input type="checkbox" class="column-autoincrement"> 自增</label>
+        <button type="button" class="btn-icon" onclick="removeTableColumn(this)" title="删除">×</button>
     `;
     columnsContainer.appendChild(newColumn);
 }
@@ -5844,13 +5887,13 @@ function addTableColumn() {
 function removeTableColumn(btn) {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     if (columnsContainer.children.length <= 1) {
-        showToast('????????', 'warning');
+        showToast('至少保留一列', 'warning');
         return;
     }
     btn.parentElement.remove();
 }
 
-// ???
+// 提交创建表单。
 async function handleCreateTable(e) {
     e.preventDefault();
     
@@ -5859,21 +5902,21 @@ async function handleCreateTable(e) {
     const tableName = document.getElementById('tableNameInput').value.trim();
     const columnItems = document.querySelectorAll('.table-column-item');
     
-    // ????
+    // 表名不能为空。
     if (!tableName) {
-        showCreateTableError('?????');
+        showCreateTableError('请输入表名');
         return;
     }
     
-    // ??????????????????????????
+    // 表名只能包含字母、数字和下划线，且不能以数字开头。
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-        showCreateTableError('????????????????????????????');
+        showCreateTableError('表名只能包含字母、数字和下划线，且不能以数字开头');
         return;
     }
     
-    // ?????
+    // 至少需要一列。
     if (columnItems.length === 0) {
-        showCreateTableError('????????');
+        showCreateTableError('请至少添加一列');
         return;
     }
     
@@ -5887,7 +5930,7 @@ async function handleCreateTable(e) {
         const autoIncrement = item.querySelector('.column-autoincrement').checked;
         
         if (!name) {
-            showCreateTableError('???????');
+            showCreateTableError('请输入列名');
             return;
         }
         
@@ -5921,28 +5964,28 @@ async function handleCreateTable(e) {
         const data = await response.json();
         
         if (data.success) {
-            successEl.textContent = '??????';
+            successEl.textContent = '创建成功';
             successEl.classList.add('show');
             setTimeout(() => {
                 hideCreateTableModal();
                 loadDatabaseDetail(currentDb.id);
             }, 1000);
         } else {
-            showCreateTableError(data.message || '????');
+            showCreateTableError(data.message || '创建失败');
         }
     } catch (error) {
-        showCreateTableError('?????' + error.message);
+        showCreateTableError('创建失败：' + error.message);
     }
 }
 
-// ???????
+// 显示创建表错误。
 function showCreateTableError(message) {
     const errorEl = document.getElementById('createTableError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
 }
 
-// ==================== ?????? ====================
+// ==================== 治理任务 ====================
 
 let govTasks = [];
 let currentGovTask = null;
@@ -5952,7 +5995,7 @@ let govCurrentFilter = 'all';
 /** @type {File[]} */
 let govSelectedFiles = [];
 
-// ?????????
+// 注册治理任务相关事件。
 (function initGovernanceEvents() {
     document.addEventListener('DOMContentLoaded', function() {
         const addBtn = document.getElementById('addGovernanceTaskBtn');
@@ -5979,7 +6022,7 @@ let govSelectedFiles = [];
             if (document.getElementById('govCodeGenPanel').style.display !== 'none') refreshCodegenTables();
         });
 
-        // ????
+        // 拖拽上传区域。
         const dropZone = document.getElementById('govDropZone');
         if (dropZone) {
             dropZone.addEventListener('dragover', function(e) {
@@ -6001,7 +6044,7 @@ let govSelectedFiles = [];
 })();
 
 /**
- * ????????????????????
+ * 加载治理任务列表并刷新详情视图。
  * @returns {Promise<void>}
  */
 async function loadGovernanceTasks() {
@@ -6042,8 +6085,8 @@ async function loadGovernanceTasks() {
             renderGovTaskList();
         }
     } catch (error) {
-        console.error('????????:', error);
-        showToast('????????', 'error');
+        console.error('加载治理任务失败', error);
+        showToast('加载治理任务失败', 'error');
     }
 }
 
@@ -6059,7 +6102,7 @@ function renderGovTaskList() {
     });
 
     if (filtered.length === 0) {
-        container.innerHTML = '<div class="gov-output-placeholder" style="padding:30px;color:#a0aec0;">????</div>';
+        container.innerHTML = '<div class="gov-output-placeholder" style="padding:30px;color:#a0aec0;">暂无治理任务</div>';
         return;
     }
 
@@ -6068,19 +6111,19 @@ function renderGovTaskList() {
         return `
         <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
              onclick="selectGovTask('${safeTId}')">
-            <div class="gov-task-item-icon">${t.type === 'scheduled' ? '?' : '??'}</div>
+            <div class="gov-task-item-icon">${t.type === 'scheduled' ? '定' : '交'}</div>
             <div class="gov-task-item-info">
                 <div class="gov-task-item-name">
                     ${escapeHtml(t.name)}
-                    ${t.register_as_api ? '<span class="gov-api-badge" title="???? API">??</span>' : ''}
+                    ${t.register_as_api ? '<span class="gov-api-badge" title="注册为 API">API</span>' : ''}
                 </div>
                 <div class="gov-task-item-meta">
-                    <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '??' : '??'}</span>
+                    <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '定时' : '交互'}</span>
                     <span class="gov-status-dot ${t.status}"></span>
-                    <span>${t.status === 'idle' ? '??' : t.status === 'running' ? '???' : t.status === 'success' ? '??' : '??'}</span>
+                    <span>${t.status === 'idle' ? '待运行' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '失败'}</span>
                 </div>
             </div>
-            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">????</button>` : ''}
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">下载样例</button>` : ''}
         </div>
     `;}).join('');
 }
@@ -6112,9 +6155,9 @@ function showGovTaskDetail(task) {
     document.getElementById('govTaskDetailView').style.display = 'block';
 
     document.getElementById('govTaskName').textContent = task.name;
-    document.getElementById('govTaskType').textContent = task.type === 'scheduled' ? '? ????' : '?? ????';
+    document.getElementById('govTaskType').textContent = task.type === 'scheduled' ? '定时任务' : '交互任务';
 
-    const statusMap = { idle: '??', running: '???', success: '??', error: '??' };
+    const statusMap = { idle: '待运行', running: '运行中', success: '成功', error: '失败' };
     const statusEl = document.getElementById('govTaskStatus');
     statusEl.textContent = statusMap[task.status] || task.status;
     statusEl.className = 'info-value status ' + task.status;
@@ -6124,19 +6167,19 @@ function showGovTaskDetail(task) {
     if (task.type === 'scheduled') {
         cronItem.style.display = '';
         enabledItem.style.display = '';
-        document.getElementById('govTaskCron').textContent = task.cron_expr || '???';
-        document.getElementById('govTaskEnabled').textContent = task.enabled ? '???' : '???';
-        document.getElementById('govToggleBtn').textContent = task.enabled ? '??' : '??';
+        document.getElementById('govTaskCron').textContent = task.cron_expr || '未设置';
+        document.getElementById('govTaskEnabled').textContent = task.enabled ? '启用' : '禁用';
+        document.getElementById('govToggleBtn').textContent = task.enabled ? '停用' : '启用';
     } else {
         cronItem.style.display = 'none';
         enabledItem.style.display = 'none';
     }
 
-    // ???
+    // 显示关联数据库名称。
     const dbName = databases.find(d => d.id === task.database_id);
-    document.getElementById('govTaskDb').textContent = dbName ? dbName.name : '???';
+    document.getElementById('govTaskDb').textContent = dbName ? dbName.name : '未绑定';
 
-    document.getElementById('govTaskLastRun').textContent = task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '????';
+    document.getElementById('govTaskLastRun').textContent = task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '从未运行';
 
     document.getElementById('govTaskCode').textContent = task.js_code;
 
@@ -6146,15 +6189,15 @@ function showGovTaskDetail(task) {
         execModeEl.textContent = execMode === 'frontend' ? '前端运行' : '后端运行';
     }
 
-    // ????
+    // 交互任务时显示上传区。
     const interactiveSection = document.getElementById('govInteractiveSection');
     if (task.type === 'interactive') {
         interactiveSection.style.display = '';
         const inputType = task.input_type || 'file';
         document.getElementById('govFileUploadArea').style.display = (inputType === 'file' || inputType === 'both') ? '' : 'none';
         document.getElementById('govTextInputArea').style.display = (inputType === 'text' || inputType === 'both') ? '' : 'none';
-        const exts = task.accept_exts && task.accept_exts.length > 0 ? task.accept_exts.join(', ') : '????';
-        document.getElementById('govAcceptExts').textContent = '??: ' + exts;
+        const exts = task.accept_exts && task.accept_exts.length > 0 ? task.accept_exts.join(', ') : '未设置';
+        document.getElementById('govAcceptExts').textContent = '允许扩展名: ' + exts;
         if (task.accept_exts && task.accept_exts.length > 0) {
             document.getElementById('govFileInput').accept = task.accept_exts.join(',');
         } else {
@@ -6179,15 +6222,15 @@ async function loadGovTaskLogs() {
             renderGovLogs(data.logs || []);
         }
     } catch (error) {
-        console.error('????????:', error);
-        showToast('????????', 'error');
+        console.error('加载治理日志失败', error);
+        showToast('加载治理日志失败', 'error');
     }
 }
 
 function renderGovLogs(logs) {
     const container = document.getElementById('govTaskOutput');
     if (logs.length === 0) {
-        container.innerHTML = '<div class="gov-output-placeholder">??????</div>';
+        container.innerHTML = '<div class="gov-output-placeholder">暂无日志</div>';
         return;
     }
     const sorted = [...logs].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
@@ -6278,7 +6321,7 @@ function onGovTaskTypeChange() {
     }
 }
 
-// ????????
+// 提取中文拼音首字母。
 function chineseToPinyinInitials(str) {
     const pinyinMap = {
         '?': 'a', '?': 'a', '?': 'a', '?': 'a', '?': 'a',
@@ -6323,9 +6366,9 @@ function chineseToPinyinInitials(str) {
 function onGovRegisterAPIChange() {
     const checked = document.getElementById('govRegisterAPIInput').checked;
     document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
-    document.getElementById('govRegisterAPILabel').textContent = checked ? '???' : '???';
+    document.getElementById('govRegisterAPILabel').textContent = checked ? '启用' : '关闭';
     
-    // ???? API ?????????
+    // 若启用 API 注册，则自动生成路径。
     if (checked && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
         if (taskName) {
@@ -6337,7 +6380,7 @@ function onGovRegisterAPIChange() {
 
 function populateGovDbSelect() {
     const select = document.getElementById('govTaskDbSelect');
-    select.innerHTML = '<option value="">??????</option>';
+    select.innerHTML = '<option value="">请选择数据库</option>';
     databases.forEach(db => {
         select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
     });
@@ -6368,7 +6411,7 @@ async function handleGovTaskSubmit(e) {
     };
 
     if (!taskData.name || !taskData.js_code) {
-        document.getElementById('govFormError').textContent = '?????Go??????';
+        document.getElementById('govFormError').textContent = '名称和脚本不能为空';
         document.getElementById('govFormError').classList.add('show');
         return;
     }
@@ -6435,20 +6478,20 @@ async function handleGovTaskSubmit(e) {
             document.getElementById('govFormError').classList.add('show');
         }
     } catch (error) {
-        document.getElementById('govFormError').textContent = '????: ' + error.message;
+        document.getElementById('govFormError').textContent = '保存失败：' + error.message;
         document.getElementById('govFormError').classList.add('show');
     }
 }
 
 async function deleteGovTask() {
     if (!currentGovTask) return;
-    if (!confirm(`???????${currentGovTask.name}??`)) return;
+    if (!confirm(`确定删除治理任务“${currentGovTask.name}”吗？此操作不可恢复。`)) return;
     
     const deleteBtn = document.getElementById('deleteGovTaskBtn');
     const originalText = deleteBtn ? deleteBtn.textContent : '';
     if (deleteBtn) {
         deleteBtn.disabled = true;
-        deleteBtn.textContent = '???...';
+        deleteBtn.textContent = '删除中...';
     }
     
     try {
@@ -6463,14 +6506,14 @@ async function deleteGovTask() {
             document.getElementById('govWelcomeView').style.display = '';
             loadGovernanceTasks();
         } else {
-            showToast(data.message || '????', 'error');
+            showToast(data.message || '删除失败', 'error');
             if (deleteBtn) {
                 deleteBtn.disabled = false;
                 deleteBtn.textContent = originalText;
             }
         }
     } catch (error) {
-        showToast('????: ' + error.message, 'error');
+        showToast('删除失败：' + error.message, 'error');
         if (deleteBtn) {
             deleteBtn.disabled = false;
             deleteBtn.textContent = originalText;
@@ -6531,7 +6574,7 @@ async function refreshGovTaskStatus() {
             }
         }
     } catch (error) {
-        console.error('????????:', error);
+        console.error('刷新治理任务状态失败', error);
     }
 }
 
@@ -6555,10 +6598,10 @@ function setGovFiles(fileList) {
         nameEl.textContent = f.name + ' (' + formatFileSize(f.size) + ')';
     } else {
         const total = govSelectedFiles.reduce((s, f) => s + f.size, 0);
-        const names = govSelectedFiles.map(f => f.name).join('?');
+        const names = govSelectedFiles.map(f => f.name).join('、');
         const maxLen = 200;
-        const showNames = names.length > maxLen ? names.slice(0, maxLen) + '?' : names;
-        nameEl.textContent = `?? ${govSelectedFiles.length} ????? ${formatFileSize(total)}??${showNames}`;
+        const showNames = names.length > maxLen ? names.slice(0, maxLen) + '…' : names;
+        nameEl.textContent = `已选择 ${govSelectedFiles.length} 个文件，共 ${formatFileSize(total)}，${showNames}`;
     }
     row.style.display = 'flex';
 }
@@ -6630,16 +6673,16 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
         <div class="gov-log-entry">
             <div class="gov-log-header">
                 <span>${new Date().toLocaleString()}</span>
-                <span class="gov-log-status ${status}">${status === 'success' ? '??' : '??'}</span>
+                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '失败'}</span>
             </div>
-            ${inputDesc ? `<div class="gov-log-input">??: ${escapeHtml(inputDesc)}</div>` : ''}
+            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
             ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
 }
 
-// ????????
+// 在后端执行治理任务。
 async function executeGovTaskOnBackend(files, inputText) {
     if (!currentGovTask) return;
 
@@ -6654,7 +6697,7 @@ async function executeGovTaskOnBackend(files, inputText) {
     container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>后端运行中...</span></div></div>';
 
     try {
-        // ?? multipart ??
+        // 构造 multipart 表单。
         const formData = new FormData();
         formData.append('input_text', inputText || '');
 
@@ -6664,7 +6707,7 @@ async function executeGovTaskOnBackend(files, inputText) {
             }
         }
 
-        // ???? run ??
+        // 提交执行请求。
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/run`, {
             method: 'POST',
             body: formData
@@ -6673,7 +6716,7 @@ async function executeGovTaskOnBackend(files, inputText) {
         const result = await response.json();
 
         if (!result.success) {
-            throw new Error(result.message || '??????');
+            throw new Error(result.message || '后端执行失败');
         }
 
         const runId = result.run_id;
@@ -6685,7 +6728,7 @@ async function executeGovTaskOnBackend(files, inputText) {
     } catch (error) {
         currentGovTask.status = 'error';
         currentGovTask.last_error = error.message;
-        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span style="color:red">??: ${escapeHtml(error.message)}</span></div></div>`;
+        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span style="color:red">错误: ${escapeHtml(error.message)}</span></div></div>`;
         renderGovTaskList();
     }
 }
@@ -6764,7 +6807,7 @@ async function pollTaskProgress(taskId, runId) {
     await poll();
 }
 
-// ==================== ???? JS ???? ====================
+// ==================== 治理任务执行支持 ====================
 
 let govLibsLoaded = false;
 
@@ -6787,7 +6830,7 @@ async function ensureGovLibsLoaded() {
                 const s = document.createElement('script');
                 s.src = lib.src;
                 s.onload = resolve;
-                s.onerror = () => reject(new Error(`?? ${lib.src} ??`));
+                s.onerror = () => reject(new Error(`加载失败: ${lib.src}`));
                 document.head.appendChild(s);
             });
         }
@@ -6797,12 +6840,12 @@ async function ensureGovLibsLoaded() {
             const s = document.createElement('script');
             s.src = 'lib/docxtemplater.js';
             s.onload = resolve;
-            s.onerror = () => reject(new Error('?? docxtemplater ??'));
+            s.onerror = () => reject(new Error('加载 docxtemplater 失败'));
             document.head.appendChild(s);
         });
     }
     if (!_govGetDocxtemplaterClass()) {
-        throw new Error('Docxtemplater ???');
+        throw new Error('Docxtemplater 未就绪');
     }
     govLibsLoaded = true;
 }
@@ -7053,7 +7096,7 @@ function createGovHelper(logLines, uploadedFiles) {
     };
 }
 
-// ==================== ???????? ====================
+// ==================== 导入代码生成 ====================
 let codegenColumns = [];
 
 function toggleCodeGen() {
@@ -7065,7 +7108,7 @@ function toggleCodeGen() {
     if (!visible) refreshCodegenTables();
 }
 
-// ??/????????
+// 展开或收起治理任务代码区。
 function toggleGovTaskCode() {
     const panel = document.getElementById('govTaskCodePanel');
     const arrow = document.getElementById('govTaskCodeArrow');
@@ -7081,14 +7124,14 @@ async function refreshCodegenTables() {
     document.getElementById('codegenMappingArea').style.display = 'none';
 
     if (!dbId) {
-        sel.innerHTML = '<option value="">?????????</option>';
+        sel.innerHTML = '<option value="">请选择数据库</option>';
         return;
     }
 
     const db = databases.find(d => d.id === dbId);
     if (!db) return;
 
-    sel.innerHTML = '<option value="">???...</option>';
+    sel.innerHTML = '<option value="">加载中...</option>';
 
     try {
         let sql;
@@ -7113,7 +7156,7 @@ async function refreshCodegenTables() {
                 return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_');
             });
         }
-        sel.innerHTML = '<option value="">-- ?????? --</option>' + tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+        sel.innerHTML = '<option value="">-- 请选择表 --</option>' + tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
     } catch (e) {
         sel.innerHTML = `<option value="">????: ${escapeHtml(e.message)}</option>`;
     }
@@ -7179,7 +7222,7 @@ function generateImportCode() {
     const dbId = document.getElementById('govTaskDbSelect').value;
     const db = databases.find(d => d.id === dbId);
 
-    if (!tableName) { showToast('???????', 'warning'); return; }
+    if (!tableName) { showToast('请先选择表', 'warning'); return; }
 
     const checks = document.querySelectorAll('.codegen-col-check');
     const srcs = document.querySelectorAll('.codegen-col-src');
@@ -7191,13 +7234,13 @@ function generateImportCode() {
         }
     });
 
-    if (mappings.length === 0) { showToast('????????', 'warning'); return; }
+    if (mappings.length === 0) { showToast('请至少选择一列', 'warning'); return; }
 
     const q = (db && (db.type === 'mysql' || db.type === 'mariadb')) ? '`' : '"';
     const colList = mappings.map(m => `${q}${m.col}${q}`).join(', ');
     const placeholders = mappings.map(() => '?').join(', ');
     const valExpr = mappings.map(m => `row[${m.srcIdx}]`).join(', ');
-    const colComments = mappings.map(m => `//   ?? ${m.srcIdx} ? ${m.col}`).join('\n');
+    const colComments = mappings.map(m => `//   列 ${m.srcIdx} -> ${m.col}`).join('\n');
 
     let parseCode = '';
     if (sourceType === 'excel') {
@@ -7246,7 +7289,7 @@ gov.log(\`\\n????: ${tableName} ? ?? \${inserted} ?, ?? \${failed} ?\`);`;
     document.getElementById('govCodeInput').value = code;
 }
 
-// AI ???????????? AI ????? API URL?API Key????
+// 使用 AI 生成导入代码。
 async function generateImportCodeWithAI() {
     const dbId = document.getElementById('govTaskDbSelect').value;
     const tableName = document.getElementById('codegenTable').value;
@@ -7254,7 +7297,7 @@ async function generateImportCodeWithAI() {
     const db = databases.find(d => d.id === dbId);
 
     if (!dbId || !tableName) {
-        showToast('???????????????', 'warning');
+        showToast('请先选择数据库和表', 'warning');
         return;
     }
     const checks = document.querySelectorAll('.codegen-col-check');
@@ -7271,13 +7314,13 @@ async function generateImportCodeWithAI() {
         }
     });
     if (mappings.length === 0) {
-        showToast('????????????', 'warning');
+        showToast('请至少选择一列', 'warning');
         return;
     }
 
     if (!aiConfig) await loadAiConfig();
     if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
-        showToast('????AI?????? AI ???AI??URL?API Key?????????? AI ????', 'warning');
+        showToast('请先配置 AI 服务的 URL、API Key 和模型', 'warning');
         return;
     }
 
@@ -7297,7 +7340,7 @@ async function generateImportCodeWithAI() {
     const btn = document.querySelector('.gov-codegen-actions .btn-secondary');
     if (btn) {
         btn.disabled = true;
-        btn.textContent = '???...';
+        btn.textContent = '生成中...';
     }
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/codegen`, {
@@ -7311,19 +7354,19 @@ async function generateImportCodeWithAI() {
         if (data.success && data.code != null) {
             document.getElementById('govCodeInput').value = data.code;
         } else {
-            showToast(data.message || 'AI ????', 'error');
+            showToast(data.message || 'AI 生成失败', 'error');
         }
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('生成失败：' + e.message, 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.textContent = 'AI ??????';
+            btn.textContent = 'AI 生成代码';
         }
     }
 }
 
-/** ???????????????????????????? */
+/** 在浏览器中执行治理任务代码一次。 */
 async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverride) {
     const logLines = [];
     let status = 'success';
@@ -7342,13 +7385,13 @@ async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverri
     } catch (err) {
         status = 'error';
         errorMsg = err.message || String(err);
-        logLines.push(`[??] ${errorMsg}`);
+        logLines.push(`[错误] ${errorMsg}`);
     }
 
     const output = logLines.join('\n');
     let inputDesc = '';
     if (Array.isArray(allFilesOverride) && allFilesOverride.length) {
-        inputDesc = `files (${allFilesOverride.length}): ${allFilesOverride.map(f => f.name).join('?')}`;
+        inputDesc = `files (${allFilesOverride.length}): ${allFilesOverride.map(f => f.name).join('、')}`;
     } else if (file) {
         inputDesc = `file: ${file.name}`;
     } else if (inputText) {
@@ -7364,7 +7407,7 @@ async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverri
                 body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
             });
         } catch (e) {
-            console.error('??????:', e);
+            console.error('保存治理日志失败', e);
         }
     }
 
@@ -7446,7 +7489,7 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     renderGovTaskList();
 
     const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>???...</span><span class="gov-log-status running">???</span></div></div>';
+    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
 
     const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText);
 
@@ -7461,9 +7504,9 @@ async function executeGovTaskInBrowser(code, file, inputText) {
         <div class="gov-log-entry">
             <div class="gov-log-header">
                 <span>${new Date().toLocaleString()}</span>
-                <span class="gov-log-status ${status}">${status === 'success' ? '??' : '??'}</span>
+                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '失败'}</span>
             </div>
-            ${inputDesc ? `<div class="gov-log-input">??: ${escapeHtml(inputDesc)}</div>` : ''}
+            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
             ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
@@ -7518,15 +7561,15 @@ function renderGovApiDocs(query) {
         }
         html += '</div>';
     }
-    if (!html) html = '<div style="color:#888;padding:24px;text-align:center;">?????? API</div>';
+    if (!html) html = '<div style="color:#888;padding:24px;text-align:center;">暂无可用 API 文档</div>';
     body.innerHTML = html;
 }
 
 // ============================================================
-// ??????? - ???????
+// 本体分析模块
 // ============================================================
 
-// ---- ?? ----
+// ---- 状态 ----
 let ontoData = null;
 let ontoSimulation = null;
 let ontoInsightExpanded = true;
@@ -7534,63 +7577,63 @@ let ontoSelectedDbId = null;
 let ontoGraphViewMode = '2d';
 let ontoThreeState = null;
 
-// ---- ????? ----
+// ---- 颜色映射 ----
 const ONTO_COLORS = {
-    entity:    { fill: '#4ECDC4', dark: '#2aa59e', emoji: '??' },
-    event:     { fill: '#FF6B6B', dark: '#cc4444', emoji: '?' },
-    concept:   { fill: '#A29BFE', dark: '#7c73e6', emoji: '??' },
-    rule:      { fill: '#55EFC4', dark: '#2ecc97', emoji: '??' },
-    conflict:  { fill: '#E17055', dark: '#b5503a', emoji: '??' },
-    attribute: { fill: '#FDCB6E', dark: '#d4a224', emoji: '???' },
+    entity:    { fill: '#4ECDC4', dark: '#2aa59e', emoji: 'E' },
+    event:     { fill: '#FF6B6B', dark: '#cc4444', emoji: 'V' },
+    concept:   { fill: '#A29BFE', dark: '#7c73e6', emoji: 'C' },
+    rule:      { fill: '#55EFC4', dark: '#2ecc97', emoji: 'R' },
+    conflict:  { fill: '#E17055', dark: '#b5503a', emoji: 'X' },
+    attribute: { fill: '#FDCB6E', dark: '#d4a224', emoji: 'A' },
 };
 
 const ONTO_CATEGORY_LABELS = {
-    entity: '??', event: '??', concept: '??',
-    rule: '??', conflict: '??', attribute: '??',
+    entity: '实体', event: '事件', concept: '概念',
+    rule: '规则', conflict: '冲突', attribute: '属性',
 };
 
-// ---- ???? ? ???????? ----
+// ---- 演示本体数据 ----
 const DEMO_ONTOLOGY = {
     concepts: [
-        { id: 'customer', label: '??', category: 'entity', importance: 0.95,
-          description: '???????????????????????????????????? users ?? customers ??????????',
+        { id: 'customer', label: '客户', category: 'entity', importance: 0.95,
+          description: '客户是电商场景中的核心实体，通常对应 users 与 customers 两张表，需要统一主数据口径。',
           tables: ['users', 'customers'],
           attributes: ['id','name','email','phone','address','created_at'],
           governance_issues: ['users??customers?????', '????????????'] },
-        { id: 'order', label: '??', category: 'entity', importance: 0.90,
-          description: '?????????????????????????????????????????????',
+        { id: 'order', label: '订单', category: 'entity', importance: 0.90,
+          description: '订单记录用户的购买行为，是交易链路中最重要的业务对象之一。',
           tables: ['orders','order_items'], attributes: ['order_id','total_amount','status','created_at'], governance_issues: [] },
-        { id: 'product', label: '??', category: 'entity', importance: 0.85,
-          description: '????????????????????????????????????????????',
+        { id: 'product', label: '商品', category: 'entity', importance: 0.85,
+          description: '商品信息通常来源于商品中心，需要统一 SKU、价格与状态字段。',
           tables: ['products','product_variants'], attributes: ['product_id','name','price','sku','status'],
           governance_issues: ['??????????decimal vs float?', '?????????'] },
-        { id: 'inventory', label: '??', category: 'entity', importance: 0.75,
-          description: '??????????????????????????????',
+        { id: 'inventory', label: '库存', category: 'entity', importance: 0.75,
+          description: '库存实体描述商品在仓库中的可用数量和流转状态。',
           tables: ['inventory','warehouse_stock'], attributes: ['sku','quantity','warehouse_id','updated_at'], governance_issues: [] },
-        { id: 'payment', label: '??', category: 'entity', importance: 0.80,
-          description: '????????????????????????????????????????????',
+        { id: 'payment', label: '支付', category: 'entity', importance: 0.80,
+          description: '支付记录交易支付过程，常与订单、渠道和流水号关联。',
           tables: ['payments','payment_logs'], attributes: ['payment_id','amount','channel','status','transaction_id'],
           governance_issues: ['???????????', '??????????'] },
-        { id: 'logistics', label: '??', category: 'entity', importance: 0.70,
-          description: '????????????????????????????????????',
+        { id: 'logistics', label: '物流', category: 'entity', importance: 0.70,
+          description: '物流实体跟踪包裹运输、签收与异常状态。',
           tables: ['shipments','tracking_events'], attributes: ['tracking_no','carrier','status','estimated_delivery'], governance_issues: [] },
-        { id: 'cart', label: '???', category: 'event', importance: 0.60,
-          description: '???????????????????????????????????????',
+        { id: 'cart', label: '购物车', category: 'event', importance: 0.60,
+          description: '购物车代表用户一次临时性的选购行为。',
           tables: ['shopping_carts','cart_items'], attributes: ['cart_id','customer_id','items','total'], governance_issues: [] },
-        { id: 'review', label: '????', category: 'event', importance: 0.50,
-          description: '???????????????????????????????????????',
+        { id: 'review', label: '评价', category: 'event', importance: 0.50,
+          description: '评价实体记录用户对商品的反馈与打分。',
           tables: ['reviews','review_images'], attributes: ['review_id','rating','content','created_at'], governance_issues: [] },
-        { id: 'coupon', label: '???', category: 'concept', importance: 0.55,
-          description: '?????????????????????????????????????????',
+        { id: 'coupon', label: '优惠券', category: 'concept', importance: 0.55,
+          description: '优惠券用于描述营销优惠规则与可用范围。',
           tables: ['coupons','coupon_usage'], attributes: ['code','discount_type','value','conditions'], governance_issues: [] },
-        { id: 'category', label: '????', category: 'concept', importance: 0.60,
-          description: '????????????????????????????????????????',
+        { id: 'category', label: '分类', category: 'concept', importance: 0.60,
+          description: '分类用于组织商品结构和层级关系。',
           tables: ['categories'], attributes: ['category_id','name','parent_id','path'], governance_issues: [] },
-        { id: 'loyalty', label: '????', category: 'rule', importance: 0.50,
-          description: '??????????????????????????????????????',
+        { id: 'loyalty', label: '会员规则', category: 'rule', importance: 0.50,
+          description: '会员规则定义等级、门槛和权益配置。',
           tables: ['membership_rules','customer_loyalty'], attributes: ['level','threshold','benefits','discount_rate'], governance_issues: [] },
-        { id: 'risk_naming', label: '????', category: 'conflict', importance: 0.90,
-          description: '?? ???????users ?? customers ??????????"??"????????????????????????????????????',
+        { id: 'risk_naming', label: '命名冲突', category: 'conflict', importance: 0.90,
+          description: 'users 与 customers 存在语义重叠，需要统一命名与主数据口径。',
           tables: ['users','customers'], attributes: [], governance_issues: ['?????????', '????????'] },
     ],
     relations: [
@@ -7809,7 +7852,7 @@ function createOntoOrbitControls(camera, domElement) {
 }
 
 /**
- * Three.js 3D ?????????? ontoData / ONTO_COLORS?
+ * Three.js 3D 本体图渲染，依赖 ontoData 和 ONTO_COLORS。
  */
 function renderOntologyGraph3D(data, animate) {
     if (typeof THREE === 'undefined') return;
@@ -7974,7 +8017,7 @@ function renderOntologyGraph3D(data, animate) {
     renderer.domElement.addEventListener('mousedown', st._pickDown);
     renderer.domElement.addEventListener('mouseup', st._pickUp);
 
-    // ? raycast ??????????????? D3 ????????
+    // 为 D3 视图保留节点引用，便于射线拾取。
     meshes.forEach(({ mesh, data }) => {
         mesh.userData.ontoNodeRef = data;
     });
@@ -8035,7 +8078,7 @@ function renderOntologyGraph3D(data, animate) {
     animate();
 }
 
-// ---- ???/?????? ----
+// 渲染本体图。
 function renderOntologyGraph(data, animate) {
     if (!data) return;
     ontoData = data;
@@ -8043,7 +8086,7 @@ function renderOntologyGraph(data, animate) {
     const svgEl = document.getElementById('ontoSvg');
     if (!svgEl) return;
 
-    // ??????
+    // 隐藏欢迎页。
     document.getElementById('ontoWelcome').style.display = 'none';
 
     const viewToggle = document.getElementById('ontoViewToggle');
@@ -8053,7 +8096,7 @@ function renderOntologyGraph(data, animate) {
 
     if (ontoGraphViewMode === '3d') {
         if (typeof THREE === 'undefined') {
-            showOntoToast('?? Three.js ??????? 2D ??', true);
+            showOntoToast('当前环境缺少 Three.js，已切换到 2D 视图', true);
             ontoGraphViewMode = '2d';
             syncOntologyViewToggleUI();
         } else {
@@ -8082,27 +8125,27 @@ function renderOntologyGraph(data, animate) {
     const W = svgEl.parentElement.clientWidth;
     const H = svgEl.parentElement.clientHeight;
 
-    // ?????
+    // 初始化 SVG 容器。
     const svg = d3.select('#ontoSvg').attr('width', W).attr('height', H);
     svg.selectAll('*').remove();
 
     const defs = svg.append('defs');
 
-    // ????
+    // 发光滤镜。
     const fGlow = defs.append('filter').attr('id', 'onto-glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
     fGlow.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '4').attr('result', 'blur');
     const fMerge = fGlow.append('feMerge');
     fMerge.append('feMergeNode').attr('in', 'blur');
     fMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // ??? (????)
+    // 强对比发光滤镜。
     const fGlow2 = defs.append('filter').attr('id', 'onto-glow-strong').attr('x', '-80%').attr('y', '-80%').attr('width', '260%').attr('height', '260%');
     fGlow2.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '8').attr('result', 'blur');
     const fMerge2 = fGlow2.append('feMerge');
     fMerge2.append('feMergeNode').attr('in', 'blur');
     fMerge2.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // ??
+    // 箭头标记。
     ['default','conflict'].forEach(t => {
         const m = defs.append('marker').attr('id', `onto-arrow-${t}`)
             .attr('viewBox','0 -5 10 10').attr('refX', 22).attr('refY', 0)
@@ -8111,26 +8154,26 @@ function renderOntologyGraph(data, animate) {
             .attr('fill', t === 'conflict' ? '#E17055' : 'rgba(160,160,220,0.6)');
     });
 
-    // ????
+    // 为每个分类生成渐变色。
     Object.entries(ONTO_COLORS).forEach(([cat, cfg]) => {
         const g = defs.append('radialGradient').attr('id', `onto-grad-${cat}`).attr('cx','35%').attr('cy','35%');
         g.append('stop').attr('offset','0%').attr('stop-color','#fff').attr('stop-opacity', 0.7);
         g.append('stop').attr('offset','100%').attr('stop-color', cfg.fill).attr('stop-opacity', 1);
     });
 
-    // ? group??? zoom/pan?
+    // 主图层支持缩放和平移。
     const mainG = svg.append('g').attr('class','onto-main');
     const zoom = d3.zoom().scaleExtent([0.25, 4]).on('zoom', e => mainG.attr('transform', e.transform));
     svg.call(zoom).on('dblclick.zoom', null);
 
-    // ????
+    // 初始化节点与边。
     const nodes = data.concepts.map(c => ({ ...c, x: W/2 + (Math.random()-0.5)*400, y: H/2 + (Math.random()-0.5)*300 }));
     const nodeById = {};
     nodes.forEach(n => nodeById[n.id] = n);
     const links = (data.relations || []).filter(r => nodeById[r.source] && nodeById[r.target])
         .map(r => ({ ...r, source: nodeById[r.source], target: nodeById[r.target] }));
 
-    // ???
+    // 启动力导布局模拟。
     if (ontoSimulation) ontoSimulation.stop();
     ontoSimulation = d3.forceSimulation(nodes)
         .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'conflict' ? 100 : 130))
@@ -8138,7 +8181,7 @@ function renderOntologyGraph(data, animate) {
         .force('center', d3.forceCenter(W/2, H/2))
         .force('collision', d3.forceCollide().radius(d => ontoNodeRadius(d) + 22));
 
-    // ????
+    // 绘制关系边。
     const linkG = mainG.append('g');
     const linkSel = linkG.selectAll('.onto-link-g').data(links).enter().append('g');
     const linkLine = linkSel.append('line')
@@ -8150,7 +8193,7 @@ function renderOntologyGraph(data, animate) {
         .attr('text-anchor','middle').attr('fill','rgba(180,180,220,0.55)').attr('font-size','10px')
         .text(d => d.label);
 
-    // ????
+    // 绘制节点层。
     const nodeG = mainG.append('g');
     const nodeSel = nodeG.selectAll('.onto-node').data(nodes).enter().append('g').attr('class','onto-node')
         .attr('opacity', animate ? 0 : 1)
@@ -8162,7 +8205,7 @@ function renderOntologyGraph(data, animate) {
         )
         .on('click', (e,d) => { e.stopPropagation(); showNodeDetail(d, nodes, links); });
 
-    // ???
+    // 节点发光层。
     nodeSel.append('circle').attr('class','onto-node-glow')
         .attr('r', d => ontoNodeRadius(d)+10)
         .attr('fill', d => ONTO_COLORS[d.category]?.fill || '#4ECDC4')
@@ -8180,13 +8223,13 @@ function renderOntologyGraph(data, animate) {
         .attr('font-size', d => Math.round(ontoNodeRadius(d)*0.75)+'px')
         .attr('pointer-events','none').text(d => ONTO_COLORS[d.category]?.emoji || '??');
 
-    // ??
+    // 节点标签。
     nodeSel.append('text').attr('class','onto-node-label').attr('text-anchor','middle')
         .attr('dy', d => ontoNodeRadius(d)+16+'px')
         .attr('fill','#e2e8f0').attr('font-size','12px').attr('font-weight','600')
         .attr('pointer-events','none').text(d => d.label);
 
-    // ????
+    // 初次进入时使用渐显动画。
     if (animate) {
         nodeSel.each(function(d, i) {
             d3.select(this).transition().delay(i * 80).duration(500)
@@ -8202,17 +8245,17 @@ function renderOntologyGraph(data, animate) {
         nodeSel.attr('transform', d=>`translate(${d.x},${d.y})`);
     });
 
-    // ????????
+    // 点击空白处关闭详情。
     svg.on('click', () => closeNodeDetail());
 
-    // ????? & ????
+    // 恢复查询栏并刷新统计与洞察。
     document.getElementById('ontoQueryBar').classList.remove('onto-query-disabled');
     document.getElementById('ontoClearBtn').style.display = '';
     updateOntoStats(data);
     renderInsights(data.insights || []);
 }
 
-// ---- ?????? ----
+// 更新本体统计。
 function updateOntoStats(data) {
     const risks = (data.insights || []).filter(i => i.severity === 'high' || i.severity === 'medium').length;
     animateCounter('ontoStatConcepts', (data.concepts || []).length);
@@ -8232,25 +8275,25 @@ function animateCounter(elId, target) {
     }, 40);
 }
 
-// ---- ?????? ----
+// 渲染洞察卡片。
 function renderInsights(insights) {
     const body = document.getElementById('ontoInsightBody');
     if (!insights || insights.length === 0) {
-        body.innerHTML = '<div class="onto-insight-placeholder"><span>??</span><p>????</p></div>';
+        body.innerHTML = '<div class="onto-insight-placeholder"><span>无</span><p>暂无洞察</p></div>';
         return;
     }
-    const iconMap = { conflict: '??', quality: '??', governance: '??', missing: '??', performance: '?', info: '?' };
+    const iconMap = { conflict: '冲突', quality: '质量', governance: '治理', missing: '缺失', performance: '性能', info: '信息' };
     body.innerHTML = insights.map((ins, i) => `
         <div class="onto-insight-card ${ins.severity}" style="animation-delay:${i*0.08}s" onclick="highlightInsight(${i})">
             <div class="onto-insight-title">
-                ${iconMap[ins.type]||'??'} ${ins.title}
-                <span class="onto-insight-badge ${ins.severity}">${ins.severity === 'high' ? '??' : ins.severity === 'medium' ? '?' : ins.severity === 'low' ? '?' : '??'}</span>
+                ${iconMap[ins.type]||'信息'} ${ins.title}
+                <span class="onto-insight-badge ${ins.severity}">${ins.severity === 'high' ? '高' : ins.severity === 'medium' ? '中' : ins.severity === 'low' ? '低' : '信息'}</span>
             </div>
             <div class="onto-insight-desc">${ins.description}</div>
         </div>`).join('');
 }
 
-// ---- ???????? ----
+// 高亮洞察影响的概念。
 function highlightInsight(idx) {
     if (!ontoData || !ontoData.insights[idx]) return;
     const ins = ontoData.insights[idx];
@@ -8273,7 +8316,7 @@ function highlightInsight(idx) {
     }, 2500);
 }
 
-// ---- ???? ----
+// 显示节点详情。
 function showNodeDetail(d, nodes, links) {
     if (ontoGraphViewMode === '3d' && ontoThreeState) ontoThreeState.selectedId = d.id;
 
@@ -8287,53 +8330,53 @@ function showNodeDetail(d, nodes, links) {
     badge.style.cssText = `background:${cfg.fill}22;color:${cfg.fill};border:1px solid ${cfg.fill}66`;
     title.textContent = d.label;
 
-    // ???????
+    // 收集相连节点。
     const connected = [];
     if (links) {
         links.forEach(l => {
             const src = l.source.id || l.source;
             const tgt = l.target.id || l.target;
-            if (src === d.id) connected.push({ label: l.label, direction: '?', name: (l.target.label || l.target) });
-            else if (tgt === d.id) connected.push({ label: l.label, direction: '?', name: (l.source.label || l.source) });
+            if (src === d.id) connected.push({ label: l.label, direction: '→', name: (l.target.label || l.target) });
+            else if (tgt === d.id) connected.push({ label: l.label, direction: '←', name: (l.source.label || l.source) });
         });
     }
 
     let html = '';
     if (d.description) {
         html += `<div class="onto-popup-section">
-            <div class="onto-popup-section-label">????</div>
+            <div class="onto-popup-section-label">描述</div>
             <div class="onto-popup-desc">${d.description}</div>
         </div>`;
     }
     if (d.tables && d.tables.length) {
         html += `<div class="onto-popup-section">
-            <div class="onto-popup-section-label">?????</div>
+            <div class="onto-popup-section-label">关联表</div>
             <div class="onto-popup-tags">${d.tables.map(t=>`<span class="onto-tag">${t}</span>`).join('')}</div>
         </div>`;
     }
     if (d.attributes && d.attributes.length) {
         html += `<div class="onto-popup-section">
-            <div class="onto-popup-section-label">????</div>
+            <div class="onto-popup-section-label">属性</div>
             <div class="onto-popup-tags">${d.attributes.map(a=>`<span class="onto-tag">${a}</span>`).join('')}</div>
         </div>`;
     }
     if (connected.length) {
         html += `<div class="onto-popup-section">
-            <div class="onto-popup-section-label">???? (${connected.length})</div>
+            <div class="onto-popup-section-label">关联节点 (${connected.length})</div>
             <div class="onto-popup-tags">${connected.map(c=>`<span class="onto-tag">${c.direction} ${c.label} ${c.name}</span>`).join('')}</div>
         </div>`;
     }
     if (d.governance_issues && d.governance_issues.length) {
         html += `<div class="onto-popup-section">
-            <div class="onto-popup-section-label">?? ????</div>
+            <div class="onto-popup-section-label">治理问题</div>
             <div class="onto-popup-tags">${d.governance_issues.map(g=>`<span class="onto-tag issue">${g}</span>`).join('')}</div>
         </div>`;
     }
-    body.innerHTML = html || '<div class="onto-popup-desc" style="color:#6e7681">??????</div>';
+    body.innerHTML = html || '<div class="onto-popup-desc" style="color:#6e7681">暂无详情</div>';
 
     popup.style.display = '';
 
-    // ???????? 2D SVG?
+    // 在 2D 视图中同步高亮选中节点。
     if (ontoGraphViewMode === '2d' && document.querySelector('.onto-node')) {
         d3.selectAll('.onto-node').each(function(nd) {
             const active = nd.id === d.id;
@@ -8355,11 +8398,11 @@ function closeNodeDetail() {
     }
 }
 
-// ---- ?????? ----
+// 加载本体演示数据。
 function loadOntologyDemo() {
-    showOntologyLoading('??????...');
+    showOntologyLoading('正在加载演示数据...');
     let progress = 0;
-    const steps = ['??????...', '??????...', '??????...', '??????...'];
+    const steps = ['解析本体...', '构建关系...', '生成洞察...', '完成渲染...'];
     let si = 0;
     const t = setInterval(() => {
         progress = Math.min(progress + 5, 95);
@@ -8374,19 +8417,19 @@ function loadOntologyDemo() {
         setTimeout(() => {
             hideOntologyLoading();
             renderOntologyGraph(DEMO_ONTOLOGY, true);
-            showOntoToast('? ???????????????????12??? ? 14??? ? 5??????');
+            showOntoToast('已生成本体示例：12 个概念、14 条关系、5 条洞察');
         }, 300);
     }, 1800);
 }
 
-// ---- AI ?? ----
+// 启动本体抽取。
 function startOntologyExtract() {
     if (!ontoSelectedDbId) {
-        showOntoToast('?? ???????????', true);
+        showOntoToast('请先选择要解析的数据库', true);
         return;
     }
     const dbIds = [ontoSelectedDbId];
-    showOntologyLoading('AI ?????????...');
+    showOntologyLoading('AI 正在抽取本体...');
 
     let progress2 = 0;
     const pi2 = setInterval(() => {
@@ -8428,7 +8471,7 @@ function startOntologyExtract() {
     }).catch(err => {
         clearInterval(pi2);
         hideOntologyLoading();
-        showOntoToast('? ?????' + err.message, true);
+        showOntoToast('抽取失败：' + err.message, true);
     });
 }
 
@@ -8436,7 +8479,7 @@ function ontoHandleSSE(type, data) {
     switch (type) {
         case 'onto-start':
         case 'onto-thinking':
-            document.getElementById('ontoAiText').textContent = data.message || 'AI ???...';
+            document.getElementById('ontoAiText').textContent = data.message || 'AI 处理中...';
             break;
         case 'answer':
             document.getElementById('ontoAiProgressBar').style.width = '100%';
@@ -8454,7 +8497,7 @@ function ontoHandleSSE(type, data) {
                     answer = escapeHtml(answer).replace(/\?([^?]+)\?/g, '<span class="onto-highlight-badge">$1</span>');
                     resultEl.innerHTML = answer;
                 }
-                showOntoToast('? ??????');
+                showOntoToast('本体抽取完成');
             }, 400);
             break;
         case 'onto-result':
@@ -8462,12 +8505,12 @@ function ontoHandleSSE(type, data) {
             setTimeout(() => {
                 hideOntologyLoading();
                 renderOntologyGraph(data, true);
-                showOntoToast(`? ?????${(data.concepts||[]).length}??? ? ${(data.relations||[]).length}???`);
+                showOntoToast(`已生成本体：${(data.concepts||[]).length} 个概念，${(data.relations||[]).length} 条关系`);
             }, 400);
             break;
         case 'onto-error':
             hideOntologyLoading();
-            showOntoToast('? ' + (data.message || '????'), true);
+            showOntoToast('错误：' + (data.message || '未知错误'), true);
             break;
         case 'onto-done':
             hideOntologyLoading();
@@ -8475,7 +8518,7 @@ function ontoHandleSSE(type, data) {
     }
 }
 
-// ---- ???? ----
+// 清空本体视图。
 function clearOntology() {
     if (ontoSimulation) { ontoSimulation.stop(); ontoSimulation = null; }
     disposeOntologyGraph3D();
@@ -8494,24 +8537,24 @@ function clearOntology() {
     document.getElementById('ontoClearBtn').style.display = 'none';
     document.getElementById('ontoNodePopup').style.display = 'none';
     document.getElementById('ontoQueryResult').style.display = 'none';
-    document.getElementById('ontoInsightBody').innerHTML = '<div class="onto-insight-placeholder"><span>??</span><p>??????AI???????????</p></div>';
+    document.getElementById('ontoInsightBody').innerHTML = '<div class="onto-insight-placeholder"><span>无</span><p>请先通过 AI 抽取或加载本体数据</p></div>';
     ['ontoStatConcepts','ontoStatRelations','ontoStatRisks'].forEach(id => { document.getElementById(id).textContent='0'; });
 }
 
-// ---- ???? ----
+// 执行本体问答查询。
 async function doOntologyQuery() {
     const input = document.getElementById('ontoQueryInput');
     const query = input.value.trim();
     if (!query) return;
-    if (!ontoData) { showOntoToast('?? ???????????', true); return; }
+    if (!ontoData) { showOntoToast('请先加载本体数据', true); return; }
 
     const btn = document.getElementById('ontoQueryBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span>?</span> ???...';
+    btn.innerHTML = '<span>⏳</span> 查询中...';
 
     const resultEl = document.getElementById('ontoQueryResult');
     resultEl.style.display = '';
-    resultEl.innerHTML = '<span style="color:#667eea">?? AI????????...</span>';
+    resultEl.innerHTML = '<span style="color:#667eea">AI 正在分析本体...</span>';
 
     try {
         const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/ontology/query`, {
@@ -8522,7 +8565,7 @@ async function doOntologyQuery() {
         if (res.status === 401) return;
         const data = await res.json();
         if (data.success) {
-            // ??????
+            // 根据命中的概念做高亮。
             if (data.highlighted && data.highlighted.length) {
                 const set = new Set(data.highlighted);
                 d3.selectAll('.onto-node').each(function(d) {
@@ -8537,30 +8580,30 @@ async function doOntologyQuery() {
                         .transition().duration(400).attr('stroke-width', 2).attr('opacity', 1).attr('filter','url(#onto-glow)');
                 }, 4000);
             }
-            // ?????
+            // 渲染返回答案。
             let answer = data.answer || '';
             answer = escapeHtml(answer).replace(/\?([^?]+)\?/g, '<span class="onto-highlight-badge">$1</span>');
             resultEl.innerHTML = answer;
         } else {
-            resultEl.innerHTML = `<span style="color:#E17055">? ${escapeHtml(data.message)}</span>`;
+            resultEl.innerHTML = `<span style="color:#E17055">错误：${escapeHtml(data.message)}</span>`;
         }
     } catch (e) {
-        resultEl.innerHTML = `<span style="color:#E17055">? ?????${escapeHtml(e.message)}</span>`;
+        resultEl.innerHTML = `<span style="color:#E17055">错误：${escapeHtml(e.message)}</span>`;
     }
     btn.disabled = false;
-    btn.innerHTML = '<span>??</span> ????';
+    btn.innerHTML = '<span>⌕</span> 查询本体';
 }
 
-// ---- ??/?????? ----
+// 展开或收起洞察面板。
 function toggleInsightPanel() {
     ontoInsightExpanded = !ontoInsightExpanded;
     document.getElementById('ontoInsightPanel').classList.toggle('collapsed', !ontoInsightExpanded);
 }
 
-// ---- Loading ?? ----
+// 显示本体加载遮罩。
 function showOntologyLoading(text) {
     const ov = document.getElementById('ontoAiOverlay');
-    document.getElementById('ontoAiText').textContent = text || 'AI ????...';
+    document.getElementById('ontoAiText').textContent = text || 'AI 处理中...';
     document.getElementById('ontoAiProgressBar').style.width = '0%';
     ov.style.display = 'flex';
 }
@@ -8583,17 +8626,17 @@ function showOntoToast(msg, isError) {
     ontoToastTimer = setTimeout(() => el.remove(), 3500);
 }
 
-// ---- ??????? ----
+// 数据库类型图标。
 const DB_TYPE_ICONS = {
-    mysql: '??', postgresql: '??', oracle: '??', mssql: '??', mongodb: '??',
-    dm: '????', sqlite: '??', duckdb: '??', clickhouse: '?', neo4j: '???',
+    mysql: '🛢️', postgresql: '🐘', oracle: '🏛️', mssql: '🪟', mongodb: '🍃',
+    dm: '🔶', sqlite: '📄', duckdb: '🦆', clickhouse: '📊', neo4j: '🕸️',
 };
 
 function getDbIcon(type) {
     return DB_TYPE_ICONS[(type||'').toLowerCase()] || '??';
 }
 
-// ---- ???????? ----
+// 切换本体数据库选择器。
 function toggleDbPicker(e) {
     e.stopPropagation();
     const dd = document.getElementById('ontoDbDropdown');
@@ -8603,25 +8646,25 @@ function toggleDbPicker(e) {
     btn.classList.toggle('active', !isOpen);
 }
 
-// ---- ????????????? ----
+// 选择本体数据库。
 function selectOntologyDb(dbId, dbName, dbType) {
     ontoSelectedDbId = dbId;
     const textEl = document.getElementById('ontoDbBtnText');
     textEl.textContent = `${getDbIcon(dbType)} ${dbName}`;
     textEl.classList.remove('placeholder');
-    // ??????
+    // 更新选中状态。
     document.querySelectorAll('.onto-db-option').forEach(el => {
         const isSelected = el.dataset.dbId === dbId;
         el.classList.toggle('selected', isSelected);
         const check = el.querySelector('.onto-db-option-check');
         if (check) check.style.display = isSelected ? '' : 'none';
     });
-    // ????
+    // 收起下拉框。
     document.getElementById('ontoDbDropdown').classList.remove('open');
     document.getElementById('ontoDbBtn').classList.remove('active');
 }
 
-// ????????
+// 点击页面空白处时收起数据库下拉框。
 document.addEventListener('click', () => {
     const dd = document.getElementById('ontoDbDropdown');
     const btn = document.getElementById('ontoDbBtn');
@@ -8633,13 +8676,13 @@ document.addEventListener('click', () => {
     if (lbtn) lbtn.classList.remove('active');
 });
 
-// ---- ??????? tab ?????????? ----
+// 初始化本体标签页。
 function initOntologyTab() {
     const dropdown = document.getElementById('ontoDbDropdown');
     const emptyEl  = document.getElementById('ontoDbDropdownEmpty');
     if (!dropdown) return;
 
-    // ?????
+    // 清空旧的数据库选项。
     dropdown.querySelectorAll('.onto-db-option').forEach(el => el.remove());
 
     if (databases.length === 0) {
@@ -8665,14 +8708,14 @@ function initOntologyTab() {
             };
             dropdown.appendChild(item);
         });
-        // ??????????
+        // 没有选中时显示占位文本。
         if (!ontoSelectedDbId) {
             const textEl = document.getElementById('ontoDbBtnText');
-            if (textEl) { textEl.textContent = '?????'; textEl.classList.add('placeholder'); }
+            if (textEl) { textEl.textContent = '请选择数据库'; textEl.classList.add('placeholder'); }
         }
     }
 
-    // resize ??????????
+    // 监听窗口缩放，重新渲染本体图。
     if (!window._ontoResizeRegistered) {
         window._ontoResizeRegistered = true;
         window.addEventListener('resize', () => {
@@ -8681,7 +8724,7 @@ function initOntologyTab() {
     }
 }
 
-// ---- ???? ----
+// 血缘分析状态。
 let lineageSelectedDbId = null;
 let lineageSimulation = null;
 let lineageFocusTableId = null;
@@ -8765,7 +8808,7 @@ function initLineageTab() {
         });
         if (!lineageSelectedDbId) {
             const te = document.getElementById('lineageDbBtnText');
-            if (te) { te.textContent = '?????'; te.classList.add('placeholder'); }
+            if (te) { te.textContent = '请选择数据库'; te.classList.add('placeholder'); }
         }
     }
     if (!window._lineageResizeRegistered) {
@@ -8832,7 +8875,7 @@ function lineageDownstreamBfsIds(focusId, dlinks) {
     return seen;
 }
 
-/** ??????????? schema.table ?????????? */
+// 将 schema.table 拆成可换行标签。
 function lineageTableLabelLines(full) {
     const s = String(full || '');
     if (!s) return [''];
@@ -8849,6 +8892,7 @@ function lineageTableLabelLines(full) {
     return lines;
 }
 
+// 测量血缘节点尺寸。
 function lineageMeasureNodeBoxes(svg, nodes) {
     const tmp = svg.append('text')
         .attr('class', 'lineage-node-label lineage-node-label-measure')
@@ -8895,6 +8939,7 @@ function lineageLineEndpoints(sx, sy, tx, ty, offS, offT) {
     };
 }
 
+// 生成血缘连线曲线。
 function lineageLinkCurveGeom(d, bias) {
     const offS = Math.hypot(d.source.lw, d.source.lh) + 4;
     const offT = Math.hypot(d.target.lw, d.target.lh) + 4;
@@ -8917,12 +8962,13 @@ function lineageLinkCurveGeom(d, bias) {
     };
 }
 
+// 按焦点表高亮血缘图。
 function applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, tables, edgeCount) {
     const dlinks = lineageDirectedLinksFromEdges(edges);
-    const base = `${tables.length} ?? ? ${edgeCount} ???`;
+    const base = `${tables.length} 张表 / ${edgeCount} 条关系`;
     if (!statsEl) return;
     if (!lineageFocusTableId) {
-        statsEl.textContent = `${base} ? ??????????????????`;
+        statsEl.textContent = `${base}，未选择焦点表`;
         nodeSel.selectAll('.lineage-node-shape').attr('opacity', 1).attr('stroke-width', 2).attr('stroke', 'url(#lineage-node-stroke-grad)');
         linkItems.selectAll('path').attr('opacity', 1);
         linkItems.selectAll('.lineage-particle').attr('opacity', 1);
@@ -8932,9 +8978,9 @@ function applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, t
     const up = lineageExpandedUpstreamIds(focus, dlinks);
     const down = lineageDownstreamBfsIds(focus, dlinks);
     const keep = new Set([focus, ...up, ...down]);
-    const upStr = [...up].sort().join(', ') || '?';
-    const downStr = [...down].sort().join(', ') || '?';
-    statsEl.innerHTML = `${escapeHtml(base)} ? ?? <code style="color:#67e8f9">${escapeHtml(focus)}</code> ? ??: ${escapeHtml(upStr)} ? ??: ${escapeHtml(downStr)}`;
+    const upStr = [...up].sort().join(', ') || '无';
+    const downStr = [...down].sort().join(', ') || '无';
+    statsEl.innerHTML = `${escapeHtml(base)}，焦点表 <code style="color:#67e8f9">${escapeHtml(focus)}</code>，上游：${escapeHtml(upStr)}，下游：${escapeHtml(downStr)}`;
 
     nodeSel.selectAll('.lineage-node-shape')
         .attr('opacity', d => (keep.has(d.id) ? 1 : 0.15))
@@ -8950,9 +8996,10 @@ function applyLineageFocusHighlight(nodeSel, linkItems, nodes, edges, statsEl, t
     linkItems.selectAll('.lineage-particle').attr('opacity', linkOp);
 }
 
+// 加载血缘图数据。
 async function loadLineageGraph() {
     if (!lineageSelectedDbId) {
-        showOntoToast('???????', true);
+        showOntoToast('请先选择数据库', true);
         return;
     }
     lineageFocusTableId = null;
@@ -8960,17 +9007,18 @@ async function loadLineageGraph() {
         const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${lineageSelectedDbId}/lineage`);
         const data = await res.json();
         if (!data.success) {
-            showOntoToast(data.message || '??????', true);
+            showOntoToast(data.message || '加载失败', true);
             return;
         }
         window.lineageLastPayload = data;
         renderLineageGraph(data);
         if (data.message) showOntoToast(data.message);
     } catch (err) {
-        showOntoToast('????: ' + (err.message || String(err)), true);
+        showOntoToast('加载失败：' + (err.message || String(err)), true);
     }
 }
 
+// 渲染血缘图。
 function renderLineageGraph(data) {
     const svgEl = document.getElementById('lineageSvg');
     const ph = document.getElementById('lineagePlaceholder');
@@ -8984,7 +9032,7 @@ function renderLineageGraph(data) {
 
     if (listEl) {
         if (edges.length === 0) {
-            listEl.innerHTML = '<div style="color:#a0aec0;padding:12px">????????</div>';
+            listEl.innerHTML = '<div style="color:#a0aec0;padding:12px">暂无血缘关系</div>';
         } else {
             listEl.innerHTML = edges.map(e => {
                 const ft = escapeHtml(e.fromTable || '');
@@ -8992,7 +9040,7 @@ function renderLineageGraph(data) {
                 const tt = escapeHtml(e.toTable || '');
                 const tc = escapeHtml(e.toColumn || '');
                 const tag = e.kind === 'etl' ? ' <span style="color:#f6ad55;font-size:11px">ETL</span>' : '';
-                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> ? <code>${tt}</code>.<code>${tc}</code>${tag}</div>`;
+                return `<div class="lineage-edge-row"><code>${ft}</code>.<code>${fc}</code> → <code>${tt}</code>.<code>${tc}</code>${tag}</div>`;
             }).join('');
         }
     }
@@ -9023,6 +9071,7 @@ function renderLineageGraph(data) {
         };
     });
 
+    // 没有节点时显示空状态。
     if (nodes.length === 0) {
         lineageStopParticleLoop();
         if (ph) ph.style.display = '';
@@ -9234,7 +9283,7 @@ document.addEventListener('keydown', e => {
 });
 
 // ============================================================
-// ??????
+// 模型管理
 // ============================================================
 
 let llmModels = [];
@@ -9242,12 +9291,12 @@ let smallModels = [];
 let editingLLMModelId = null;
 let editingSmallModelId = null;
 
-// ???????
+// 初始化模型页签。
 function initModelsTab() {
     loadLLMModels();
     loadSmallModels();
     
-    // Tab ??
+    // 切换模型子页签。
     document.querySelectorAll('.models-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.models-tab-btn').forEach(b => b.classList.remove('active'));
@@ -9259,7 +9308,7 @@ function initModelsTab() {
     });
 }
 
-// ========== ????? ==========
+// ========== LLM 模型 ==========
 
 async function loadLLMModels() {
     try {
@@ -9270,18 +9319,18 @@ async function loadLLMModels() {
             renderLLMModels();
         }
     } catch (e) {
-        console.error('???????:', e);
+        console.error('加载 LLM 模型失败:', e);
     }
 }
 
 function renderLLMModels() {
     const container = document.getElementById('llmModelsList');
     if (llmModels.length === 0) {
-        container.innerHTML = '<div class="models-empty">??????????"????"??</div>';
+        container.innerHTML = '<div class="models-empty">暂无模型，点击“新增”开始配置</div>';
         return;
     }
     
-    const typeIcons = { llm: '??', rerank: '??', embedding: '??', asr: '??', tts: '??' };
+    const typeIcons = { llm: 'LLM', rerank: 'R', embedding: 'E', asr: 'ASR', tts: 'TTS' };
     const typeLabels = { llm: 'LLM', rerank: 'Rerank', embedding: 'Embedding', asr: 'ASR', tts: 'TTS' };
     
     container.innerHTML = llmModels.map(m => {
@@ -9289,21 +9338,21 @@ function renderLLMModels() {
         return `
         <div class="model-card ${m.enabled ? '' : 'disabled'}">
             <div class="model-card-header">
-                <span class="model-icon">${typeIcons[m.type] || '??'}</span>
+                <span class="model-icon">${typeIcons[m.type] || 'M'}</span>
                 <span class="model-name">${escapeHtml(m.name)}</span>
                 <span class="model-type-badge">${typeLabels[m.type] || m.type}</span>
             </div>
             <div class="model-card-body">
-                <div class="model-info"><strong>???:</strong> ${escapeHtml(m.provider || 'custom')}</div>
-                <div class="model-info"><strong>??:</strong> ${escapeHtml(m.model || '-')}</div>
-                <div class="model-info"><strong>??:</strong> ${escapeHtml(m.url)}</div>
+                <div class="model-info"><strong>提供方:</strong> ${escapeHtml(m.provider || 'custom')}</div>
+                <div class="model-info"><strong>模型:</strong> ${escapeHtml(m.model || '-')}</div>
+                <div class="model-info"><strong>地址:</strong> ${escapeHtml(m.url)}</div>
                 ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
             </div>
             <div class="model-card-footer">
-                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '? ???' : '? ???'}</span>
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '已启用' : '已停用'}</span>
                 <div class="model-actions">
-                    <button class="btn btn-sm" onclick="editLLMModel('${safeMId}')">??</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${safeMId}')">??</button>
+                    <button class="btn btn-sm" onclick="editLLMModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLLMModel('${safeMId}')">删除</button>
                 </div>
             </div>
         </div>
@@ -9312,7 +9361,7 @@ function renderLLMModels() {
 
 function showAddLLMModelModal() {
     editingLLMModelId = null;
-    document.getElementById('llmModalTitle').textContent = '?????';
+    document.getElementById('llmModalTitle').textContent = '新增模型';
     document.getElementById('llmModelForm').reset();
     document.getElementById('llmEnabledInput').checked = true;
     document.getElementById('llmModelModal').classList.add('show');
@@ -9322,7 +9371,7 @@ function editLLMModel(id) {
     const model = llmModels.find(m => m.id === id);
     if (!model) return;
     editingLLMModelId = id;
-    document.getElementById('llmModalTitle').textContent = '?????';
+    document.getElementById('llmModalTitle').textContent = '编辑模型';
     document.getElementById('llmNameInput').value = model.name;
     document.getElementById('llmTypeInput').value = model.type;
     document.getElementById('llmProviderInput').value = model.provider || 'custom';
@@ -9366,26 +9415,26 @@ async function handleLLMModelSubmit(e) {
             hideLLMModelModal();
             loadLLMModels();
         } else {
-            showToast(result.message || '????', 'error');
+            showToast(result.message || '保存失败', 'error');
         }
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('保存失败：' + e.message, 'error');
     }
 }
 
 async function deleteLLMModel(id) {
-    if (!confirm('????????')) return;
+    if (!confirm('确定删除这个模型吗？')) return;
     try {
         const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/llm/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadLLMModels();
-        else showToast(result.message || '????', 'error');
+        else showToast(result.message || '删除失败', 'error');
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('删除失败：' + e.message, 'error');
     }
 }
 
-// ========== ????? ==========
+// ========== 小模型 ==========
 
 async function loadSmallModels() {
     try {
@@ -9396,14 +9445,14 @@ async function loadSmallModels() {
             renderSmallModels();
         }
     } catch (e) {
-        console.error('???????:', e);
+        console.error('加载小模型失败', e);
     }
 }
 
 function renderSmallModels() {
     const container = document.getElementById('smallModelsList');
     if (smallModels.length === 0) {
-        container.innerHTML = '<div class="models-empty">??????????"????"??</div>';
+        container.innerHTML = '<div class="models-empty">暂无模型，点击“新增”开始配置</div>';
         return;
     }
     
@@ -9412,20 +9461,20 @@ function renderSmallModels() {
         return `
         <div class="model-card ${m.enabled ? '' : 'disabled'}">
             <div class="model-card-header">
-                <span class="model-icon">??</span>
+                <span class="model-icon">S</span>
                 <span class="model-name">${escapeHtml(m.name)}</span>
             </div>
             <div class="model-card-body">
                 ${m.description ? `<div class="model-desc">${escapeHtml(m.description)}</div>` : ''}
-                <div class="model-info"><strong>??:</strong> ${m.input_type || 'text'}</div>
-                <div class="model-info"><strong>??:</strong> ${m.output_type || 'text'}</div>
+                <div class="model-info"><strong>输入类型:</strong> ${m.input_type || 'text'}</div>
+                <div class="model-info"><strong>输出类型:</strong> ${m.output_type || 'text'}</div>
             </div>
             <div class="model-card-footer">
-                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '? ???' : '? ???'}</span>
+                <span class="model-status ${m.enabled ? 'enabled' : 'disabled'}">${m.enabled ? '已启用' : '已停用'}</span>
                 <div class="model-actions">
-                    <button class="btn btn-sm" onclick="runSmallModel('${safeMId}')">??</button>
-                    <button class="btn btn-sm" onclick="editSmallModel('${safeMId}')">??</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${safeMId}')">??</button>
+                    <button class="btn btn-sm" onclick="runSmallModel('${safeMId}')">运行</button>
+                    <button class="btn btn-sm" onclick="editSmallModel('${safeMId}')">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteSmallModel('${safeMId}')">删除</button>
                 </div>
             </div>
         </div>
@@ -9434,7 +9483,7 @@ function renderSmallModels() {
 
 function showAddSmallModelModal() {
     editingSmallModelId = null;
-    document.getElementById('smallModalTitle').textContent = '?????';
+    document.getElementById('smallModalTitle').textContent = '新增小模型';
     document.getElementById('smallModelForm').reset();
     document.getElementById('smallEnabledInput').checked = true;
     populateSmallModelDbSelect();
@@ -9445,7 +9494,7 @@ function editSmallModel(id) {
     const model = smallModels.find(m => m.id === id);
     if (!model) return;
     editingSmallModelId = id;
-    document.getElementById('smallModalTitle').textContent = '?????';
+    document.getElementById('smallModalTitle').textContent = '编辑小模型';
     populateSmallModelDbSelect();
     document.getElementById('smallNameInput').value = model.name;
     document.getElementById('smallDescInput').value = model.description || '';
@@ -9464,7 +9513,7 @@ function hideSmallModelModal() {
 
 function populateSmallModelDbSelect() {
     const select = document.getElementById('smallDbSelect');
-    select.innerHTML = '<option value="">??????</option>';
+    select.innerHTML = '<option value="">请选择数据库</option>';
     databases.forEach(db => {
         select.innerHTML += `<option value="${escapeHtml(db.id)}">${escapeHtml(db.name)} (${escapeHtml(db.type)})</option>`;
     });
@@ -9498,22 +9547,22 @@ async function handleSmallModelSubmit(e) {
             hideSmallModelModal();
             loadSmallModels();
         } else {
-            showToast(result.message || '????', 'error');
+            showToast(result.message || '保存失败', 'error');
         }
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('保存失败：' + e.message, 'error');
     }
 }
 
 async function deleteSmallModel(id) {
-    if (!confirm('????????')) return;
+    if (!confirm('确定删除这个小模型吗？')) return;
     try {
         const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/models/small/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadSmallModels();
-        else showToast(result.message || '????', 'error');
+        else showToast(result.message || '删除失败', 'error');
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('删除失败：' + e.message, 'error');
     }
 }
 
@@ -9521,7 +9570,7 @@ async function runSmallModel(id) {
     const model = smallModels.find(m => m.id === id);
     if (!model) return;
     
-    const inputText = prompt('???????:');
+    const inputText = prompt('请输入运行内容：');
     if (inputText === null) return;
     
     try {
@@ -9532,11 +9581,11 @@ async function runSmallModel(id) {
         });
         const result = await resp.json();
         if (result.success) {
-            showToast('????:\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)), 'success', 10000);
+            showToast('运行结果：\n' + (Array.isArray(result.output) ? result.output.join('\n') : JSON.stringify(result.output, null, 2)), 'success', 10000);
         } else {
-            showToast('????: ' + result.message, 'error');
+            showToast('运行失败：' + result.message, 'error');
         }
     } catch (e) {
-        showToast('????: ' + e.message, 'error');
+        showToast('运行失败：' + e.message, 'error');
     }
 }
