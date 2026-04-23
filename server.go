@@ -1,7 +1,6 @@
 package main
 
 import (
-	"reflect"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -20,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -33,14 +33,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
-	_ "modernc.org/sqlite"
 	"github.com/pkg/sftp"
 	_ "github.com/sijms/go-ora/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/bcrypt"
+	gossh "golang.org/x/crypto/ssh"
+	_ "modernc.org/sqlite"
 )
 
 //go:embed governance-examples
@@ -66,7 +66,7 @@ const (
 
 	// 治理任务配置
 	GovernanceSchedulerInterval = 30 * time.Second // 治理任务调度器检查间隔
-	GovernanceJobQueueSize      = 100             // 治理任务队列大小
+	GovernanceJobQueueSize      = 100              // 治理任务队列大小
 
 	// 数据库连接池默认配置
 	DefaultDBMaxOpenConns = 10
@@ -369,13 +369,13 @@ type APIResponse struct {
 
 // 标准错误码定义
 const (
-	ErrCodeBadRequest    = "BAD_REQUEST"
-	ErrCodeUnauthorized  = "UNAUTHORIZED"
-	ErrCodeForbidden     = "FORBIDDEN"
-	ErrCodeNotFound      = "NOT_FOUND"
+	ErrCodeBadRequest       = "BAD_REQUEST"
+	ErrCodeUnauthorized     = "UNAUTHORIZED"
+	ErrCodeForbidden        = "FORBIDDEN"
+	ErrCodeNotFound         = "NOT_FOUND"
 	ErrCodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
-	ErrCodeInternalError = "INTERNAL_ERROR"
-	ErrCodeInvalidInput  = "INVALID_INPUT"
+	ErrCodeInternalError    = "INTERNAL_ERROR"
+	ErrCodeInvalidInput     = "INVALID_INPUT"
 )
 
 // jsonResponse 写入 JSON 响应（内部函数）
@@ -957,11 +957,11 @@ type GovernanceTask struct {
 	RegisterAsAPI bool                    `json:"register_as_api"`           // 是否注册为 API 接口
 	APIPath       string                  `json:"api_path,omitempty"`        // API 路径（如 /api/tasks/my-task）
 	APIMethod     string                  `json:"api_method,omitempty"`      // API 方法（GET/POST）
-	FileBatchMode  string                  `json:"file_batch_mode,omitempty"`  // "" | "per_file" | "single"（多文件一次执行）
-	Runtime        string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境，旧字段）
-	RunMode        string                  `json:"run_mode,omitempty"`        // "backend" | "frontend"（前端新字段）
-	ExecutionMode  string                  `json:"execution_mode,omitempty"`  // 兼容前端/后端两种命名
-	ExampleFiles   []GovernanceExampleFile `json:"example_files,omitempty"`
+	FileBatchMode string                  `json:"file_batch_mode,omitempty"` // "" | "per_file" | "single"（多文件一次执行）
+	Runtime       string                  `json:"runtime,omitempty"`         // "backend" | "frontend"（执行环境，旧字段）
+	RunMode       string                  `json:"run_mode,omitempty"`        // "backend" | "frontend"（前端新字段）
+	ExecutionMode string                  `json:"execution_mode,omitempty"`  // 兼容前端/后端两种命名
+	ExampleFiles  []GovernanceExampleFile `json:"example_files,omitempty"`
 	CreatedAt     string                  `json:"created_at"`
 	UpdatedAt     string                  `json:"updated_at,omitempty"`
 	Status        string                  `json:"status"` // "idle" | "running" | "success" | "error"
@@ -1397,6 +1397,15 @@ func loadGovernanceAggregateDailyReportJS() string {
 	return string(b)
 }
 
+func loadGovernancePresetJS(name string) string {
+	b, err := governanceExamplesFS.ReadFile("governance-scripts/" + name)
+	if err != nil {
+		log.Printf("读取治理预置脚本 %s 失败: %v", name, err)
+		return ""
+	}
+	return string(b)
+}
+
 // governancePresetDefinitions returns the canonical embedded preset definitions used to refresh persisted preset metadata.
 func governancePresetDefinitions() map[string]GovernanceTask {
 	now := time.Now().Format(time.RFC3339)
@@ -1406,7 +1415,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Name:        "数据库表行数统计",
 			Type:        "scheduled",
 			Description: "查询所有表的行数，输出统计报告（需关联数据库）",
-			JsCode:      "// 定时任务：统计数据库所有表的行数（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '"' + String(t).replace(/\"/g, '\"\"') + '"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\ngov.log('='.repeat(40));\ngov.log(`共 ${tableList.length} 张表`);\ngov.log('='.repeat(40));\nfor (const tableName of tableList) {\n  const result = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const cnt = result && result[0] ? (result[0].cnt ?? result[0].CNT ?? 0) : 0;\n  gov.log(`  ${String(tableName).padEnd(30)} ${cnt} 行`);\n}\ngov.log('='.repeat(40));\ngov.log('统计完成');",
+			JsCode:      loadGovernancePresetJS("database-table-row-count.js"),
 			CronExpr:    "0 2 * * *",
 			Enabled:     false,
 			CreatedAt:   now,
@@ -1417,7 +1426,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Name:        "Excel数据解析入库",
 			Type:        "interactive",
 			Description: "上传Excel文件，解析内容预览，可选入库",
-			JsCode:      "// Excel 数据解析预览 + 入「当前关联的单个库」的指定表\n\nconst workbook = await gov.readExcel(INPUT_FILE);\nconst sheetName = workbook.SheetNames[0];\nconst data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });\nconst headers = data[0];\nconst rows = data.slice(1);\n\ngov.log(`工作表: ${sheetName}`);\ngov.log(`总行数: ${rows.length}, 列数: ${headers.length}`);\ngov.log(`表头: ${headers.join(', ')}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, rows.length); i++) {\n    gov.log(`  行${i + 1}: ${rows[i].join(' | ')}`);\n}\n\n// 入当前任务关联的单个库的某张表（编辑任务时可选择关联数据库）\nconst tableName = 'your_table';\nconst insertCols = ['col1', 'col2', 'col3'];\nlet n = 0;\ntry {\n  for (let i = 0; i < rows.length; i++) {\n    const row = rows[i];\n    await gov.executeSQL(`INSERT INTO ${tableName} (${insertCols.join(',')}) VALUES (?,?,?)`, [row[0], row[1], row[2] ?? null]);\n    n++;\n  }\n  gov.log(`\\n入库完成: ${tableName} 写入 ${n} 行`);\n} catch (e) {\n  gov.log('\\n入库失败: ' + e.message);\n  gov.log('请编辑任务：1) 关联一个数据库 2) 修改上面 tableName、insertCols 与列数');\n}\n",
+			JsCode:      loadGovernancePresetJS("excel-data-import.js"),
 			InputType:   "file",
 			AcceptExts:  []string{".xlsx", ".xls"},
 			CreatedAt:   now,
@@ -1428,7 +1437,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Name:        "CSV文本解析",
 			Type:        "interactive",
 			Description: "输入CSV格式文本，解析并展示结构化结果",
-			JsCode:      "// CSV 文本解析预览\n\nconst result = Papa.parse(INPUT_TEXT, { header: true });\n\ngov.log(`列数: ${result.meta.fields.length}`);\ngov.log(`表头: ${result.meta.fields.join(', ')}`);\ngov.log(`数据行数: ${result.data.length}`);\n\ngov.log('\\n--- 数据预览 (前5行) ---');\nfor (let i = 0; i < Math.min(5, result.data.length); i++) {\n    const row = result.data[i];\n    gov.log(`行 ${i + 1}: ${Object.values(row).join(' | ')}`);\n}\ngov.log(`\\n提示: 使用\"入库代码生成助手\"可快速生成入库代码`);",
+			JsCode:      loadGovernancePresetJS("csv-text-parser.js"),
 			InputType:   "text",
 			CreatedAt:   now,
 			Status:      "idle",
@@ -1438,23 +1447,23 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Name:        "数据完整性检查",
 			Type:        "scheduled",
 			Description: "检查数据库表的空值情况（需关联数据库）",
-			JsCode:      "// 定时任务：检查各表的数据完整性（支持 MySQL / 达梦等）\nconst dbType = gov.getDbType();\nlet tableList = [];\nif (dbType === 'dm') {\n  const rows = await gov.querySQL(\"SELECT NAME FROM SYSOBJECTS WHERE TYPE$='SCHOBJ' AND SUBTYPE$='UTAB' AND PID=-1\");\n  tableList = rows.map(r => r.NAME != null ? r.NAME : r.name).filter(t => { const n = String(t); return !n.startsWith('##') && !n.startsWith('AQ$_') && !n.startsWith('SYS$') && !n.startsWith('DBMS_') && !n.startsWith('REG$') && n !== 'POLICIES' && !n.startsWith('POLICY_'); });\n} else {\n  const rows = await gov.querySQL('SHOW TABLES');\n  tableList = rows.map(r => Object.values(r)[0]);\n}\nconst q = (t) => { if (dbType === 'oracle') return '"' + String(t).replace(/\"/g, '\"\"') + '"'; if (dbType === 'dm') return String(t); if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'tidb') return '`' + String(t).replace(/`/g, '``') + '`'; return t; };\nconst now = new Date().toLocaleString();\ngov.log(`数据完整性检查报告 - ${now}`);\ngov.log('='.repeat(50));\nfor (const tableName of tableList) {\n  gov.log(`\\n[${tableName}]`);\n  let columns = [];\n  if (dbType === 'dm') {\n    const rows = await gov.querySQL(`SELECT COLUMN_NAME, NULLABLE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '${String(tableName).replace(/'/g, "''").toUpperCase()}' ORDER BY COLUMN_ID`);\n    columns = rows.map(r => ({ name: r.COLUMN_NAME ?? r.column_name, nullable: (r.NULLABLE ?? r.nullable) === 'Y' }));\n  } else {\n    const rows = await gov.querySQL(`SHOW COLUMNS FROM ${q(tableName)}`);\n    columns = rows.map(r => ({ name: r.Field, nullable: r.Null === 'YES' }));\n  }\n  const countResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)}`);\n  const totalCnt = countResult && countResult[0] ? (countResult[0].cnt ?? countResult[0].CNT ?? 0) : 0;\n  for (const col of columns) {\n    if (col.nullable) {\n      const colQ = q(col.name);\n      const nullResult = await gov.querySQL(`SELECT COUNT(*) as cnt FROM ${q(tableName)} WHERE ${colQ} IS NULL`);\n      const n = nullResult && nullResult[0] ? (nullResult[0].cnt ?? nullResult[0].CNT ?? 0) : 0;\n      if (n > 0) gov.log(`  ⚠ ${col.name}: ${n} 个空值`);\n    }\n  }\n  gov.log(`  总行数: ${totalCnt}, 列数: ${columns.length}`);\n}\ngov.log('='.repeat(50));\ngov.log('检查完成');",
+			JsCode:      loadGovernancePresetJS("data-integrity-check.js"),
 			CronExpr:    "30 1 * * *",
 			Enabled:     false,
 			CreatedAt:   now,
 			Status:      "idle",
 		},
 		"Word文档内容提取": {
-			Owner:       "admin",
-			Name:        "Word文档内容提取",
-			Type:        "interactive",
-			Description: "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
-			JsCode:      "// 1. 读取 Word 得到非结构化文本\nconst result = await gov.readWord(INPUT_FILE);\nconst rawText = result.value || '';\ngov.log('Word 原文长度: ' + rawText.length + ' 字符');\nif (result.messages && result.messages.length > 0) {\n  result.messages.forEach(m => gov.log(`  ${m.type}: ${m.message}`));\n}\n\n// 2. 使用 AI（与 AI 助手相同的 API URL / API Key / Model）将非结构化文本整理为结构化数据\nconst prompt = `你是一个文本结构化助手。请将下面从 Word 文档提取的非结构化文本，整理为结构化数据。\n要求：只输出一个 JSON 数组，每项为对象，包含字段 title（标题）、summary（摘要）、content（对应段落或条目的正文）。若原文无明确标题/摘要，可据内容归纳。不要输出任何 markdown 或解释，仅输出 JSON 数组。\n\n原文：\n${rawText.slice(0, 6000)}`;\n\nlet structured = [];\ntry {\n  const aiText = await gov.callAI(prompt);\n  const jsonMatch = aiText.match(/\\[([\\s\\S]*)\\]/);\n  const jsonStr = jsonMatch ? '[' + jsonMatch[1] + ']' : aiText;\n  structured = JSON.parse(jsonStr);\n  gov.log('AI 结构化得到 ' + structured.length + ' 条');\n} catch (e) {\n  gov.log('AI 结构化失败: ' + e.message);\n  gov.log('原文前 500 字: ' + rawText.slice(0, 500));\n}\n\n// 3. 若关联了数据库，则写入表（请按实际表结构修改表名和列）\nconst tableName = 'doc_extracts';\nconst dbType = gov.getDbType();\nif (structured.length > 0 && dbType) {\n  let n = 0;\n  for (const row of structured) {\n    try {\n      await gov.executeSQL(\n        'INSERT INTO ' + tableName + ' (title, summary, content) VALUES (?, ?, ?)',\n        [row.title || '', row.summary || '', row.content || '']\n      );\n      n++;\n    } catch (e) {\n      gov.log('写入失败: ' + e.message);\n    }\n  }\ngov.log('入库完成: ' + tableName + ' 写入 ' + n + ' 条');\n} else if (structured.length > 0) {\n  gov.log('未关联数据库，仅展示结构化结果（关联数据库后可自动入库）');\n  structured.slice(0, 5).forEach((r, i) => gov.log(`  [${i+1}] ${(r.title || '').slice(0, 30)}`));\n}\ngov.log('文档处理完成');",
-			InputType:   "file",
-			AcceptExts:  []string{".docx"},
+			Owner:        "admin",
+			Name:         "Word文档内容提取",
+			Type:         "interactive",
+			Description:  "上传Word，提取文本后经AI结构化并入库（AI使用「AI助手」的URL/API Key/模型）",
+			JsCode:       loadGovernancePresetJS("word-content-extract.js"),
+			InputType:    "file",
+			AcceptExts:   []string{".docx"},
 			ExampleFiles: []GovernanceExampleFile{{Name: "模板.docx", Path: "template.docx"}},
-			CreatedAt:   now,
-			Status:      "idle",
+			CreatedAt:    now,
+			Status:       "idle",
 		},
 		"综合日报生成器": {
 			Owner:         "admin",
@@ -1479,453 +1488,9 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Name:        "国际新闻入库",
 			Type:        "interactive",
 			Description: "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
-			JsCode:      `* 国际新闻入库脚本 — DataToolbox Gov Task
- *
- * 三张表：
- *   1. intl_news        国际新闻动态  (新闻内码, 时间, 区域, 事件)
- *   2. transport_support 运输保障情况  (运保内码, 时间, 区域, 运输情况)
- *   3. dispatch_force    保障力量出动  (出动内码, 运保内码, 装备型号, 架次, 批次)
- *
- * 流程：原始新闻文本 → gov.callAI 分块结构化解析 → gov.executeSQL 批量入库
- * 数据库：达梦(DM)，绑定到任务即可使用
- */
-
-// ============================================================
-// 1. DDL — 达梦建表语句（在任务中执行一次即可）
-// ============================================================
-
-const DDL = [
-    '-- 国际新闻动态',
-    'CREATE TABLE IF NOT EXISTS intl_news (',
-    '    news_id       VARCHAR(64)   NOT NULL,',
-    '    news_time     TIMESTAMP,',
-    '    region        VARCHAR(128),',
-    '    event         TEXT,',
-    '    PRIMARY KEY (news_id)',
-    ');',
-    '',
-    '-- 运输保障情况',
-    'CREATE TABLE IF NOT EXISTS transport_support (',
-    '    support_id    VARCHAR(64)   NOT NULL,',
-    '    support_time  TIMESTAMP,',
-    '    region        VARCHAR(128),',
-    '    transport_info TEXT,',
-    '    PRIMARY KEY (support_id)',
-    ');',
-    '',
-    '-- 保障力量出动情况',
-    'CREATE TABLE IF NOT EXISTS dispatch_force (',
-    '    dispatch_id   VARCHAR(64)   NOT NULL,',
-    '    support_id    VARCHAR(64),',
-    '    equip_model   VARCHAR(128),',
-    '    sorties       INT,',
-    '    batches       INT,',
-    '    PRIMARY KEY (dispatch_id)',
-    ');',
-].join('\n');
-
-// ============================================================
-// 2. AI Prompt 模板
-// ============================================================
-
-/**
- * 核心 Prompt：要求 LLM 从新闻文本中提取三张表的结构化数据
- * 输出严格 JSON，方便后续直接解析入库
- */
-const EXTRACT_PROMPT = [
-    '',
-    '要求：',
-    '1. 提取所有新闻事件，每条事件包含：时间、区域、事件描述',
-    '2. 提取所有运输保障相关信息，每条包含：时间、区域、运输情况描述',
-    '3. 对每条运输保障，提取对应的保障力量出动信息：装备型号、架次、批次',
-    '',
-    '输出格式（严格遵守，不要输出任何其他内容）：',
-    '{',
-    '  "news": [',
-    '    {',
-    '      "news_id": "NWS_yyyyMMdd_HHmmss_序号",',
-    '      "news_time": "2025-01-15 08:30:00",',
-    '      "region": "某某区域",',
-    '      "event": "事件描述"',
-    '    }',
-    '  ],',
-    '  "transport_support": [',
-    '    {',
-    '      "support_id": "TRS_yyyyMMdd_HHmmss_序号",',
-    '      "support_time": "2025-01-15 10:00:00",',
-    '      "region": "某某区域",',
-    '      "transport_info": "运输情况描述",',
-    '      "dispatch_force": [',
-    '        {',
-    '          "dispatch_id": "DSP_yyyyMMdd_HHmmss_序号",',
-    '          "equip_model": "运-20",',
-    '          "sorties": 3,',
-    '          "batches": 1',
-    '        }',
-    '      ]',
-    '    }',
-    '  ]',
-    '}',
-    '',
-    '规则：',
-    '- news_id 格式：NWS_时间戳_序号，时间取事件发生时间，序号从1开始',
-    '- support_id 格式：TRS_时间戳_序号',
-    '- dispatch_id 格式：DSP_时间戳_序号',
-    '- 时间格式：yyyy-MM-dd HH:mm:ss，无法确定具体时间的用新闻发布时间',
-    '- 如果某条新闻没有运输保障信息，transport_support 数组为空即可',
-    '- dispatch_force 中的 support_id 必须与上层 transport_support 的 support_id 一致',
-    '- sorties（架次）和 batches（批次）必须为整数，无法提取则为 null',
-].join('\n');
-
-/**
- * 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
- */
-const CHUNK_EXTRACT_PROMPT = [
-    '',
-    '{base_prompt}',
-    '',
-].join('\n');
-
-// ============================================================
-// 3. 核心逻辑
-// ============================================================
-
-/**
- * 生成唯一 ID
- */
-function generateId(prefix, index = 1) {
-    const now = new Date();
-    const ts = now.getFullYear().toString() +
-        String(now.getMonth() + 1).padStart(2, '0') +
-        String(now.getDate()).padStart(2, '0') +
-        '_'+
-        String(now.getHours()).padStart(2, '0') +
-        String(now.getMinutes()).padStart(2, '0') +
-        String(now.getSeconds()).padStart(2, '0');
-    return prefix + '_' + ts + '_' + String(index).padStart(3, '0');
-}
-
-/**
- * 分块：将长文本拆分为多段
- * @param {string} text - 原始文本
- * @param {number} maxChars - 每块最大字符数（默认 3000，预留 prompt 空间）
- * @returns {string[]} 文本块数组
- */
-function chunkText(text, maxChars = 3000) {
-    if (text.length <= maxChars) return [text];
-
-    const chunks = [];
-    // 按段落分割，尽量在段落边界断开
-    const paragraphs = text.split(/\\n+/);
-    let current = '';
-
-    for (const para of paragraphs) {
-        if (current.length + para.length + 1 > maxChars && current.length > 0) {
-            chunks.push(current.trim());
-            current = '';
-        }
-        current += (current ? '\\n' : '') + para;
-    }
-    if (current.trim()) chunks.push(current.trim());
-
-    // 如果某块仍然超长，强制截断
-    return chunks.map(c => c.length > maxChars * 1.5 ? c.slice(0, maxChars * 1.5) : c);
-}
-
-/**
- * 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况）
- */
-function parseAIResponse(text) {
-    // 去掉可能的 markdown 代码块包裹
-    const BACKTICK3 = String.fromCharCode(96,96,96);
-    let cleaned = text.trim();
-    if (cleaned.startsWith(BACKTICK3 + 'json')) {
-        cleaned = cleaned.slice(7);
-    } else if (cleaned.startsWith(BACKTICK3)) {
-        cleaned = cleaned.slice(3);
-    }
-    if (cleaned.endsWith(BACKTICK3)) {
-        cleaned = cleaned.slice(0, -3);
-    }
-    cleaned = cleaned.trim();
-
-    try {
-        return JSON.parse(cleaned);
-    } catch (e) {
-        // 尝试从文本中找到 JSON 对象
-        const startIdx = cleaned.indexOf('{');
-        const lastIdx = cleaned.lastIndexOf('}');
-        if (startIdx >= 0 && lastIdx > startIdx) {
-            const jsonStr = cleaned.slice(startIdx, lastIdx + 1);
-            try {
-                return JSON.parse(jsonStr);
-            } catch (e2) {
-        throw new Error('JSON 解析失败: ' + e2.message + '\\n原始文本: ' + cleaned.slice(0, 200));
-            }
-        }
-        throw new Error('AI 返回内容中未找到有效 JSON: ' + cleaned.slice(0, 200));
-    }
-}
-
-/**
- * 合并多个分块的提取结果，去重并修正 ID
- */
-function mergeChunkResults(results) {
-    const merged = { news: [], transport_support: [] };
-
-    for (const result of results) {
-        if (result.news) merged.news.push(...result.news);
-        if (result.transport_support) {
-            for (const ts of result.transport_support) {
-                merged.transport_support.push(ts);
-            }
-        }
-    }
-
-    // 重新生成 ID 去重
-    let newsIdx = 1;
-    const idMap = {}; // old_id -> new_id 映射
-    for (const item of merged.news) {
-        const newId = generateId('NWS', newsIdx++);
-        idMap[item.news_id] = newId;
-        item.news_id = newId;
-    }
-
-    let supportIdx = 1;
-    for (const ts of merged.transport_support) {
-        const oldSupportId = ts.support_id;
-        const newSupportId = generateId('TRS', supportIdx++);
-        idMap[oldSupportId] = newSupportId;
-        ts.support_id = newSupportId;
-
-        if (ts.dispatch_force) {
-            let dispatchIdx = 1;
-            for (const df of ts.dispatch_force) {
-                df.support_id = newSupportId; // 关联上层
-                df.dispatch_id = generateId('DSP', dispatchIdx++);
-            }
-        }
-    }
-
-    return merged;
-}
-
-/**
- * 简单去重：按 (时间+区域+事件描述) 去重新闻
- */
-function deduplicateNews(newsList) {
-    const seen = new Set();
-    return newsList.filter(item => {
-        const key = (item.news_time + '|' + item.region + '|' + item.event).slice(0, 200);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-}
-
-/**
- * 入库：将解析结果写入达梦数据库
- */
-async function insertToDatabase(data) {
-    const results = { news: 0, transport_support: 0, dispatch_force: 0, errors: [] };
-
-    // 1. 入库国际新闻
-    for (const item of data.news) {
-        try {
-            const sql = 'INSERT INTO intl_news (news_id, news_time, region, event) VALUES (?, ?, ?, ?)';
-            const affected = await gov.executeSQL(sql, [
-                item.news_id,
-                item.news_time,
-                item.region || '',
-                item.event || ''
-            ]);
-            results.news += affected;
-        } catch (e) {
-            results.errors.push('新闻入库失败 [' + item.news_id + ']: ' + e.message);
-            gov.log('⚠ 新闻入库失败 [' + item.news_id + ']: ' + e.message);
-        }
-    }
-
-    // 2. 入库运输保障 + 保障力量出动
-    for (const item of data.transport_support) {
-        try {
-            const sql = 'INSERT INTO transport_support (support_id, support_time, region, transport_info) VALUES (?, ?, ?, ?)';
-            const affected = await gov.executeSQL(sql, [
-                item.support_id,
-                item.support_time,
-                item.region || '',
-                item.transport_info || ''
-            ]);
-            results.transport_support += affected;
-        } catch (e) {
-            results.errors.push('运保入库失败 [' + item.support_id + ']: ' + e.message);
-            gov.log('⚠ 运保入库失败 [' + item.support_id + ']: ' + e.message);
-            continue; // 运保失败则跳过对应的出动
-        }
-
-        // 3. 入库保障力量出动
-        if (item.dispatch_force) {
-            for (const df of item.dispatch_force) {
-                try {
-                    const sql = 'INSERT INTO dispatch_force (dispatch_id, support_id, equip_model, sorties, batches) VALUES (?, ?, ?, ?, ?)';
-                    const affected = await gov.executeSQL(sql, [
-                        df.dispatch_id,
-                        df.support_id,
-                        df.equip_model || '',
-                        df.sorties != null ? df.sorties : 0,
-                        df.batches != null ? df.batches : 0
-                    ]);
-                    results.dispatch_force += affected;
-                } catch (e) {
-            results.errors.push('动出入库失败 [' + df.dispatch_id + ']: ' + e.message);
-                    gov.log('⚠ 动出入库失败 [' + df.dispatch_id + ']: ' + e.message);
-                }
-            }
-        }
-    }
-
-    return results;
-}
-
-/**
- * 查询已有数据量（用于幂等判断）
- */
-async function checkExistingData() {
-    try {
-        const newsCount = await gov.querySQL('SELECT COUNT(*) AS CNT FROM intl_news');
-        const supportCount = await gov.querySQL('SELECT COUNT(*) AS CNT FROM transport_support');
-        const dispatchCount = await gov.querySQL('SELECT COUNT(*) AS CNT FROM dispatch_force');
-        return {
-            news: newsCount[0]?.CNT || 0,
-            transport_support: supportCount[0]?.CNT || 0,
-            dispatch_force: dispatchCount[0]?.CNT || 0
-        };
-    } catch (e) {
-        gov.log('查询已有数据失败（表可能不存在）: ' + e.message);
-        return null;
-    }
-}
-
-// ============================================================
-// 4. 主入口
-// ============================================================
-
-/**
- * 主处理流程
- * INPUT_TEXT: 任务输入的原始新闻文本
- *
- * 使用方式：
- *   在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
- *   关联达梦数据库，运行此脚本即可自动解析入库。
- */
-async function main() {
-    gov.log('=== 国际新闻入库流程启动 ===');
-
-    // -- Step 0: 初始化数据库表 --
-    try {
-        // 达梦建表（IF NOT EXISTS 保证幂等）
-        const ddlStatements = DDL.split(';').map(s => s.trim()).filter(s => s && !s.startsWith('--'));
-        for (const stmt of ddlStatements) {
-            if (stmt) {
-                await gov.executeSQL(stmt);
-            }
-        }
-        gov.log('✓ 数据库表初始化完成');
-    } catch (e) {
-        gov.log('⚠ 建表可能已存在，跳过: ' + e.message);
-    }
-
-    // -- Step 1: 获取输入 --
-    const rawText = typeof INPUT_TEXT !== 'undefined' ? INPUT_TEXT : '';
-    if (!rawText || rawText.trim().length === 0) {
-        gov.log('✗ 未提供新闻文本输入（INPUT_TEXT 为空）');
-        return;
-    }
-    gov.log('✓ 获取输入文本，共 ' + rawText.length + ' 字符');
-
-    // -- Step 2: 分块 + AI 提取 --
-    const chunks = chunkText(rawText);
-    gov.log('✓ 文本分为 ' + chunks.length + ' 块进行处理');
-
-    const extractResults = [];
-    for (let i = 0; i < chunks.length; i++) {
-        const chunkIndex = i + 1;
-        gov.log('→ 正在处理第 ' + chunkIndex + '/' + chunks.length + ' 块...');
-
-        let prompt;
-        if (chunks.length === 1) {
-            prompt = EXTRACT_PROMPT + '\n\n---\n新闻文本：\n' + chunks[i];
-        } else {
-            prompt = CHUNK_EXTRACT_PROMPT
-                .replace('{chunk_index}', chunkIndex)
-                .replace('{total_chunks}', chunks.length)
-                .replace('{base_prompt}', EXTRACT_PROMPT)
-                + '\n\n---\n新闻文本：\n' + chunks[i];
-        }
-
-        try {
-            const aiResponse = await gov.callAI(prompt);
-            const parsed = parseAIResponse(aiResponse);
-            extractResults.push(parsed);
-            gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + parsed.news?.length || 0 + ' 条新闻, ' + parsed.transport_support?.length || 0 + ' 条运保');
-        } catch (e) {
-            gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败: ' + e.message);
-            // 继续下一块
-        }
-    }
-
-    if (extractResults.length === 0) {
-        gov.log('✗ 所有分块提取均失败，流程终止');
-        return;
-    }
-
-    // -- Step 3: 合并结果 + 去重 --
-    const merged = mergeChunkResults(extractResults);
-    merged.news = deduplicateNews(merged.news);
-
-    gov.log('✓ 合并后共: ' + merged.news.length + ' 条新闻, ' + merged.transport_support.length + ' 条运保');
-
-    // 展示提取结果
-    gov.showTable(merged.news.map(n => ({
-        新闻内码: n.news_id,
-        时间: n.news_time,
-        区域: n.region,
-        事件: n.event?.slice(0, 50) + '...'
-    })));
-
-    // -- Step 4: 入库 --
-    gov.log('→ 开始入库...');
-    const insertResult = await insertToDatabase(merged);
-
-    gov.log('=== 入库结果 ===');
-    gov.log('  国际新闻: ' + insertResult.news + ' 条');
-    gov.log('  运输保障: ' + insertResult.transport_support + ' 条');
-    gov.log('  保障力量出动: ' + insertResult.dispatch_force + ' 条');
-    if (insertResult.errors.length > 0) {
-        gov.log('  ⚠ 错误: ' + insertResult.errors.length + ' 条');
-        insertResult.errors.forEach(e => gov.log('    - ' + e));
-    }
-
-    // -- Step 5: 验证 --
-    const finalCount = await checkExistingData();
-    if (finalCount) {
-        gov.log('=== 数据库当前数据量 ===');
-        gov.showTable([{
-            国际新闻: finalCount.news,
-            运输保障: finalCount.transport_support,
-            保障力量出动: finalCount.dispatch_force
-        }]);
-    }
-
-    gov.log('=== 国际新闻入库流程完成 ===');
-}
-
-// 执行
-main().catch(e => {
-    gov.log('✗ 流程异常: ' + e.message);`,
+			JsCode:      loadGovernancePresetJS("international-news-import.js"),
 			InputType:   "file",
 			AcceptExts:  []string{".docx"},
-			ExampleFiles: []GovernanceExampleFile{{Name: "19990101_国际新闻与运输情况通报_模拟数据.docx", Path: "19990101_国际新闻与运输情况通报_模拟数据.docx"}, {Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"}, {Name: "19990103_国际新闻与运输情况通报_模拟数据.docx", Path: "19990103_国际新闻与运输情况通报_模拟数据.docx"}},
 			CreatedAt:   now,
 			Status:      "idle",
 		},
@@ -1947,27 +1512,78 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 		if !ok {
 			continue
 		}
-				old := *t
+		old := *t
 		changed := false
-		if t.Owner != def.Owner { t.Owner = def.Owner; changed = true }
-		if t.Name != def.Name { t.Name = def.Name; changed = true }
-		if t.Type != def.Type { t.Type = def.Type; changed = true }
-		if t.Description != def.Description { t.Description = def.Description; changed = true }
-		if t.InputType != def.InputType { t.InputType = def.InputType; changed = true }
-		if !reflect.DeepEqual(t.AcceptExts, def.AcceptExts) { t.AcceptExts = append([]string(nil), def.AcceptExts...); changed = true }
-		if t.RegisterAsAPI != def.RegisterAsAPI { t.RegisterAsAPI = def.RegisterAsAPI; changed = true }
-		if t.APIPath != def.APIPath { t.APIPath = def.APIPath; changed = true }
-		if t.APIMethod != def.APIMethod { t.APIMethod = def.APIMethod; changed = true }
-		if t.FileBatchMode != def.FileBatchMode { t.FileBatchMode = def.FileBatchMode; changed = true }
-		if t.Runtime != def.Runtime { t.Runtime = def.Runtime; changed = true }
-		if t.RunMode != def.RunMode { t.RunMode = def.RunMode; changed = true }
-		if t.ExecutionMode != def.ExecutionMode { t.ExecutionMode = def.ExecutionMode; changed = true }
-		if !reflect.DeepEqual(t.ExampleFiles, def.ExampleFiles) { t.ExampleFiles = append([]GovernanceExampleFile(nil), def.ExampleFiles...); changed = true }
-		if t.CronExpr != def.CronExpr { t.CronExpr = def.CronExpr; changed = true }
-		if t.Enabled != def.Enabled { t.Enabled = def.Enabled; changed = true }
+		if t.Owner != def.Owner {
+			t.Owner = def.Owner
+			changed = true
+		}
+		if t.Name != def.Name {
+			t.Name = def.Name
+			changed = true
+		}
+		if t.Type != def.Type {
+			t.Type = def.Type
+			changed = true
+		}
+		if t.Description != def.Description {
+			t.Description = def.Description
+			changed = true
+		}
+		if t.InputType != def.InputType {
+			t.InputType = def.InputType
+			changed = true
+		}
+		if !reflect.DeepEqual(t.AcceptExts, def.AcceptExts) {
+			t.AcceptExts = append([]string(nil), def.AcceptExts...)
+			changed = true
+		}
+		if t.RegisterAsAPI != def.RegisterAsAPI {
+			t.RegisterAsAPI = def.RegisterAsAPI
+			changed = true
+		}
+		if t.APIPath != def.APIPath {
+			t.APIPath = def.APIPath
+			changed = true
+		}
+		if t.APIMethod != def.APIMethod {
+			t.APIMethod = def.APIMethod
+			changed = true
+		}
+		if t.FileBatchMode != def.FileBatchMode {
+			t.FileBatchMode = def.FileBatchMode
+			changed = true
+		}
+		if t.Runtime != def.Runtime {
+			t.Runtime = def.Runtime
+			changed = true
+		}
+		if t.RunMode != def.RunMode {
+			t.RunMode = def.RunMode
+			changed = true
+		}
+		if t.ExecutionMode != def.ExecutionMode {
+			t.ExecutionMode = def.ExecutionMode
+			changed = true
+		}
+		if !reflect.DeepEqual(t.ExampleFiles, def.ExampleFiles) {
+			t.ExampleFiles = append([]GovernanceExampleFile(nil), def.ExampleFiles...)
+			changed = true
+		}
+		if t.CronExpr != def.CronExpr {
+			t.CronExpr = def.CronExpr
+			changed = true
+		}
+		if t.Enabled != def.Enabled {
+			t.Enabled = def.Enabled
+			changed = true
+		}
 		if includeJS && t.Name == "综合日报生成器" {
 			js := loadGovernanceAggregateDailyReportJS()
-			if js != "" && t.JsCode != js { t.JsCode = js; changed = true }
+			if js != "" && t.JsCode != js {
+				t.JsCode = js
+				changed = true
+			}
 		}
 		if changed {
 			t.UpdatedAt = now
@@ -2569,8 +2185,8 @@ async function main() {
 // 执行
 main().catch(e => {
     gov.log('✗ 流程异常: ' + e.message);`,
-			InputType:   "file",
-			AcceptExts:  []string{".docx"},
+			InputType:  "file",
+			AcceptExts: []string{".docx"},
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "19990101_国际新闻与运输情况通报_模拟数据.docx", Path: "19990101_国际新闻与运输情况通报_模拟数据.docx"},
 				{Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"},
@@ -2634,7 +2250,7 @@ func safeErrorMessage(err error, defaultMsg string) string {
 		return defaultMsg
 	}
 	errStr := err.Error()
-	
+
 	// 检测敏感关键词，返回通用错误消息
 	sensitivePatterns := []string{
 		"password", "passwd", "secret", "token", "key", "credential",
@@ -2648,7 +2264,7 @@ func safeErrorMessage(err error, defaultMsg string) string {
 			return defaultMsg
 		}
 	}
-	
+
 	// 对于已知的安全错误类型，可以返回具体消息
 	// 如：唯一约束冲突、外键约束等
 	if strings.Contains(errStr, "UNIQUE constraint") ||
@@ -2664,7 +2280,7 @@ func safeErrorMessage(err error, defaultMsg string) string {
 		strings.Contains(errStr, "cannot be null") {
 		return "必填字段不能为空"
 	}
-	
+
 	// 其他错误返回默认消息，但记录详细日志
 	log.Printf("错误详情: %s", errStr)
 	return defaultMsg
@@ -2730,7 +2346,7 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 				encodedUser, encodedPassword, host, port, config.Database)
 		}
 
-	// 安全：不在日志中输出包含密码的 DSN
+		// 安全：不在日志中输出包含密码的 DSN
 		log.Printf("DM最终DSN(已编码): driver=dm, host=%s, port=%d, database=%s", host, port, config.Database)
 		return "dm", dsn, nil
 
@@ -3320,7 +2936,7 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 			apiBadRequest(w, "无效的请求体")
 			return
 		}
-			// 直接用 body 替换设置，避免嵌套
+		// 直接用 body 替换设置，避免嵌套
 		currentUser.Settings = body
 		dataOntologyMu.Unlock()
 		saveDataOntologyStore()
