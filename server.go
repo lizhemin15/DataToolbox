@@ -1512,7 +1512,6 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 		if !ok {
 			continue
 		}
-		old := *t
 		changed := false
 		if t.Owner != def.Owner {
 			t.Owner = def.Owner
