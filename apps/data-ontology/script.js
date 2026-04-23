@@ -1040,64 +1040,30 @@ function switchTab(tabName) {
 
 // 数据库列表与详情管理。
 const dbTypeDefaults = {
+    dm: { port: 5236, requiresDb: true },
+    oracle: { port: 1521, requiresDb: true },
     mysql: { port: 3306, requiresDb: true },
     mariadb: { port: 3306, requiresDb: true },
     postgresql: { port: 5432, requiresDb: true },
     sqlserver: { port: 1433, requiresDb: true },
-    oracle: { port: 1521, requiresDb: true },
-    dm: { port: 5236, requiresDb: true },
     sqlite: { port: 0, requiresDb: false, isFile: true },
-    duckdb: { port: 0, requiresDb: false, isFile: true },
-    
-    // 移除欢迎提示。
     tidb: { port: 4000, requiresDb: true },
     cockroachdb: { port: 26257, requiresDb: true },
-    
-    // 展开重试详情。
-    mongodb: { port: 27017, requiresDb: true },
-    
-    // KV键值对
-    redis: { port: 6379, requiresDb: false },
-    memcached: { port: 11211, requiresDb: false },
-    
-    // 清空输入框并复位高度。
-    clickhouse: { port: 9000, requiresDb: true },
-    cassandra: { port: 9042, requiresDb: true },
-    hbase: { port: 9090, requiresDb: false },
-    
-    // 时序数据库
-    influxdb: { port: 8086, requiresDb: true },
-    timescaledb: { port: 5432, requiresDb: true },
-    
-    // 重置表单。
-    elasticsearch: { port: 9200, requiresDb: false },
-    
-    // 判断 SQL 是否需要 DDL 特殊处理。
-    neo4j: { port: 7687, requiresDb: false }
+    timescaledb: { port: 5432, requiresDb: true }
 };
 
 // 数据库类型图标。
 const dbTypeIcons = {
+    dm: '🔶',
+    oracle: '🏛️',
     mysql: '🛢️',
     mariadb: '🛢️',
     postgresql: '🐘',
     sqlserver: '🪟',
-    oracle: '🏛️',
-    dm: '🔶',
     sqlite: '📄',
-    duckdb: '🦆',
     tidb: '🌐',
     cockroachdb: '🪳',
-    mongodb: '🍃',
-    redis: '🧠',
-    memcached: '⚡',
-    clickhouse: '📊',
-    cassandra: '🔗',
-    hbase: '🗂️',
-    influxdb: '📈',
-    timescaledb: '⏱️',
-    elasticsearch: '🔎',
-    neo4j: '🕸️'
+    timescaledb: '⏱️'
 };
 
 // 根据数据库类型切换表单字段。
@@ -1161,7 +1127,7 @@ function showAddDbModal() {
     document.getElementById('modalTitle').textContent = '新增数据库';
     document.getElementById('addDbModal').classList.add('show');
     document.getElementById('addDbForm').reset();
-    document.getElementById('dbTypeInput').value = 'mysql';
+    document.getElementById('dbTypeInput').value = 'dm';
     document.getElementById('dbTypeInput').disabled = false;
     handleDbTypeChange();
     document.getElementById('dbFormError').classList.remove('show');

@@ -1052,40 +1052,18 @@
                     <label for="dbTypeInput">数据库类型</label>
                     <select id="dbTypeInput" required>
                         <optgroup label="关系型数据库(SQL)">
-                            <option value="dm">达梦(DM)</option>
+                            <option value="dm" selected>达梦(DM)</option>
                             <option value="oracle">Oracle</option>
                             <option value="mysql">MySQL</option>
                             <option value="mariadb">MariaDB</option>
                             <option value="postgresql">PostgreSQL</option>
                             <option value="sqlserver">SQL Server</option>
                             <option value="sqlite">SQLite</option>
-                            <option value="duckdb">DuckDB</option>
                         </optgroup>
                         <optgroup label="分布式数据库">
                             <option value="tidb">TiDB</option>
                             <option value="cockroachdb">CockroachDB</option>
-                        </optgroup>
-                        <optgroup label="文档型数据库">
-                            <option value="mongodb">MongoDB</option>
-                        </optgroup>
-                        <optgroup label="KV存储/缓存">
-                            <option value="redis">Redis</option>
-                            <option value="memcached">Memcached</option>
-                        </optgroup>
-                        <optgroup label="列式数据库">
-                            <option value="clickhouse">ClickHouse</option>
-                            <option value="cassandra">Cassandra</option>
-                            <option value="hbase">HBase</option>
-                        </optgroup>
-                        <optgroup label="时序数据库">
-                            <option value="influxdb">InfluxDB</option>
                             <option value="timescaledb">TimescaleDB</option>
-                        </optgroup>
-                        <optgroup label="搜索引擎">
-                            <option value="elasticsearch">Elasticsearch</option>
-                        </optgroup>
-                        <optgroup label="图数据库">
-                            <option value="neo4j">Neo4j</option>
                         </optgroup>
                     </select>
                 </div>
