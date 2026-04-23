@@ -976,7 +976,7 @@ function updateUserMgmtNavVisibility() {
     }
 }
 
-// ?????
+// 数据库列表
 function switchTab(tabName) {
     if (tabName !== 'database') {
         closeUserMgmtPanel();
@@ -1056,7 +1056,7 @@ const dbTypeDefaults = {
     // 展开重试详情。
     mongodb: { port: 27017, requiresDb: true },
     
-    // KV??/??
+    // KV键值对
     redis: { port: 6379, requiresDb: false },
     memcached: { port: 11211, requiresDb: false },
     
@@ -1065,7 +1065,7 @@ const dbTypeDefaults = {
     cassandra: { port: 9042, requiresDb: true },
     hbase: { port: 9090, requiresDb: false },
     
-    // ?????
+    // 时序数据库
     influxdb: { port: 8086, requiresDb: true },
     timescaledb: { port: 5432, requiresDb: true },
     
@@ -1177,9 +1177,9 @@ function handleEditDatabase() {
     document.getElementById('modalTitle').textContent = '编辑数据库';
     document.getElementById('addDbModal').classList.add('show');
     
-    // ?????
+    // 已存在的数据库
     document.getElementById('dbTypeInput').value = currentDb.type;
-    document.getElementById('dbTypeInput').disabled = true; // ???????
+    document.getElementById('dbTypeInput').disabled = true; // 数据库类型不可编辑
     document.getElementById('dbNameInput').value = currentDb.name;
     
     if (dbTypeDefaults[currentDb.type].isFile) {
@@ -1974,14 +1974,14 @@ async function previewTable(tableName, keepEditMode = false) {
             previewContent.innerHTML = tableHtml;
             previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             
-            // ??????????????
+            // 隐藏新增数据库弹窗
             const table = document.getElementById('dataTable');
             if (isTableEditMode) {
                 table.classList.add('editing-mode');
                 enableTableEditing();
             } else {
                 table.classList.remove('editing-mode');
-                // ????????????
+                // 关闭编辑数据库弹窗
                 const statsEl = document.getElementById('editStats');
                 if (statsEl) {
                     statsEl.remove();
@@ -2353,7 +2353,7 @@ async function saveTableData() {
         const isDeleted = row.dataset.deleted === 'true';
         
         if (isDeleted) {
-            // ????????????
+            // 隐藏API测试结果
             if (!isNew && rowIndex !== undefined) {
                 deletes.push(parseInt(rowIndex));
             }
@@ -2656,12 +2656,12 @@ function showRenameTableModal() {
     document.getElementById('renameTableModal').classList.add('show');
 }
 
-// ?????????
+// 获取数据库表列表
 function hideRenameTableModal() {
     document.getElementById('renameTableModal').classList.remove('show');
 }
 
-// ??????
+// 获取列?
 async function submitRenameTable() {
     if (!currentDb || !currentPreviewTable) return;
     const newName = document.getElementById('renameTableNewName').value.trim();
@@ -3552,7 +3552,7 @@ async function quickFixSql() {
     // 替换 SQL 中的参数占位符。
     const fixedSql = currentApi.sql.replace(/#\{/g, '${');
     
-    // ????
+    // 处理API类型
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}`, {
             method: 'PUT',
@@ -3621,7 +3621,7 @@ async function showAddApiModal() {
     await loadDatabasesForSelect();
 }
 
-// ???????????
+    // 加载API列表
 async function loadDatabasesForSelect() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases`);
@@ -3643,7 +3643,7 @@ async function loadDatabasesForSelect() {
             }
         }
     } catch (error) {
-        console.error('??????????', error);
+        console.error('刷新API列表失败', error);
     }
 }
 
@@ -3658,7 +3658,7 @@ function hideAddApiModal() {
     delete form.dataset.fromAi;
     delete form.dataset.aiMessageId;
     
-    // ????
+    // 刷新API列表
     form.reset();
 }
 
@@ -3682,7 +3682,7 @@ async function handleAddApi(e) {
         return;
     }
 
-    // ????
+    // 删除API
     if (!apiData.path) {
         showApiFormError('请输入请求路径');
         return;
@@ -3700,7 +3700,7 @@ async function handleAddApi(e) {
             showApiFormError('请输入转发 URL');
             return;
         }
-        // URL????
+        // URL参数解析
         try {
             new URL(apiData.forward_url);
         } catch {
@@ -3711,14 +3711,14 @@ async function handleAddApi(e) {
         apiData.database_id = document.getElementById('apiDbSelect').value;
         apiData.sql = document.getElementById('apiSqlInput').value.trim();
         
-        // SQL??
+        // SQL校验
         if (!apiData.sql) {
             showApiFormError('请输入 SQL');
             return;
         }
     }
 
-    // ??????
+    // 解析MyBatis参数
     const defaultParamsText = document.getElementById('apiDefaultParamsInput').value.trim();
     if (defaultParamsText) {
         try {
@@ -3729,7 +3729,7 @@ async function handleAddApi(e) {
         }
     }
 
-    // query?????SQL??
+    // query类型需要校验SQL
     if (apiType !== 'forward') {
         const sqlWarnings = validateSqlSyntax(apiData.sql);
         if (sqlWarnings.length > 0) {
@@ -3864,7 +3864,7 @@ async function handleEditApi() {
     document.getElementById('apiModalTitle').textContent = '编辑 API';
     document.getElementById('addApiModal').classList.add('show');
     
-    // ?????
+    // 执行SQL查询
     document.getElementById('apiNameInput').value = currentApi.name;
     document.getElementById('apiPathInput').value = currentApi.path;
     document.getElementById('apiMethodInput').value = currentApi.method;
@@ -3881,7 +3881,7 @@ async function handleEditApi() {
         document.getElementById('apiSqlInput').value = currentApi.sql || '';
     }
     
-    // ???????
+    // 切换API类型
     if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
         document.getElementById('apiDefaultParamsInput').value = JSON.stringify(currentApi.default_params, null, 2);
     } else {
@@ -3944,15 +3944,15 @@ function showTestApiModal() {
     document.getElementById('testApiError').classList.remove('show');
     document.getElementById('testApiResultGroup').style.display = 'none';
     
-    // ?????
+    // 勾选设置?
     const apiType = currentApi.type || 'query';
     if (apiType === 'forward') {
-        // ????????????????
+        // 显示API测试结果弹窗
         if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
             document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
         }
     } else {
-        // query???? SQL ????
+        // query类型 SQL 参数
         const params = parseMyBatisParams(currentApi.sql);
         if (params.length > 0) {
             const exampleParams = {};
@@ -3982,7 +3982,7 @@ async function executeApiTest() {
     const paramsText = document.getElementById('testApiParams').value.trim();
     let params = {};
     
-    // ????
+    // 搜索数据库
     if (paramsText) {
         try {
             params = JSON.parse(paramsText);
@@ -4121,12 +4121,12 @@ function loadTabSettings() {
         if (settings && settings.hasOwnProperty(tabId)) {
             cb.checked = settings[tabId];
         } else {
-            cb.checked = true; // ????
+            cb.checked = true; // 治理标签页
         }
     });
 }
 
-// ??????????
+// 重置API测试表单?
 function saveTabSettings() {
     const container = document.getElementById('tabVisibilitySettings');
     if (!container) return;
@@ -4141,18 +4141,18 @@ function saveTabSettings() {
         if (cb.checked) visibleCount++;
     });
 
-    // ?????????
+    // 应用嵌入模式设置
     if (visibleCount < 1) {
         showToast('请先填写完整参数', 'warning');
         return false;
     }
 
-    // ????????
+    // 显示设置弹窗
     const embedModeToggle = document.getElementById('embedModeToggle');
     const embedMode = embedModeToggle ? embedModeToggle.checked : false;
     applyEmbedMode(embedMode);
 
-    // ??????
+    // 初始化页面
     (async () => {
         const userSettings = await loadUserSettings();
         userSettings.embedMode = embedMode;
@@ -4173,7 +4173,7 @@ function saveTabSettings() {
     }
 }
 
-// ????????????????
+// 根据API类型显示/隐藏不同字段
 function resetTabSettings() {
     const container = document.getElementById('tabVisibilitySettings');
     if (!container) return;
@@ -4183,14 +4183,14 @@ function resetTabSettings() {
         cb.checked = true;
     });
     
-    // ????????
+    // 更新会话上下文显示
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = false;
     }
 }
 
-// ??????
+// 发送AI消息?
 function applyEmbedMode(enabled) {
     const embedSettingsBtn = document.getElementById('embedSettingsBtn');
     if (enabled) {
@@ -4202,7 +4202,7 @@ function applyEmbedMode(enabled) {
     }
 }
 
-// ??????????
+// 获取用户设置
 async function loadUserSettings() {
     try {
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings');
@@ -4211,12 +4211,12 @@ async function loadUserSettings() {
             return data.settings;
         }
     } catch (e) {
-        console.error('?????????', e);
+        console.error('加载用户设置失败', e);
     }
     return {};
 }
 
-// ??????????
+// 加载用户设置成功
 async function saveUserSettings(settings) {
     try {
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/settings', {
@@ -4227,12 +4227,12 @@ async function saveUserSettings(settings) {
         const data = await resp.json();
         return data.success;
     } catch (e) {
-        console.error('?????????', e);
+        console.error('保存用户设置失败', e);
         return false;
     }
 }
 
-// ???????
+// 初始化嵌入模式
 async function initEmbedMode() {
     const settings = await loadUserSettings();
     const embedMode = settings.embedMode === true;
@@ -4242,24 +4242,24 @@ async function initEmbedMode() {
     }
     applyEmbedMode(embedMode);
     
-    // ????????????
+    // 绑定嵌入模式设置按钮
     const embedSettingsBtn = document.getElementById('embedSettingsBtn');
     if (embedSettingsBtn) {
         embedSettingsBtn.addEventListener('click', showSettingsModal);
     }
 }
 
-// ????????
+// 应用标签页可见性
 function applyTabVisibility(settings) {
     if (!settings) {
-        // ??????????????
+        // 尝试从本地存储恢复设置
         try {
             const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
             if (stored) {
                 settings = JSON.parse(stored);
             }
         } catch (e) {
-            console.error('??????????', e);
+            console.error('加载标签可见性失败', e);
             return;
         }
     }
@@ -4267,7 +4267,7 @@ function applyTabVisibility(settings) {
     // 展示返回的行数据。
     if (!settings) return;
 
-    // ????????
+    // 过滤数据库建议列表
     const tabs = document.querySelectorAll('.nav-tab');
     tabs.forEach(tab => {
         const tabId = tab.dataset.tab;
@@ -4276,12 +4276,12 @@ function applyTabVisibility(settings) {
         }
     });
 
-    // ????????????????????????????????
+    // 显示或隐藏嵌入模式设置
     const activeTab = document.querySelector('.nav-tab.active');
     if (activeTab) {
         const activeTabId = activeTab.dataset.tab;
         if (settings[activeTabId] === false) {
-            // ??????????????
+            // 重置设置到默认值
             const firstVisibleTab = document.querySelector('.nav-tab:not([style*="display: none"])');
             if (firstVisibleTab) {
                 switchTab(firstVisibleTab.dataset.tab);
@@ -4290,7 +4290,7 @@ function applyTabVisibility(settings) {
     }
 }
 
-// ??AI??
+// 保存AI配置
 async function handleSaveAiSettings(e) {
     e.preventDefault();
 
@@ -4341,7 +4341,7 @@ function handleAiInputChange(e) {
     const value = input.value;
     const cursorPos = input.selectionStart;
     
-    // ??????
+    // 显示进度
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     
@@ -4417,13 +4417,13 @@ function showDbSuggestions(searchTerm) {
     dbSuggestionIndex = -1;
 }
 
-// ????
+// 加载治理任务
 function hideDbSuggestions() {
     document.getElementById('aiDbSuggestions').style.display = 'none';
     dbSuggestionIndex = -1;
 }
 
-// ???????
+// 过滤数据库建议列表
 function selectSuggestion(type, id) {
     let name = '';
     if (type === 'module') {
@@ -4452,12 +4452,12 @@ function selectSuggestion(type, id) {
     hideDbSuggestions();
 }
 
-// ?????
+// 选择数据库
 function selectDbSuggestion(dbId) {
     selectSuggestion('db', dbId);
 }
 
-// ??AI?????
+// AI输入框键盘事件
 function handleAiInputKeydown(e) {
     const suggestionsEl = document.getElementById('aiDbSuggestions');
 
@@ -4528,24 +4528,24 @@ async function handleSendAiMessage() {
         }
     }
 
-    // ???????
+    // 清除数据库建议列表
     if (moduleReferences.length > 0) {
         aiSessionContext.modules = moduleReferences;
     }
 
-    // ????????
+    // 合并数据库上下文
     if (dbReferences.length > 0) {
         aiSessionContext.databases = dbReferences;
     } else if (aiSessionContext.databases.length > 0) {
         dbReferences.push(...aiSessionContext.databases);
     } else {
-        showAiError('??? @???? ???????????????????????');
+        showAiError('请 @数据库 选择至少一个数据库，或在上下文中指定数据库');
         return;
     }
 
     updateAiContextDisplay();
 
-    // ???????
+    // 记录用户消息
     aiSessionContext.history.push({
         role: 'user',
         content: message,
@@ -4561,15 +4561,15 @@ async function handleSendAiMessage() {
     }
     addAiMessage('user', displayMessage);
     
-    // ?????
+    // 发送AI消息
     input.value = '';
     input.style.height = 'auto';
     
-    // ??????
+    // 显示进度
     const sendBtn = document.getElementById('aiSendBtn');
     sendBtn.disabled = true;
     
-    // ????????
+    // 清除数据库建议列表
     const streamMessageId = addAiStreamMessage();
     
     try {
@@ -4628,7 +4628,7 @@ function addAiMessage(role, content) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
     
-    // ??????
+    // 处理AI流式响应
     const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
     if (welcomeMsg) {
         welcomeMsg.remove();
@@ -4709,7 +4709,7 @@ function addAiAssistantMessage(content, sql, results) {
         `;
     }
     
-    // ???????????????
+    // 流式读取SSE响应并更新界面
     if (results && results.length > 0) {
         resultHtml += `
             <div style="margin-top: 6px;">
@@ -4775,7 +4775,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     
     let resultHtml = '';
     
-    // ??????
+    // 处理AI响应完成
     if (retries > 0) {
         const retryId = 'retry-' + messageId;
         resultHtml += `
@@ -4810,7 +4810,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
         `;
     }
     
-    // ???????????????
+    // 保存AI设置到服务器
     if (results && results.length > 0) {
         resultHtml += `
             <div style="margin-top: 6px;">
@@ -4893,7 +4893,7 @@ function showAiErrorWithAttempts(message, attempts) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// ????????
+// 追加进度步骤
 function toggleRetryDetails(retryId) {
     const details = document.getElementById(retryId);
     const icon = document.getElementById(retryId + '-icon');
@@ -4978,7 +4978,7 @@ function addAiStreamMessage() {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-stream-' + Date.now();
     
-    // ??????
+    // 处理AI代码块
     const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
     if (welcomeMsg) {
         welcomeMsg.remove();
@@ -5035,7 +5035,7 @@ function setAiProcessCollapsed(messageId, collapsed) {
     if (!card) return;
     card.classList.toggle('ai-process-collapsed', collapsed);
     const toggle = document.getElementById(`${messageId}-toggle`);
-    if (toggle) toggle.textContent = collapsed ? '????' : '????';
+    if (toggle) toggle.textContent = collapsed ? '展开' : '收起';
 }
 
 function toggleAiProcess(messageId) {
@@ -5189,7 +5189,7 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             } else if (data.results && data.results.length === 0) {
                 resultHtml += `
                     <div style="margin-top: 6px;">
-                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">?? ?????</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">查询 结果</div>
                         <div style="padding: 10px; background: #f7fafc; border-radius: 6px; color: #718096; text-align: center; font-size: 12px;">暂无结果</div>
                     </div>
                 `;
@@ -5456,7 +5456,7 @@ function showAiError(message) {
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">??</div>
+            <div class="ai-message-avatar">助手</div>
             <div class="ai-message-content">
                 <div class="ai-error">${escapeHtml(message)}</div>
             </div>
@@ -5523,7 +5523,7 @@ function formatAIText(text) {
     return escaped;
 }
 
-// ??AI?????
+// 更新AI上下文显示
 function updateAiContextDisplay() {
     const header = document.querySelector('#aiTab .ai-chat-header');
     if (!header) return;
@@ -5833,7 +5833,7 @@ function showCreateTableModal() {
     document.getElementById('createTableError').classList.remove('show');
     document.getElementById('createTableSuccess').classList.remove('show');
     
-    // ??????
+    // 显示AI消息历史
     const columnsContainer = document.getElementById('tableColumnsContainer');
     columnsContainer.innerHTML = `
         <div class="table-column-item">
@@ -5855,12 +5855,12 @@ function showCreateTableModal() {
     `;
 }
 
-// ???????
+// 清空AI消息历史
 function hideCreateTableModal() {
     document.getElementById('createTableModal').classList.remove('show');
 }
 
-// ????
+// 治理标签页
 function addTableColumn() {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     const newColumn = document.createElement('div');
@@ -5884,7 +5884,7 @@ function addTableColumn() {
     columnsContainer.appendChild(newColumn);
 }
 
-// ????
+// 加载治理任务
 function removeTableColumn(btn) {
     const columnsContainer = document.getElementById('tableColumnsContainer');
     if (columnsContainer.children.length <= 1) {
@@ -6010,7 +6010,7 @@ let govSelectedFiles = [];
 
         const enabledInput = document.getElementById('govEnabledInput');
         if (enabledInput) enabledInput.addEventListener('change', function() {
-            document.getElementById('govEnabledLabel').textContent = this.checked ? '???' : '???';
+            document.getElementById('govEnabledLabel').textContent = this.checked ? '已启用' : '已禁用';
         });
 
         const modal = document.getElementById('govTaskModal');
@@ -6239,26 +6239,26 @@ function renderGovLogs(logs) {
         <div class="gov-log-entry">
             <div class="gov-log-header">
                 <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' ? ' + new Date(log.end_time).toLocaleString() : ''}</span>
-                <span class="gov-log-status ${log.status}">${log.status === 'success' ? '??' : log.status === 'error' ? '??' : '???'}</span>
+                <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '失败' : '运行中'}</span>
             </div>
-            ${log.input ? `<div class="gov-log-input">??: ${escapeHtml(log.input)}</div>` : ''}
+            ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
             ${log.output ? `<div class="gov-log-output">${renderGovOutput(log.output)}</div>` : ''}
             ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
         </div>
     `).join('');
 }
 
-// ??/????
+// 新增/编辑治理任务
 function showAddGovTaskModal() {
     isEditGovMode = false;
     editingGovTaskId = null;
-    document.getElementById('govModalTitle').textContent = '????';
+    document.getElementById('govModalTitle').textContent = '新增治理任务';
     document.getElementById('govTaskForm').reset();
     document.getElementById('govEnabledInput').checked = true;
-    document.getElementById('govEnabledLabel').textContent = '???';
-    // ?? API ??
+    document.getElementById('govEnabledLabel').textContent = '已启用';
+    // 重置 API 设置
     document.getElementById('govRegisterAPIInput').checked = false;
-    document.getElementById('govRegisterAPILabel').textContent = '???';
+    document.getElementById('govRegisterAPILabel').textContent = '未注册';
     document.getElementById('govAPIPathInput').value = '';
     document.getElementById('govAPIMethodInput').value = 'POST';
     document.getElementById('govAPIFields').style.display = 'none';
@@ -6277,21 +6277,21 @@ function editGovTask() {
     if (!currentGovTask) return;
     isEditGovMode = true;
     editingGovTaskId = currentGovTask.id;
-    document.getElementById('govModalTitle').textContent = '????';
+    document.getElementById('govModalTitle').textContent = '编辑治理任务';
     document.getElementById('govTaskNameInput').value = currentGovTask.name;
     document.getElementById('govTaskTypeInput').value = currentGovTask.type;
     document.getElementById('govTaskDescInput').value = currentGovTask.description || '';
     document.getElementById('govCodeInput').value = currentGovTask.js_code;
     document.getElementById('govCronInput').value = currentGovTask.cron_expr || '';
     document.getElementById('govEnabledInput').checked = currentGovTask.enabled;
-    document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '???' : '???';
+    document.getElementById('govEnabledLabel').textContent = currentGovTask.enabled ? '已启用' : '已禁用';
     document.getElementById('govInputTypeSelect').value = currentGovTask.input_type || 'file';
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
     const fb = document.getElementById('govFileBatchModeSelect');
     if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
-    // API ??
+    // API 设置
     document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
-    document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '???' : '???';
+    document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
     document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
     document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
     document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
@@ -6554,7 +6554,7 @@ async function toggleGovTask() {
             renderGovTaskList();
         }
     } catch (error) {
-        showToast('????: ' + error.message, 'error');
+        showToast('切换状态失败: ' + error.message, 'error');
     }
 }
 
@@ -6579,7 +6579,7 @@ async function refreshGovTaskStatus() {
     }
 }
 
-// ??????????
+// 处理AI流式响应
 function handleGovFileSelect(event) {
     if (event.target.files.length > 0) {
         setGovFiles(event.target.files);
@@ -6689,7 +6689,7 @@ async function executeGovTaskOnBackend(files, inputText) {
 
     const taskId = currentGovTask.id;
 
-    // ?? UI ?????
+    // 更新 UI 显示运行中
     currentGovTask.status = 'running';
     showGovTaskDetail(currentGovTask);
     renderGovTaskList();
@@ -6723,7 +6723,7 @@ async function executeGovTaskOnBackend(files, inputText) {
         const runId = result.run_id;
         container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>已提交后端执行，等待进度...</span><span class="gov-log-status running">运行中</span></div></div>`;
 
-        // ??????
+        // 在后端执行治理任务
         await pollTaskProgress(taskId, runId);
 
     } catch (error) {
@@ -6735,16 +6735,16 @@ async function executeGovTaskOnBackend(files, inputText) {
 }
 
 /**
- * ????????
- * ? 2 ?????????????????????
- * @param {string} taskId - ?? ID
- * @param {string} runId - ?? ID
+ * 轮询任务进度
+ * 每 2 秒查询一次任务进度，直到完成或出错
+ * @param {string} taskId - 任务 ID
+ * @param {string} runId - 运行 ID
  * @returns {Promise<void>}
  */
 async function pollTaskProgress(taskId, runId) {
     const container = document.getElementById('govTaskOutput');
 
-    const pollInterval = 2000; // 2?????
+    const pollInterval = 2000; // 2秒间隔
     let lastProcessed = 0;
 
     const poll = async () => {
@@ -6753,38 +6753,38 @@ async function pollTaskProgress(taskId, runId) {
             const data = await response.json();
 
             if (!data.success) {
-                console.error('??????:', data.message);
+                console.error('获取进度失败:', data.message);
                 return;
             }
 
             const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
 
-            // ??????????????????????????????? last_output????? gov.log ?????
+            // 如果有文件进度，渲染进度条；否则显示 last_output（由 gov.log 输出）
             if (total_files > 0) {
                 container.innerHTML = `
                     <div class="gov-log-entry">
                         <div class="gov-log-header">
-                            <span>??: ${processed_files}/${total_files} (${percent}%)</span>
-                            <span class="gov-log-status ${status}">${status === 'running' ? '???' : status === 'success' ? '??' : '??'}</span>
+                            <span>进度: ${processed_files}/${total_files} (${percent}%)</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '失败'}</span>
                         </div>
-                        ${current_file ? `<div class="gov-log-input">??: ${escapeHtml(current_file)}</div>` : ''}
+                        ${current_file ? `<div class="gov-log-input">当前文件: ${escapeHtml(current_file)}</div>` : ''}
                         ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
                     </div>`;
             } else {
                 container.innerHTML = `
                     <div class="gov-log-entry">
                         <div class="gov-log-header">
-                            <span>????${status === 'running' ? '??' : ''}</span>
-                            <span class="gov-log-status ${status}">${status === 'running' ? '???' : status === 'success' ? '??' : '??'}</span>
+                            <span>运行中${status === 'running' ? '...' : ''}</span>
+                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '失败'}</span>
                         </div>
                         ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
                         ${last_error ? `<div class="gov-log-error">${escapeHtml(last_error)}</div>` : ''}
                     </div>`;
             }
 
-            // ???????????
+            // 任务已结束，刷新详情
             if (status !== 'running') {
-                // ???????????????????????? /logs?
+                // 重新加载任务详情和日志 /logs?
                 await loadGovernanceTasks();
                 const task = govTasks.find(t => t.id === taskId);
                 if (task) {
@@ -6795,12 +6795,12 @@ async function pollTaskProgress(taskId, runId) {
                 return;
             }
 
-            // ????
+            // 继续轮询
             setTimeout(poll, pollInterval);
 
         } catch (error) {
-            console.error('??????:', error);
-            // ???????
+            console.error('获取进度失败:', error);
+            // 网络错误继续轮询
             setTimeout(poll, pollInterval);
         }
     };
@@ -6813,8 +6813,8 @@ async function pollTaskProgress(taskId, runId) {
 let govLibsLoaded = false;
 
 /**
- * ????????????????XLSX, PapaParse, mammoth, PizZip, docxtemplater?
- * ??????????????????????
+ * 动态加载治理任务所需的外部库（XLSX, PapaParse, mammoth, PizZip, docxtemplater）。
+ * 仅在首次使用时加载，后续调用直接返回。
  * @returns {Promise<void>}
  */
 async function ensureGovLibsLoaded() {
@@ -6892,13 +6892,13 @@ function createGovHelper(logLines, uploadedFiles) {
         if (templateFile instanceof File || templateFile instanceof Blob) return templateFile;
         if (typeof templateFile === 'string') {
             const name = templateFile.trim();
-            if (!name) throw new Error('????????');
+            if (!name) throw new Error('模板文件名不能为空');
             const found = uploaded.find(f => f && f.name === name)
                 || uploaded.find(f => f && (f.name.endsWith(name) || name.endsWith(f.name)));
             if (found) return found;
-            throw new Error(`????????${name}???????? File ???????`);
+            throw new Error(`模板文件 ${name} 在上传列表中未找到，请确保 File 对象可用`);
         }
-        throw new Error('templateFile ?? File/Blob ???????');
+        throw new Error('templateFile 必须为 File/Blob 类型才能解析');
     }
 
     async function _runSQL(databaseId, sql, params = []) {
@@ -6908,7 +6908,7 @@ function createGovHelper(logLines, uploadedFiles) {
             body: JSON.stringify({ database_id: databaseId, sql, params })
         });
         const data = await resp.json();
-        if (!data.success) throw new Error(data.message || 'SQL????');
+        if (!data.success) throw new Error(data.message || 'SQL执行失败');
         return data;
     }
 
@@ -6964,31 +6964,31 @@ function createGovHelper(logLines, uploadedFiles) {
             return (databases || []).map(d => ({ id: d.id, name: d.name, type: d.type }));
         },
         async readExcel(file) {
-            if (!file) throw new Error('?????');
+            if (!file) throw new Error('缺少文件');
             const arrayBuffer = await file.arrayBuffer();
             const data = new Uint8Array(arrayBuffer);
             const wb = XLSX.read(data, { type: 'array' });
             if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
-                throw new Error('Excel????: ???????');
+                throw new Error('Excel读取失败: 未找到工作表');
             }
             return wb;
         },
         async readCSV(text) {
-            if (!text) throw new Error('?????');
+            if (!text) throw new Error('缺少文本内容');
             return Papa.parse(text, { header: false }).data;
         },
         async readWord(file) {
-            if (!file) throw new Error('?????');
+            if (!file) throw new Error('缺少文件');
             const arrayBuffer = await file.arrayBuffer();
             return mammoth.extractRawText({ arrayBuffer });
         },
         async querySQL(sql, params) {
-            if (!dbId) throw new Error('???????????????????');
+            if (!dbId) throw new Error('请先选择治理任务关联的数据库');
             const result = await _runSQL(dbId, sql, params || []);
             return result.data || [];
         },
         async executeSQL(sql, params) {
-            if (!dbId) throw new Error('???????????????????');
+            if (!dbId) throw new Error('请先选择治理任务关联的数据库');
             const result = await _runSQL(dbId, sql, params || []);
             return result.rows_affected || 0;
         },
@@ -7000,7 +7000,7 @@ function createGovHelper(logLines, uploadedFiles) {
             const result = await _runSQL(databaseId, sql, params || []);
             return result.rows_affected || 0;
         },
-        // ?? AI ???? AI ???? URL/API Key/???????????
+        // 调用 AI 接口；会自动携带 AI 配置的 URL/API Key/超时等参数
         async callAI(prompt) {
             const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/completion`, {
                 method: 'POST',
@@ -7008,14 +7008,14 @@ function createGovHelper(logLines, uploadedFiles) {
                 body: JSON.stringify({ prompt })
             });
             const data = await resp.json();
-            if (!data.success) throw new Error(data.message || 'AI ????');
+            if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
         },
         async fillWordTemplate(templateFile, data, outputFilename) {
             await ensureGovLibsLoaded();
-            if (!window.PizZip) throw new Error('PizZip ???');
+            if (!window.PizZip) throw new Error('PizZip 未加载');
             const DocxCtor = _govGetDocxtemplaterClass();
-            if (!DocxCtor) throw new Error('Docxtemplater ???');
+            if (!DocxCtor) throw new Error('Docxtemplater 未加载');
             const fileObj = await _resolveGovTemplateFile(templateFile);
             const buf = await fileObj.arrayBuffer();
             const zip = new window.PizZip(buf);
@@ -7031,8 +7031,8 @@ function createGovHelper(logLines, uploadedFiles) {
             _govDownloadBlob(blob, outName);
         },
         async fillExcelTemplate(templateFile, data, outputFilename) {
-            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX ???');
-            if (!data || typeof data !== 'object') throw new Error('data ????');
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
+            if (!data || typeof data !== 'object') throw new Error('data 必须为对象');
             const fileObj = await _resolveGovTemplateFile(templateFile);
             const wb = await this.readExcel(fileObj);
             const flat = _govDataIsFlatCellMap(XLSX, data);
@@ -7043,7 +7043,7 @@ function createGovHelper(logLines, uploadedFiles) {
                 for (const [sheetName, cells] of Object.entries(data)) {
                     if (!cells || typeof cells !== 'object' || Array.isArray(cells)) continue;
                     const ws = wb.Sheets[sheetName];
-                    if (!ws) throw new Error(`??????????${sheetName}?`);
+                    if (!ws) throw new Error(`工作表不存在: ${sheetName}`);
                     _govApplyCellMapToSheet(XLSX, ws, cells);
                 }
             }
@@ -7052,8 +7052,8 @@ function createGovHelper(logLines, uploadedFiles) {
             XLSX.writeFile(wb, outName);
         },
         writeExcel(filename, data, options) {
-            if (!filename) throw new Error('??????');
-            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX ???');
+            if (!filename) throw new Error('缺少文件名');
+            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
             const opts = options || {};
             const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
             let ws;
@@ -7070,10 +7070,10 @@ function createGovHelper(logLines, uploadedFiles) {
             XLSX.writeFile(wb, outName);
         },
         writeCSV(filename, data) {
-            if (!filename) throw new Error('??????');
-            if (!Array.isArray(data)) throw new Error('data ??????');
+            if (!filename) throw new Error('缺少文件名');
+            if (!Array.isArray(data)) throw new Error('data 必须为数组');
             const lines = data.map(row => {
-                if (!Array.isArray(row)) throw new Error('CSV ??????');
+                if (!Array.isArray(row)) throw new Error('CSV 数据必须为二维数组');
                 return row.map(_govCsvEscapeCell).join(',');
             });
             const csv = lines.join('\r\n');
@@ -7082,13 +7082,13 @@ function createGovHelper(logLines, uploadedFiles) {
             _govDownloadBlob(blob, outName);
         },
         writeText(filename, content) {
-            if (!filename) throw new Error('??????');
+            if (!filename) throw new Error('缺少文件名');
             const text = content === undefined || content === null ? '' : String(content);
             const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
             _govDownloadBlob(blob, filename);
         },
         writeJSON(filename, data) {
-            if (!filename) throw new Error('??????');
+            if (!filename) throw new Error('缺少文件名');
             const text = JSON.stringify(data, null, 2);
             const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
             const outName = /\.json$/i.test(filename) ? filename : `${filename}.json`;
@@ -7159,7 +7159,7 @@ async function refreshCodegenTables() {
         }
         sel.innerHTML = '<option value="">-- 请选择表 --</option>' + tables.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
     } catch (e) {
-        sel.innerHTML = `<option value="">????: ${escapeHtml(e.message)}</option>`;
+        sel.innerHTML = `<option value="">加载表失败: ${escapeHtml(e.message)}</option>`;
     }
 }
 
@@ -7250,25 +7250,25 @@ const sheetName = workbook.SheetNames[0];
 const allData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
 const headers = allData[0];
 const rows = allData.slice(1);
-gov.log(\`?????: \${sheetName}, \${rows.length} ? ? \${headers.length} ?\`);`;
+gov.log(\`读取工作表: \${sheetName}, \${rows.length} 行 ? \${headers.length} 列\`);`;
     } else if (sourceType === 'csv_file') {
         parseCode = `const text = await INPUT_FILE.text();
 const parsed = Papa.parse(text, { header: false });
 const allData = parsed.data.filter(r => r.some(c => c));
 const headers = allData[0];
 const rows = allData.slice(1);
-gov.log(\`??CSV??: \${rows.length} ? ? \${headers.length} ?\`);`;
+gov.log(\`解析CSV数据: \${rows.length} 行 ? \${headers.length} 列\`);`;
     } else {
         parseCode = `const parsed = Papa.parse(INPUT_TEXT, { header: false });
 const allData = parsed.data.filter(r => r.some(c => c));
 const headers = allData[0];
 const rows = allData.slice(1);
-gov.log(\`??CSV??: \${rows.length} ? ? \${headers.length} ?\`);`;
+gov.log(\`解析CSV数据: \${rows.length} 行 ? \${headers.length} 列\`);`;
     }
 
     const code = `${parseCode}
 
-// ???:
+// 列映射:
 ${colComments}
 
 let inserted = 0, failed = 0;
@@ -7281,11 +7281,11 @@ for (const row of rows) {
         inserted++;
     } catch (e) {
         failed++;
-        if (failed <= 5) gov.log(\`? ? \${inserted + failed} ??: \${e.message}\`);
+        if (failed <= 5) gov.log(\`第 \${inserted + failed} 行失败: \${e.message}\`);
     }
 }
 
-gov.log(\`\\n????: ${tableName} ? ?? \${inserted} ?, ?? \${failed} ?\`);`;
+gov.log(\`\\n导入完成: ${tableName} 表 插入 \${inserted} 行, 失败 \${failed} 行\`);`;
 
     document.getElementById('govCodeInput').value = code;
 }
@@ -7431,8 +7431,8 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
         container.innerHTML = `
             <div class="gov-log-entry">
                 <div class="gov-log-header">
-                    <span>???? ${i + 1}/${files.length}?${escapeHtml(file.name)}</span>
-                    <span class="gov-log-status running">???</span>
+                    <span>批量处理 ${i + 1}/${files.length}?${escapeHtml(file.name)}</span>
+                    <span class="gov-log-status running">运行中</span>
                 </div>
             </div>`;
 
@@ -7444,7 +7444,7 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
     const fail = results.length - ok;
     const overallStatus = fail === 0 ? 'success' : 'error';
     const summaryLines = [
-        `???????? ${results.length} ?????? ${ok}??? ${fail}?`,
+        `批量完成 共 ${results.length} 个文件 成功 ${ok}个 失败 ${fail}个`,
         ...results.map(r =>
             (r.status === 'success' ? '?' : '?') + ' ' + r.fileName + (r.errorMsg ? ' ? ' + r.errorMsg : '')
         )
@@ -7454,7 +7454,7 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
 
     currentGovTask.status = overallStatus;
     currentGovTask.last_output = summaryText + (combinedOutput ? '\n\n' + combinedOutput : '');
-    currentGovTask.last_error = fail > 0 ? `${fail} ???????` : '';
+    currentGovTask.last_error = fail > 0 ? `${fail} 个文件执行失败` : '';
     currentGovTask.last_run_at = new Date().toISOString();
     showGovTaskDetail(currentGovTask);
     renderGovTaskList();
@@ -7463,18 +7463,18 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
     container.innerHTML = `
         <div class="gov-log-entry">
             <div class="gov-log-header">
-                <span>${new Date().toLocaleString()} ? ?? ${durationSec}s</span>
-                <span class="gov-log-status ${overallStatus}">????? ${ok} / ?? ${fail}</span>
+                <span>${new Date().toLocaleString()} 耗时 ${durationSec}s</span>
+                <span class="gov-log-status ${overallStatus}">批量结果 成功 ${ok} / 失败 ${fail}</span>
             </div>
-            <div class="gov-log-input">? ${results.length} ?????? ${ok}??? ${fail}</div>
+            <div class="gov-log-input">共 ${results.length} 个文件 成功${ok}个 失败${fail}个</div>
             <div class="gov-log-output">${escapeHtml(summaryText)}</div>
             ${results.map(r => `
                 <div class="gov-log-entry" style="margin-top:10px;border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;">
                     <div class="gov-log-header">
                         <span>${escapeHtml(r.fileName)}</span>
-                        <span class="gov-log-status ${r.status}">${r.status === 'success' ? '??' : '??'}</span>
+                        <span class="gov-log-status ${r.status}">${r.status === 'success' ? '成功' : '失败'}</span>
                     </div>
-                    ${r.inputDesc ? `<div class="gov-log-input">??: ${escapeHtml(r.inputDesc)}</div>` : ''}
+                    ${r.inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(r.inputDesc)}</div>` : ''}
                     ${r.output ? `<div class="gov-log-output">${renderGovOutput(r.output)}</div>` : ''}
                     ${r.errorMsg ? `<div class="gov-log-error">${escapeHtml(r.errorMsg)}</div>` : ''}
                 </div>
@@ -7514,7 +7514,7 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     `;
 }
 
-// ==================== gov API ?? ====================
+// ==================== gov API 接口 ====================
 
 // Get GOV_SHARED from window/globalThis (defined in gov-shared.js)
 // Use var so repeated script evaluation does not crash on redeclaration.
@@ -7600,21 +7600,21 @@ const DEMO_ONTOLOGY = {
           description: '客户是电商场景中的核心实体，通常对应 users 与 customers 两张表，需要统一主数据口径。',
           tables: ['users', 'customers'],
           attributes: ['id','name','email','phone','address','created_at'],
-          governance_issues: ['users??customers?????', '????????????'] },
+          governance_issues: ['users和customers表关联缺失', '客户主数据需要统一'] },
         { id: 'order', label: '订单', category: 'entity', importance: 0.90,
           description: '订单记录用户的购买行为，是交易链路中最重要的业务对象之一。',
           tables: ['orders','order_items'], attributes: ['order_id','total_amount','status','created_at'], governance_issues: [] },
         { id: 'product', label: '商品', category: 'entity', importance: 0.85,
           description: '商品信息通常来源于商品中心，需要统一 SKU、价格与状态字段。',
           tables: ['products','product_variants'], attributes: ['product_id','name','price','sku','status'],
-          governance_issues: ['??????????decimal vs float?', '?????????'] },
+          governance_issues: ['价格精度问题decimal vs float?', '商品状态值不一致'] },
         { id: 'inventory', label: '库存', category: 'entity', importance: 0.75,
           description: '库存实体描述商品在仓库中的可用数量和流转状态。',
           tables: ['inventory','warehouse_stock'], attributes: ['sku','quantity','warehouse_id','updated_at'], governance_issues: [] },
         { id: 'payment', label: '支付', category: 'entity', importance: 0.80,
           description: '支付记录交易支付过程，常与订单、渠道和流水号关联。',
           tables: ['payments','payment_logs'], attributes: ['payment_id','amount','channel','status','transaction_id'],
-          governance_issues: ['???????????', '??????????'] },
+          governance_issues: ['支付渠道缺少枚举校验', '支付状态流转不完整'] },
         { id: 'logistics', label: '物流', category: 'entity', importance: 0.70,
           description: '物流实体跟踪包裹运输、签收与异常状态。',
           tables: ['shipments','tracking_events'], attributes: ['tracking_no','carrier','status','estimated_delivery'], governance_issues: [] },
@@ -7635,41 +7635,41 @@ const DEMO_ONTOLOGY = {
           tables: ['membership_rules','customer_loyalty'], attributes: ['level','threshold','benefits','discount_rate'], governance_issues: [] },
         { id: 'risk_naming', label: '命名冲突', category: 'conflict', importance: 0.90,
           description: 'users 与 customers 存在语义重叠，需要统一命名与主数据口径。',
-          tables: ['users','customers'], attributes: [], governance_issues: ['?????????', '????????'] },
+          tables: ['users','customers'], attributes: [], governance_issues: ['字段命名不一致', '表结构需要规范'] },
     ],
     relations: [
-        { source: 'customer', target: 'order', label: '??', type: 'has-many', description: '???????????????????????????' },
-        { source: 'order', target: 'product', label: '??', type: 'many-to-many', description: '????????????????????' },
-        { source: 'order', target: 'payment', label: '????', type: 'has-one', description: '???????????????????????????' },
-        { source: 'order', target: 'logistics', label: '????', type: 'has-one', description: '????????????????????????' },
-        { source: 'customer', target: 'cart', label: '??', type: 'has-many', description: '?????????????????????????' },
-        { source: 'cart', target: 'product', label: '??', type: 'many-to-many', description: '?????????????????????' },
-        { source: 'product', target: 'inventory', label: '????', type: 'has-one', description: '??SKU???????????????????' },
-        { source: 'product', target: 'category', label: '??', type: 'many-to-one', description: '?????????????????????' },
-        { source: 'customer', target: 'review', label: '????', type: 'has-many', description: '???????????????????????' },
-        { source: 'review', target: 'product', label: '??', type: 'many-to-one', description: '????????????' },
-        { source: 'customer', target: 'coupon', label: '??', type: 'has-many', description: '??????????????????' },
-        { source: 'order', target: 'coupon', label: '??', type: 'many-to-one', description: '???????????????????????' },
-        { source: 'customer', target: 'loyalty', label: '????', type: 'has-one', description: '????????????????????????' },
-        { source: 'risk_naming', target: 'customer', label: '??', type: 'conflict', description: '???????????????????????' },
+        { source: 'customer', target: 'order', label: '下单', type: 'has-many', description: '客户可以创建多个订单，记录购买行为和时间线' },
+        { source: 'order', target: 'product', label: '包含', type: 'many-to-many', description: '订单包含多个商品，商品可出现在多个订单中' },
+        { source: 'order', target: 'payment', label: '支付', type: 'has-one', description: '一个订单对应一条支付记录，记录支付渠道和状态' },
+        { source: 'order', target: 'logistics', label: '物流', type: 'has-one', description: '订单关联物流信息，追踪包裹运输和签收' },
+        { source: 'customer', target: 'cart', label: '拥有', type: 'has-many', description: '客户可创建多个购物车记录，保留临时选购' },
+        { source: 'cart', target: 'product', label: '包含', type: 'many-to-many', description: '购物车包含多个商品，多对多关联' },
+        { source: 'product', target: 'inventory', label: '库存', type: 'has-one', description: '每个SKU对应一条库存记录，记录可用数量' },
+        { source: 'product', target: 'category', label: '归类', type: 'many-to-one', description: '商品归入某个分类，支持层级结构' },
+        { source: 'customer', target: 'review', label: '评价', type: 'has-many', description: '客户可以对多个商品发表评价和反馈' },
+        { source: 'review', target: 'product', label: '针对', type: 'many-to-one', description: '评价针对某个具体商品' },
+        { source: 'customer', target: 'coupon', label: '领取', type: 'has-many', description: '客户可领取多张优惠券，优惠券有使用条件' },
+        { source: 'order', target: 'coupon', label: '使用', type: 'many-to-one', description: '订单可使用一张优惠券，记录优惠金额和使用条件' },
+        { source: 'customer', target: 'loyalty', label: '会员', type: 'has-one', description: '客户关联会员等级和权益，记录积分和等级' },
+        { source: 'risk_naming', target: 'customer', label: '冲突', type: 'conflict', description: 'users与customers存在命名冲突，需统一客户口径' },
     ],
     insights: [
-        { type: 'conflict', title: '??????', severity: 'high', affectedConcepts: ['customer','risk_naming'],
-          description: 'users ?? customers ??????????????????? customer ??????????' },
-        { type: 'quality', title: '?????????', severity: 'high', affectedConcepts: ['product','order'],
-          description: 'products.price ?? float?order_items.unit_price ?? decimal?????????????????' },
-        { type: 'governance', title: '??????????', severity: 'medium', affectedConcepts: ['customer'],
-          description: '???????????????????????????????????????GDPR/?????????' },
-        { type: 'missing', title: '??????????', severity: 'medium', affectedConcepts: ['logistics','product'],
-          description: '?????????????????????????????????????????' },
-        { type: 'governance', title: '????????', severity: 'medium', affectedConcepts: ['payment'],
-          description: '???????????????????????????????????' },
-        { type: 'quality', title: '??12???????', severity: 'info', affectedConcepts: [],
-          description: 'AI???????????????????12?????????14???????????????????????' },
+        { type: 'conflict', title: '命名冲突风险', severity: 'high', affectedConcepts: ['customer','risk_naming'],
+          description: 'users 与 customers 存在语义重叠，需要统一为 customer 主数据口径' },
+        { type: 'quality', title: '数据精度不一致', severity: 'high', affectedConcepts: ['product','order'],
+          description: 'products.price 是 float，order_items.unit_price 是 decimal，需要统一精度以避免计算误差' },
+        { type: 'governance', title: '隐私合规缺失', severity: 'medium', affectedConcepts: ['customer'],
+          description: '客户敏感字段缺少脱敏策略，联系方式、地址等是否满足GDPR/个人信息保护法要求' },
+        { type: 'missing', title: '物流商品关联缺失', severity: 'medium', affectedConcepts: ['logistics','product'],
+          description: '物流与商品之间缺少溯源关联，无法追溯退换货和破损责任方' },
+        { type: 'governance', title: '支付数据留痕', severity: 'medium', affectedConcepts: ['payment'],
+          description: '支付流水缺少操作审计日志，需按要求保留至少五年记录' },
+        { type: 'quality', title: '典型电商12实体模型', severity: 'info', affectedConcepts: [],
+          description: 'AI已识别出典型电商场景12个核心实体，实际可能扩展到14个以上，建议持续补充完善' },
     ],
 };
 
-// ---- ???? ----
+// ---- 本体可视化 ----
 function ontoNodeRadius(d) {
     return 18 + (d.importance || 0.5) * 16;
 }
@@ -7725,7 +7725,7 @@ function disposeOntologyGraph3D() {
     ontoThreeState = null;
 }
 
-/** ?? 3D ???????? + ??? + ???? + ?? */
+/** 单步 3D 力导向模拟 + 阻尼 + 中心引力 + 速度 */
 function ontoForceLayout3DStep(nodes, links, opts) {
     const repulsion = opts.repulsion ?? 1200;
     const attraction = opts.attraction ?? 0.06;
@@ -8212,17 +8212,17 @@ function renderOntologyGraph(data, animate) {
         .attr('fill', d => ONTO_COLORS[d.category]?.fill || '#4ECDC4')
         .attr('opacity', 0.12).attr('filter','url(#onto-glow)');
 
-    // ??
+    // 光晕
     nodeSel.append('circle').attr('class','onto-node-circle')
         .attr('r', d => ontoNodeRadius(d))
         .attr('fill', d => `url(#onto-grad-${d.category})`)
         .attr('stroke', d => ONTO_COLORS[d.category]?.fill || '#4ECDC4')
         .attr('stroke-width', 2).attr('filter','url(#onto-glow)');
 
-    // emoji ??
+    // emoji 图标 
     nodeSel.append('text').attr('text-anchor','middle').attr('dominant-baseline','central')
         .attr('font-size', d => Math.round(ontoNodeRadius(d)*0.75)+'px')
-        .attr('pointer-events','none').text(d => ONTO_COLORS[d.category]?.emoji || '??');
+        .attr('pointer-events','none').text(d => ONTO_COLORS[d.category]?.emoji || '🔵');
 
     // 节点标签。
     nodeSel.append('text').attr('class','onto-node-label').attr('text-anchor','middle')
@@ -8634,7 +8634,7 @@ const DB_TYPE_ICONS = {
 };
 
 function getDbIcon(type) {
-    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '??';
+    return DB_TYPE_ICONS[(type||'').toLowerCase()] || '🗄️';
 }
 
 // 切换本体数据库选择器。
