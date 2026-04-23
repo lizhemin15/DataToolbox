@@ -6112,7 +6112,7 @@ function renderGovTaskList() {
         return `
         <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
              onclick="selectGovTask('${safeTId}')">
-            <div class="gov-task-item-icon">${t.type === 'scheduled' ? '定' : '交'}</div>
+            <div class="gov-task-item-icon">${t.type === 'scheduled' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>'}</div>
             <div class="gov-task-item-info">
                 <div class="gov-task-item-name">
                     ${escapeHtml(t.name)}
@@ -6120,7 +6120,7 @@ function renderGovTaskList() {
                 </div>
                 <div class="gov-task-item-meta">
                     <span class="gov-task-badge ${t.type}">${t.type === 'scheduled' ? '定时' : '交互'}</span>
-                    <span class="gov-status-dot ${t.status}"></span>
+                    <span class="gov-status-icon ${t.status}">${t.status === 'idle' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>' : t.status === 'running' ? '<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>' : t.status === 'success' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'}</span>
                     <span>${t.status === 'idle' ? '待运行' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '失败'}</span>
                 </div>
             </div>

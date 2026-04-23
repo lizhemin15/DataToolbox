@@ -3261,8 +3261,18 @@ textarea#testApiParams {
 }
 
 .gov-task-item-icon {
-    font-size: 20px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #4a5568;
+}
+
+.gov-task-item-icon svg {
+    width: 20px;
+    height: 20px;
 }
 
 .gov-task-item-info {
@@ -3323,29 +3333,39 @@ textarea#testApiParams {
     color: #6b46c1;
 }
 
-.gov-status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    display: inline-block;
+.gov-status-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+    vertical-align: middle;
 }
 
-.gov-status-dot.idle {
-    background: #cbd5e0;
+.gov-status-icon svg {
+    width: 16px;
+    height: 16px;
 }
 
-.gov-status-dot.running {
-    background: #f6ad55;
-    animation: pulse-dot 1.2s ease-in-out infinite;
+.gov-status-icon.idle {
+    color: #a0aec0;
 }
 
-.gov-status-dot.success {
-    background: #48bb78;
+.gov-status-icon.running {
+    color: #f6ad55;
 }
 
-.gov-status-dot.error {
-    background: #fc8181;
+.gov-status-icon.running .spin {
+    animation: spin 1s linear infinite;
+}
+
+.gov-status-icon.success {
+    color: #48bb78;
+}
+
+.gov-status-icon.error {
+    color: #fc8181;
 }
 
 .gov-api-badge {
@@ -3356,9 +3376,9 @@ textarea#testApiParams {
     cursor: help;
 }
 
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 .gov-input-area {
