@@ -8116,6 +8116,9 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.Name != "" {
 			task.Name = update.Name
 		}
+		if update.Type != "" {
+			task.Type = update.Type
+		}
 		if update.Description != "" {
 			task.Description = update.Description
 		}
