@@ -96,7 +96,8 @@ jobs:
           mkdir -p package/web
           cp ${{ matrix.output }} package/
           cp server.config.json package/
-          cp install.sh README_DEPLOY.md package/
+          cp scripts/install.sh package/install.sh
+          cp README_DEPLOY.md package/
           chmod +x package/install.sh
           # 复制静态文件到发布目录
           cp -r index.html apps css js lib package/web/
