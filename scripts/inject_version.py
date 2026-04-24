@@ -19,9 +19,16 @@ def main():
     version = sys.argv[1]
     package_dir = Path(sys.argv[2])
 
+    # Determine base path: use package_dir if apps/ exists, otherwise package_dir/web
+    # This supports both source tree (apps/...) and release packages (web/apps/...)
+    if (package_dir / "apps").exists():
+        base_path = package_dir
+    else:
+        base_path = package_dir / "web"
+
     files = [
-        package_dir / "web" / "apps" / "data-ontology" / "index.html",
-        package_dir / "web" / "apps" / "data-ontology" / "script.js",
+        base_path / "apps" / "data-ontology" / "index.html",
+        base_path / "apps" / "data-ontology" / "script.js",
     ]
 
     pattern = re.compile(r"\?v=\d+\.\d+\.\d+")
