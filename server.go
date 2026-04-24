@@ -2990,6 +2990,29 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 		if settings == nil {
 			settings = map[string]interface{}{}
 		}
+		// 设置默认值（如果用户没有设置过）
+		if _, ok := settings["embedMode"]; !ok {
+			settings["embedMode"] = true
+		}
+		if _, ok := settings["tabVisibility"]; !ok {
+			settings["tabVisibility"] = map[string]interface{}{
+				"database": true,
+				"governance": true,
+				"api":       true,
+				"ai":        true,
+				"ontology":  false,
+				"lineage":   false,
+				"mcp":       false,
+				"models":    false,
+				"quality":   false,
+			}
+		}
+		if _, ok := settings["tabOrder"]; !ok {
+			settings["tabOrder"] = []string{"database", "governance", "api", "ai", "ontology", "lineage", "mcp", "models", "quality"}
+		}
+		if _, ok := settings["tabNames"]; !ok {
+			settings["tabNames"] = map[string]interface{}{}
+		}
 		jsonSuccess(w, map[string]interface{}{"success": true, "settings": settings})
 	case http.MethodPost:
 		var body map[string]interface{}

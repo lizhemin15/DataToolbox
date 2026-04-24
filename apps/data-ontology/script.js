@@ -4077,16 +4077,36 @@ function hideAiSettingsModal() {
 // ========== 标签页显示设置 ==========
 const TAB_VISIBILITY_KEY = 'tabVisibilitySettings';
 const ALL_TABS = [
-    { id: 'database', name: '数据库' },
-    { id: 'governance', name: '治理' },
-    { id: 'ontology', name: '本体' },
-    { id: 'lineage', name: '血缘' },
-    { id: 'api', name: 'API' },
+    { id: 'database', name: '数据库管理' },
+    { id: 'governance', name: '数据治理' },
+    { id: 'ontology', name: '本体论抽象' },
+    { id: 'lineage', name: '数据血缘' },
+    { id: 'api', name: '接口分发' },
     { id: 'mcp', name: 'MCP' },
-    { id: 'ai', name: 'AI 设置' },
-    { id: 'models', name: '模型' },
-    { id: 'quality', name: '质量' }
+    { id: 'ai', name: 'AI助手' },
+    { id: 'models', name: '模型管理' },
+    { id: 'quality', name: '数据质量审核' }
 ];
+
+// 默认标签页设置
+const DEFAULT_TAB_VISIBILITY = {
+    database: true,
+    governance: true,
+    api: true,
+    ai: true,
+    ontology: false,
+    lineage: false,
+    mcp: false,
+    models: false,
+    quality: false
+};
+
+const DEFAULT_TAB_ORDER = ['database', 'governance', 'api', 'ai', 'ontology', 'lineage', 'mcp', 'models', 'quality'];
+
+// 当前标签页设置状态（用于设置弹窗）
+let currentTabOrder = [...DEFAULT_TAB_ORDER];
+let currentTabNames = {};
+let currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
 
 // 打开设置弹窗。
 async function showSettingsModal() {
@@ -4104,51 +4124,54 @@ async function loadTabSettings() {
     const container = document.getElementById('tabVisibilitySettings');
     if (!container) return;
 
-    // 从后端 API 读取。
+    // 从后端 API 读取设置
     let settings = null;
     try {
         const userSettings = await loadUserSettings();
-        if (userSettings && userSettings.tabVisibility) {
-            settings = userSettings.tabVisibility;
+        if (userSettings) {
+            // 合并默认值
+            currentTabVisibility = {...DEFAULT_TAB_VISIBILITY, ...(userSettings.tabVisibility || {})};
+            currentTabOrder = userSettings.tabOrder ? [...userSettings.tabOrder] : [...DEFAULT_TAB_ORDER];
+            currentTabNames = userSettings.tabNames ? {...userSettings.tabNames} : {};
+            // 确保 currentTabOrder 包含所有标签页
+            ALL_TABS.forEach(t => {
+                if (!currentTabOrder.includes(t.id)) {
+                    currentTabOrder.push(t.id);
+                }
+            });
+            settings = currentTabVisibility;
         }
     } catch (e) {
         console.error('加载标签页设置失败', e);
     }
 
-    // 回填复选框。
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        const tabId = cb.dataset.tab;
-        if (settings && settings.hasOwnProperty(tabId)) {
-            cb.checked = settings[tabId];
-        } else {
-            cb.checked = true; // 治理标签页
-        }
-    });
+    if (!settings) {
+        currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
+        currentTabOrder = [...DEFAULT_TAB_ORDER];
+        currentTabNames = {};
+        settings = currentTabVisibility;
+    }
+
+    // 动态生成标签页设置行
+    renderTabSettingsUI(container, settings);
 }
 
-// 重置API测试表单?
+// 保存标签页设置
 function saveTabSettings() {
-    const container = document.getElementById('tabVisibilitySettings');
-    if (!container) return;
+    // 从设置弹窗中收集当前状态
+    collectTabSettingsFromUI();
 
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    const settings = {};
     let visibleCount = 0;
+    for (const key in currentTabVisibility) {
+        if (currentTabVisibility[key]) visibleCount++;
+    }
 
-    checkboxes.forEach(cb => {
-        const tabId = cb.dataset.tab;
-        settings[tabId] = cb.checked;
-        if (cb.checked) visibleCount++;
-    });
-
-    // 应用嵌入模式设置
     if (visibleCount < 1) {
-        showToast('请先填写完整参数', 'warning');
+        showToast('至少需要显示一个标签页', 'warning');
         return false;
     }
 
-    // 显示设置弹窗
+    // 应用嵌入模式设置
     const embedModeToggle = document.getElementById('embedModeToggle');
     const embedMode = embedModeToggle ? embedModeToggle.checked : false;
     applyEmbedMode(embedMode);
@@ -4157,12 +4180,14 @@ function saveTabSettings() {
     (async () => {
         const userSettings = await loadUserSettings();
         userSettings.embedMode = embedMode;
-        userSettings.tabVisibility = settings;
+        userSettings.tabVisibility = currentTabVisibility;
+        userSettings.tabOrder = currentTabOrder;
+        userSettings.tabNames = currentTabNames;
         await saveUserSettings(userSettings);
     })();
 
     try {
-        applyTabVisibility(settings);
+        applyTabVisibility(currentTabVisibility, currentTabOrder, currentTabNames);
         showToast('保存成功', 'success');
         hideSettingsModal();
         return true;
@@ -4173,20 +4198,21 @@ function saveTabSettings() {
     }
 }
 
-// 根据API类型显示/隐藏不同字段
+// 重置标签页设置为默认值
 function resetTabSettings() {
-    const container = document.getElementById('tabVisibilitySettings');
-    if (!container) return;
-
-    const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(cb => {
-        cb.checked = true;
-    });
+    currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
+    currentTabOrder = [...DEFAULT_TAB_ORDER];
+    currentTabNames = {};
     
-    // 更新会话上下文显示
+    const container = document.getElementById('tabVisibilitySettings');
+    if (container) {
+        renderTabSettingsUI(container, currentTabVisibility);
+    }
+    
+    // 更新嵌入模式复选框
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
-        embedModeToggle.checked = false;
+        embedModeToggle.checked = true; // 默认开启嵌入模式
     }
 }
 
@@ -4235,12 +4261,31 @@ async function saveUserSettings(settings) {
 // 初始化嵌入模式
 async function initEmbedMode() {
     const settings = await loadUserSettings();
-    const embedMode = settings.embedMode === true;
+    const embedMode = settings.embedMode !== false; // 默认开启嵌入模式
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = embedMode;
     }
     applyEmbedMode(embedMode);
+    
+    // 应用标签页设置
+    const tabVisibility = settings.tabVisibility || DEFAULT_TAB_VISIBILITY;
+    const tabOrder = settings.tabOrder || DEFAULT_TAB_ORDER;
+    const tabNames = settings.tabNames || {};
+    
+    // 更新当前状态
+    currentTabVisibility = {...DEFAULT_TAB_VISIBILITY, ...tabVisibility};
+    currentTabOrder = [...tabOrder];
+    currentTabNames = {...tabNames};
+    
+    // 确保 currentTabOrder 包含所有标签页
+    ALL_TABS.forEach(t => {
+        if (!currentTabOrder.includes(t.id)) {
+            currentTabOrder.push(t.id);
+        }
+    });
+    
+    applyTabVisibilityWithSettings(currentTabVisibility, currentTabOrder, currentTabNames);
     
     // 绑定嵌入模式设置按钮
     const embedSettingsBtn = document.getElementById('embedSettingsBtn');
@@ -4250,35 +4295,157 @@ async function initEmbedMode() {
 }
 
 // 应用标签页可见性
-function applyTabVisibility(settings) {
+function applyTabVisibility(settings, tabOrder, tabNames) {
     if (!settings) {
+        // 如果没有设置，从后端加载
+        (async () => {
+            const userSettings = await loadUserSettings();
+            const vis = userSettings.tabVisibility || DEFAULT_TAB_VISIBILITY;
+            const order = userSettings.tabOrder || DEFAULT_TAB_ORDER;
+            const names = userSettings.tabNames || {};
+            applyTabVisibilityWithSettings(vis, order, names);
+        })();
         return;
     }
+    applyTabVisibilityWithSettings(settings, tabOrder || DEFAULT_TAB_ORDER, tabNames || {});
+}
 
-    // 展示返回的行数据。
-    if (!settings) return;
+// 实际应用标签页设置
+function applyTabVisibilityWithSettings(settings, tabOrder, tabNames) {
+    const tabsContainer = document.querySelector('.nav-tabs');
+    if (!tabsContainer) return;
 
-    // 过滤数据库建议列表
     const tabs = document.querySelectorAll('.nav-tab');
-    tabs.forEach(tab => {
-        const tabId = tab.dataset.tab;
-        if (settings.hasOwnProperty(tabId)) {
-            tab.style.display = settings[tabId] ? '' : 'none';
-        }
+    const tabArray = Array.from(tabs);
+
+    // 按 tabOrder 排序标签页
+    tabArray.sort((a, b) => {
+        const aIndex = tabOrder.indexOf(a.dataset.tab);
+        const bIndex = tabOrder.indexOf(b.dataset.tab);
+        return aIndex - bIndex;
     });
 
-    // 显示或隐藏嵌入模式设置
+    // 重新排列标签页DOM
+    tabArray.forEach(tab => tabsContainer.appendChild(tab));
+
+    // 应用可见性和名称
+    tabs.forEach(tab => {
+        const tabId = tab.dataset.tab;
+        
+        // 设置可见性
+        if (settings.hasOwnProperty(tabId)) {
+            tab.style.display = settings[tabId] ? '' : 'none';
+        } else {
+            tab.style.display = DEFAULT_TAB_VISIBILITY[tabId] ? '' : 'none';
+        }
+
+        // 设置名称
+        const tabInfo = ALL_TABS.find(t => t.id === tabId);
+        const customName = tabNames && tabNames[tabId];
+        tab.textContent = customName || (tabInfo ? tabInfo.name : tabId);
+    });
+
+    // 如果当前活动标签页被隐藏，切换到第一个可见标签页
     const activeTab = document.querySelector('.nav-tab.active');
     if (activeTab) {
         const activeTabId = activeTab.dataset.tab;
         if (settings[activeTabId] === false) {
-            // 重置设置到默认值
             const firstVisibleTab = document.querySelector('.nav-tab:not([style*="display: none"])');
             if (firstVisibleTab) {
                 switchTab(firstVisibleTab.dataset.tab);
             }
         }
     }
+}
+
+// 渲染标签页设置UI
+function renderTabSettingsUI(container, settings) {
+    container.innerHTML = '';
+    
+    currentTabOrder.forEach((tabId, index) => {
+        const tabInfo = ALL_TABS.find(t => t.id === tabId);
+        if (!tabInfo) return;
+
+        const row = document.createElement('div');
+        row.className = 'tab-setting-row';
+        row.dataset.tabId = tabId;
+
+        const isVisible = settings[tabId] !== false;
+        const customName = currentTabNames[tabId] || '';
+
+        row.innerHTML = `
+            <input type="checkbox" data-tab="${tabId}" ${isVisible ? 'checked' : ''}>
+            <input type="text" class="tab-name-input" data-tab="${tabId}" 
+                   placeholder="${tabInfo.name}" value="${escapeHtml(customName)}">
+            <div class="tab-order-btns">
+                <button type="button" class="tab-order-btn" data-action="up" data-tab="${tabId}" 
+                        ${index === 0 ? 'disabled' : ''} title="上移">↑</button>
+                <button type="button" class="tab-order-btn" data-action="down" data-tab="${tabId}" 
+                        ${index === currentTabOrder.length - 1 ? 'disabled' : ''} title="下移">↓</button>
+            </div>
+        `;
+
+        // 绑定事件
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('change', () => {
+            currentTabVisibility[tabId] = checkbox.checked;
+        });
+
+        const nameInput = row.querySelector('.tab-name-input');
+        nameInput.addEventListener('input', () => {
+            if (nameInput.value.trim()) {
+                currentTabNames[tabId] = nameInput.value.trim();
+            } else {
+                delete currentTabNames[tabId];
+            }
+        });
+
+        const upBtn = row.querySelector('[data-action="up"]');
+        upBtn.addEventListener('click', () => moveTabOrder(tabId, -1));
+
+        const downBtn = row.querySelector('[data-action="down"]');
+        downBtn.addEventListener('click', () => moveTabOrder(tabId, 1));
+
+        container.appendChild(row);
+    });
+}
+
+// 移动标签页顺序
+function moveTabOrder(tabId, direction) {
+    const index = currentTabOrder.indexOf(tabId);
+    const newIndex = index + direction;
+    
+    if (newIndex < 0 || newIndex >= currentTabOrder.length) return;
+    
+    // 交换位置
+    [currentTabOrder[index], currentTabOrder[newIndex]] = [currentTabOrder[newIndex], currentTabOrder[index]];
+    
+    // 重新渲染UI
+    const container = document.getElementById('tabVisibilitySettings');
+    if (container) {
+        renderTabSettingsUI(container, currentTabVisibility);
+    }
+}
+
+// 从UI收集标签页设置
+function collectTabSettingsFromUI() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const rows = container.querySelectorAll('.tab-setting-row');
+    rows.forEach(row => {
+        const tabId = row.dataset.tabId;
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        const nameInput = row.querySelector('.tab-name-input');
+
+        currentTabVisibility[tabId] = checkbox ? checkbox.checked : true;
+        
+        if (nameInput && nameInput.value.trim()) {
+            currentTabNames[tabId] = nameInput.value.trim();
+        } else {
+            delete currentTabNames[tabId];
+        }
+    });
 }
 
 // 保存AI配置
