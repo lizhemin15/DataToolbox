@@ -1508,13 +1508,14 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Status:    "idle",
 		},
 		"国际新闻入库": {
-			Owner:        "admin",
-			Name:         "国际新闻入库",
-			Type:         "interactive",
-			Description:  "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
-			JsCode:       loadGovernancePresetJS("international-news-import.js"),
-			InputType:    "file",
-			AcceptExts:   []string{".docx"},
+			Owner:         "admin",
+			Name:          "国际新闻入库",
+			Type:          "interactive",
+			Description:   "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
+			JsCode:        loadGovernancePresetJS("international-news-import.js"),
+			InputType:     "file",
+			AcceptExts:    []string{".docx"},
+			FileBatchMode: "single",
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "19990101_国际新闻与运输情况通报_模拟数据.docx", Path: "19990101_国际新闻与运输情况通报_模拟数据.docx"},
 				{Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"},
@@ -2213,8 +2214,9 @@ async function main() {
 // 执行
 main().catch(e => {
     gov.log('✗ 流程异常: ' + e.message);`,
-			InputType:  "file",
-			AcceptExts: []string{".docx"},
+			InputType:     "file",
+			AcceptExts:    []string{".docx"},
+			FileBatchMode: "single",
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "19990101_国际新闻与运输情况通报_模拟数据.docx", Path: "19990101_国际新闻与运输情况通报_模拟数据.docx"},
 				{Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"},
