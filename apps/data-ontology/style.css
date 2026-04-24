@@ -3331,6 +3331,15 @@ textarea#testApiParams {
     border-right: 3px solid #667eea;
 }
 
+.gov-task-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+.gov-task-item.drag-over {
+    border-top: 2px solid #667eea;
+}
+
 .gov-task-item-icon {
     width: 20px;
     height: 20px;

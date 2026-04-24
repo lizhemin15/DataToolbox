@@ -3013,6 +3013,9 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 		if _, ok := settings["tabNames"]; !ok {
 			settings["tabNames"] = map[string]interface{}{}
 		}
+		if _, ok := settings["govTaskOrder"]; !ok {
+			settings["govTaskOrder"] = []string{}
+		}
 		jsonSuccess(w, map[string]interface{}{"success": true, "settings": settings})
 	case http.MethodPost:
 		var body map[string]interface{}
@@ -8637,12 +8640,58 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 			}
 			taskList = append(taskList, t)
 		}
-		sort.Slice(taskList, func(i, j int) bool {
-			if taskList[i].CreatedAt != taskList[j].CreatedAt {
-				return taskList[i].CreatedAt > taskList[j].CreatedAt
+
+		// 读取用户设置中的任务顺序
+		var govTaskOrder []string
+		if user, ok := dataOntologyUsers[username]; ok && user.Settings != nil {
+			if order, ok := user.Settings["govTaskOrder"].([]string); ok {
+				govTaskOrder = order
+			} else if orderInterface, ok := user.Settings["govTaskOrder"].([]interface{}); ok {
+				// JSON 反序列化可能产生 []interface{}
+				for _, id := range orderInterface {
+					if idStr, ok := id.(string); ok {
+						govTaskOrder = append(govTaskOrder, idStr)
+					}
+				}
 			}
-			return taskList[i].Name < taskList[j].Name
-		})
+		}
+
+		// 如果有自定义排序，按该顺序排序
+		if len(govTaskOrder) > 0 {
+			orderMap := make(map[string]int)
+			for i, id := range govTaskOrder {
+				orderMap[id] = i
+			}
+			sort.Slice(taskList, func(i, j int) bool {
+				iIdx, iOk := orderMap[taskList[i].ID]
+				jIdx, jOk := orderMap[taskList[j].ID]
+				// 如果两个任务都在排序中，按排序顺序
+				if iOk && jOk {
+					return iIdx < jIdx
+				}
+				// 如果只有一个在排序中，排序中的排前面
+				if iOk {
+					return true
+				}
+				if jOk {
+					return false
+				}
+				// 如果都不在排序中，按创建时间降序
+				if taskList[i].CreatedAt != taskList[j].CreatedAt {
+					return taskList[i].CreatedAt > taskList[j].CreatedAt
+				}
+				return taskList[i].Name < taskList[j].Name
+			})
+		} else {
+			// 如果没有自定义排序，按创建时间降序 + 名称升序
+			sort.Slice(taskList, func(i, j int) bool {
+				if taskList[i].CreatedAt != taskList[j].CreatedAt {
+					return taskList[i].CreatedAt > taskList[j].CreatedAt
+				}
+				return taskList[i].Name < taskList[j].Name
+			})
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "tasks": taskList})
 
 	case http.MethodPost:

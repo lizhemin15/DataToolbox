@@ -6325,6 +6325,8 @@ function renderGovTaskList() {
         const safeTId = escapeHtml(t.id);
         return `
         <div class="gov-task-item ${currentGovTask && currentGovTask.id === t.id ? 'active' : ''}"
+             data-task-id="${safeTId}"
+             draggable="true"
              onclick="selectGovTask('${safeTId}')">
             <div class="gov-task-item-icon">${t.type === 'scheduled' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>'}</div>
             <div class="gov-task-item-info">
@@ -6341,6 +6343,15 @@ function renderGovTaskList() {
             ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">下载样例</button>` : ''}
         </div>
     `;}).join('');
+
+    // 添加拖拽事件监听
+    container.querySelectorAll('.gov-task-item').forEach(item => {
+        item.addEventListener('dragstart', handleGovTaskDragStart);
+        item.addEventListener('dragend', handleGovTaskDragEnd);
+        item.addEventListener('dragover', handleGovTaskDragOver);
+        item.addEventListener('dragleave', handleGovTaskDragLeave);
+        item.addEventListener('drop', handleGovTaskDrop);
+    });
 }
 
 function filterGovTaskList() {
@@ -6353,6 +6364,57 @@ function filterGovByType(type) {
         btn.classList.toggle('active', btn.dataset.filter === type);
     });
     renderGovTaskList();
+}
+
+// 治理任务拖拽排序事件处理
+function handleGovTaskDragStart(e) {
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', e.currentTarget.dataset.taskId);
+}
+
+function handleGovTaskDragEnd() {
+    document.querySelectorAll('.gov-task-item.dragging').forEach(el => el.classList.remove('dragging'));
+    document.querySelectorAll('.gov-task-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function handleGovTaskDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const draggingItem = document.querySelector('.gov-task-item.dragging');
+    if (draggingItem && draggingItem !== e.currentTarget) {
+        e.currentTarget.classList.add('drag-over');
+    }
+}
+
+function handleGovTaskDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+}
+
+async function handleGovTaskDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+
+    const dragTaskId = e.dataTransfer.getData('text/plain');
+    const dropTaskId = e.currentTarget.dataset.taskId;
+    if (dragTaskId === dropTaskId) return;
+
+    // 构建新的完整任务顺序
+    const newOrder = govTasks.map(t => t.id);
+    const dragIndex = newOrder.indexOf(dragTaskId);
+    const dropIndex = newOrder.indexOf(dropTaskId);
+    if (dragIndex === -1 || dropIndex === -1) return;
+
+    const [removed] = newOrder.splice(dragIndex, 1);
+    newOrder.splice(dropIndex, 0, removed);
+
+    // 保存到后端
+    const userSettings = await loadUserSettings();
+    userSettings.govTaskOrder = newOrder;
+    await saveUserSettings(userSettings);
+
+    // 重新加载任务列表（后端会返回排序后的结果）
+    await loadGovernanceTasks();
 }
 
 async function selectGovTask(taskId) {
