@@ -1461,7 +1461,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			JsCode:       loadGovernancePresetJS("word-content-extract.js"),
 			InputType:    "file",
 			AcceptExts:   []string{".docx"},
-			ExampleFiles: []GovernanceExampleFile{{Name: "模板.docx", Path: "template.docx"}},
+			ExampleFiles: []GovernanceExampleFile{{Name: "国际新闻与运输情况通报_模拟数据.docx", Path: "国际新闻与运输情况通报_模拟数据.docx"}},
 			CreatedAt:    now,
 			Status:       "idle",
 		},
