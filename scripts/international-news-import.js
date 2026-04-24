@@ -356,12 +356,43 @@ async function main() {
     }
 
     // -- Step 1: 获取输入 --
-    const rawText = typeof INPUT_TEXT !== 'undefined' ? INPUT_TEXT : '';
+    let rawText = '';
+
+    // 优先使用文件输入模式
+    if (typeof INPUT_FILES !== 'undefined' && INPUT_FILES && INPUT_FILES.length > 0) {
+        gov.log('✓ 检测到文件输入模式，共 ' + INPUT_FILES.length + ' 个文件');
+        const allTexts = [];
+
+        for (let i = 0; i < INPUT_FILES.length; i++) {
+            const file = INPUT_FILES[i];
+            gov.log('→ 正在读取文件 [' + (i + 1) + '/' + INPUT_FILES.length + ']: ' + file.name);
+
+            try {
+                const result = await gov.readWord(file);
+                const fileText = result.value || '';
+                if (fileText.trim()) {
+                    allTexts.push(fileText);
+                    gov.log('  ✓ 文件读取成功，提取 ' + fileText.length + ' 字符');
+                } else {
+                    gov.log('  ⚠ 文件内容为空');
+                }
+            } catch (e) {
+                gov.log('  ✗ 文件读取失败: ' + e.message);
+            }
+        }
+
+        rawText = allTexts.join('\n\n');
+        gov.log('✓ 所有文件内容合并完成，共 ' + rawText.length + ' 字符');
+    } else if (typeof INPUT_TEXT !== 'undefined' && INPUT_TEXT && INPUT_TEXT.trim()) {
+        // 回退到文本输入模式
+        rawText = INPUT_TEXT;
+        gov.log('✓ 使用文本输入模式，共 ' + rawText.length + ' 字符');
+    }
+
     if (!rawText || rawText.trim().length === 0) {
-        gov.log('✗ 未提供新闻文本输入（INPUT_TEXT 为空）');
+        gov.log('✗ 未提供有效输入（INPUT_FILES 或 INPUT_TEXT 均为空）');
         return;
     }
-    gov.log('✓ 获取输入文本，共 ' + rawText.length + ' 字符');
 
     // -- Step 2: 分块 + AI 提取 --
     const chunks = chunkText(rawText);
