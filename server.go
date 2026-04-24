@@ -9068,21 +9068,29 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-// sanitizeGovernanceExampleFilename 仅允许 governance-examples 下的文件名（无路径穿越）
+// sanitizeGovernanceExampleFilename 仅允许治理示例目录下的单个文件名（无路径穿越）
 func sanitizeGovernanceExampleFilename(s string) string {
 	s = strings.TrimSpace(s)
-	if s == "" || strings.Contains(s, "..") || strings.Contains(s, "/") || strings.Contains(s, "\\") {
+	if s == "" {
 		return ""
 	}
+	// 允许前端/历史数据传入相对路径，但最终必须归一化为纯文件名。
 	base := filepath.Base(s)
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return ""
+	}
 	if base != s {
+		// 只接受纯 basename；任何目录穿越/子目录都拒绝。
+		return ""
+	}
+	if strings.Contains(base, "..") || strings.Contains(base, "/") || strings.Contains(base, "\\") {
 		return ""
 	}
 	for _, c := range base {
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
 			continue
 		}
-		return ""
+		// 中文、空格等合法文件名字符不应被拒绝，防止预置示例无法下载。
 	}
 	return base
 }
