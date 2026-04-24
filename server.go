@@ -9165,7 +9165,11 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	var items []zipItem
 	if len(req.Files) > 0 {
 		for _, it := range req.Files {
-			safe := sanitizeGovernanceExampleFilename(it.Path)
+			pathInput := strings.TrimSpace(it.Path)
+			if pathInput == "" {
+				pathInput = strings.TrimSpace(it.Name)
+			}
+			safe := sanitizeGovernanceExampleFilename(pathInput)
 			if safe == "" {
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "非法路径"})

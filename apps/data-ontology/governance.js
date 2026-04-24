@@ -54,16 +54,23 @@ async function govDownloadExampleZip(files) {
 
 function govNormalizeExamplePath(item) {
     if (!item) return '';
-    const raw = typeof item === 'string' ? item : (item.path || item.Path || '');
+    const raw = typeof item === 'string' ? item : (item.path || item.Path || item.name || item.Name || '');
     const safe = String(raw || '').trim();
-    return safe ? safe.split(/[\/]/).pop() : '';
+    return safe ? safe.split(/[\\/]/).pop() : '';
 }
 
 function govNormalizeExampleName(item) {
     if (!item) return '';
-    const raw = typeof item === 'string' ? item : (item.name || item.Name || '');
+    const raw = typeof item === 'string' ? item : (item.name || item.Name || item.path || item.Path || '');
     const safe = String(raw || '').trim();
-    return safe ? safe.split(/[\/]/).pop() : '';
+    return safe ? safe.split(/[\\/]/).pop() : '';
+}
+
+function govNormalizeExampleFile(item) {
+    const path = govNormalizeExamplePath(item);
+    const name = govNormalizeExampleName(item) || path;
+    if (!path) return null;
+    return { name: name || path, path: path };
 }
 
 function govDownloadExamplesForTask(taskId) {
@@ -71,13 +78,11 @@ function govDownloadExamplesForTask(taskId) {
     const list = task && task.example_files;
     if (!list || !list.length) return;
     if (list.length === 1) {
-        govDownloadExampleSingle(govNormalizeExamplePath(list[0]));
+        const file = govNormalizeExampleFile(list[0]);
+        if (file) govDownloadExampleSingle(file.path);
     } else {
-        const files = list.map(item => ({
-            name: govNormalizeExampleName(item) || govNormalizeExamplePath(item),
-            path: govNormalizeExamplePath(item)
-        })).filter(item => item.path);
-        govDownloadExampleZip(files);
+        const files = list.map(govNormalizeExampleFile).filter(Boolean);
+        if (files.length) govDownloadExampleZip(files);
     }
 }
 
