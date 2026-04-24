@@ -46,10 +46,7 @@ const DDL = [
 // 2. AI Prompt 模板
 // ============================================================
 
-/**
- * 核心 Prompt：要求 LLM 从新闻文本中提取三张表的结构化数据
- * 输出严格 JSON，方便后续直接解析入库
- */
+// 核心 Prompt：要求 LLM 从新闻文本中提取三张表的结构化数据，输出严格 JSON
 const EXTRACT_PROMPT = [
     '从下文提取结构化数据，严格输出JSON（不要输出其他内容）。',
     '',
@@ -61,9 +58,7 @@ const EXTRACT_PROMPT = [
     '规则：时间格式yyyy-MM-dd HH:mm:ss；无运保则transport_support为空数组；sorties/batches为整数或null',
 ].join('\\n');
 
-/**
- * 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
- */
+// 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
 const CHUNK_EXTRACT_PROMPT = [
     '',
     '{base_prompt}',
@@ -74,9 +69,7 @@ const CHUNK_EXTRACT_PROMPT = [
 // 3. 核心逻辑
 // ============================================================
 
-/**
- * 生成唯一 ID
- */
+// 生成唯一 ID
 function generateId(prefix, index = 1) {
     const now = new Date();
     const ts = now.getFullYear().toString() +
@@ -89,12 +82,10 @@ function generateId(prefix, index = 1) {
     return prefix + '_' + ts + '_' + String(index).padStart(3, '0');
 }
 
-/**
- * 分块：将长文本拆分为多段
- * @param {string} text - 原始文本
- * @param {number} maxChars - 每块最大字符数（默认 3000，预留 prompt 空间）
- * @returns {string[]} 文本块数组
- */
+// 分块：将长文本拆分为多段
+// @param {string} text - 原始文本
+// @param {number} maxChars - 每块最大字符数（默认 3000，预留 prompt 空间）
+// @returns {string[]} 文本块数组
 function chunkText(text, maxChars = 1500) {
     if (text.length <= maxChars) return [text];
 
@@ -116,9 +107,7 @@ function chunkText(text, maxChars = 1500) {
     return chunks.map(c => c.length > maxChars * 1.5 ? c.slice(0, maxChars * 1.5) : c);
 }
 
-/**
- * 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况）
- */
+// 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况）
 function parseAIResponse(text) {
     // 去掉可能的 markdown 代码块包裹
     const BACKTICK3 = String.fromCharCode(96,96,96);
@@ -151,9 +140,7 @@ function parseAIResponse(text) {
     }
 }
 
-/**
- * 合并多个分块的提取结果，去重并修正 ID
- */
+// 合并多个分块的提取结果，去重并修正 ID
 function mergeChunkResults(results) {
     const merged = { news: [], transport_support: [] };
 
@@ -194,9 +181,7 @@ function mergeChunkResults(results) {
     return merged;
 }
 
-/**
- * 简单去重：按 (时间+区域+事件描述) 去重新闻
- */
+// 简单去重：按 (时间+区域+事件描述) 去重新闻
 function deduplicateNews(newsList) {
     const seen = new Set();
     return newsList.filter(item => {
@@ -207,9 +192,7 @@ function deduplicateNews(newsList) {
     });
 }
 
-/**
- * 入库：将解析结果写入达梦数据库
- */
+// 入库：将解析结果写入达梦数据库
 async function insertToDatabase(data) {
     const results = { news: 0, transport_support: 0, dispatch_force: 0, errors: [] };
 
@@ -271,9 +254,7 @@ async function insertToDatabase(data) {
     return results;
 }
 
-/**
- * 查询已有数据量（用于幂等判断）
- */
+// 查询已有数据量（用于幂等判断）
 async function checkExistingData() {
     try {
         const newsCount = await gov.querySQL('SELECT COUNT(*) AS CNT FROM intl_news');
@@ -294,14 +275,11 @@ async function checkExistingData() {
 // 4. 主入口
 // ============================================================
 
-/**
- * 主处理流程
- * INPUT_TEXT: 任务输入的原始新闻文本
- *
- * 使用方式：
- *   在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
- *   关联达梦数据库，运行此脚本即可自动解析入库。
- */
+// 主处理流程
+// INPUT_TEXT: 任务输入的原始新闻文本
+// 使用方式：
+// 在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
+// 关联达梦数据库，运行此脚本即可自动解析入库。
 // 直接执行（顶层代码，不用函数包裹，避免 Bun AsyncFunction 构造器中 await 挂起）
 try {
     gov.log('=== 国际新闻入库流程启动 ===');
@@ -309,7 +287,16 @@ try {
     // -- Step 0: 初始化数据库表 --
     try {
         // 达梦建表（IF NOT EXISTS 保证幂等）
-        const ddlStatements = DDL.split(';').map(s => s.trim()).filter(s => s && !s.startsWith('--'));
+        // 按分号分割，去掉注释行，再重新组合
+        const ddlStatements = DDL.split(';')
+            .map(s => s.trim())
+            .filter(s => s)
+            .map(s => {
+                // 去掉开头的注释行
+                const lines = s.split('\n').filter(l => !l.trim().startsWith('--'));
+                return lines.join('\n').trim();
+            })
+            .filter(s => s);
         for (const stmt of ddlStatements) {
             if (stmt) {
                 await gov.executeSQL(stmt);
