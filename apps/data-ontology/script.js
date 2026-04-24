@@ -103,13 +103,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.0.30');
-    await loadLazyScript('gov-api.js?v=4.0.30');
-    await loadLazyScript('governance.js?v=4.0.30');
+    await loadLazyScript('gov-shared.js?v=4.0.40');
+    await loadLazyScript('gov-api.js?v=4.0.40');
+    await loadLazyScript('governance.js?v=4.0.40');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.0.30');
+    await loadLazyScript('quality-audit.js?v=4.0.40');
 }
 
 
