@@ -63,6 +63,7 @@ const (
 	SSHConnectTimeout = 15 * time.Second // SSH 连接超时
 	SFTPSessionTTL    = 30 * time.Minute // SFTP 会话过期时间
 	SFTPCleanInterval = 5 * time.Minute  // SFTP 会话清理间隔
+	TokenCleanInterval = 1 * time.Hour   // 登录 token 清理间隔
 
 	// 治理任务配置
 	GovernanceSchedulerInterval = 30 * time.Second // 治理任务调度器检查间隔
@@ -802,11 +803,19 @@ func (c *Client) writePump() {
 
 // 数据本体池相关结构
 
+// TokenEntry 带时间戳的 token（支持过期清理）
+type TokenEntry struct {
+	Token     string `json:"token"`
+	CreatedAt int64  `json:"created_at"` // Unix 时间戳
+}
+
 // User 用户
 type User struct {
 	Username string                 `json:"username"`
 	Password string                 `json:"password"`
-	Token    string                 `json:"token"`
+	Token    string                 `json:"token,omitempty"`    // 已废弃：保留用于向后兼容，新登录会迁移到 Tokens
+	Tokens   []string               `json:"tokens,omitempty"`   // 支持多 token 同时有效，避免新登录顶掉旧登录（简化版，不带时间戳）
+	TokenEntries []TokenEntry       `json:"token_entries,omitempty"` // 可选：带时间戳的 token，支持过期清理
 	ApiKey   string                 `json:"api_key,omitempty"`
 	Settings map[string]interface{} `json:"settings,omitempty"` // 用户设置（嵌入模式等）
 }
@@ -1146,6 +1155,23 @@ func loadDataOntologyStore() error {
 			t.Owner = "admin"
 		}
 	}
+	// 向后兼容：将旧的 Token 字段迁移到 Tokens 列表
+	for _, user := range dataOntologyUsers {
+		if user != nil && user.Token != "" {
+			// 将旧 Token 迁移到 Tokens 列表（避免重复）
+			found := false
+			for _, t := range user.Tokens {
+				if t == user.Token {
+					found = true
+					break
+				}
+			}
+			if !found {
+				user.Tokens = append(user.Tokens, user.Token)
+			}
+			// 注意：不立即清空 user.Token，避免影响未更新的客户端
+		}
+	}
 	return nil
 }
 
@@ -1472,12 +1498,12 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			InputType:     "file",
 			AcceptExts:    []string{".docx"},
 			FileBatchMode: "single",
-		ExampleFiles: []GovernanceExampleFile{
-			{Name: "日报模板.docx", Path: "日报模板.docx"},
-			{Name: "单位A日报.docx", Path: "单位A日报.docx"},
-			{Name: "单位B日报.docx", Path: "单位B日报.docx"},
-			{Name: "单位C日报.docx", Path: "单位C日报.docx"},
-		},
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "日报模板.docx", Path: "日报模板.docx"},
+				{Name: "单位A日报.docx", Path: "单位A日报.docx"},
+				{Name: "单位B日报.docx", Path: "单位B日报.docx"},
+				{Name: "单位C日报.docx", Path: "单位C日报.docx"},
+			},
 			CreatedAt: now,
 			Status:    "idle",
 		},
@@ -2753,7 +2779,7 @@ func getDataOntologyUserFromRequest(r *http.Request) (username string, ok bool) 
 	dataOntologyMu.RLock()
 	defer dataOntologyMu.RUnlock()
 	for uname, user := range dataOntologyUsers {
-		if user.Token == token || (user.ApiKey != "" && user.ApiKey == token) {
+		if userHasToken(user, token) || (user.ApiKey != "" && user.ApiKey == token) {
 			return uname, true
 		}
 	}
@@ -2785,6 +2811,27 @@ func requireGovernanceTaskAccess(w http.ResponseWriter, r *http.Request, taskID 
 		return nil, "", false
 	}
 	return task, username, true
+}
+
+const dataOntologyTokenTTL = 7 * 24 * time.Hour
+
+// userHasToken 检查用户的 Tokens 列表、TokenEntries 或旧 Token 字段中是否包含指定 token
+func userHasToken(user *User, token string) bool {
+	now := time.Now().Unix()
+	// 优先检查带时间戳的 TokenEntries，并过滤过期 token
+	for _, entry := range user.TokenEntries {
+		if entry.Token == token && now-entry.CreatedAt <= int64(dataOntologyTokenTTL.Seconds()) {
+			return true
+		}
+	}
+	// 兼容不带时间戳的 Tokens 列表
+	for _, t := range user.Tokens {
+		if t == token {
+			return true
+		}
+	}
+	// 向后兼容旧 Token 字段
+	return user.Token == token
 }
 
 // 验证Token（同时支持登录Token和ApiKey）
@@ -2825,7 +2872,14 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 
 	// 生成新Token并立即持久化，避免重启后 token 丢失或偶发回退。
 	token := generateToken()
-	user.Token = token
+	// 支持多 token：追加到 Tokens 列表和 TokenEntries，不覆盖旧 token
+	user.Tokens = append(user.Tokens, token)
+	user.TokenEntries = append(user.TokenEntries, TokenEntry{Token: token, CreatedAt: time.Now().Unix()})
+	// 向后兼容：如果旧数据有 Token 字段，迁移到 Tokens 后清空
+	if user.Token != "" {
+		user.Tokens = append(user.Tokens, user.Token)
+		user.Token = "" // 清空旧字段，避免重复
+	}
 	dataOntologyMu.Unlock()
 	if err := saveDataOntologyStore(); err != nil {
 		log.Printf("[Auth] 保存登录 token 失败: username=%s, err=%v", loginReq.Username, err)
@@ -2852,7 +2906,7 @@ func handleApiKey(w http.ResponseWriter, r *http.Request) {
 
 	var currentUser *User
 	for _, u := range dataOntologyUsers {
-		if u.Token == loginToken {
+		if userHasToken(u, loginToken) {
 			currentUser = u
 			break
 		}
@@ -2915,7 +2969,7 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 
 	var currentUser *User
 	for _, u := range dataOntologyUsers {
-		if u.Token == loginToken {
+		if userHasToken(u, loginToken) {
 			currentUser = u
 			break
 		}
@@ -9088,7 +9142,6 @@ func sanitizeGovernanceExampleFilename(s string) string {
 	}
 	return base
 }
-
 
 // handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
