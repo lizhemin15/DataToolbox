@@ -4454,7 +4454,14 @@ function renderTabSettingsUI(container, settings) {
             // 移动元素
             const [removed] = currentTabOrder.splice(dragIndex, 1);
             currentTabOrder.splice(dropIndex, 0, removed);
-            
+
+            // 保存到后端
+            (async () => {
+                const userSettings = await loadUserSettings();
+                userSettings.tabOrder = currentTabOrder;
+                await saveUserSettings(userSettings);
+            })();
+
             // 重新渲染
             renderTabSettingsUI(container, currentTabVisibility);
         });
