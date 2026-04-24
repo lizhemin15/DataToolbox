@@ -7806,8 +7806,10 @@ async function openGovApiHelp() {
     // 确保 gov-shared.js 已加载
     await ensureGovernanceScriptsLoaded();
     // 重新获取 governanceFunctions（加载后才有值）
-    const ref = window.GOV_SHARED || globalThis.GOV_SHARED || {};
-    const funcs = ref.governanceFunctions || ref.GOV_API_DOCS || [];
+    // 直接从 window 获取，gov-shared.js 会设置这些全局变量
+    const funcs = window.governanceFunctions || window.GOV_API_DOCS || 
+                  (window.GOV_SHARED && window.GOV_SHARED.governanceFunctions) || [];
+    console.log('[openGovApiHelp] loaded funcs:', funcs.length, funcs);
     window.__govApiFunctions = funcs;
     renderGovApiDocs('');
     setTimeout(() => document.getElementById('govApiSearchInput').focus(), 100);
