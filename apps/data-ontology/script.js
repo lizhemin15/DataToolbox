@@ -5697,37 +5697,49 @@ function escapeHtml(text) {
 function renderGovOutput(text) {
     if (typeof text !== 'string') return escapeHtml(String(text));
 
+    // 先将字面量 \n 转换为真正的换行符
+    text = text.replace(/\\n/g, '\n');
+
     const prefix = '__TABLE__:';
     const tryRender = function (jsonStr) {
-        const data = JSON.parse(jsonStr);
-        if (!Array.isArray(data) || data.length === 0) {
-            return '<div class="gov-table-empty">暂无数据</div>';
-        }
-        const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
-        let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
-        keys.forEach(key => {
-            html += `<th>${escapeHtml(key)}</th>`;
-        });
-        html += '</tr></thead><tbody>';
-        data.forEach(row => {
-            html += '<tr>';
+        try {
+            const data = JSON.parse(jsonStr);
+            if (!Array.isArray(data) || data.length === 0) {
+                return '<div class="gov-table-empty">暂无数据</div>';
+            }
+            const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
+            let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
             keys.forEach(key => {
-                const val = row[key];
-                html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
+                html += `<th>${escapeHtml(key)}</th>`;
             });
-            html += '</tr>';
-        });
-        html += '</tbody></table></div>';
-        return html;
+            html += '</tr></thead><tbody>';
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    const val = row[key];
+                    html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            return html;
+        } catch (e) {
+            return escapeHtml(prefix + jsonStr);
+        }
     };
 
-    try {
-        if (text.startsWith(prefix)) return tryRender(text.substring(prefix.length));
-        if (text.startsWith('__TABLE_ROWS__')) return tryRender(text.substring('__TABLE_ROWS__'.length));
-    } catch (e) {}
-
-    // Default: escape HTML
-    return escapeHtml(text).replace(/\n/g, '<br>');
+    // 处理多行文本，逐行检查是否有 __TABLE__: 标记
+    const lines = text.split('\n');
+    const result = lines.map(line => {
+        if (line.startsWith(prefix)) {
+            return tryRender(line.substring(prefix.length));
+        }
+        if (line.startsWith('__TABLE_ROWS__:')) {
+            return tryRender(line.substring('__TABLE_ROWS__'.length));
+        }
+        return escapeHtml(line);
+    });
+    return result.join('<br>');
 }
 
 function formatAIText(text) {

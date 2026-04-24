@@ -3597,13 +3597,50 @@ textarea#testApiParams {
 
 .gov-log-output {
     color: #e2e8f0;
-    white-space: pre-wrap;
-    word-break: break-all;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 12px;
     line-height: 1.5;
-    max-height: 150px;
+    max-height: 300px;
     overflow-y: auto;
+}
+
+.gov-table-wrapper {
+    margin: 8px 0;
+    overflow-x: auto;
+}
+
+.gov-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    background: #1e293b;
+}
+
+.gov-table th,
+.gov-table td {
+    border: 1px solid #475569;
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.gov-table th {
+    background: #334155;
+    color: #f1f5f9;
+    font-weight: 600;
+}
+
+.gov-table td {
+    color: #cbd5e1;
+}
+
+.gov-table tbody tr:hover {
+    background: #2d3a4f;
+}
+
+.gov-table-empty {
+    color: #94a3b8;
+    font-style: italic;
+    padding: 8px;
 }
 
 .gov-log-error {
