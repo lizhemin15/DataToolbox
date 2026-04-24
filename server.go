@@ -1472,12 +1472,12 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			InputType:     "file",
 			AcceptExts:    []string{".docx"},
 			FileBatchMode: "single",
-			ExampleFiles: []GovernanceExampleFile{
-				{Name: "日报模板.docx", Path: "aggregate-daily-report-template.docx"},
-				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
-				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
-				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
-			},
+		ExampleFiles: []GovernanceExampleFile{
+			{Name: "日报模板.docx", Path: "日报模板.docx"},
+			{Name: "单位A日报.docx", Path: "单位A日报.docx"},
+			{Name: "单位B日报.docx", Path: "单位B日报.docx"},
+			{Name: "单位C日报.docx", Path: "单位C日报.docx"},
+		},
 			CreatedAt: now,
 			Status:    "idle",
 		},
@@ -9086,14 +9086,9 @@ func sanitizeGovernanceExampleFilename(s string) string {
 	if strings.Contains(base, "..") || strings.Contains(base, "/") || strings.Contains(base, "\\") {
 		return ""
 	}
-	for _, c := range base {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
-			continue
-		}
-		// 中文、空格等合法文件名字符不应被拒绝，防止预置示例无法下载。
-	}
 	return base
 }
+
 
 // handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
