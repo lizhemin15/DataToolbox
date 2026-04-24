@@ -336,7 +336,8 @@ async function checkExistingData() {
  *   在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
  *   关联达梦数据库，运行此脚本即可自动解析入库。
  */
-async function main() {
+// 直接执行（顶层代码，不用函数包裹，避免 Bun AsyncFunction 构造器中 await 挂起）
+try {
     gov.log('=== 国际新闻入库流程启动 ===');
 
     // -- Step 0: 初始化数据库表 --
@@ -467,9 +468,6 @@ async function main() {
     }
 
     gov.log('=== 国际新闻入库流程完成 ===');
-}
-
-// 执行
-main().catch(e => {
+} catch (e) {
     gov.log('✗ 流程异常: ' + e.message);
-});
+}
