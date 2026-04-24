@@ -46,24 +46,51 @@ const DDL = [
 // 2. AI Prompt 模板
 // ============================================================
 
-// 核心 Prompt：要求 LLM 从新闻文本中提取三张表的结构化数据，输出严格 JSON
-const EXTRACT_PROMPT = [
-    '从下文提取结构化数据，严格输出JSON（不要输出其他内容）。',
+// Prompt 1: 提取国际新闻动态（从"一、"部分）
+const EXTRACT_NEWS_PROMPT = [
+    '从下文提取国际新闻动态数据，严格输出JSON（不要输出其他内容）。',
     '',
-    '提取：1.新闻事件(时间/区域/事件) 2.运输保障(时间/区域/情况) 3.保障力量出动(装备型号/架次/批次)',
+    '提取字段：新闻内码、时间、区域、事件',
     '',
     '格式：',
-    '{"news":[{"news_id":"NWS_yyyyMMdd_HHmmss_序号","news_time":"yyyy-MM-dd HH:mm:ss","region":"区域","event":"事件"}],"transport_support":[{"support_id":"TRS_yyyyMMdd_HHmmss_序号","support_time":"yyyy-MM-dd HH:mm:ss","region":"区域","transport_info":"情况","dispatch_force":[{"dispatch_id":"DSP_yyyyMMdd_HHmmss_序号","support_id":"同上层support_id","equip_model":"型号","sorties":1,"batches":1}]}]}',
+    '{"news":[{"news_id":"NWS_yyyyMMdd_HHmmss_序号","news_time":"yyyy-MM-dd HH:mm:ss","region":"区域","event":"事件"}]}',
     '',
-    '规则：时间格式yyyy-MM-dd HH:mm:ss；无运保则transport_support为空数组；sorties/batches为整数或null',
+    '规则：',
+    '1. 时间格式 yyyy-MM-dd HH:mm:ss',
+    '2. news_id 按格式自动生成',
+    '3. 如果没有新闻数据，返回 {"news":[]}',
 ].join('\\n');
 
-// 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
-const CHUNK_EXTRACT_PROMPT = [
+// Prompt 2: 提取运输保障情况（从"二、"部分）
+const EXTRACT_TRANSPORT_PROMPT = [
+    '从下文提取运输保障情况数据，严格输出JSON（不要输出其他内容）。',
     '',
-    '{base_prompt}',
+    '提取字段：运保内码、时间、区域、运输情况',
     '',
-].join('\n');
+    '格式：',
+    '{"transport_support":[{"support_id":"TRS_yyyyMMdd_HHmmss_序号","support_time":"yyyy-MM-dd HH:mm:ss","region":"区域","transport_info":"运输情况"}]}',
+    '',
+    '规则：',
+    '1. 时间格式 yyyy-MM-dd HH:mm:ss',
+    '2. support_id 按格式自动生成',
+    '3. 如果没有运输保障数据，返回 {"transport_support":[]}',
+].join('\\n');
+
+// Prompt 3: 从运输保障信息中提取保障力量出动
+const EXTRACT_DISPATCH_PROMPT = [
+    '从下文运输保障信息中提取保障力量出动数据，严格输出JSON（不要输出其他内容）。',
+    '',
+    '提取字段：出动内码、运保内码、装备型号、架次、批次',
+    '',
+    '格式：',
+    '{"dispatch_force":[{"dispatch_id":"DSP_yyyyMMdd_HHmmss_序号","support_id":"提供的运保内码","equip_model":"装备型号","sorties":1,"batches":1}]}',
+    '',
+    '规则：',
+    '1. dispatch_id 按格式自动生成',
+    '2. support_id 必须使用提供的运保内码',
+    '3. sorties 和 batches 为整数或 null',
+    '4. 如果没有出动数据，返回 {"dispatch_force":[]}',
+].join('\\n');
 
 // ============================================================
 // 3. 核心逻辑
@@ -82,29 +109,25 @@ function generateId(prefix, index = 1) {
     return prefix + '_' + ts + '_' + String(index).padStart(3, '0');
 }
 
-// 分块：将长文本拆分为多段
-// @param {string} text - 原始文本
-// @param {number} maxChars - 每块最大字符数（默认 3000，预留 prompt 空间）
-// @returns {string[]} 文本块数组
-function chunkText(text, maxChars = 1500) {
-    if (text.length <= maxChars) return [text];
+// 分割文档：按"一、"和"二、"分割内容
+// @param {string} text - 原始文档文本
+// @returns {object} { newsSection: '一、部分内容', transportSection: '二、部分内容' }
+function splitDocument(text) {
+    const result = { newsSection: '', transportSection: '' };
 
-    const chunks = [];
-    // 按段落分割，尽量在段落边界断开
-    const paragraphs = text.split(/\\n+/);
-    let current = '';
-
-    for (const para of paragraphs) {
-        if (current.length + para.length + 1 > maxChars && current.length > 0) {
-            chunks.push(current.trim());
-            current = '';
-        }
-        current += (current ? '\\n' : '') + para;
+    // 匹配"一、"开头的内容（国际新闻动态）
+    const newsMatch = text.match(/一、[^二]*/);
+    if (newsMatch) {
+        result.newsSection = newsMatch[0].trim();
     }
-    if (current.trim()) chunks.push(current.trim());
 
-    // 如果某块仍然超长，强制截断
-    return chunks.map(c => c.length > maxChars * 1.5 ? c.slice(0, maxChars * 1.5) : c);
+    // 匹配"二、"开头的内容（运输保障情况）
+    const transportMatch = text.match(/二、.*/);
+    if (transportMatch) {
+        result.transportSection = transportMatch[0].trim();
+    }
+
+    return result;
 }
 
 // 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况，支持修复不完整 JSON）
@@ -181,45 +204,34 @@ function repairJSON(jsonStr) {
     return repaired;
 }
 
-// 合并多个分块的提取结果，去重并修正 ID
-function mergeChunkResults(results) {
-    const merged = { news: [], transport_support: [] };
-
-    for (const result of results) {
-        if (result.news) merged.news.push(...result.news);
-        if (result.transport_support) {
-            for (const ts of result.transport_support) {
-                merged.transport_support.push(ts);
-            }
-        }
-    }
-
-    // 重新生成 ID 去重
+// 重新生成 ID 去重
+function regenerateIds(data) {
     let newsIdx = 1;
-    const idMap = {}; // old_id -> new_id 映射
-    for (const item of merged.news) {
-        const newId = generateId('NWS', newsIdx++);
-        idMap[item.news_id] = newId;
-        item.news_id = newId;
+    let supportIdx = 1;
+    let dispatchIdx = 1;
+
+    // 重新生成新闻 ID
+    if (data.news) {
+        for (const item of data.news) {
+            item.news_id = generateId('NWS', newsIdx++);
+        }
     }
 
-    let supportIdx = 1;
-    for (const ts of merged.transport_support) {
-        const oldSupportId = ts.support_id;
-        const newSupportId = generateId('TRS', supportIdx++);
-        idMap[oldSupportId] = newSupportId;
-        ts.support_id = newSupportId;
+    // 重新生成运保 ID 和出动 ID
+    if (data.transport_support) {
+        for (const ts of data.transport_support) {
+            ts.support_id = generateId('TRS', supportIdx++);
 
-        if (ts.dispatch_force) {
-            let dispatchIdx = 1;
-            for (const df of ts.dispatch_force) {
-                df.support_id = newSupportId; // 关联上层
-                df.dispatch_id = generateId('DSP', dispatchIdx++);
+            if (ts.dispatch_force) {
+                for (const df of ts.dispatch_force) {
+                    df.support_id = ts.support_id; // 关联上层
+                    df.dispatch_id = generateId('DSP', dispatchIdx++);
+                }
             }
         }
     }
 
-    return merged;
+    return data;
 }
 
 // 简单去重：按 (时间+区域+事件描述) 去重新闻
@@ -316,7 +328,7 @@ async function checkExistingData() {
 // 4. 主入口
 // ============================================================
 
-// 处理单个文件：读取 → AI提取 → 显示表格 → 入库
+// 处理单个文件：读取 → 分割文档 → 分别提取 → 显示表格 → 入库
 async function processFile(file, fileIndex, totalFiles) {
     gov.log('\\n' + '='.repeat(60));
     gov.log('处理文件 [' + fileIndex + '/' + totalFiles + ']: ' + file.name);
@@ -343,75 +355,96 @@ async function processFile(file, fileIndex, totalFiles) {
         return null;
     }
 
-    // Step 2: 分块 + AI 提取
-    const chunks = chunkText(rawText);
-    gov.log('✓ 文本分为 ' + chunks.length + ' 块进行处理');
+    // Step 2: 分割文档
+    gov.log('→ 正在分割文档...');
+    const sections = splitDocument(rawText);
+    gov.log('✓ 文档分割完成');
+    gov.log('  国际新闻部分: ' + sections.newsSection.length + ' 字符');
+    gov.log('  运输保障部分: ' + sections.transportSection.length + ' 字符');
 
-    const extractResults = [];
-    for (let i = 0; i < chunks.length; i++) {
-        const chunkIndex = i + 1;
-        gov.log('→ 正在处理第 ' + chunkIndex + '/' + chunks.length + ' 块...');
+    const finalData = { news: [], transport_support: [] };
 
-        let prompt;
-        if (chunks.length === 1) {
-            prompt = EXTRACT_PROMPT + '\\n\\n---\\n新闻文本：\\n' + chunks[i];
-        } else {
-            prompt = CHUNK_EXTRACT_PROMPT
-                .replace('{chunk_index}', chunkIndex)
-                .replace('{total_chunks}', chunks.length)
-                .replace('{base_prompt}', EXTRACT_PROMPT)
-                + '\\n\\n---\\n新闻文本：\\n' + chunks[i];
-        }
-
-        const maxRetries = 2;
-        let aiResponse = null;
-        let lastError = null;
-        for (let retry = 0; retry <= maxRetries; retry++) {
-            try {
-                if (retry > 0) {
-                    gov.log('  ↻ 第 ' + chunkIndex + ' 块重试第 ' + retry + ' 次...');
-                }
-                aiResponse = await gov.callAI(prompt);
-                break; // 成功则跳出
-            } catch (e) {
-                lastError = e;
-                gov.log('  ⚠ AI调用失败（第 ' + (retry + 1) + ' 次）: ' + e.message);
-                if (retry < maxRetries) {
-                    gov.log('  等待 5 秒后重试...');
-                    await new Promise(r => setTimeout(r, 5000));
-                }
-            }
-        }
-        if (aiResponse === null) {
-            gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败（已重试 ' + maxRetries + ' 次）: ' + (lastError ? lastError.message : 'unknown'));
-            continue; // 继续下一块
-        }
+    // Step 3: 提取国际新闻（Prompt 1）
+    if (sections.newsSection.trim()) {
+        gov.log('\\n→ 正在提取国际新闻动态...');
+        const prompt1 = EXTRACT_NEWS_PROMPT + '\\n\\n---\\n新闻文本：\\n' + sections.newsSection;
 
         try {
-            const parsed = parseAIResponse(aiResponse);
-            extractResults.push(parsed);
-            gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + (parsed.news?.length || 0) + ' 条新闻, ' + (parsed.transport_support?.length || 0) + ' 条运保');
+            const aiResponse1 = await gov.callAI(prompt1);
+            const newsData = parseAIResponse(aiResponse1);
+
+            if (newsData.news && Array.isArray(newsData.news)) {
+                finalData.news = newsData.news;
+                gov.log('✓ 提取到 ' + finalData.news.length + ' 条国际新闻');
+            } else {
+                gov.log('⚠ 国际新闻数据格式不正确');
+            }
         } catch (e) {
-            gov.log('  ✗ 第 ' + chunkIndex + ' 块 JSON 解析失败: ' + e.message);
-            gov.log('  AI 返回内容（前 500 字符）: ' + aiResponse.slice(0, 500));
+            gov.log('✗ 国际新闻提取失败: ' + e.message);
         }
+    } else {
+        gov.log('⚠ 未找到"一、"国际新闻部分');
     }
 
-    if (extractResults.length === 0) {
-        gov.log('✗ 所有分块提取均失败，跳过此文件');
-        return null;
+    // Step 4: 提取运输保障（Prompt 2）
+    if (sections.transportSection.trim()) {
+        gov.log('\\n→ 正在提取运输保障情况...');
+        const prompt2 = EXTRACT_TRANSPORT_PROMPT + '\\n\\n---\\n运输保障文本：\\n' + sections.transportSection;
+
+        try {
+            const aiResponse2 = await gov.callAI(prompt2);
+            const transportData = parseAIResponse(aiResponse2);
+
+            if (transportData.transport_support && Array.isArray(transportData.transport_support)) {
+                finalData.transport_support = transportData.transport_support;
+                gov.log('✓ 提取到 ' + finalData.transport_support.length + ' 条运输保障');
+
+                // Step 5: 从每条运输保障中提取保障力量出动（Prompt 3）
+                for (const ts of finalData.transport_support) {
+                    if (ts.transport_info && ts.transport_info.trim()) {
+                        gov.log('\\n→ 正在提取保障力量出动（运保内码: ' + ts.support_id + ')...');
+                        const prompt3 = EXTRACT_DISPATCH_PROMPT
+                            .replace('提供的运保内码', ts.support_id)
+                            + '\\n\\n---\\n运输保障信息：\\n' + ts.transport_info;
+
+                        try {
+                            const aiResponse3 = await gov.callAI(prompt3);
+                            const dispatchData = parseAIResponse(aiResponse3);
+
+                            if (dispatchData.dispatch_force && Array.isArray(dispatchData.dispatch_force)) {
+                                ts.dispatch_force = dispatchData.dispatch_force;
+                                gov.log('✓ 提取到 ' + ts.dispatch_force.length + ' 条保障力量出动');
+                            } else {
+                                ts.dispatch_force = [];
+                            }
+                        } catch (e) {
+                            gov.log('⚠ 保障力量出动提取失败: ' + e.message);
+                            ts.dispatch_force = [];
+                        }
+                    } else {
+                        ts.dispatch_force = [];
+                    }
+                }
+            } else {
+                gov.log('⚠ 运输保障数据格式不正确');
+            }
+        } catch (e) {
+            gov.log('✗ 运输保障提取失败: ' + e.message);
+        }
+    } else {
+        gov.log('⚠ 未找到"二、"运输保障部分');
     }
 
-    // Step 3: 合并结果 + 去重
-    const merged = mergeChunkResults(extractResults);
-    merged.news = deduplicateNews(merged.news);
+    // Step 6: 重新生成 ID 并去重
+    regenerateIds(finalData);
+    finalData.news = deduplicateNews(finalData.news);
 
-    gov.log('✓ 合并后共: ' + merged.news.length + ' 条新闻, ' + merged.transport_support.length + ' 条运保');
+    gov.log('\\n✓ 数据处理完成: ' + finalData.news.length + ' 条新闻, ' + finalData.transport_support.length + ' 条运保');
 
-    // Step 4: 显示三张表
+    // Step 7: 显示三张表
     gov.log('\\n--- 国际新闻表 ---');
-    if (merged.news.length > 0) {
-        gov.showTable(merged.news.map(n => ({
+    if (finalData.news.length > 0) {
+        gov.showTable(finalData.news.map(n => ({
             新闻内码: n.news_id,
             时间: n.news_time,
             区域: n.region,
@@ -422,8 +455,8 @@ async function processFile(file, fileIndex, totalFiles) {
     }
 
     gov.log('\\n--- 运输保障表 ---');
-    if (merged.transport_support.length > 0) {
-        gov.showTable(merged.transport_support.map(ts => ({
+    if (finalData.transport_support.length > 0) {
+        gov.showTable(finalData.transport_support.map(ts => ({
             运保内码: ts.support_id,
             时间: ts.support_time,
             区域: ts.region,
@@ -435,7 +468,7 @@ async function processFile(file, fileIndex, totalFiles) {
 
     gov.log('\\n--- 保障力量出动表 ---');
     const allDispatch = [];
-    for (const ts of merged.transport_support) {
+    for (const ts of finalData.transport_support) {
         if (ts.dispatch_force) {
             allDispatch.push(...ts.dispatch_force);
         }
@@ -452,9 +485,9 @@ async function processFile(file, fileIndex, totalFiles) {
         gov.log('（无数据）');
     }
 
-    // Step 5: 入库
+    // Step 8: 入库
     gov.log('\\n→ 开始入库...');
-    const insertResult = await insertToDatabase(merged);
+    const insertResult = await insertToDatabase(finalData);
 
     gov.log('=== 入库结果 ===');
     gov.log('  国际新闻: ' + insertResult.news + ' 条');
