@@ -7799,10 +7799,16 @@ var GOV_API_SECTIONS_LOCAL = GOV_SHARED_REF.GOV_API_SECTIONS || [];
 var GOV_API_DOCS_LOCAL = GOV_SHARED_REF.GOV_API_DOCS || GOV_API_SECTIONS_LOCAL;
 var governanceFunctionsLocal = GOV_SHARED_REF.governanceFunctions || GOV_API_DOCS_LOCAL;
 
-function openGovApiHelp() {
+async function openGovApiHelp() {
     const modal = document.getElementById('govApiHelpModal');
     modal.style.display = 'flex';
     document.getElementById('govApiSearchInput').value = '';
+    // 确保 gov-shared.js 已加载
+    await ensureGovernanceScriptsLoaded();
+    // 重新获取 governanceFunctions（加载后才有值）
+    const ref = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+    const funcs = ref.governanceFunctions || ref.GOV_API_DOCS || [];
+    window.__govApiFunctions = funcs;
     renderGovApiDocs('');
     setTimeout(() => document.getElementById('govApiSearchInput').focus(), 100);
 }
@@ -7817,8 +7823,10 @@ function filterGovApiHelp(query) {
 
 function renderGovApiDocs(query) {
     const body = document.getElementById('govApiBody');
+    // 优先使用加载后的数据，否则 fallback 到顶层变量
+    const funcs = window.__govApiFunctions || governanceFunctionsLocal || [];
     let html = '';
-    for (const cat of governanceFunctionsLocal) {
+    for (const cat of funcs) {
         const items = cat.items.filter(item =>
             !query ||
             item.name.toLowerCase().includes(query) ||
