@@ -1,4 +1,5 @@
-* 国际新闻入库脚本 — DataToolbox Gov Task
+/*
+ * 国际新闻入库脚本 — DataToolbox Gov Task
  *
  * 三张表：
  *   1. intl_news        国际新闻动态  (新闻内码, 时间, 区域, 事件)
@@ -442,3 +443,4 @@ async function main() {
 // 执行
 main().catch(e => {
     gov.log('✗ 流程异常: ' + e.message);
+});
