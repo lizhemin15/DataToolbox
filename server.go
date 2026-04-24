@@ -1473,7 +1473,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			AcceptExts:    []string{".docx"},
 			FileBatchMode: "single",
 			ExampleFiles: []GovernanceExampleFile{
-				{Name: "日报模板.docx", Path: "daily-report-template.docx"},
+				{Name: "日报模板.docx", Path: "aggregate-daily-report-template.docx"},
 				{Name: "单位A日报.docx", Path: "unit-a-daily.docx"},
 				{Name: "单位B日报.docx", Path: "unit-b-daily.docx"},
 				{Name: "单位C日报.docx", Path: "unit-c-daily.docx"},
