@@ -1508,15 +1508,16 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Status:    "idle",
 		},
 		"国际新闻入库": {
-			Owner:       "admin",
-			Name:        "国际新闻入库",
-			Type:        "interactive",
-			Description: "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
-			JsCode:      loadGovernancePresetJS("international-news-import.js"),
-			InputType:   "file",
-			AcceptExts:  []string{".docx"},
-			CreatedAt:   now,
-			Status:      "idle",
+			Owner:        "admin",
+			Name:         "国际新闻入库",
+			Type:         "interactive",
+			Description:  "上传国际新闻与运输情况通报 Word 文档，提取结构化数据入库",
+			JsCode:       loadGovernancePresetJS("international-news-import.js"),
+			InputType:    "file",
+			AcceptExts:   []string{".docx"},
+			ExampleFiles: []GovernanceExampleFile{{Name: "国际新闻与运输情况通报_模拟数据.docx", Path: "国际新闻与运输情况通报_模拟数据.docx"}},
+			CreatedAt:    now,
+			Status:       "idle",
 		},
 	}
 }
@@ -10154,6 +10155,47 @@ func startSFTPSessionCleaner() {
 	}()
 }
 
+// startTokenCleaner 定期清理过期的登录 token
+func startTokenCleaner() {
+	go func() {
+		ticker := time.NewTicker(TokenCleanInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			dataOntologyMu.Lock()
+			now := time.Now().Unix()
+			cleaned := 0
+			for _, user := range dataOntologyUsers {
+				if user == nil {
+					continue
+				}
+				// 清理过期的 TokenEntries
+				validEntries := make([]TokenEntry, 0)
+				for _, entry := range user.TokenEntries {
+					if now-entry.CreatedAt <= int64(dataOntologyTokenTTL.Seconds()) {
+						validEntries = append(validEntries, entry)
+					} else {
+						cleaned++
+					}
+				}
+				user.TokenEntries = validEntries
+				// 同步更新 Tokens 列表（移除过期的）
+				validTokens := make([]string, 0)
+				for _, entry := range validEntries {
+					validTokens = append(validTokens, entry.Token)
+				}
+				user.Tokens = validTokens
+			}
+			if cleaned > 0 {
+				log.Printf("[TokenCleaner] 清理了 %d 个过期 token", cleaned)
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+				dataOntologyMu.Lock()
+			}
+			dataOntologyMu.Unlock()
+		}
+	}()
+}
+
 // opsSSHWriter 将 io.Write 调用转发到回调函数（用于 SSH stdout/stderr → WebSocket）
 type opsSSHWriter struct {
 	fn func([]byte)
@@ -10629,6 +10671,9 @@ func main() {
 
 	// 启动 SFTP 会话定期清理
 	startSFTPSessionCleaner()
+
+	// 启动登录 token 定期清理
+	startTokenCleaner()
 
 	// 创建路由
 	mux := http.NewServeMux()
