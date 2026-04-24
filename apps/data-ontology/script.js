@@ -4369,62 +4369,111 @@ function renderTabSettingsUI(container, settings) {
         const row = document.createElement('div');
         row.className = 'tab-setting-row';
         row.dataset.tabId = tabId;
+        row.draggable = true;
 
         const isVisible = settings[tabId] !== false;
         const customName = currentTabNames[tabId] || '';
+        const displayName = customName || tabInfo.name;
 
         row.innerHTML = `
             <input type="checkbox" data-tab="${tabId}" ${isVisible ? 'checked' : ''}>
-            <input type="text" class="tab-name-input" data-tab="${tabId}" 
+            <span class="tab-name-text" data-tab="${tabId}" title="双击编辑名称">${escapeHtml(displayName)}</span>
+            <input type="text" class="tab-name-input hidden" data-tab="${tabId}" 
                    placeholder="${tabInfo.name}" value="${escapeHtml(customName)}">
-            <div class="tab-order-btns">
-                <button type="button" class="tab-order-btn" data-action="up" data-tab="${tabId}" 
-                        ${index === 0 ? 'disabled' : ''} title="上移">↑</button>
-                <button type="button" class="tab-order-btn" data-action="down" data-tab="${tabId}" 
-                        ${index === currentTabOrder.length - 1 ? 'disabled' : ''} title="下移">↓</button>
-            </div>
         `;
 
-        // 绑定事件
+        // 勾选事件
         const checkbox = row.querySelector('input[type="checkbox"]');
         checkbox.addEventListener('change', () => {
             currentTabVisibility[tabId] = checkbox.checked;
         });
 
+        // 双击编辑名称
+        const nameText = row.querySelector('.tab-name-text');
         const nameInput = row.querySelector('.tab-name-input');
-        nameInput.addEventListener('input', () => {
-            if (nameInput.value.trim()) {
-                currentTabNames[tabId] = nameInput.value.trim();
-            } else {
-                delete currentTabNames[tabId];
+        
+        nameText.addEventListener('dblclick', () => {
+            nameText.classList.add('hidden');
+            nameInput.classList.remove('hidden');
+            nameInput.focus();
+            nameInput.select();
+        });
+
+        nameInput.addEventListener('blur', () => {
+            saveTabName(tabId, nameInput, nameText, tabInfo.name);
+        });
+
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                nameInput.blur();
+            } else if (e.key === 'Escape') {
+                nameInput.value = currentTabNames[tabId] || '';
+                nameInput.blur();
             }
         });
 
-        const upBtn = row.querySelector('[data-action="up"]');
-        upBtn.addEventListener('click', () => moveTabOrder(tabId, -1));
+        // 拖拽排序
+        row.addEventListener('dragstart', (e) => {
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', tabId);
+        });
 
-        const downBtn = row.querySelector('[data-action="down"]');
-        downBtn.addEventListener('click', () => moveTabOrder(tabId, 1));
+        row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            document.querySelectorAll('.tab-setting-row.drag-over').forEach(el => {
+                el.classList.remove('drag-over');
+            });
+        });
+
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const draggingRow = document.querySelector('.tab-setting-row.dragging');
+            if (draggingRow && draggingRow !== row) {
+                row.classList.add('drag-over');
+            }
+        });
+
+        row.addEventListener('dragleave', () => {
+            row.classList.remove('drag-over');
+        });
+
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            
+            const dragTabId = e.dataTransfer.getData('text/plain');
+            if (dragTabId === tabId) return;
+            
+            const dragIndex = currentTabOrder.indexOf(dragTabId);
+            const dropIndex = currentTabOrder.indexOf(tabId);
+            
+            if (dragIndex === -1 || dropIndex === -1) return;
+            
+            // 移动元素
+            const [removed] = currentTabOrder.splice(dragIndex, 1);
+            currentTabOrder.splice(dropIndex, 0, removed);
+            
+            // 重新渲染
+            renderTabSettingsUI(container, currentTabVisibility);
+        });
 
         container.appendChild(row);
     });
 }
 
-// 移动标签页顺序
-function moveTabOrder(tabId, direction) {
-    const index = currentTabOrder.indexOf(tabId);
-    const newIndex = index + direction;
-    
-    if (newIndex < 0 || newIndex >= currentTabOrder.length) return;
-    
-    // 交换位置
-    [currentTabOrder[index], currentTabOrder[newIndex]] = [currentTabOrder[newIndex], currentTabOrder[index]];
-    
-    // 重新渲染UI
-    const container = document.getElementById('tabVisibilitySettings');
-    if (container) {
-        renderTabSettingsUI(container, currentTabVisibility);
+function saveTabName(tabId, input, textSpan, defaultName) {
+    const value = input.value.trim();
+    if (value) {
+        currentTabNames[tabId] = value;
+        textSpan.textContent = value;
+    } else {
+        delete currentTabNames[tabId];
+        textSpan.textContent = defaultName;
     }
+    input.classList.add('hidden');
+    textSpan.classList.remove('hidden');
 }
 
 // 从UI收集标签页设置
