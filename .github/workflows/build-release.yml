@@ -104,33 +104,32 @@ jobs:
           # 自动注入版本号：从 tag 提取版本并替换静态资源 URL
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            python3 - <<PY
-from pathlib import Path
-version = "${VERSION}"
-index_path = Path("package/web/apps/data-ontology/index.html")
-script_path = Path("package/web/apps/data-ontology/script.js")
-index_text = index_path.read_text()
-script_text = script_path.read_text()
-for old in ["script.js?v=4.0.40", "script.js?v=4.0.41", "script.js?v=4.0.42"]:
-    index_text = index_text.replace(old, f"script.js?v={version}")
-for old in [
-    "gov-shared.js?v=4.0.40",
-    "gov-shared.js?v=4.0.41",
-    "gov-shared.js?v=4.0.42",
-    "gov-api.js?v=4.0.40",
-    "gov-api.js?v=4.0.41",
-    "gov-api.js?v=4.0.42",
-    "governance.js?v=4.0.40",
-    "governance.js?v=4.0.41",
-    "governance.js?v=4.0.42",
-    "quality-audit.js?v=4.0.40",
-    "quality-audit.js?v=4.0.41",
-    "quality-audit.js?v=4.0.42",
-]:
-    script_text = script_text.replace(old, old.split('?v=')[0] + f"?v={version}")
-index_path.write_text(index_text)
-script_path.write_text(script_text)
-PY
+            python3 - "$VERSION" <<'PY'
+            from pathlib import Path
+            import re
+            import sys
+
+            version = sys.argv[1]
+            index_path = Path("package/web/apps/data-ontology/index.html")
+            script_path = Path("package/web/apps/data-ontology/script.js")
+
+            index_text = index_path.read_text()
+            script_text = script_path.read_text()
+
+            index_text = re.sub(r"script\.js\?v=\d+\.\d+\.\d+", f"script.js?v={version}", index_text)
+
+            def replace_lazy(match):
+                return f"{match.group(1)}.js?v={version}"
+
+            script_text = re.sub(
+                r"(gov-shared|gov-api|governance|quality-audit)\.js\?v=\d+\.\d+\.\d+",
+                replace_lazy,
+                script_text,
+            )
+
+            index_path.write_text(index_text)
+            script_path.write_text(script_text)
+            PY
           fi
           # 复制 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
