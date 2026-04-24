@@ -1,7 +1,8 @@
 async function govDownloadExampleSingle(path) {
     const safe = String(path || '').trim();
     if (!safe) return;
-    const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(safe)}`;
+    const filename = safe.split('/').pop();
+    const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(filename)}`;
     const response = await fetchWithAuth(url);
     if (!response.ok) {
         showToast('下载失败', 'error');
