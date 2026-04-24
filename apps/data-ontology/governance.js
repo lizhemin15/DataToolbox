@@ -8,6 +8,16 @@ async function govDownloadExampleSingle(path) {
         showToast('下载失败', 'error');
         return;
     }
+    const ct = response.headers.get('Content-Type') || '';
+    if (ct.includes('application/json')) {
+        try {
+            const j = await response.json();
+            showToast((j && j.message) || '下载失败', 'error');
+        } catch (e) {
+            showToast('下载失败', 'error');
+        }
+        return;
+    }
     const blob = await response.blob();
     const shared = window.GOV_SHARED || globalThis.GOV_SHARED || {};
     const download = typeof shared.govDownloadBlob === 'function'
@@ -23,10 +33,11 @@ async function govDownloadExampleSingle(path) {
 }
 
 async function govDownloadExampleZip(files) {
+    const payload = { files: files };
     const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: files })
+        body: JSON.stringify(payload)
     });
     const ct = response.headers.get('Content-Type') || '';
     if (!response.ok || ct.includes('application/json')) {
@@ -77,12 +88,12 @@ function govDownloadExamplesForTask(taskId) {
     const task = govTasks.find(t => t.id === taskId);
     const list = task && task.example_files;
     if (!list || !list.length) return;
-    if (list.length === 1) {
-        const file = govNormalizeExampleFile(list[0]);
-        if (file) govDownloadExampleSingle(file.path);
+    const files = list.map(govNormalizeExampleFile).filter(Boolean);
+    if (!files.length) return;
+    if (files.length === 1) {
+        govDownloadExampleSingle(files[0].path);
     } else {
-        const files = list.map(govNormalizeExampleFile).filter(Boolean);
-        if (files.length) govDownloadExampleZip(files);
+        govDownloadExampleZip(files);
     }
 }
 
