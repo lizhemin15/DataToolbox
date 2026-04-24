@@ -104,7 +104,7 @@ jobs:
           # 自动注入版本号：从 tag 提取版本并替换静态资源 URL
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            python3 -c 'from pathlib import Path; import re, sys; version=sys.argv[1]; index_path=Path("package/web/apps/data-ontology/index.html"); script_path=Path("package/web/apps/data-ontology/script.js"); index_text=index_path.read_text(); script_text=script_path.read_text(); index_text=re.sub(r"script\\.js\\?v=\\d+\\.\\d+\\.\\d+", f"script.js?v={version}", index_text); script_text=re.sub(r"(gov-shared|gov-api|governance|quality-audit)\\.js\\?v=\\d+\\.\\d+\\.\\d+", lambda m: f"{m.group(1)}.js?v={version}", script_text); index_path.write_text(index_text); script_path.write_text(script_text)' "$VERSION"
+            python3 scripts/inject_version.py "$VERSION" package
           fi
           # 复制 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
