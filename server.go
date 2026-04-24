@@ -8615,7 +8615,10 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 			taskList = append(taskList, t)
 		}
 		sort.Slice(taskList, func(i, j int) bool {
-			return taskList[i].CreatedAt > taskList[j].CreatedAt
+			if taskList[i].CreatedAt != taskList[j].CreatedAt {
+				return taskList[i].CreatedAt > taskList[j].CreatedAt
+			}
+			return taskList[i].Name < taskList[j].Name
 		})
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "tasks": taskList})
 

@@ -4089,9 +4089,9 @@ const ALL_TABS = [
 ];
 
 // 打开设置弹窗。
-function showSettingsModal() {
+async function showSettingsModal() {
     document.getElementById('settingsModal').classList.add('show');
-    loadTabSettings();
+    await loadTabSettings();
 }
 
 // 关闭设置弹窗。
@@ -4100,16 +4100,16 @@ function hideSettingsModal() {
 }
 
 // 加载标签页设置。
-function loadTabSettings() {
+async function loadTabSettings() {
     const container = document.getElementById('tabVisibilitySettings');
     if (!container) return;
 
-    // 从 localStorage 读取。
+    // 从后端 API 读取。
     let settings = null;
     try {
-        const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
-        if (stored) {
-            settings = JSON.parse(stored);
+        const userSettings = await loadUserSettings();
+        if (userSettings && userSettings.tabVisibility) {
+            settings = userSettings.tabVisibility;
         }
     } catch (e) {
         console.error('加载标签页设置失败', e);
@@ -4153,7 +4153,7 @@ function saveTabSettings() {
     const embedMode = embedModeToggle ? embedModeToggle.checked : false;
     applyEmbedMode(embedMode);
 
-    // 初始化页面
+    // 保存到后端
     (async () => {
         const userSettings = await loadUserSettings();
         userSettings.embedMode = embedMode;
@@ -4162,7 +4162,6 @@ function saveTabSettings() {
     })();
 
     try {
-        localStorage.setItem(TAB_VISIBILITY_KEY, JSON.stringify(settings));
         applyTabVisibility(settings);
         showToast('保存成功', 'success');
         hideSettingsModal();
@@ -4253,16 +4252,7 @@ async function initEmbedMode() {
 // 应用标签页可见性
 function applyTabVisibility(settings) {
     if (!settings) {
-        // 尝试从本地存储恢复设置
-        try {
-            const stored = localStorage.getItem(TAB_VISIBILITY_KEY);
-            if (stored) {
-                settings = JSON.parse(stored);
-            }
-        } catch (e) {
-            console.error('加载标签可见性失败', e);
-            return;
-        }
+        return;
     }
 
     // 展示返回的行数据。
