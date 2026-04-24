@@ -107,7 +107,7 @@ function chunkText(text, maxChars = 1500) {
     return chunks.map(c => c.length > maxChars * 1.5 ? c.slice(0, maxChars * 1.5) : c);
 }
 
-// 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况）
+// 从 AI 返回文本中解析 JSON（兼容 markdown 代码块包裹的情况，支持修复不完整 JSON）
 function parseAIResponse(text) {
     // 去掉可能的 markdown 代码块包裹
     const BACKTICK3 = String.fromCharCode(96,96,96);
@@ -122,6 +122,7 @@ function parseAIResponse(text) {
     }
     cleaned = cleaned.trim();
 
+    // 尝试直接解析
     try {
         return JSON.parse(cleaned);
     } catch (e) {
@@ -129,15 +130,55 @@ function parseAIResponse(text) {
         const startIdx = cleaned.indexOf('{');
         const lastIdx = cleaned.lastIndexOf('}');
         if (startIdx >= 0 && lastIdx > startIdx) {
-            const jsonStr = cleaned.slice(startIdx, lastIdx + 1);
+            let jsonStr = cleaned.slice(startIdx, lastIdx + 1);
+
+            // 尝试修复不完整的 JSON
+            jsonStr = repairJSON(jsonStr);
+
             try {
                 return JSON.parse(jsonStr);
             } catch (e2) {
-        throw new Error('JSON 解析失败: ' + e2.message + '\\n原始文本: ' + cleaned.slice(0, 200));
+                throw new Error('JSON 解析失败: ' + e2.message + '\\n原始文本: ' + cleaned.slice(0, 200));
             }
         }
         throw new Error('AI 返回内容中未找到有效 JSON: ' + cleaned.slice(0, 200));
     }
+}
+
+// 修复不完整的 JSON（补全括号、引号等）
+function repairJSON(jsonStr) {
+    let repaired = jsonStr;
+
+    // 统计括号数量
+    const countChar = (str, char) => (str.match(new RegExp('\\' + char, 'g')) || []).length;
+    const openBraces = countChar(repaired, '{');
+    const closeBraces = countChar(repaired, '}');
+    const openBrackets = countChar(repaired, '[');
+    const closeBrackets = countChar(repaired, ']');
+
+    // 补全缺失的闭合括号
+    if (openBraces > closeBraces) {
+        repaired += '}'.repeat(openBraces - closeBraces);
+    }
+    if (openBrackets > closeBrackets) {
+        repaired += ']'.repeat(openBrackets - closeBrackets);
+    }
+
+    // 如果 JSON 被截断在字符串中间，尝试闭合字符串
+    // 查找最后一个未闭合的引号
+    const lastQuote = repaired.lastIndexOf('"');
+    if (lastQuote >= 0) {
+        // 检查这个引号是否闭合
+        const beforeLastQuote = repaired.slice(0, lastQuote);
+        const quoteCount = countChar(beforeLastQuote, '"');
+        if (quoteCount % 2 === 1) {
+            // 奇数个引号，说明最后一个字符串未闭合
+            // 在最后一个引号后添加闭合引号
+            repaired = repaired.slice(0, lastQuote + 1) + '"' + repaired.slice(lastQuote + 1);
+        }
+    }
+
+    return repaired;
 }
 
 // 合并多个分块的提取结果，去重并修正 ID
@@ -275,78 +316,34 @@ async function checkExistingData() {
 // 4. 主入口
 // ============================================================
 
-// 主处理流程
-// INPUT_TEXT: 任务输入的原始新闻文本
-// 使用方式：
-// 在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
-// 关联达梦数据库，运行此脚本即可自动解析入库。
-// 直接执行（顶层代码，不用函数包裹，避免 Bun AsyncFunction 构造器中 await 挂起）
-try {
-    gov.log('=== 国际新闻入库流程启动 ===');
+// 处理单个文件：读取 → AI提取 → 显示表格 → 入库
+async function processFile(file, fileIndex, totalFiles) {
+    gov.log('\\n' + '='.repeat(60));
+    gov.log('处理文件 [' + fileIndex + '/' + totalFiles + ']: ' + file.name);
+    gov.log('='.repeat(60));
 
-    // -- Step 0: 初始化数据库表 --
-    try {
-        // 达梦建表（IF NOT EXISTS 保证幂等）
-        // 按分号分割，去掉注释行，再重新组合
-        const ddlStatements = DDL.split(';')
-            .map(s => s.trim())
-            .filter(s => s)
-            .map(s => {
-                // 去掉开头的注释行
-                const lines = s.split('\n').filter(l => !l.trim().startsWith('--'));
-                return lines.join('\n').trim();
-            })
-            .filter(s => s);
-        for (const stmt of ddlStatements) {
-            if (stmt) {
-                await gov.executeSQL(stmt);
-            }
-        }
-        gov.log('✓ 数据库表初始化完成');
-    } catch (e) {
-        gov.log('⚠ 建表可能已存在，跳过: ' + e.message);
-    }
-
-    // -- Step 1: 获取输入 --
+    // Step 1: 读取文件
+    gov.log('→ 正在读取 Word 文件...');
     let rawText = '';
-
-    // 优先使用文件输入模式
-    if (typeof INPUT_FILES !== 'undefined' && INPUT_FILES && INPUT_FILES.length > 0) {
-        gov.log('✓ 检测到文件输入模式，共 ' + INPUT_FILES.length + ' 个文件');
-        const allTexts = [];
-
-        for (let i = 0; i < INPUT_FILES.length; i++) {
-            const file = INPUT_FILES[i];
-            gov.log('→ 正在读取文件 [' + (i + 1) + '/' + INPUT_FILES.length + ']: ' + file.name);
-
-            try {
-                const result = await gov.readWord(file);
-                const fileText = result.value || '';
-                if (fileText.trim()) {
-                    allTexts.push(fileText);
-                    gov.log('  ✓ 文件读取成功，提取 ' + fileText.length + ' 字符');
-                } else {
-                    gov.log('  ⚠ 文件内容为空');
-                }
-            } catch (e) {
-                gov.log('  ✗ 文件读取失败: ' + e.message);
-            }
+    try {
+        // 如果是虚拟文件（文本输入模式），直接使用内容
+        if (file.content) {
+            rawText = file.content;
+        } else {
+            const result = await gov.readWord(file);
+            rawText = result.value || '';
         }
-
-        rawText = allTexts.join('\n\n');
-        gov.log('✓ 所有文件内容合并完成，共 ' + rawText.length + ' 字符');
-    } else if (typeof INPUT_TEXT !== 'undefined' && INPUT_TEXT && INPUT_TEXT.trim()) {
-        // 回退到文本输入模式
-        rawText = INPUT_TEXT;
-        gov.log('✓ 使用文本输入模式，共 ' + rawText.length + ' 字符');
+        if (!rawText.trim()) {
+            gov.log('⚠ 文件内容为空，跳过此文件');
+            return null;
+        }
+        gov.log('✓ 文件读取成功，共 ' + rawText.length + ' 字符');
+    } catch (e) {
+        gov.log('✗ 文件读取失败: ' + e.message);
+        return null;
     }
 
-    if (!rawText || rawText.trim().length === 0) {
-        gov.log('✗ 未提供有效输入（INPUT_FILES 或 INPUT_TEXT 均为空）');
-        return;
-    }
-
-    // -- Step 2: 分块 + AI 提取 --
+    // Step 2: 分块 + AI 提取
     const chunks = chunkText(rawText);
     gov.log('✓ 文本分为 ' + chunks.length + ' 块进行处理');
 
@@ -357,13 +354,13 @@ try {
 
         let prompt;
         if (chunks.length === 1) {
-            prompt = EXTRACT_PROMPT + '\n\n---\n新闻文本：\n' + chunks[i];
+            prompt = EXTRACT_PROMPT + '\\n\\n---\\n新闻文本：\\n' + chunks[i];
         } else {
             prompt = CHUNK_EXTRACT_PROMPT
                 .replace('{chunk_index}', chunkIndex)
                 .replace('{total_chunks}', chunks.length)
                 .replace('{base_prompt}', EXTRACT_PROMPT)
-                + '\n\n---\n新闻文本：\n' + chunks[i];
+                + '\\n\\n---\\n新闻文本：\\n' + chunks[i];
         }
 
         const maxRetries = 2;
@@ -389,32 +386,74 @@ try {
             gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败（已重试 ' + maxRetries + ' 次）: ' + (lastError ? lastError.message : 'unknown'));
             continue; // 继续下一块
         }
-        const parsed = parseAIResponse(aiResponse);
-        extractResults.push(parsed);
-        gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + (parsed.news?.length || 0) + ' 条新闻, ' + (parsed.transport_support?.length || 0) + ' 条运保');
+
+        try {
+            const parsed = parseAIResponse(aiResponse);
+            extractResults.push(parsed);
+            gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + (parsed.news?.length || 0) + ' 条新闻, ' + (parsed.transport_support?.length || 0) + ' 条运保');
+        } catch (e) {
+            gov.log('  ✗ 第 ' + chunkIndex + ' 块 JSON 解析失败: ' + e.message);
+            gov.log('  AI 返回内容（前 500 字符）: ' + aiResponse.slice(0, 500));
+        }
     }
 
     if (extractResults.length === 0) {
-        gov.log('✗ 所有分块提取均失败，流程终止');
-        return;
+        gov.log('✗ 所有分块提取均失败，跳过此文件');
+        return null;
     }
 
-    // -- Step 3: 合并结果 + 去重 --
+    // Step 3: 合并结果 + 去重
     const merged = mergeChunkResults(extractResults);
     merged.news = deduplicateNews(merged.news);
 
     gov.log('✓ 合并后共: ' + merged.news.length + ' 条新闻, ' + merged.transport_support.length + ' 条运保');
 
-    // 展示提取结果
-    gov.showTable(merged.news.map(n => ({
-        新闻内码: n.news_id,
-        时间: n.news_time,
-        区域: n.region,
-        事件: n.event?.slice(0, 50) + '...'
-    })));
+    // Step 4: 显示三张表
+    gov.log('\\n--- 国际新闻表 ---');
+    if (merged.news.length > 0) {
+        gov.showTable(merged.news.map(n => ({
+            新闻内码: n.news_id,
+            时间: n.news_time,
+            区域: n.region,
+            事件: n.event?.length > 50 ? n.event.slice(0, 50) + '...' : n.event
+        })));
+    } else {
+        gov.log('（无数据）');
+    }
 
-    // -- Step 4: 入库 --
-    gov.log('→ 开始入库...');
+    gov.log('\\n--- 运输保障表 ---');
+    if (merged.transport_support.length > 0) {
+        gov.showTable(merged.transport_support.map(ts => ({
+            运保内码: ts.support_id,
+            时间: ts.support_time,
+            区域: ts.region,
+            运输情况: ts.transport_info?.length > 50 ? ts.transport_info.slice(0, 50) + '...' : ts.transport_info
+        })));
+    } else {
+        gov.log('（无数据）');
+    }
+
+    gov.log('\\n--- 保障力量出动表 ---');
+    const allDispatch = [];
+    for (const ts of merged.transport_support) {
+        if (ts.dispatch_force) {
+            allDispatch.push(...ts.dispatch_force);
+        }
+    }
+    if (allDispatch.length > 0) {
+        gov.showTable(allDispatch.map(df => ({
+            出动内码: df.dispatch_id,
+            运保内码: df.support_id,
+            装备型号: df.equip_model,
+            架次: df.sorties,
+            批次: df.batches
+        })));
+    } else {
+        gov.log('（无数据）');
+    }
+
+    // Step 5: 入库
+    gov.log('\\n→ 开始入库...');
     const insertResult = await insertToDatabase(merged);
 
     gov.log('=== 入库结果 ===');
@@ -426,10 +465,87 @@ try {
         insertResult.errors.forEach(e => gov.log('    - ' + e));
     }
 
-    // -- Step 5: 验证 --
+    return insertResult;
+}
+
+// 主处理流程
+// INPUT_TEXT: 任务输入的原始新闻文本
+// 使用方式：
+// 在 DataToolbox 数据治理任务中，粘贴新闻文本作为输入，
+// 关联达梦数据库，运行此脚本即可自动解析入库。
+// 直接执行（顶层代码，不用函数包裹，避免 Bun AsyncFunction 构造器中 await 挂起）
+try {
+    gov.log('=== 国际新闻入库流程启动 ===');
+
+    // -- Step 0: 初始化数据库表 --
+    try {
+        // 达梦建表（IF NOT EXISTS 保证幂等）
+        // 按分号分割，去掉注释行，再重新组合
+        const ddlStatements = DDL.split(';')
+            .map(s => s.trim())
+            .filter(s => s)
+            .map(s => {
+                // 去掉开头的注释行
+                const lines = s.split('\\n').filter(l => !l.trim().startsWith('--'));
+                return lines.join('\\n').trim();
+            })
+            .filter(s => s);
+        for (const stmt of ddlStatements) {
+            if (stmt) {
+                await gov.executeSQL(stmt);
+            }
+        }
+        gov.log('✓ 数据库表初始化完成');
+    } catch (e) {
+        gov.log('⚠ 建表可能已存在，跳过: ' + e.message);
+    }
+
+    // -- Step 1: 获取输入 --
+    let rawText = '';
+
+    // 优先使用文件输入模式（每个文件单独处理）
+    if (typeof INPUT_FILES !== 'undefined' && INPUT_FILES && INPUT_FILES.length > 0) {
+        gov.log('✓ 检测到文件输入模式，共 ' + INPUT_FILES.length + ' 个文件');
+
+        const totalResults = { news: 0, transport_support: 0, dispatch_force: 0, errors: [] };
+
+        for (let i = 0; i < INPUT_FILES.length; i++) {
+            const result = await processFile(INPUT_FILES[i], i + 1, INPUT_FILES.length);
+            if (result) {
+                totalResults.news += result.news;
+                totalResults.transport_support += result.transport_support;
+                totalResults.dispatch_force += result.dispatch_force;
+                totalResults.errors.push(...result.errors);
+            }
+        }
+
+        gov.log('\\n' + '='.repeat(60));
+        gov.log('=== 所有文件处理完成 ===');
+        gov.log('总计入库：');
+        gov.log('  国际新闻: ' + totalResults.news + ' 条');
+        gov.log('  运输保障: ' + totalResults.transport_support + ' 条');
+        gov.log('  保障力量出动: ' + totalResults.dispatch_force + ' 条');
+        if (totalResults.errors.length > 0) {
+            gov.log('  ⚠ 总错误: ' + totalResults.errors.length + ' 条');
+        }
+
+    } else if (typeof INPUT_TEXT !== 'undefined' && INPUT_TEXT && INPUT_TEXT.trim()) {
+        // 回退到文本输入模式
+        rawText = INPUT_TEXT;
+        gov.log('✓ 使用文本输入模式，共 ' + rawText.length + ' 字符');
+
+        // 创建一个虚拟文件对象
+        const virtualFile = { name: 'INPUT_TEXT', content: rawText };
+        await processFile(virtualFile, 1, 1);
+
+    } else {
+        gov.log('✗ 未提供有效输入（INPUT_FILES 或 INPUT_TEXT 均为空）');
+    }
+
+    // -- 最终验证 --
     const finalCount = await checkExistingData();
     if (finalCount) {
-        gov.log('=== 数据库当前数据量 ===');
+        gov.log('\\n=== 数据库当前数据量 ===');
         gov.showTable([{
             国际新闻: finalCount.news,
             运输保障: finalCount.transport_support,
@@ -437,7 +553,7 @@ try {
         }]);
     }
 
-    gov.log('=== 国际新闻入库流程完成 ===');
+    gov.log('\\n=== 国际新闻入库流程完成 ===');
 } catch (e) {
     gov.log('✗ 流程异常: ' + e.message);
 }
