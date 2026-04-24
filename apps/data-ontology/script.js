@@ -78,11 +78,48 @@ if (typeof window !== 'undefined') {
 
 const RETURN_URL_KEY = 'dataOntologyReturnUrl';
 
-function saveReturnUrlForLogin() {
-    try {
-        sessionStorage.setItem(RETURN_URL_KEY, location.pathname + location.search + location.hash);
-    } catch (e) {}
+const lazyScriptRegistry = {};
+function loadLazyScript(src) {
+    if (!lazyScriptRegistry[src]) {
+        lazyScriptRegistry[src] = new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[data-lazy-src="${CSS.escape(src)}"]`);
+            if (existing && existing.dataset.loaded === 'true') {
+                resolve();
+                return;
+            }
+            const script = existing || document.createElement('script');
+            script.src = existing ? existing.getAttribute('src') || src : src;
+            script.async = true;
+            script.dataset.lazySrc = src;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+            if (!existing) document.body.appendChild(script);
+        });
+    }
+    return lazyScriptRegistry[src];
 }
+
+async function ensureGovernanceScriptsLoaded() {
+    if (!window.GOV_SHARED) {
+        await loadLazyScript('gov-shared.js?v=4.0.30');
+    }
+    if (!window.loadGovernanceTasks) {
+        await loadLazyScript('gov-api.js?v=4.0.30');
+    }
+    if (!window.loadGovernanceTasks) {
+        await loadLazyScript('governance.js?v=4.0.30');
+    }
+}
+
+async function ensureQualityAuditScriptLoaded() {
+    if (!window.initQualityAuditTab) {
+        await loadLazyScript('quality-audit.js?v=4.0.30');
+    }
+}
+
 
 function handleUnauthorizedFromApi() {
     if (!localStorage.getItem('dataOntologyToken')) return;
@@ -985,7 +1022,7 @@ function updateUserMgmtNavVisibility() {
 }
 
 // 数据库列表
-function switchTab(tabName) {
+async function switchTab(tabName) {
     if (tabName !== 'database') {
         closeUserMgmtPanel();
         const wv = document.getElementById('welcomeView');
@@ -1000,19 +1037,15 @@ function switchTab(tabName) {
             }
         }
     }
-    // 表单与模态框控制。
     document.querySelectorAll('.nav-tab').forEach(tab => {
         tab.classList.remove('active');
     });
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-
-    // 自动调整输入框高度。
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     document.getElementById(`${tabName}Tab`).classList.add('active');
 
-    // 按标签页加载对应数据。
     if (tabName === 'api') {
         loadApis();
         loadApiKey();
@@ -1022,7 +1055,8 @@ function switchTab(tabName) {
         loadAiConfig();
         updateAiContextDisplay();
     } else if (tabName === 'governance') {
-        loadGovernanceTasks();
+        await ensureGovernanceScriptsLoaded();
+        if (typeof loadGovernanceTasks === 'function') loadGovernanceTasks();
     } else if (tabName === 'ontology') {
         initOntologyTab();
     } else if (tabName === 'models') {
@@ -1040,6 +1074,7 @@ function switchTab(tabName) {
             }
         }
     } else if (tabName === 'quality') {
+        await ensureQualityAuditScriptLoaded();
         if (typeof window.initQualityAuditTab === 'function') {
             window.initQualityAuditTab();
         }
