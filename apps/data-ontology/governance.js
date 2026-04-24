@@ -52,14 +52,32 @@ async function govDownloadExampleZip(files) {
     download(blob, 'governance-examples.zip');
 }
 
+function govNormalizeExamplePath(item) {
+    if (!item) return '';
+    const raw = typeof item === 'string' ? item : (item.path || item.Path || '');
+    const safe = String(raw || '').trim();
+    return safe ? safe.split(/[\/]/).pop() : '';
+}
+
+function govNormalizeExampleName(item) {
+    if (!item) return '';
+    const raw = typeof item === 'string' ? item : (item.name || item.Name || '');
+    const safe = String(raw || '').trim();
+    return safe ? safe.split(/[\/]/).pop() : '';
+}
+
 function govDownloadExamplesForTask(taskId) {
     const task = govTasks.find(t => t.id === taskId);
     const list = task && task.example_files;
     if (!list || !list.length) return;
     if (list.length === 1) {
-        govDownloadExampleSingle(list[0].path);
+        govDownloadExampleSingle(govNormalizeExamplePath(list[0]));
     } else {
-        govDownloadExampleZip(list);
+        const files = list.map(item => ({
+            name: govNormalizeExampleName(item) || govNormalizeExamplePath(item),
+            path: govNormalizeExamplePath(item)
+        })).filter(item => item.path);
+        govDownloadExampleZip(files);
     }
 }
 
