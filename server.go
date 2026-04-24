@@ -835,18 +835,24 @@ type DatabaseConfig struct {
 }
 
 // DatabaseInfo 数据库信息（不包含敏感信息）
+// TableInfo 表信息（包含表名和备注）
+type TableInfo struct {
+	Name    string `json:"name"`
+	Comment string `json:"comment,omitempty"`
+}
+
 type DatabaseInfo struct {
-	ID        string   `json:"id"`
-	Owner     string   `json:"owner,omitempty"`
-	Type      string   `json:"type"`
-	Name      string   `json:"name"`
-	Host      string   `json:"host,omitempty"`
-	Port      int      `json:"port,omitempty"`
-	User      string   `json:"user,omitempty"`
-	Database  string   `json:"database,omitempty"`
-	Path      string   `json:"path,omitempty"`
-	Connected bool     `json:"connected"`
-	Tables    []string `json:"tables,omitempty"`
+	ID        string      `json:"id"`
+	Owner     string      `json:"owner,omitempty"`
+	Type      string      `json:"type"`
+	Name      string      `json:"name"`
+	Host      string      `json:"host,omitempty"`
+	Port      int         `json:"port,omitempty"`
+	User      string      `json:"user,omitempty"`
+	Database  string      `json:"database,omitempty"`
+	Path      string      `json:"path,omitempty"`
+	Connected bool        `json:"connected"`
+	Tables    []TableInfo `json:"tables,omitempty"`
 }
 
 // ApiConfig 接口配置
@@ -2444,6 +2450,216 @@ func getTablesQuery(config *DatabaseConfig) string {
 	}
 }
 
+// getTableComments 获取表备注（MySQL 和 SQLite 支持）
+func getTableComments(db *sql.DB, config *DatabaseConfig, tableNames []string) map[string]string {
+	comments := make(map[string]string)
+	if len(tableNames) == 0 {
+		return comments
+	}
+
+	switch config.Type {
+	case "mysql", "mariadb", "tidb":
+		// MySQL: 从 information_schema.TABLES 获取表备注
+		query := `
+			SELECT TABLE_NAME, TABLE_COMMENT
+			FROM information_schema.TABLES
+			WHERE TABLE_SCHEMA = ?`
+		rows, err := db.Query(query, config.Database)
+		if err != nil {
+			log.Printf("查询 MySQL 表备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tableName, tableComment string
+			if err := rows.Scan(&tableName, &tableComment); err == nil {
+				if tableComment != "" {
+					comments[tableName] = tableComment
+				}
+			}
+		}
+	case "sqlite", "duckdb":
+		// SQLite: 从 sqlite_master 的 sql 字段解析备注
+		// SQLite 本身不支持表备注，但可以解析 CREATE TABLE 语句中的注释
+		for _, tableName := range tableNames {
+			quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+			query := fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name=%s", quotedTable)
+			var sqlStr string
+			err := db.QueryRow(query).Scan(&sqlStr)
+			if err == nil && sqlStr != "" {
+				// 尝试从 SQL 中提取注释（如果有）
+				comment := extractSQLiteComment(sqlStr)
+				if comment != "" {
+					comments[tableName] = comment
+				}
+			}
+		}
+	case "postgresql", "timescaledb", "cockroachdb":
+		// PostgreSQL: 从 pg_class 和 pg_description 获取表备注
+		query := `
+			SELECT c.relname, d.description
+			FROM pg_class c
+			JOIN pg_namespace n ON c.relnamespace = n.oid
+			LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+			WHERE n.nspname = 'public' AND c.relkind = 'r'`
+		rows, err := db.Query(query)
+		if err != nil {
+			log.Printf("查询 PostgreSQL 表备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tableName, tableComment string
+			if err := rows.Scan(&tableName, &tableComment); err == nil {
+				if tableComment != "" {
+					comments[tableName] = tableComment
+				}
+			}
+		}
+	case "oracle":
+		// Oracle: 从 ALL_TAB_COMMENTS 获取表备注
+		query := "SELECT TABLE_NAME, COMMENTS FROM USER_TAB_COMMENTS WHERE TABLE_TYPE = 'TABLE'"
+		rows, err := db.Query(query)
+		if err != nil {
+			log.Printf("查询 Oracle 表备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tableName, tableComment sql.NullString
+			if err := rows.Scan(&tableName, &tableComment); err == nil {
+				if tableName.Valid && tableComment.Valid && tableComment.String != "" {
+					comments[tableName.String] = tableComment.String
+				}
+			}
+		}
+	case "dm":
+		// 达梦: 从 USER_TAB_COMMENTS 获取表备注
+		query := "SELECT TABLE_NAME, COMMENTS FROM USER_TAB_COMMENTS"
+		rows, err := db.Query(query)
+		if err != nil {
+			log.Printf("查询达梦表备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tableName, tableComment sql.NullString
+			if err := rows.Scan(&tableName, &tableComment); err == nil {
+				if tableName.Valid && tableComment.Valid && tableComment.String != "" {
+					comments[tableName.String] = tableComment.String
+				}
+			}
+		}
+	}
+	return comments
+}
+
+// extractSQLiteComment 从 SQLite CREATE TABLE 语句中提取注释
+func extractSQLiteComment(sqlStr string) string {
+	// 查找 /* */ 格式的注释
+	if idx := strings.Index(sqlStr, "/*"); idx != -1 {
+		if endIdx := strings.Index(sqlStr[idx:], "*/"); endIdx != -1 {
+			comment := strings.TrimSpace(sqlStr[idx+2 : idx+endIdx])
+			return comment
+		}
+	}
+	// 查找 -- 格式的注释
+	lines := strings.Split(sqlStr, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "--") {
+			return strings.TrimSpace(line[2:])
+		}
+	}
+	return ""
+}
+
+// getColumnComments 获取字段备注
+func getColumnComments(db *sql.DB, config *DatabaseConfig, tableName string) map[string]string {
+	comments := make(map[string]string)
+
+	switch config.Type {
+	case "mysql", "mariadb", "tidb":
+		// MySQL: 从 information_schema.COLUMNS 获取字段备注
+		query := `
+			SELECT COLUMN_NAME, COLUMN_COMMENT
+			FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`
+		rows, err := db.Query(query, config.Database, tableName)
+		if err != nil {
+			log.Printf("查询 MySQL 字段备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, colComment string
+			if err := rows.Scan(&colName, &colComment); err == nil {
+				if colComment != "" {
+					comments[colName] = colComment
+				}
+			}
+		}
+	case "postgresql", "timescaledb", "cockroachdb":
+		// PostgreSQL: 从 pg_description 获取字段备注
+		query := `
+			SELECT a.attname, d.description
+			FROM pg_attribute a
+			JOIN pg_class c ON a.attrelid = c.oid
+			JOIN pg_namespace n ON c.relnamespace = n.oid
+			LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = a.attnum
+			WHERE n.nspname = 'public' AND c.relname = $1 AND a.attnum > 0 AND NOT a.attisdropped`
+		rows, err := db.Query(query, tableName)
+		if err != nil {
+			log.Printf("查询 PostgreSQL 字段备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, colComment string
+			if err := rows.Scan(&colName, &colComment); err == nil {
+				if colComment != "" {
+					comments[colName] = colComment
+				}
+			}
+		}
+	case "oracle":
+		// Oracle: 从 USER_COL_COMMENTS 获取字段备注
+		query := "SELECT COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = :1"
+		rows, err := db.Query(query, strings.ToUpper(tableName))
+		if err != nil {
+			log.Printf("查询 Oracle 字段备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, colComment sql.NullString
+			if err := rows.Scan(&colName, &colComment); err == nil {
+				if colName.Valid && colComment.Valid && colComment.String != "" {
+					comments[colName.String] = colComment.String
+				}
+			}
+		}
+	case "dm":
+		// 达梦: 从 USER_COL_COMMENTS 获取字段备注
+		query := "SELECT COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?"
+		rows, err := db.Query(query, strings.ToUpper(tableName))
+		if err != nil {
+			log.Printf("查询达梦字段备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, colComment sql.NullString
+			if err := rows.Scan(&colName, &colComment); err == nil {
+				if colName.Valid && colComment.Valid && colComment.String != "" {
+					comments[colName.String] = colComment.String
+				}
+			}
+		}
+	}
+	return comments
+}
+
 // buildMongoURI 构建 MongoDB 连接 URI，自动检测是否为 Atlas
 func buildMongoURI(config *DatabaseConfig) string {
 	// 检查是否为 MongoDB Atlas（包含 .mongodb.net）
@@ -3620,6 +3836,28 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			tables = []string{}
 		}
 
+		// 转换为 TableInfo 数组，并获取表备注
+		tableInfos := make([]TableInfo, len(tables))
+		var tableComments map[string]string
+		
+		// 对于 SQL 数据库，获取表备注
+		if connected && config.Type != "mongodb" && config.Type != "redis" && 
+			config.Type != "neo4j" && config.Type != "elasticsearch" && 
+			config.Type != "influxdb" && config.Type != "memcached" && 
+			config.Type != "cassandra" && config.Type != "hbase" {
+			db, err := getDBFromPool(config)
+			if err == nil {
+				tableComments = getTableComments(db, config, tables)
+			}
+		}
+
+		for i, tableName := range tables {
+			tableInfos[i] = TableInfo{
+				Name:    tableName,
+				Comment: tableComments[tableName],
+			}
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"database": DatabaseInfo{
@@ -3632,7 +3870,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 				Database:  config.Database,
 				Path:      config.Path,
 				Connected: connected,
-				Tables:    tables,
+				Tables:    tableInfos,
 			},
 		})
 
@@ -4726,6 +4964,16 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 						"nullable": nullableStr == "Y",
 					})
 				}
+			}
+		}
+	}
+
+	// 获取字段备注并添加到 columns 中
+	colComments := getColumnComments(db, config, tableName)
+	for i := range columns {
+		if colName, ok := columns[i]["name"].(string); ok {
+			if comment, exists := colComments[colName]; exists {
+				columns[i]["comment"] = comment
 			}
 		}
 	}

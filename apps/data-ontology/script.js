@@ -1856,11 +1856,19 @@ function renderTablesList(tables) {
         return;
     }
 
-    const tablesHtml = tables.map(table => `
-        <div class="table-item" onclick="previewTable('${escapeHtml(table)}')">
-            ${escapeHtml(table)}
-        </div>
-    `).join('');
+    // tables 可能是字符串数组或对象数组
+    const tablesHtml = tables.map(table => {
+        const tableName = typeof table === 'string' ? table : table.name;
+        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
+        const displayName = tableComment 
+            ? `<span class="table-name">${escapeHtml(tableName)}</span><span class="table-comment">${escapeHtml(tableComment)}</span>`
+            : escapeHtml(tableName);
+        return `
+            <div class="table-item" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
+                ${displayName}
+            </div>
+        `;
+    }).join('');
     
     listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
 }
@@ -1940,11 +1948,27 @@ async function previewTable(tableName, keepEditMode = false) {
             // 数据库连接测试与提交。
             const hasData = data.data && data.data.length > 0;
             const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
+            
+            // 构建字段备注映射
+            const columnComments = {};
+            if (structureData.success && structureData.columns) {
+                structureData.columns.forEach(col => {
+                    if (col.comment) {
+                        columnComments[col.name] = col.comment;
+                    }
+                });
+            }
+            
             const tableHtml = `
                 <table class="preview-table" id="dataTable">
                     <thead>
                         <tr>
-                            ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                            ${columns.map(col => {
+                                const comment = columnComments[col];
+                                return comment 
+                                    ? `<th title="${escapeHtml(comment)}">${escapeHtml(col)}<span class="column-comment">${escapeHtml(comment)}</span></th>`
+                                    : `<th>${escapeHtml(col)}</th>`;
+                            }).join('')}
                             ${actionColumnHtml}
                         </tr>
                     </thead>
