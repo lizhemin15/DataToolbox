@@ -4,12 +4,8 @@ async function govDownloadExampleSingle(path) {
     const filename = safe.split('/').pop();
     const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(filename)}`;
     const response = await fetchWithAuth(url);
-    if (!response.ok) {
-        showToast('下载失败', 'error');
-        return;
-    }
     const ct = response.headers.get('Content-Type') || '';
-    if (ct.includes('application/json')) {
+    if (!response.ok || ct.includes('application/json')) {
         try {
             const j = await response.json();
             showToast((j && j.message) || '下载失败', 'error');
@@ -81,7 +77,7 @@ function govNormalizeExampleFile(item) {
     const path = govNormalizeExamplePath(item);
     const name = govNormalizeExampleName(item) || path;
     if (!path) return null;
-    return { name: name || path, path: path };
+    return { name: name || path, path: path, _raw: item };
 }
 
 function govDownloadExamplesForTask(taskId) {
