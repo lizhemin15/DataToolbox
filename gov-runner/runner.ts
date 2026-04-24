@@ -123,7 +123,21 @@ export function createGovHelper(
     async readWord(file: FileLike): Promise<{ value: string }> {
       if (!file) throw new Error('未提供文件');
       const arrayBuffer = await file.arrayBuffer();
-      return mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
+      // 用 PizZip + XML 解析替代 mammoth（编译后 mammoth 异步调用会挂起）
+      const buf = Buffer.from(arrayBuffer);
+      const zip = new PizZip(buf);
+      // docx 是 zip 包，文档内容在 word/document.xml
+      const docXml = zip.file('word/document.xml');
+      if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
+      const xml = docXml.asText() || '';
+      // 提取所有 <w:t> 标签中的文本
+      const matches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+      const texts = matches.map(m => {
+        const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+        return m2 ? m2[1] : '';
+      });
+      const value = texts.join('');
+      return { value };
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
