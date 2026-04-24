@@ -103,21 +103,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    if (!window.GOV_SHARED) {
-        await loadLazyScript('gov-shared.js?v=4.0.30');
-    }
-    if (!window.loadGovernanceTasks) {
-        await loadLazyScript('gov-api.js?v=4.0.30');
-    }
-    if (!window.loadGovernanceTasks) {
-        await loadLazyScript('governance.js?v=4.0.30');
-    }
+    await loadLazyScript('gov-shared.js?v=4.0.30');
+    await loadLazyScript('gov-api.js?v=4.0.30');
+    await loadLazyScript('governance.js?v=4.0.30');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    if (!window.initQualityAuditTab) {
-        await loadLazyScript('quality-audit.js?v=4.0.30');
-    }
+    await loadLazyScript('quality-audit.js?v=4.0.30');
 }
 
 
