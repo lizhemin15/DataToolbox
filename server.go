@@ -1389,7 +1389,7 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func loadGovernanceAggregateDailyReportJS() string {
-	b, err := governanceExamplesFS.ReadFile("examples/governance/aggregate-daily-report.js")
+	b, err := governanceExamplesFS.ReadFile("scripts/aggregate-daily-report.js")
 	if err != nil {
 		log.Printf("读取 aggregate-daily-report.js 失败: %v", err)
 		return ""
@@ -2825,9 +2825,14 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 生成新Token
+	// 生成新Token并立即持久化，避免重启后 token 丢失或偶发回退。
 	token := generateToken()
 	user.Token = token
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("[Auth] 保存登录 token 失败: username=%s, err=%v", loginReq.Username, err)
+	}
+	dataOntologyMu.Lock()
 
 	log.Printf("[Auth] 登录成功: username=%s", loginReq.Username)
 	jsonSuccess(w, map[string]interface{}{"success": true, "token": token})

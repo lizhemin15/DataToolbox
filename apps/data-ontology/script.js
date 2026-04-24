@@ -108,7 +108,15 @@ async function fetchWithAuth(input, init) {
     }
     const response = await fetch(input, { ...initCopy, headers });
     if (response.status === 401) {
-        handleUnauthorizedFromApi();
+        const ct401 = response.headers.get('Content-Type') || '';
+        if (ct401.includes('application/json')) {
+            try {
+                const data401 = await response.clone().json();
+                if (data401 && typeof data401.message === 'string' && data401.message.indexOf('未授权') !== -1) {
+                    handleUnauthorizedFromApi();
+                }
+            } catch (e) {}
+        }
         return response;
     }
     const ct = response.headers.get('Content-Type') || '';
