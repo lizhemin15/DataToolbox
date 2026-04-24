@@ -51,49 +51,15 @@ const DDL = [
  * 输出严格 JSON，方便后续直接解析入库
  */
 const EXTRACT_PROMPT = [
+    '从下文提取结构化数据，严格输出JSON（不要输出其他内容）。',
     '',
-    '要求：',
-    '1. 提取所有新闻事件，每条事件包含：时间、区域、事件描述',
-    '2. 提取所有运输保障相关信息，每条包含：时间、区域、运输情况描述',
-    '3. 对每条运输保障，提取对应的保障力量出动信息：装备型号、架次、批次',
+    '提取：1.新闻事件(时间/区域/事件) 2.运输保障(时间/区域/情况) 3.保障力量出动(装备型号/架次/批次)',
     '',
-    '输出格式（严格遵守，不要输出任何其他内容）：',
-    '{',
-    '  "news": [',
-    '    {',
-    '      "news_id": "NWS_yyyyMMdd_HHmmss_序号",',
-    '      "news_time": "2025-01-15 08:30:00",',
-    '      "region": "某某区域",',
-    '      "event": "事件描述"',
-    '    }',
-    '  ],',
-    '  "transport_support": [',
-    '    {',
-    '      "support_id": "TRS_yyyyMMdd_HHmmss_序号",',
-    '      "support_time": "2025-01-15 10:00:00",',
-    '      "region": "某某区域",',
-    '      "transport_info": "运输情况描述",',
-    '      "dispatch_force": [',
-    '        {',
-    '          "dispatch_id": "DSP_yyyyMMdd_HHmmss_序号",',
-    '          "equip_model": "运-20",',
-    '          "sorties": 3,',
-    '          "batches": 1',
-    '        }',
-    '      ]',
-    '    }',
-    '  ]',
-    '}',
+    '格式：',
+    '{"news":[{"news_id":"NWS_yyyyMMdd_HHmmss_序号","news_time":"yyyy-MM-dd HH:mm:ss","region":"区域","event":"事件"}],"transport_support":[{"support_id":"TRS_yyyyMMdd_HHmmss_序号","support_time":"yyyy-MM-dd HH:mm:ss","region":"区域","transport_info":"情况","dispatch_force":[{"dispatch_id":"DSP_yyyyMMdd_HHmmss_序号","support_id":"同上层support_id","equip_model":"型号","sorties":1,"batches":1}]}]}',
     '',
-    '规则：',
-    '- news_id 格式：NWS_时间戳_序号，时间取事件发生时间，序号从1开始',
-    '- support_id 格式：TRS_时间戳_序号',
-    '- dispatch_id 格式：DSP_时间戳_序号',
-    '- 时间格式：yyyy-MM-dd HH:mm:ss，无法确定具体时间的用新闻发布时间',
-    '- 如果某条新闻没有运输保障信息，transport_support 数组为空即可',
-    '- dispatch_force 中的 support_id 必须与上层 transport_support 的 support_id 一致',
-    '- sorties（架次）和 batches（批次）必须为整数，无法提取则为 null',
-].join('\n');
+    '规则：时间格式yyyy-MM-dd HH:mm:ss；无运保则transport_support为空数组；sorties/batches为整数或null',
+].join('\\n');
 
 /**
  * 分块 Prompt：当新闻文本过长时，先拆分为多个分块分别提取
@@ -129,7 +95,7 @@ function generateId(prefix, index = 1) {
  * @param {number} maxChars - 每块最大字符数（默认 3000，预留 prompt 空间）
  * @returns {string[]} 文本块数组
  */
-function chunkText(text, maxChars = 3000) {
+function chunkText(text, maxChars = 1500) {
     if (text.length <= maxChars) return [text];
 
     const chunks = [];
@@ -413,15 +379,32 @@ try {
                 + '\n\n---\n新闻文本：\n' + chunks[i];
         }
 
-        try {
-            const aiResponse = await gov.callAI(prompt);
-            const parsed = parseAIResponse(aiResponse);
-            extractResults.push(parsed);
-            gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + parsed.news?.length || 0 + ' 条新闻, ' + parsed.transport_support?.length || 0 + ' 条运保');
-        } catch (e) {
-            gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败: ' + e.message);
-            // 继续下一块
+        const maxRetries = 2;
+        let aiResponse = null;
+        let lastError = null;
+        for (let retry = 0; retry <= maxRetries; retry++) {
+            try {
+                if (retry > 0) {
+                    gov.log('  ↻ 第 ' + chunkIndex + ' 块重试第 ' + retry + ' 次...');
+                }
+                aiResponse = await gov.callAI(prompt);
+                break; // 成功则跳出
+            } catch (e) {
+                lastError = e;
+                gov.log('  ⚠ AI调用失败（第 ' + (retry + 1) + ' 次）: ' + e.message);
+                if (retry < maxRetries) {
+                    gov.log('  等待 5 秒后重试...');
+                    await new Promise(r => setTimeout(r, 5000));
+                }
+            }
         }
+        if (aiResponse === null) {
+            gov.log('  ✗ 第 ' + chunkIndex + ' 块 AI 提取失败（已重试 ' + maxRetries + ' 次）: ' + (lastError ? lastError.message : 'unknown'));
+            continue; // 继续下一块
+        }
+        const parsed = parseAIResponse(aiResponse);
+        extractResults.push(parsed);
+        gov.log('  ✓ 第 ' + chunkIndex + ' 块提取完成: ' + (parsed.news?.length || 0) + ' 条新闻, ' + (parsed.transport_support?.length || 0) + ' 条运保');
     }
 
     if (extractResults.length === 0) {
