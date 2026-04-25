@@ -1613,10 +1613,9 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 			t.Enabled = def.Enabled
 			changed = true
 		}
-		if includeJS && t.Name == "综合日报生成器" {
-			js := loadGovernanceAggregateDailyReportJS()
-			if js != "" && t.JsCode != js {
-				t.JsCode = js
+		if includeJS && def.JsCode != "" {
+			if t.JsCode != def.JsCode {
+				t.JsCode = def.JsCode
 				changed = true
 			}
 		}
