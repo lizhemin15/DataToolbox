@@ -384,6 +384,12 @@
                             <span>🎯</span> 演示场景
                         </button>
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
+                        <button id="ontoRelationScanBtn" class="onto-btn onto-btn-scan" onclick="scanOntologyRelations()">
+                            <span>🔍</span> 扫描关系
+                        </button>
+                        <button id="ontoRelationTableBtn" class="onto-btn" onclick="showOntologyRelationTable()">
+                            <span>📋</span> 关系表
+                        </button>
                             <span>❌</span> 清空
                         </button>
                         <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
@@ -1786,6 +1792,82 @@
         </div>
     </div>
 
+    <!-- 本体关系表模态框 -->
+    <div id="ontologyRelationModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>本体关系表</h2>
+                <button class="modal-close" onclick="hideOntologyRelationModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="relationTableContainer">
+                    <div class="relation-toolbar">
+                        <button class="btn btn-sm btn-primary" onclick="refreshOntologyRelations()">刷新</button>
+                        <button class="btn btn-sm btn-secondary" onclick="hideOntologyRelationModal()">关闭</button>
+                    </div>
+                    <div id="relationTableLoading" class="loading-spinner" style="display:none">
+                        <div class="spinner"></div>
+                        <span>加载中...</span>
+                    </div>
+                    <table id="relationTable" class="data-table">
+                        <thead>
+                            <tr>
+                                <th>关系名称</th>
+                                <th>源字段</th>
+                                <th>目标字段</th>
+                                <th>匹配类型</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="relationTableBody">
+                            <tr><td colspan="6" class="empty-row">暂无数据</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 扫描候选关系模态框 -->
+    <div id="ontologyScanModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>扫描本体关系候选</h2>
+                <button class="modal-close" onclick="hideOntologyScanModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="scanResultContainer">
+                    <div class="scan-toolbar">
+                        <button class="btn btn-sm btn-primary" onclick="startOntologyScan()">开始扫描</button>
+                        <button class="btn btn-sm btn-secondary" onclick="hideOntologyScanModal()">关闭</button>
+                    </div>
+                    <div id="scanLoading" class="loading-spinner" style="display:none">
+                        <div class="spinner"></div>
+                        <span>扫描中...</span>
+                    </div>
+                    <div id="scanResultSummary" style="display:none">
+                        <span>发现候选关系: <strong id="scanCandidateCount">0</strong> 个</span>
+                    </div>
+                    <table id="scanResultTable" class="data-table">
+                        <thead>
+                            <tr>
+                                <th>候选名称</th>
+                                <th>源字段</th>
+                                <th>目标字段</th>
+                                <th>匹配类型</th>
+                                <th>得分</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scanResultBody">
+                            <tr><td colspan="6" class="empty-row">点击"开始扫描"</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>

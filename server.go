@@ -940,6 +940,36 @@ type SmallModelConfig struct {
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
+// FieldRef 字段引用
+type FieldRef struct {
+	DatabaseID string `json:"database_id"`
+	TableName  string `json:"table_name"`
+	FieldName  string `json:"field_name"`
+	FieldType  string `json:"field_type,omitempty"`
+}
+
+// OntologyRelation 本体关系
+type OntologyRelation struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Source      FieldRef  `json:"source"`
+	Target      FieldRef  `json:"target"`
+	MatchType   string    `json:"match_type"` // exact, case_insensitive, naming_style, type_keyword
+	Owner       string    `json:"owner,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// RelationCandidate 关系候选
+type RelationCandidate struct {
+	Name        string   `json:"name"`
+	Source      FieldRef `json:"source"`
+	Target      FieldRef `json:"target"`
+	MatchType   string   `json:"match_type"`
+	MatchScore  float64  `json:"match_score"`
+	Description string   `json:"description,omitempty"`
+}
+
 // AIQueryRequest AI查询请求
 type AIQueryRequest struct {
 	Message   string                   `json:"message"`
@@ -1034,6 +1064,8 @@ var (
 	// 模型管理
 	llmModels      = make(map[string]*LLMModelConfig)
 	smallModels    = make(map[string]*SmallModelConfig)
+	// 本体关系
+	ontologyRelations = make(map[string]*OntologyRelation)
 	dataOntologyMu sync.RWMutex
 )
 
@@ -1085,6 +1117,8 @@ type DataOntologyStore struct {
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
+	// 本体关系
+	OntologyRelations map[string]*OntologyRelation `json:"ontology_relations,omitempty"`
 }
 
 var getDataOntologyStorePathFn = getDataOntologyStorePath
@@ -1179,6 +1213,11 @@ func loadDataOntologyStore() error {
 		smallModels = store.SmallModels
 		log.Printf("已加载 %d 个小模型配置", len(smallModels))
 	}
+	// 本体关系
+	if store.OntologyRelations != nil {
+		ontologyRelations = store.OntologyRelations
+		log.Printf("已加载 %d 个本体关系", len(ontologyRelations))
+	}
 	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
 	for _, c := range dataOntologyDatabases {
 		if c != nil && c.Owner == "" {
@@ -1233,6 +1272,7 @@ func saveDataOntologyStore() error {
 		MCPEnabled:    dataOntologyMCPEnabled,
 		LLMModels:     llmModels,
 		SmallModels:   smallModels,
+		OntologyRelations: ontologyRelations,
 	}
 	dataOntologyMu.RUnlock()
 
@@ -11765,6 +11805,443 @@ func sftpRemoveAll(client *sftp.Client, remotePath string) error {
 	return client.RemoveDirectory(remotePath)
 }
 
+// handleOntologyScan 扫描所有数据库表结构，返回候选关系
+func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 收集所有字段信息
+	type TableField struct {
+		DatabaseID string
+		TableName  string
+		FieldName  string
+		FieldType  string
+	}
+
+	allFields := make([]TableField, 0)
+
+	dataOntologyMu.RLock()
+	for dbID, config := range dataOntologyDatabases {
+		if !dataOntologyResourceVisible(config.Owner, username) {
+			continue
+		}
+
+		// 获取表列表
+		var tables []string
+		var connected bool
+
+		if config.Type == "mongodb" {
+			// MongoDB 暂不支持
+			continue
+		} else {
+			// SQL 数据库
+			db, err := getDBFromPool(config)
+			if err != nil {
+				continue
+			}
+
+			var query string
+			switch config.Type {
+			case "postgresql", "timescaledb", "cockroachdb":
+				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+			case "mysql", "mariadb", "tidb":
+				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+			case "sqlserver":
+				query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
+			case "sqlite", "duckdb":
+				query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+			case "oracle":
+				query = "SELECT table_name FROM user_tables"
+			case "dm":
+				query = "SELECT table_name FROM user_tables"
+			default:
+				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+			}
+
+			rows, err := db.Query(query)
+			if err != nil {
+				continue
+			}
+
+			for rows.Next() {
+				var tableName string
+				if err := rows.Scan(&tableName); err == nil {
+					tables = append(tables, tableName)
+				}
+			}
+			rows.Close()
+			connected = true
+		}
+
+		// 获取每个表的字段
+		if connected {
+			db, err := getDBFromPool(config)
+			if err != nil {
+				continue
+			}
+
+			for _, tableName := range tables {
+				var fieldQuery string
+				switch config.Type {
+				case "postgresql", "timescaledb", "cockroachdb":
+					fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s'", tableName)
+				case "mysql", "mariadb", "tidb":
+					fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' AND table_schema = DATABASE()", tableName)
+				case "sqlite", "duckdb":
+					fieldQuery = fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
+				case "sqlserver":
+					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+				case "oracle":
+					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+				case "dm":
+					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+				default:
+					continue
+				}
+
+				fieldRows, err := db.Query(fieldQuery)
+				if err != nil {
+					continue
+				}
+
+				for fieldRows.Next() {
+					var fieldName, fieldType string
+					var extra interface{}
+					
+					if config.Type == "sqlite" || config.Type == "duckdb" {
+						var cid, notnull, pk int
+						var dfltValue interface{}
+						if err := fieldRows.Scan(&cid, &fieldName, &fieldType, &notnull, &dfltValue, &pk); err == nil {
+							allFields = append(allFields, TableField{
+								DatabaseID: dbID,
+								TableName:  tableName,
+								FieldName:  fieldName,
+								FieldType:  fieldType,
+							})
+						}
+					} else {
+						if err := fieldRows.Scan(&fieldName, &fieldType); err == nil {
+							allFields = append(allFields, TableField{
+								DatabaseID: dbID,
+								TableName:  tableName,
+								FieldName:  fieldName,
+								FieldType:  fieldType,
+							})
+						}
+					}
+				}
+				fieldRows.Close()
+			}
+		}
+	}
+	dataOntologyMu.RUnlock()
+
+	// 扫描候选关系
+	candidates := make([]RelationCandidate, 0)
+	seenPairs := make(map[string]bool)
+
+	for i, field1 := range allFields {
+		for j, field2 := range allFields {
+			if i >= j {
+				continue
+			}
+
+			// 同一个表的字段跳过
+			if field1.DatabaseID == field2.DatabaseID && field1.TableName == field2.TableName {
+				continue
+			}
+
+			// 检查是否已经处理过这对字段
+			pairKey := fmt.Sprintf("%s:%s:%s|%s:%s:%s",
+				field1.DatabaseID, field1.TableName, field1.FieldName,
+				field2.DatabaseID, field2.TableName, field2.FieldName)
+			reversePairKey := fmt.Sprintf("%s:%s:%s|%s:%s:%s",
+				field2.DatabaseID, field2.TableName, field2.FieldName,
+				field1.DatabaseID, field1.TableName, field1.FieldName)
+
+			if seenPairs[pairKey] || seenPairs[reversePairKey] {
+				continue
+			}
+			seenPairs[pairKey] = true
+
+			// 匹配策略
+			matchType := ""
+			matchScore := 0.0
+
+			// 1. 精确匹配
+			if field1.FieldName == field2.FieldName {
+				matchType = "exact"
+				matchScore = 1.0
+			}
+
+			// 2. 大小写不敏感匹配
+			if matchType == "" && strings.EqualFold(field1.FieldName, field2.FieldName) {
+				matchType = "case_insensitive"
+				matchScore = 0.9
+			}
+
+			// 3. 命名风格转换匹配
+			if matchType == "" {
+				// 驼峰转下划线
+				name1 := toSnakeCase(field1.FieldName)
+				name2 := toSnakeCase(field2.FieldName)
+				if name1 == name2 {
+					matchType = "naming_style"
+					matchScore = 0.8
+				}
+			}
+
+			// 4. 类型+关键词匹配
+			if matchType == "" && field1.FieldType == field2.FieldType {
+				// 提取关键词（去除常见前缀后缀）
+				keyword1 := extractKeyword(field1.FieldName)
+				keyword2 := extractKeyword(field2.FieldName)
+				if keyword1 != "" && keyword1 == keyword2 {
+					matchType = "type_keyword"
+					matchScore = 0.7
+				}
+			}
+
+			// 如果匹配成功，添加候选
+			if matchType != "" {
+				candidate := RelationCandidate{
+					Name: fmt.Sprintf("%s.%s ↔ %s.%s",
+						field1.TableName, field1.FieldName,
+						field2.TableName, field2.FieldName),
+					Source: FieldRef{
+						DatabaseID: field1.DatabaseID,
+						TableName:  field1.TableName,
+						FieldName:  field1.FieldName,
+						FieldType:  field1.FieldType,
+					},
+					Target: FieldRef{
+						DatabaseID: field2.DatabaseID,
+						TableName:  field2.TableName,
+						FieldName:  field2.FieldName,
+						FieldType:  field2.FieldType,
+					},
+					MatchType:   matchType,
+					MatchScore:  matchScore,
+					Description: fmt.Sprintf("匹配类型: %s, 得分: %.2f", matchType, matchScore),
+				}
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+
+	// 按匹配得分排序
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].MatchScore > candidates[j].MatchScore
+	})
+
+	// 限制返回数量
+	if len(candidates) > 100 {
+		candidates = candidates[:100]
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"candidates": candidates,
+		"total":     len(candidates),
+	})
+}
+
+// toSnakeCase 将驼峰命名转换为下划线命名
+func toSnakeCase(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			result = append(result, '_')
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+	return string(result)
+}
+
+// extractKeyword 提取字段名关键词
+func extractKeyword(fieldName string) string {
+	// 去除常见前缀
+	prefixes := []string{"fk_", "id_", "ref_", "is_", "has_", "can_", "should_"}
+	name := strings.ToLower(fieldName)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			name = strings.TrimPrefix(name, prefix)
+			break
+		}
+	}
+
+	// 去除常见后缀
+	suffixes := []string{"_id", "_code", "_key", "_no", "_num"}
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+			break
+		}
+	}
+
+	return name
+}
+
+// handleOntologyRelations 处理本体关系的CRUD
+func handleOntologyRelations(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取关系列表
+		dataOntologyMu.RLock()
+		relations := make([]OntologyRelation, 0)
+		for _, rel := range ontologyRelations {
+			if dataOntologyResourceVisible(rel.Owner, username) {
+				relations = append(relations, *rel)
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"relations": relations,
+		})
+
+	case http.MethodPost:
+		// 创建关系
+		var rel OntologyRelation
+		if err := json.NewDecoder(r.Body).Decode(&rel); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		// 验证必填字段
+		if rel.Name == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "关系名称不能为空",
+			})
+			return
+		}
+
+		if rel.Source.FieldName == "" || rel.Target.FieldName == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "源字段和目标字段不能为空",
+			})
+			return
+		}
+
+		// 保存关系
+		rel.ID = uuid.New().String()
+		rel.Owner = username
+		rel.CreatedAt = time.Now()
+
+		dataOntologyMu.Lock()
+		ontologyRelations[rel.ID] = &rel
+		dataOntologyMu.Unlock()
+
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存本体关系失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"id":      rel.ID,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
+// handleOntologyRelationDetail 处理单个本体关系
+func handleOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	// 从URL中提取关系ID
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/ontology/relations/"), "/")
+	if len(pathParts) < 1 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+
+	relID := pathParts[0]
+
+	dataOntologyMu.RLock()
+	rel, exists := ontologyRelations[relID]
+	dataOntologyMu.RUnlock()
+
+	if !exists || !dataOntologyResourceVisible(rel.Owner, username) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "关系不存在",
+		})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取关系详情
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"relation": rel,
+		})
+
+	case http.MethodDelete:
+		// 删除关系
+		dataOntologyMu.Lock()
+		delete(ontologyRelations, relID)
+		dataOntologyMu.Unlock()
+
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("删除本体关系失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
+}
+
 func main() {
 	// 子命令 mcp：以 stdio 运行 MCP 服务，供 Cursor 等连接（需设置 DATA_ONTOLOGY_BASE_URL、DATA_ONTOLOGY_API_KEY）
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
@@ -11876,6 +12353,9 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
 	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
 
+	mux.HandleFunc("/api/data-ontology/ontology/scan", handleOntologyScan)
+	mux.HandleFunc("/api/data-ontology/ontology/relations", handleOntologyRelations)
+	mux.HandleFunc("/api/data-ontology/ontology/relations/", handleOntologyRelationDetail)
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
