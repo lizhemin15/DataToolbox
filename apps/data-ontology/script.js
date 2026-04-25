@@ -4430,6 +4430,10 @@ async function detectAiCapabilities() {
         
         const data = await response.json();
         
+        console.log('[AI能力检测] 返回数据:', data);
+        console.log('[AI能力检测] capabilities:', data.capabilities);
+        console.log('[AI能力检测] context_window:', data.capabilities?.context_window);
+        
         if (data.success && data.capabilities) {
             aiCapabilities = data.capabilities;
             updateCapabilityHints();
@@ -4440,6 +4444,7 @@ async function detectAiCapabilities() {
             document.getElementById('aiEnableStreaming').checked = aiCapabilities.supports_streaming;
             document.getElementById('aiEnableJSONMode').checked = aiCapabilities.supports_json_mode;
             document.getElementById('aiContextWindow').value = aiCapabilities.context_window || 0;
+            console.log('[AI能力检测] 设置输入框值为:', aiCapabilities.context_window || 0);
             
             btn.textContent = '检测完成';
             setTimeout(() => {

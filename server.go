@@ -1074,13 +1074,14 @@ type WebNavStore struct {
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users      map[string]*User                `json:"users"`
-	Databases  map[string]*DatabaseConfig      `json:"databases"`
-	Apis       map[string]*ApiConfig           `json:"apis"`
-	AIConfig   *AIConfig                       `json:"ai_config,omitempty"`
-	Tasks      map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
-	TaskLogs   map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
-	MCPEnabled *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	Users         map[string]*User                `json:"users"`
+	Databases     map[string]*DatabaseConfig      `json:"databases"`
+	Apis          map[string]*ApiConfig           `json:"apis"`
+	AIConfig      *AIConfig                       `json:"ai_config,omitempty"`
+	AICapabilities *AICapabilities                `json:"ai_capabilities,omitempty"`
+	Tasks         map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
+	TaskLogs      map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
+	MCPEnabled    *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
@@ -1144,6 +1145,11 @@ func loadDataOntologyStore() error {
 	if store.AIConfig != nil {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
+	}
+
+	if store.AICapabilities != nil {
+		dataOntologyAICapabilities = store.AICapabilities
+		log.Printf("已加载AI能力检测结果")
 	}
 
 	if store.Tasks != nil {
@@ -1211,15 +1217,16 @@ func saveDataOntologyStore() error {
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
-		Users:       dataOntologyUsers,
-		Databases:   dataOntologyDatabases,
-		Apis:        dataOntologyApis,
-		AIConfig:    dataOntologyAIConfig,
-		Tasks:       governanceTasks,
-		TaskLogs:    governanceTaskLogs,
-		MCPEnabled:  dataOntologyMCPEnabled,
-		LLMModels:   llmModels,
-		SmallModels: smallModels,
+		Users:         dataOntologyUsers,
+		Databases:     dataOntologyDatabases,
+		Apis:          dataOntologyApis,
+		AIConfig:      dataOntologyAIConfig,
+		AICapabilities: dataOntologyAICapabilities,
+		Tasks:         governanceTasks,
+		TaskLogs:      governanceTaskLogs,
+		MCPEnabled:    dataOntologyMCPEnabled,
+		LLMModels:     llmModels,
+		SmallModels:   smallModels,
 	}
 	dataOntologyMu.RUnlock()
 
