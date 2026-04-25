@@ -2550,6 +2550,27 @@ func getTableComments(db *sql.DB, config *DatabaseConfig, tableNames []string) m
 				}
 			}
 		}
+	case "sqlserver":
+		// SQL Server: 从 sys.extended_properties 获取表备注
+		query := `
+			SELECT OBJECT_NAME(t.object_id) AS table_name, ep.value AS table_comment
+			FROM sys.tables t
+			LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+			WHERE SCHEMA_NAME(t.schema_id) = 'dbo'`
+		rows, err := db.Query(query)
+		if err != nil {
+			log.Printf("查询 SQL Server 表备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var tableName, tableComment sql.NullString
+			if err := rows.Scan(&tableName, &tableComment); err == nil {
+				if tableName.Valid && tableComment.Valid && tableComment.String != "" {
+					comments[tableName.String] = tableComment.String
+				}
+			}
+		}
 	}
 	return comments
 }
@@ -2645,6 +2666,28 @@ func getColumnComments(db *sql.DB, config *DatabaseConfig, tableName string) map
 		rows, err := db.Query(query, strings.ToUpper(tableName))
 		if err != nil {
 			log.Printf("查询达梦字段备注失败: %v", err)
+			return comments
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, colComment sql.NullString
+			if err := rows.Scan(&colName, &colComment); err == nil {
+				if colName.Valid && colComment.Valid && colComment.String != "" {
+					comments[colName.String] = colComment.String
+				}
+			}
+		}
+	case "sqlserver":
+		// SQL Server: 从 sys.extended_properties 获取字段备注
+		query := `
+			SELECT c.name AS column_name, ep.value AS column_comment
+			FROM sys.columns c
+			JOIN sys.tables t ON c.object_id = t.object_id
+			LEFT JOIN sys.extended_properties ep ON ep.major_id = c.object_id AND ep.minor_id = c.column_id AND ep.name = 'MS_Description'
+			WHERE SCHEMA_NAME(t.schema_id) = 'dbo' AND t.name = @p1`
+		rows, err := db.Query(query, tableName)
+		if err != nil {
+			log.Printf("查询 SQL Server 字段备注失败: %v", err)
 			return comments
 		}
 		defer rows.Close()

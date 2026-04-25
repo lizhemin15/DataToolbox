@@ -203,10 +203,11 @@ const DEMO_ONTOLOGY_DB_ID = 'demo-ontology-memory';
 
 const DEMO_ONTOLOGY_TABLES = {
     customers: {
+        comment: '客户信息表',
         columns: [
-            { name: 'id', type: 'INTEGER', nullable: false },
-            { name: 'name', type: 'TEXT', nullable: false },
-            { name: 'email', type: 'TEXT', nullable: true }
+            { name: 'id', type: 'INTEGER', nullable: false, comment: '客户ID' },
+            { name: 'name', type: 'TEXT', nullable: false, comment: '客户姓名' },
+            { name: 'email', type: 'TEXT', nullable: true, comment: '电子邮箱' }
         ],
         rows: [
             { id: 1, name: '张三', email: 'zhang@example.com' },
@@ -214,10 +215,11 @@ const DEMO_ONTOLOGY_TABLES = {
         ]
     },
     products: {
+        comment: '商品信息表',
         columns: [
-            { name: 'id', type: 'INTEGER', nullable: false },
-            { name: 'name', type: 'TEXT', nullable: false },
-            { name: 'price', type: 'REAL', nullable: false }
+            { name: 'id', type: 'INTEGER', nullable: false, comment: '商品ID' },
+            { name: 'name', type: 'TEXT', nullable: false, comment: '商品名称' },
+            { name: 'price', type: 'REAL', nullable: false, comment: '商品单价' }
         ],
         rows: [
             { id: 101, name: '笔记本电脑', price: 5999 },
@@ -225,11 +227,12 @@ const DEMO_ONTOLOGY_TABLES = {
         ]
     },
     orders: {
+        comment: '订单主表',
         columns: [
-            { name: 'id', type: 'INTEGER', nullable: false },
-            { name: 'customer_id', type: 'INTEGER', nullable: false },
-            { name: 'order_date', type: 'TEXT', nullable: false },
-            { name: 'total', type: 'REAL', nullable: false }
+            { name: 'id', type: 'INTEGER', nullable: false, comment: '订单ID' },
+            { name: 'customer_id', type: 'INTEGER', nullable: false, comment: '客户ID' },
+            { name: 'order_date', type: 'TEXT', nullable: false, comment: '下单日期' },
+            { name: 'total', type: 'REAL', nullable: false, comment: '订单总额' }
         ],
         rows: [
             { id: 1001, customer_id: 1, order_date: '2025-03-01', total: 6098 },
@@ -237,12 +240,13 @@ const DEMO_ONTOLOGY_TABLES = {
         ]
     },
     order_items: {
+        comment: '订单明细表',
         columns: [
-            { name: 'id', type: 'INTEGER', nullable: false },
-            { name: 'order_id', type: 'INTEGER', nullable: false },
-            { name: 'product_id', type: 'INTEGER', nullable: false },
-            { name: 'qty', type: 'INTEGER', nullable: false },
-            { name: 'unit_price', type: 'REAL', nullable: false }
+            { name: 'id', type: 'INTEGER', nullable: false, comment: '明细ID' },
+            { name: 'order_id', type: 'INTEGER', nullable: false, comment: '订单ID' },
+            { name: 'product_id', type: 'INTEGER', nullable: false, comment: '商品ID' },
+            { name: 'qty', type: 'INTEGER', nullable: false, comment: '购买数量' },
+            { name: 'unit_price', type: 'REAL', nullable: false, comment: '单价' }
         ],
         rows: [
             { id: 1, order_id: 1001, product_id: 101, qty: 1, unit_price: 5999 },
@@ -251,11 +255,12 @@ const DEMO_ONTOLOGY_TABLES = {
         ]
     },
     payments: {
+        comment: '支付记录表',
         columns: [
-            { name: 'id', type: 'INTEGER', nullable: false },
-            { name: 'order_id', type: 'INTEGER', nullable: false },
-            { name: 'amount', type: 'REAL', nullable: false },
-            { name: 'paid_at', type: 'TEXT', nullable: true }
+            { name: 'id', type: 'INTEGER', nullable: false, comment: '支付ID' },
+            { name: 'order_id', type: 'INTEGER', nullable: false, comment: '订单ID' },
+            { name: 'amount', type: 'REAL', nullable: false, comment: '支付金额' },
+            { name: 'paid_at', type: 'TEXT', nullable: true, comment: '支付时间' }
         ],
         rows: [
             { id: 1, order_id: 1001, amount: 6098, paid_at: '2025-03-01T10:00:00' },
@@ -263,11 +268,12 @@ const DEMO_ONTOLOGY_TABLES = {
         ]
     },
     report_sales: {
+        comment: '销售汇总报表',
         columns: [
-            { name: 'period', type: 'TEXT', nullable: false },
-            { name: 'sku', type: 'TEXT', nullable: false },
-            { name: 'qty_sold', type: 'INTEGER', nullable: false },
-            { name: 'revenue', type: 'REAL', nullable: false }
+            { name: 'period', type: 'TEXT', nullable: false, comment: '统计周期' },
+            { name: 'sku', type: 'TEXT', nullable: false, comment: '商品SKU' },
+            { name: 'qty_sold', type: 'INTEGER', nullable: false, comment: '销售数量' },
+            { name: 'revenue', type: 'REAL', nullable: false, comment: '销售收入' }
         ],
         rows: [
             { period: '2025-03', sku: 'Laptop', qty_sold: 1, revenue: 5999 },
@@ -343,6 +349,11 @@ function handleDemoOntologyFetch(url, init) {
     if (parsed.kind === 'detail') {
         if (method === 'GET') {
             const tableNames = Object.keys(DEMO_ONTOLOGY_TABLES);
+            // 返回带备注的表列表
+            const tablesWithComments = tableNames.map(name => ({
+                name: name,
+                comment: DEMO_ONTOLOGY_TABLES[name].comment || ''
+            }));
             return demoOntologyJsonResponse({
                 success: true,
                 database: {
@@ -354,7 +365,7 @@ function handleDemoOntologyFetch(url, init) {
                     path: ':memory:',
                     database: 'demo_shop',
                     connected: true,
-                    tables: tableNames
+                    tables: tablesWithComments
                 }
             });
         }
