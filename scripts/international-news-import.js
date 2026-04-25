@@ -15,32 +15,57 @@
 const DDL = [
     '-- 国际新闻动态表',
     'CREATE TABLE IF NOT EXISTS intl_news (',
-    '    news_id       VARCHAR(64)   NOT NULL    COMMENT \'新闻内码，唯一标识，格式：NWS_yyyyMMdd_HHmmss_序号\',',
-    '    news_time     TIMESTAMP                 COMMENT \'新闻发生时间，格式：yyyy-MM-dd HH:mm:ss\',',
-    '    region        VARCHAR(128)              COMMENT \'新闻发生的区域或地点\',',
-    '    event         TEXT                      COMMENT \'新闻事件内容描述\',',
+    '    news_id       VARCHAR(64)   NOT NULL,',
+    '    news_time     TIMESTAMP,',
+    '    region        VARCHAR(128),',
+    '    event         TEXT,',
     '    PRIMARY KEY (news_id)',
-    ') COMMENT=\'国际新闻动态表，记录国际新闻事件信息\';',
+    ')',
     '',
     '-- 运输保障情况表',
     'CREATE TABLE IF NOT EXISTS transport_support (',
-    '    support_id    VARCHAR(64)   NOT NULL    COMMENT \'运保内码，唯一标识，格式：TRS_yyyyMMdd_HHmmss_序号\',',
-    '    support_time  TIMESTAMP                 COMMENT \'运输保障发生时间，格式：yyyy-MM-dd HH:mm:ss\',',
-    '    region        VARCHAR(128)              COMMENT \'运输保障发生的区域或地点\',',
-    '    transport_info TEXT                      COMMENT \'运输保障情况详细描述\',',
+    '    support_id    VARCHAR(64)   NOT NULL,',
+    '    support_time  TIMESTAMP,',
+    '    region        VARCHAR(128),',
+    '    transport_info TEXT,',
     '    PRIMARY KEY (support_id)',
-    ') COMMENT=\'运输保障情况表，记录运输保障相关信息\';',
+    ')',
     '',
     '-- 保障力量出动情况表',
     'CREATE TABLE IF NOT EXISTS dispatch_force (',
-    '    dispatch_id   VARCHAR(64)   NOT NULL    COMMENT \'出动内码，唯一标识，格式：DSP_yyyyMMdd_HHmmss_序号\',',
-    '    support_id    VARCHAR(64)               COMMENT \'运保内码，关联运输保障表主键\',',
-    '    equip_model   VARCHAR(128)              COMMENT \'装备型号，如飞机型号、车辆型号等\',',
-    '    sorties       INT                       COMMENT \'架次，出动飞机或装备的次数\',',
-    '    batches       INT                       COMMENT \'批次，出动飞机或装备的批次数\',',
+    '    dispatch_id   VARCHAR(64)   NOT NULL,',
+    '    support_id    VARCHAR(64),',
+    '    equip_model   VARCHAR(128),',
+    '    sorties       INT,',
+    '    batches       INT,',
     '    PRIMARY KEY (dispatch_id)',
-    ') COMMENT=\'保障力量出动情况表，记录保障力量出动详细信息\';',
-].join('\n');
+    ')',
+].join('\\n');
+
+// 达梦数据库 COMMENT 语句（表注释 + 字段注释）
+const COMMENT_DDL = [
+    '-- intl_news 表注释',
+    "COMMENT ON TABLE intl_news IS '国际新闻动态表，记录国际新闻事件信息';",
+    "COMMENT ON COLUMN intl_news.news_id IS '新闻内码，唯一标识，格式：NWS_yyyyMMdd_HHmmss_序号';",
+    "COMMENT ON COLUMN intl_news.news_time IS '新闻发生时间，格式：yyyy-MM-dd HH:mm:ss';",
+    "COMMENT ON COLUMN intl_news.region IS '新闻发生的区域或地点';",
+    "COMMENT ON COLUMN intl_news.event IS '新闻事件内容描述';",
+    '',
+    '-- transport_support 表注释',
+    "COMMENT ON TABLE transport_support IS '运输保障情况表，记录运输保障相关信息';",
+    "COMMENT ON COLUMN transport_support.support_id IS '运保内码，唯一标识，格式：TRS_yyyyMMdd_HHmmss_序号';",
+    "COMMENT ON COLUMN transport_support.support_time IS '运输保障发生时间，格式：yyyy-MM-dd HH:mm:ss';",
+    "COMMENT ON COLUMN transport_support.region IS '运输保障发生的区域或地点';",
+    "COMMENT ON COLUMN transport_support.transport_info IS '运输保障情况详细描述';",
+    '',
+    '-- dispatch_force 表注释',
+    "COMMENT ON TABLE dispatch_force IS '保障力量出动情况表，记录保障力量出动详细信息';",
+    "COMMENT ON COLUMN dispatch_force.dispatch_id IS '出动内码，唯一标识，格式：DSP_yyyyMMdd_HHmmss_序号';",
+    "COMMENT ON COLUMN dispatch_force.support_id IS '运保内码，关联运输保障表主键';",
+    "COMMENT ON COLUMN dispatch_force.equip_model IS '装备型号，如飞机型号、车辆型号等';",
+    "COMMENT ON COLUMN dispatch_force.sorties IS '架次，出动飞机或装备的次数';",
+    "COMMENT ON COLUMN dispatch_force.batches IS '批次，出动飞机或装备的批次数';",
+].join('\\n');
 
 // ============================================================
 // 2. AI Prompt 模板
@@ -528,9 +553,24 @@ try {
                 await gov.executeSQL(stmt);
             }
         }
-        gov.log('✓ 数据库表初始化完成');
+        gov.log('✓ 数据库表创建完成');
     } catch (e) {
         gov.log('⚠ 建表可能已存在，跳过: ' + e.message);
+    }
+
+    // -- Step 0.1: 添加表和字段注释 --
+    try {
+        const commentStatements = COMMENT_DDL.split(';')
+            .map(s => s.trim())
+            .filter(s => s && !s.startsWith('--'));
+        for (const stmt of commentStatements) {
+            if (stmt) {
+                await gov.executeSQL(stmt);
+            }
+        }
+        gov.log('✓ 表和字段注释添加完成');
+    } catch (e) {
+        gov.log('⚠ 添加注释失败: ' + e.message);
     }
 
     // -- Step 1: 获取输入 --
