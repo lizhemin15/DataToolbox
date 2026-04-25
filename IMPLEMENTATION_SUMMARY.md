@@ -88,7 +88,6 @@ SQL执行校验失败（已重试3次）: 执行校验失败: SQL语法或权限
 
 - **新增函数**: server.go L10051-10245
 - **集成点**: server.go L9340-9394
-- **变量定义**: server.go L9304（`lastValidationError`）
 
 ## 测试建议
 

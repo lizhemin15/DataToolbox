@@ -5139,7 +5139,18 @@ async function handleSendAiMessage() {
             moduleReferences.push(mod);
             continue;
         }
-        const db = databases.find(d => d.name === refName);
+        // 改进数据库匹配：支持精确匹配、忽略大小写、部分匹配、ID匹配
+        const refNameLower = refName.toLowerCase();
+        let db = databases.find(d => d.name === refName); // 精确匹配
+        if (!db) {
+            db = databases.find(d => d.name.toLowerCase() === refNameLower); // 忽略大小写
+        }
+        if (!db) {
+            db = databases.find(d => d.name.toLowerCase().includes(refNameLower)); // 部分匹配
+        }
+        if (!db) {
+            db = databases.find(d => d.id === refName); // ID匹配
+        }
         if (db) {
             dbReferences.push(db);
         }
@@ -5156,7 +5167,12 @@ async function handleSendAiMessage() {
     } else if (aiSessionContext.databases.length > 0) {
         dbReferences.push(...aiSessionContext.databases);
     } else {
-        showAiError('请 @数据库 选择至少一个数据库，或在上下文中指定数据库');
+        // 增强错误提示：列出可用的数据库名称
+        const availableDbs = databases.map(d => d.name).join('、');
+        const hint = databases.length > 0 
+            ? `请 @数据库 选择至少一个数据库。可用数据库：${availableDbs}`
+            : '当前没有配置数据库，请先添加数据库';
+        showAiError(hint);
         return;
     }
 
