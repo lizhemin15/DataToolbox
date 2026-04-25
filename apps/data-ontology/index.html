@@ -1220,13 +1220,24 @@
                 </div>
                 <div id="testApiError" class="error-message"></div>
                 <div class="form-group" id="testApiResultGroup" style="display:none;">
-                    <label>响应结果</label>
+                    <div class="test-result-label-row">
+                        <label>响应结果</label>
+                        <div class="view-toggle">
+                            <button class="view-toggle-btn active" data-view="json">JSON</button>
+                            <button class="view-toggle-btn" data-view="table">表格</button>
+                        </div>
+                    </div>
                     <div class="test-result">
                         <div class="test-result-header">
                             <span>状态: <span id="testResultStatus"></span></span>
                             <span>耗时: <span id="testResultTime"></span>ms</span>
                         </div>
-                        <pre id="testResultContent"></pre>
+                        <div id="testResultJson" class="test-result-content">
+                            <pre id="testResultContent"></pre>
+                        </div>
+                        <div id="testResultTable" class="test-result-content" style="display:none;">
+                            <div id="testResultTableContent"></div>
+                        </div>
                     </div>
                 </div>
             </div>

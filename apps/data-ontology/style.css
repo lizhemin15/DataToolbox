@@ -1773,6 +1773,162 @@ body {
     overflow-y: auto;
 }
 
+/* 测试结果标签行 */
+.test-result-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.test-result-label-row label {
+    margin: 0;
+}
+
+/* 视图切换按钮 */
+.view-toggle {
+    display: inline-flex;
+    gap: 4px;
+    background: #edf2f7;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.view-toggle-btn {
+    padding: 6px 16px;
+    border: none;
+    background: transparent;
+    color: #4a5568;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.view-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.view-toggle-btn.active {
+    background: white;
+    color: #2b6cb0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 测试结果内容区域 */
+.test-result-content {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 表格包装器 */
+.table-wrapper {
+    padding: 16px;
+}
+
+/* 数据表格 */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: white;
+}
+
+.data-table thead {
+    background: #edf2f7;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.data-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #2d3748;
+    border-bottom: 2px solid #cbd5e0;
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #4a5568;
+    vertical-align: top;
+    word-wrap: break-word;
+    max-width: 400px;
+}
+
+.data-table tbody tr.even {
+    background: #ffffff;
+}
+
+.data-table tbody tr.odd {
+    background: #f7fafc;
+}
+
+.data-table tbody tr:hover {
+    background: #edf2f7;
+}
+
+/* 表格空状态 */
+.table-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: #a0aec0;
+    font-size: 14px;
+}
+
+/* 值类型样式 */
+.value-null {
+    color: #a0aec0;
+    font-style: italic;
+}
+
+.value-undefined {
+    color: #cbd5e0;
+    font-style: italic;
+}
+
+.value-boolean {
+    color: #d53f8c;
+    font-weight: 500;
+}
+
+.value-number {
+    color: #2b6cb0;
+    font-weight: 500;
+}
+
+.value-string {
+    color: #38a169;
+}
+
+.value-array {
+    color: #805ad5;
+}
+
+.value-object {
+    color: #dd6b20;
+}
+
+.object-key {
+    color: #4a5568;
+    font-weight: 500;
+}
+
+.value-deep {
+    color: #a0aec0;
+    font-style: italic;
+}
+
+/* 原始值显示 */
+.primitive-value {
+    padding: 20px;
+    font-size: 14px;
+}
+
 #apiFormError,
 #apiFormSuccess,
 #testApiError {

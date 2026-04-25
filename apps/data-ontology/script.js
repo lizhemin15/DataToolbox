@@ -863,6 +863,13 @@ function initEventListeners() {
         }
     });
     document.getElementById('executeTestBtn').addEventListener('click', executeApiTest);
+
+    // 测试结果视图切换
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            switchTestResultView(this.dataset.view);
+        });
+    });
     
     // AI 相关按钮。
     document.getElementById('aiSettingsBtn').addEventListener('click', showAiSettingsModal);
@@ -4012,12 +4019,15 @@ function hideTestApiModal() {
 }
 
 // 执行 API 测试。
+// 存储测试结果数据
+let testResultData = null;
+
 async function executeApiTest() {
     if (!currentApi) return;
-    
+
     const paramsText = document.getElementById('testApiParams').value.trim();
     let params = {};
-    
+
     // 搜索数据库
     if (paramsText) {
         try {
@@ -4027,14 +4037,14 @@ async function executeApiTest() {
             return;
         }
     }
-    
+
     const errorEl = document.getElementById('testApiError');
     const resultGroup = document.getElementById('testApiResultGroup');
     errorEl.classList.remove('show');
     resultGroup.style.display = 'none';
-    
+
     const startTime = Date.now();
-    
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis/${currentApi.id}/test`, {
             method: 'POST',
@@ -4046,15 +4056,25 @@ async function executeApiTest() {
 
         const endTime = Date.now();
         const duration = endTime - startTime;
-        
+
         const data = await response.json();
 
         if (data.success) {
+            // 保存结果数据
+            testResultData = data.data;
+
             document.getElementById('testResultStatus').textContent = '成功';
             document.getElementById('testResultStatus').style.color = '#38a169';
             document.getElementById('testResultTime').textContent = duration;
             document.getElementById('testResultContent').textContent = JSON.stringify(data.data, null, 2);
+
+            // 渲染表格视图
+            renderTestResultTable(data.data);
+
             resultGroup.style.display = 'block';
+
+            // 重置为 JSON 视图
+            switchTestResultView('json');
         } else {
             showTestApiError(data.message || '测试失败');
         }
@@ -4068,6 +4088,195 @@ function showTestApiError(message) {
     const errorEl = document.getElementById('testApiError');
     errorEl.textContent = message;
     errorEl.classList.add('show');
+}
+
+// 切换测试结果视图
+function switchTestResultView(view) {
+    const jsonView = document.getElementById('testResultJson');
+    const tableView = document.getElementById('testResultTable');
+    const buttons = document.querySelectorAll('.view-toggle-btn');
+
+    buttons.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.view === view) {
+            btn.classList.add('active');
+        }
+    });
+
+    if (view === 'json') {
+        jsonView.style.display = 'block';
+        tableView.style.display = 'none';
+    } else {
+        jsonView.style.display = 'none';
+        tableView.style.display = 'block';
+    }
+}
+
+// 渲染测试结果表格
+function renderTestResultTable(data) {
+    const container = document.getElementById('testResultTableContent');
+
+    if (!data) {
+        container.innerHTML = '<div class="table-empty">暂无数据</div>';
+        return;
+    }
+
+    // 如果是数组
+    if (Array.isArray(data)) {
+        if (data.length === 0) {
+            container.innerHTML = '<div class="table-empty">空数组</div>';
+            return;
+        }
+        container.innerHTML = renderArrayTable(data);
+    }
+    // 如果是对象
+    else if (typeof data === 'object') {
+        container.innerHTML = renderObjectTable(data);
+    }
+    // 其他类型
+    else {
+        container.innerHTML = renderPrimitiveValue(data);
+    }
+}
+
+// 渲染数组表格
+function renderArrayTable(arr) {
+    if (arr.length === 0) return '<div class="table-empty">空数组</div>';
+
+    // 检查数组元素是否都是对象
+    const isObjectArray = arr.every(item => typeof item === 'object' && item !== null && !Array.isArray(item));
+
+    if (isObjectArray) {
+        // 获取所有可能的键
+        const allKeys = new Set();
+        arr.forEach(item => {
+            if (item && typeof item === 'object') {
+                Object.keys(item).forEach(key => allKeys.add(key));
+            }
+        });
+        const keys = Array.from(allKeys);
+
+        let html = '<div class="table-wrapper"><table class="data-table">';
+        html += '<thead><tr>';
+        keys.forEach(key => {
+            html += `<th>${escapeHtml(key)}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        arr.forEach((item, index) => {
+            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+            keys.forEach(key => {
+                const value = item && item[key];
+                html += `<td>${renderCellValue(value)}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    } else {
+        // 简单数组
+        let html = '<div class="table-wrapper"><table class="data-table">';
+        html += '<thead><tr><th>索引</th><th>值</th></tr></thead><tbody>';
+
+        arr.forEach((item, index) => {
+            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+            html += `<td>${index}</td>`;
+            html += `<td>${renderCellValue(item)}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+}
+
+// 渲染对象表格
+function renderObjectTable(obj) {
+    const keys = Object.keys(obj);
+
+    if (keys.length === 0) {
+        return '<div class="table-empty">空对象</div>';
+    }
+
+    let html = '<div class="table-wrapper"><table class="data-table">';
+    html += '<thead><tr><th>键</th><th>值</th></tr></thead><tbody>';
+
+    keys.forEach((key, index) => {
+        html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+        html += `<td><strong>${escapeHtml(key)}</strong></td>`;
+        html += `<td>${renderCellValue(obj[key])}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    return html;
+}
+
+// 渲染单元格值
+function renderCellValue(value, depth = 0) {
+    if (depth > 3) {
+        return '<span class="value-deep">...</span>';
+    }
+
+    if (value === null) {
+        return '<span class="value-null">null</span>';
+    }
+
+    if (value === undefined) {
+        return '<span class="value-undefined">undefined</span>';
+    }
+
+    if (typeof value === 'boolean') {
+        return `<span class="value-boolean">${value}</span>`;
+    }
+
+    if (typeof value === 'number') {
+        return `<span class="value-number">${value}</span>`;
+    }
+
+    if (typeof value === 'string') {
+        return `<span class="value-string">"${escapeHtml(value)}"</span>`;
+    }
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            return '<span class="value-array">[]</span>';
+        }
+        if (value.length <= 5 && depth < 2) {
+            const items = value.map(item => renderCellValue(item, depth + 1)).join(', ');
+            return `<span class="value-array">[${items}]</span>`;
+        }
+        return `<span class="value-array">Array(${value.length})</span>`;
+    }
+
+    if (typeof value === 'object') {
+        const keys = Object.keys(value);
+        if (keys.length === 0) {
+            return '<span class="value-object">{}</span>';
+        }
+        if (keys.length <= 3 && depth < 2) {
+            const items = keys.map(key => {
+                return `<span class="object-key">${escapeHtml(key)}</span>: ${renderCellValue(value[key], depth + 1)}`;
+            }).join(', ');
+            return `<span class="value-object">{${items}}</span>`;
+        }
+        return `<span class="value-object">Object{${keys.length} keys}</span>`;
+    }
+
+    return escapeHtml(String(value));
+}
+
+// 渲染原始值
+function renderPrimitiveValue(value) {
+    return `<div class="primitive-value">${renderCellValue(value)}</div>`;
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ==================== AI 配置 ====================
