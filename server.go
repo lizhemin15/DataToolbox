@@ -9694,6 +9694,37 @@ func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n})
 }
 
+// handleGovernancePresetJS GET /api/data-ontology/governance/presets/{name}/js
+// 返回指定预设任务的默认 JS 代码（从 embed 读取，不涉及数据库操作）
+func handleGovernancePresetJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	// 从 URL 路径提取任务名: /api/data-ontology/governance/presets/{name}/js
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/presets/"), "/")
+	if len(pathParts) < 2 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "路径格式错误"})
+		return
+	}
+	taskName := pathParts[0]
+
+	// 从预设定义中获取
+	presetDefs := governancePresetDefinitions()
+	task, ok := presetDefs[taskName]
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未找到预设任务: " + taskName})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"name":    taskName,
+		"js_code": task.JsCode,
+	})
+}
+
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）
 // handleGovernanceDownloadOutput 下载单次任务生成的输出文件（gov-runner output_files）
 func handleGovernanceDownloadOutput(w http.ResponseWriter, r *http.Request) {
@@ -11123,6 +11154,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
 	mux.HandleFunc("/api/data-ontology/governance/examples/download", handleGovernanceExamplesZipDownload)
 	mux.HandleFunc("/api/data-ontology/governance/examples/", handleGovernanceExampleDownload)
+	mux.HandleFunc("/api/data-ontology/governance/presets/", handleGovernancePresetJS)
 	mux.HandleFunc("/api/governance/examples/download", handleGovernanceExamplesZipDownload)
 	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
 	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)

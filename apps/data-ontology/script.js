@@ -6628,6 +6628,14 @@ function editGovTask() {
     document.getElementById('govFormError').classList.remove('show');
     document.getElementById('govFormSuccess').textContent = '';
     document.getElementById('govFormSuccess').classList.remove('show');
+    // 显示/隐藏"恢复默认"按钮（仅预设任务显示）
+    const resetBtn = document.getElementById('resetGovCodeBtn');
+    const presetNames = ['数据库表行数统计', 'Excel数据解析入库', 'CSV文本解析', '数据完整性检查', 'Word文档内容提取', '综合日报生成器', '国际新闻入库'];
+    if (resetBtn && presetNames.includes(currentGovTask.name)) {
+        resetBtn.style.display = '';
+    } else if (resetBtn) {
+        resetBtn.style.display = 'none';
+    }
     document.getElementById('govTaskModal').classList.add('show');
 }
 
@@ -7860,6 +7868,31 @@ async function openGovApiHelp() {
     window.__govApiFunctions = funcs;
     renderGovApiDocs('');
     setTimeout(() => document.getElementById('govApiSearchInput').focus(), 100);
+}
+
+// 恢复预设任务的默认 JS 代码
+async function resetGovCodeToDefault() {
+    const taskName = document.getElementById('govTaskNameInput').value;
+    if (!taskName) {
+        alert('请先选择一个任务');
+        return;
+    }
+    if (!confirm(`确定要将「${taskName}」的代码恢复为默认值吗？\n当前代码将被覆盖。`)) {
+        return;
+    }
+    try {
+        const resp = await fetch(`/api/data-ontology/governance/presets/${encodeURIComponent(taskName)}/js`);
+        const data = await resp.json();
+        if (data.success && data.js_code) {
+            document.getElementById('govCodeInput').value = data.js_code;
+            document.getElementById('govFormSuccess').textContent = '已恢复默认代码';
+            document.getElementById('govFormSuccess').classList.add('show');
+        } else {
+            alert(data.message || '获取默认代码失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
 }
 
 function closeGovApiHelp() {
