@@ -5923,14 +5923,7 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			}
 
 			// 解析请求参数
-			// 先用 default_params 初始化
 			params := make(map[string]interface{})
-			if matchedApi.DefaultParams != nil {
-				for k, v := range matchedApi.DefaultParams {
-					params[k] = v
-				}
-			}
-			// 再合并请求参数
 			isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
 			if isBodyMethod && r.Body != nil {
 				json.NewDecoder(r.Body).Decode(&params)
