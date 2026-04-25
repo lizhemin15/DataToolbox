@@ -10375,7 +10375,7 @@ async function refreshDbOntologyRelations() {
 
     try {
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
-            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await res.json();
 
@@ -10425,7 +10425,7 @@ async function deleteDbOntologyRelation(relId) {
     try {
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations/${relId}`, {
             method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const data = await res.json();
 
@@ -10454,7 +10454,7 @@ async function scanDbOntologyRelations() {
 
         // 先获取表列表
         const tablesRes = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
-            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
         });
         const tablesData = await tablesRes.json();
 
@@ -10484,7 +10484,7 @@ async function scanDbOntologyRelations() {
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/scan`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${currentUser.token}`,
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ tables: selectedTables })
@@ -10728,7 +10728,7 @@ async function addDbCandidateAsRelation(idx) {
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${currentUser.token}`,
+                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
