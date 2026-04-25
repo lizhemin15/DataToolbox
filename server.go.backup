@@ -9507,6 +9507,10 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 	return config, ""
 }
 
+// parseAIResponse 解析AI响应提取SQL和回复文本
+func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string, string) {
+	var sql string
+	var responseText string
 // populateDefaultParamsFromDB 从数据库表中查询实际值填充 default_params
 func populateDefaultParamsFromDB(apiConfig map[string]interface{}, dbID string) {
 	sqlStr, ok := apiConfig["sql"].(string)
@@ -9782,16 +9786,7 @@ func queryActualValueFromTable(dbConfig *DatabaseConfig, tableName, fieldName st
 		return nil, err
 	}
 
-	// 根据数据库类型构建不同的查询语句
-	var querySQL string
-	switch dbConfig.Type {
-	case "oracle", "dm":
-		querySQL = fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL AND ROWNUM = 1", quotedField, quotedTable, quotedField)
-	case "sqlserver":
-		querySQL = fmt.Sprintf("SELECT TOP 1 %s FROM %s WHERE %s IS NOT NULL", quotedField, quotedTable, quotedField)
-	default:
-		querySQL = fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT 1", quotedField, quotedTable, quotedField)
-	}
+	querySQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT 1", quotedField, quotedTable, quotedField)
 
 	var value interface{}
 	err = db.QueryRow(querySQL).Scan(&value)
@@ -9804,10 +9799,6 @@ func queryActualValueFromTable(dbConfig *DatabaseConfig, tableName, fieldName st
 
 	return value, nil
 }
-// parseAIResponse 解析AI响应提取SQL和回复文本
-func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string, string) {
-	var sql string
-	var responseText string
 	var dbID string
 
 	// 提取SQL代码块
