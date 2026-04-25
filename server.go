@@ -12173,6 +12173,42 @@ func handleDatabaseOntologyRelations(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// toSnakeCase 将驼峰命名转换为下划线命名
+func toSnakeCase(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			result = append(result, '_')
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+	return string(result)
+}
+
+// extractKeyword 提取字段名关键词
+func extractKeyword(fieldName string) string {
+	// 去除常见前缀
+	prefixes := []string{"fk_", "id_", "ref_", "is_", "has_", "can_", "should_"}
+	name := strings.ToLower(fieldName)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			name = strings.TrimPrefix(name, prefix)
+			break
+		}
+	}
+
+	// 去除常见后缀
+	suffixes := []string{"_id", "_code", "_key", "_no", "_num"}
+	for _, suffix := range suffixes {
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+			break
+		}
+	}
+
+	return name
+}
+
 // handleDatabaseOntologyRelationDetail 处理数据库级别的单个本体关系
 func handleDatabaseOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
