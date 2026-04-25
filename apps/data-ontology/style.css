@@ -6367,3 +6367,80 @@ body.embed-mode .embed-settings-btn {
 .gov-result-table tr:nth-child(even) {
     background: #fafbfc;
 }
+
+/* AI 能力设置样式 */
+.ai-capability-settings {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.ai-capability-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #edf2f7;
+}
+
+.ai-capability-row:last-child {
+    border-bottom: none;
+}
+
+.ai-capability-row .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    min-width: 160px;
+    margin: 0;
+}
+
+.ai-capability-row .checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.ai-capability-row input[type="number"] {
+    width: 120px;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.capability-hint {
+    color: #718096;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.capability-hint.supported {
+    color: #38a169;
+}
+
+.capability-hint.not-supported {
+    color: #e53e3e;
+}
+
+#detectCapabilitiesBtn {
+    background: #4299e1;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+#detectCapabilitiesBtn:hover {
+    background: #3182ce;
+}
+
+#detectCapabilitiesBtn:disabled {
+    background: #a0aec0;
+    cursor: not-allowed;
+}

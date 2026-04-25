@@ -881,6 +881,7 @@ function initEventListeners() {
         }
     });
     document.getElementById('aiSettingsForm').addEventListener('submit', handleSaveAiSettings);
+    document.getElementById('detectCapabilitiesBtn').addEventListener('click', detectAiCapabilities);
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
@@ -4309,9 +4310,27 @@ function showAiSettingsModal() {
         document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
         document.getElementById('aiModelInput').value = aiConfig.model || '';
         document.getElementById('aiTimeoutInput').value = aiConfig.timeout || '';
+        
+        // 加载能力设置
+        if (aiConfig.enable_function_call !== undefined && aiConfig.enable_function_call !== null) {
+            document.getElementById('aiEnableFunctionCall').checked = aiConfig.enable_function_call;
+        }
+        if (aiConfig.enable_thinking !== undefined && aiConfig.enable_thinking !== null) {
+            document.getElementById('aiEnableThinking').checked = aiConfig.enable_thinking;
+        }
+        if (aiConfig.enable_streaming !== undefined && aiConfig.enable_streaming !== null) {
+            document.getElementById('aiEnableStreaming').checked = aiConfig.enable_streaming;
+        }
+        if (aiConfig.enable_json_mode !== undefined && aiConfig.enable_json_mode !== null) {
+            document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
+        }
+        document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
+    
+    // 显示能力检测结果
+    updateCapabilityHints();
     
     document.getElementById('aiSettingsError').classList.remove('show');
     document.getElementById('aiSettingsSuccess').classList.remove('show');
@@ -4351,6 +4370,93 @@ AI模型能力检测结果:
 - 上下文窗口: ${aiCapabilities.context_window} tokens
     `;
     console.log(capInfo);
+}
+
+// 更新能力提示信息
+function updateCapabilityHints() {
+    if (!aiCapabilities) {
+        document.getElementById('functionCallHint').textContent = '未检测';
+        document.getElementById('thinkingHint').textContent = '未检测';
+        document.getElementById('streamingHint').textContent = '未检测';
+        document.getElementById('jsonModeHint').textContent = '未检测';
+        document.getElementById('contextWindowHint').textContent = '未检测';
+        return;
+    }
+    
+    const fcHint = document.getElementById('functionCallHint');
+    fcHint.textContent = aiCapabilities.supports_function_call ? '✓ 支持' : '✗ 不支持';
+    fcHint.className = 'capability-hint ' + (aiCapabilities.supports_function_call ? 'supported' : 'not-supported');
+    
+    const thinkHint = document.getElementById('thinkingHint');
+    thinkHint.textContent = aiCapabilities.supports_thinking ? '✓ 支持' : '✗ 不支持';
+    thinkHint.className = 'capability-hint ' + (aiCapabilities.supports_thinking ? 'supported' : 'not-supported');
+    
+    const streamHint = document.getElementById('streamingHint');
+    streamHint.textContent = aiCapabilities.supports_streaming ? '✓ 支持' : '✗ 不支持';
+    streamHint.className = 'capability-hint ' + (aiCapabilities.supports_streaming ? 'supported' : 'not-supported');
+    
+    const jsonHint = document.getElementById('jsonModeHint');
+    jsonHint.textContent = aiCapabilities.supports_json_mode ? '✓ 支持' : '✗ 不支持';
+    jsonHint.className = 'capability-hint ' + (aiCapabilities.supports_json_mode ? 'supported' : 'not-supported');
+    
+    const ctxHint = document.getElementById('contextWindowHint');
+    ctxHint.textContent = `${aiCapabilities.context_window} tokens`;
+    ctxHint.className = 'capability-hint supported';
+}
+
+// 自动检测模型能力
+async function detectAiCapabilities() {
+    const btn = document.getElementById('detectCapabilitiesBtn');
+    btn.disabled = true;
+    btn.textContent = '检测中...';
+    
+    try {
+        // 先保存当前配置（触发后端检测）
+        const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
+        const config = {
+            url: document.getElementById('aiUrlInput').value,
+            api_key: document.getElementById('aiApiKeyInput').value,
+            model: document.getElementById('aiModelInput').value,
+            timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120
+        };
+        
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.capabilities) {
+            aiCapabilities = data.capabilities;
+            updateCapabilityHints();
+            
+            // 根据检测结果自动勾选
+            document.getElementById('aiEnableFunctionCall').checked = aiCapabilities.supports_function_call;
+            document.getElementById('aiEnableThinking').checked = aiCapabilities.supports_thinking;
+            document.getElementById('aiEnableStreaming').checked = aiCapabilities.supports_streaming;
+            document.getElementById('aiEnableJSONMode').checked = aiCapabilities.supports_json_mode;
+            document.getElementById('aiContextWindow').value = 0; // 使用自动检测
+            
+            btn.textContent = '检测完成';
+            setTimeout(() => {
+                btn.textContent = '自动检测模型能力';
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            throw new Error(data.message || '检测失败');
+        }
+    } catch (error) {
+        console.error('检测模型能力失败:', error);
+        btn.textContent = '检测失败';
+        setTimeout(() => {
+            btn.textContent = '自动检测模型能力';
+            btn.disabled = false;
+        }, 2000);
+    }
 }
 
 // ========== 标签页显示设置 ==========
@@ -4788,11 +4894,19 @@ async function handleSaveAiSettings(e) {
     e.preventDefault();
 
     const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
+    const contextWindowValue = parseInt(document.getElementById('aiContextWindow').value, 10);
+    
     const config = {
         url: document.getElementById('aiUrlInput').value,
         api_key: document.getElementById('aiApiKeyInput').value,
         model: document.getElementById('aiModelInput').value,
-        timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120
+        timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120,
+        // 能力设置
+        enable_function_call: document.getElementById('aiEnableFunctionCall').checked,
+        enable_thinking: document.getElementById('aiEnableThinking').checked,
+        enable_streaming: document.getElementById('aiEnableStreaming').checked,
+        enable_json_mode: document.getElementById('aiEnableJSONMode').checked,
+        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0
     };
 
     const errorEl = document.getElementById('aiSettingsError');

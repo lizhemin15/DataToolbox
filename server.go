@@ -888,10 +888,15 @@ type ApiInfo struct {
 
 // AIConfig AI配置
 type AIConfig struct {
-	URL     string `json:"url"`
-	APIKey  string `json:"api_key"`
-	Model   string `json:"model"`
-	Timeout int    `json:"timeout"` // 超时时间（秒），默认60
+	URL                   string `json:"url"`
+	APIKey                string `json:"api_key"`
+	Model                 string `json:"model"`
+	Timeout               int    `json:"timeout"` // 超时时间（秒），默认60
+	EnableFunctionCall    *bool  `json:"enable_function_call,omitempty"`    // 手动开关：是否启用 function call（nil 表示自动检测）
+	EnableThinking        *bool  `json:"enable_thinking,omitempty"`         // 手动开关：是否启用 thinking 模式（nil 表示自动检测）
+	EnableStreaming       *bool  `json:"enable_streaming,omitempty"`        // 手动开关：是否启用流式输出（nil 表示自动检测）
+	EnableJSONMode        *bool  `json:"enable_json_mode,omitempty"`        // 手动开关：是否启用 JSON 模式（nil 表示自动检测）
+	ContextWindowOverride int    `json:"context_window_override,omitempty"` // 手动指定上下文窗口大小（0 表示自动检测）
 }
 
 // AICapabilities AI模型能力检测结果
@@ -7966,7 +7971,31 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 		DetectedAt:           time.Now().Unix(),
 	}
 
-	// 根据模型名称推断能力
+	// 优先使用手动设置
+	if config.EnableFunctionCall != nil {
+		capabilities.SupportsFunctionCall = *config.EnableFunctionCall
+	}
+	if config.EnableThinking != nil {
+		capabilities.SupportsThinking = *config.EnableThinking
+	}
+	if config.EnableStreaming != nil {
+		capabilities.SupportsStreaming = *config.EnableStreaming
+	}
+	if config.EnableJSONMode != nil {
+		capabilities.SupportsJSONMode = *config.EnableJSONMode
+	}
+	if config.ContextWindowOverride > 0 {
+		capabilities.ContextWindow = config.ContextWindowOverride
+	}
+
+	// 如果所有能力都已手动设置，直接返回
+	if config.EnableFunctionCall != nil && config.EnableThinking != nil &&
+	   config.EnableStreaming != nil && config.EnableJSONMode != nil &&
+	   config.ContextWindowOverride > 0 {
+		return capabilities, nil
+	}
+
+	// 根据模型名称推断能力（仅对未手动设置的能力进行推断）
 	modelLower := strings.ToLower(config.Model)
 
 	// 检测是否支持 Function Call / Tool Use
