@@ -9507,6 +9507,45 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 	return config, ""
 }
 
+// isNonConditionParam 判断参数是否出现在 SQL 的非条件子句位置（LIMIT/OFFSET/ORDER BY/GROUP BY）
+// 这些位置的参数不应从数据库取样本值，应保留原始默认值
+func isNonConditionParam(sqlStr, paramName string) bool {
+	paramPatterns := []string{
+		"#{" + paramName + "}",
+		"${" + paramName + "}",
+	}
+
+	for _, pattern := range paramPatterns {
+		idx := strings.Index(sqlStr, pattern)
+		if idx == -1 {
+			continue
+		}
+
+		// 检查参数前面紧跟的关键字（忽略空白）
+		beforeParam := strings.TrimSpace(sqlStr[:idx])
+		upperBefore := strings.ToUpper(beforeParam)
+
+		// LIMIT #{limit} / LIMIT #{size}
+		if strings.HasSuffix(upperBefore, "LIMIT") {
+			return true
+		}
+		// OFFSET #{offset}
+		if strings.HasSuffix(upperBefore, "OFFSET") {
+			return true
+		}
+		// ORDER BY #{orderBy}
+		if strings.HasSuffix(upperBefore, "BY") && strings.Contains(upperBefore, "ORDER") {
+			return true
+		}
+		// GROUP BY #{groupBy}
+		if strings.HasSuffix(upperBefore, "BY") && strings.Contains(upperBefore, "GROUP") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // populateDefaultParamsFromDB 从数据库表中查询实际值填充 default_params
 func populateDefaultParamsFromDB(apiConfig map[string]interface{}, dbID string) {
 	sqlStr, ok := apiConfig["sql"].(string)
@@ -9540,6 +9579,12 @@ func populateDefaultParamsFromDB(apiConfig map[string]interface{}, dbID string) 
 
 	// 对每个参数，尝试从对应的表中查询实际值
 	for paramName, paramValue := range defaultParams {
+		// 检查参数是否出现在非条件子句（LIMIT/OFFSET/ORDER BY/GROUP BY）中
+		if isNonConditionParam(sqlStr, paramName) {
+			log.Printf("参数 %s 出现在 LIMIT/OFFSET/ORDER BY/GROUP BY 等非条件位置，保留默认值: %v", paramName, paramValue)
+			continue
+		}
+
 		// 查找参数对应的表和字段
 		tableName, fieldName := findParamTableAndField(sqlStr, paramName, tableNames)
 		if tableName == "" || fieldName == "" {
