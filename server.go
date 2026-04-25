@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	_ "gitee.com/chunanyong/dm"
 	_ "github.com/denisenkom/go-mssqldb"
@@ -11919,7 +11920,6 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 
 				for fieldRows.Next() {
 					var fieldName, fieldType string
-					var extra interface{}
 					
 					if config.Type == "sqlite" || config.Type == "duckdb" {
 						var cid, notnull, pk int
