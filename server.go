@@ -6027,12 +6027,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			json.NewDecoder(r.Body).Decode(&params)
 		}
 		for k, v := range r.URL.Query() {
-			if _, exists := params[k]; !exists {
-				if len(v) == 1 {
-					params[k] = v[0]
-				} else {
-					params[k] = v
-				}
+			// 请求参数覆盖默认值
+			if len(v) == 1 {
+				params[k] = v[0]
+			} else {
+				params[k] = v
+			}
 			}
 		}
 
