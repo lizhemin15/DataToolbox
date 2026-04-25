@@ -2293,8 +2293,8 @@ func hashPassword(password string) string {
 
 // 验证密码 - 支持 bcrypt 和旧的 MD5 哈希（向后兼容）
 func verifyPassword(password, hashedPassword string) bool {
-	// 检查是否是 bcrypt 哈希（以 $2a$ 或 $2b$ 开头）
-	if strings.HasPrefix(hashedPassword, "$2a$") || strings.HasPrefix(hashedPassword, "$2b$") {
+	// 检查是否是 bcrypt 哈希（以 $2a$、$2b$ 或 $2y$ 开头）
+	if strings.HasPrefix(hashedPassword, "$2a$") || strings.HasPrefix(hashedPassword, "$2b$") || strings.HasPrefix(hashedPassword, "$2y$") {
 		err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 		return err == nil
 	}
