@@ -7002,11 +7002,20 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// 获取本体关系
+		var relations []OntologyRelation
+		if dbConfig.Relations != nil {
+			for _, rel := range dbConfig.Relations {
+				relations = append(relations, rel)
+			}
+		}
+
 		dbSchemas = append(dbSchemas, map[string]interface{}{
-			"name":   dbConfig.Name,
-			"type":   dbConfig.Type,
-			"tables": tablesWithColumns,
-			"id":     dbID,
+			"name":      dbConfig.Name,
+			"type":      dbConfig.Type,
+			"tables":    tablesWithColumns,
+			"relations": relations,
+			"id":        dbID,
 		})
 	}
 	dataOntologyMu.RUnlock()
@@ -7594,6 +7603,22 @@ func formatDBSchemaForPrompt(dbSchemas []map[string]interface{}) (string, string
 		} else if tables, ok := schema["tables"].([]string); ok {
 			// 旧格式：仅表名列表
 			sb.WriteString("表列表: " + strings.Join(tables, ", ") + "\n")
+		}
+
+		// 添加本体关系信息
+		if relations, ok := schema["relations"].([]OntologyRelation); ok && len(relations) > 0 {
+			sb.WriteString("\n本体关系（字段间语义关联）:\n")
+			sb.WriteString(strings.Repeat("-", 40) + "\n")
+			for _, rel := range relations {
+				sb.WriteString(fmt.Sprintf("  • %s\n", rel.Name))
+				sb.WriteString(fmt.Sprintf("    %s.%s ↔ %s.%s\n",
+					rel.Source.TableName, rel.Source.FieldName,
+					rel.Target.TableName, rel.Target.FieldName))
+				if rel.Description != "" {
+					sb.WriteString(fmt.Sprintf("    说明: %s\n", rel.Description))
+				}
+			}
+			sb.WriteString("\n提示：上述关系表示不同表之间字段的语义关联，可在 JOIN 或分析时参考。\n")
 		}
 	}
 	return sb.String(), primaryDBType
