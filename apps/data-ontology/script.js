@@ -52,6 +52,7 @@ let currentApiKey = '';
 
 // AI 助手状态
 let aiConfig = null;
+let aiCapabilities = null; // AI模型能力检测结果
 let aiMessages = [];
 let currentDbReference = null;
 let dbSuggestionIndex = -1;
@@ -4291,6 +4292,9 @@ async function loadAiConfig() {
         if (data.success && data.config) {
             aiConfig = data.config;
         }
+
+        // 同时加载AI能力信息
+        await loadAiCapabilities();
     } catch (error) {
         console.error('加载 AI 配置失败', error);
     }
@@ -4316,6 +4320,37 @@ function showAiSettingsModal() {
 // 关闭 AI 设置弹窗。
 function hideAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.remove('show');
+}
+
+// 加载AI能力信息
+async function loadAiCapabilities() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/capabilities`);
+        const data = await response.json();
+        if (data.success && data.capabilities) {
+            aiCapabilities = data.capabilities;
+            console.log('AI模型能力:', aiCapabilities);
+            return aiCapabilities;
+        }
+    } catch (error) {
+        console.error('加载AI能力失败:', error);
+    }
+    return null;
+}
+
+// 显示AI能力信息（可选，用于调试或显示给用户）
+function displayAiCapabilities() {
+    if (!aiCapabilities) return;
+
+    const capInfo = `
+AI模型能力检测结果:
+- Function Call支持: ${aiCapabilities.supports_function_call ? '✓' : '✗'}
+- Thinking模式支持: ${aiCapabilities.supports_thinking ? '✓' : '✗'}
+- 流式输出支持: ${aiCapabilities.supports_streaming ? '✓' : '✗'}
+- JSON模式支持: ${aiCapabilities.supports_json_mode ? '✓' : '✗'}
+- 上下文窗口: ${aiCapabilities.context_window} tokens
+    `;
+    console.log(capInfo);
 }
 
 // ========== 标签页显示设置 ==========
@@ -4778,6 +4813,11 @@ async function handleSaveAiSettings(e) {
 
         if (data.success) {
             aiConfig = config;
+            // 保存能力检测结果
+            if (data.capabilities) {
+                aiCapabilities = data.capabilities;
+                console.log('AI模型能力检测完成:', aiCapabilities);
+            }
             successEl.textContent = 'AI 设置已保存';
             successEl.classList.add('show');
             setTimeout(() => {

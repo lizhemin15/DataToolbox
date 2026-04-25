@@ -894,6 +894,16 @@ type AIConfig struct {
 	Timeout int    `json:"timeout"` // 超时时间（秒），默认60
 }
 
+// AICapabilities AI模型能力检测结果
+type AICapabilities struct {
+	SupportsFunctionCall   bool `json:"supports_function_call"`   // 是否支持 function call / tool use
+	SupportsThinking       bool `json:"supports_thinking"`        // 是否支持 extended thinking / reasoning
+	SupportsStreaming      bool `json:"supports_streaming"`       // 是否支持流式输出
+	ContextWindow          int  `json:"context_window"`           // 上下文窗口大小（tokens）
+	SupportsJSONMode       bool `json:"supports_json_mode"`       // 是否支持 JSON 输出模式
+	DetectedAt             int64 `json:"detected_at"`              // 检测时间戳
+}
+
 // LLMModelConfig 大模型配置
 type LLMModelConfig struct {
 	ID          string `json:"id"`
@@ -1011,6 +1021,7 @@ var (
 	dataOntologyDatabases  = make(map[string]*DatabaseConfig)
 	dataOntologyApis       = make(map[string]*ApiConfig)
 	dataOntologyAIConfig   *AIConfig
+	dataOntologyAICapabilities *AICapabilities // AI模型能力检测结果
 	governanceTasks        = make(map[string]*GovernanceTask)
 	governanceTaskLogs     = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
@@ -6423,9 +6434,17 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 保存配置
+		// 检测AI模型能力
+		capabilities, err := detectAICapabilities(&config)
+		if err != nil {
+			log.Printf("检测AI能力失败: %v", err)
+			// 继续保存配置，使用默认能力
+		}
+
+		// 保存配置和能力
 		dataOntologyMu.Lock()
 		dataOntologyAIConfig = &config
+		dataOntologyAICapabilities = capabilities
 		dataOntologyMu.Unlock()
 
 		// 持久化
@@ -6436,12 +6455,53 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		jsonSuccess(w, map[string]interface{}{
-			"message": "配置保存成功",
+			"message":     "配置保存成功",
+			"capabilities": capabilities,
 		})
 		return
 	}
 
 	apiMethodNotAllowed(w, "不支持的请求方法")
+}
+
+// handleAICapabilities 获取AI模型能力
+func handleAICapabilities(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		apiMethodNotAllowed(w, "只支持GET请求")
+		return
+	}
+
+	dataOntologyMu.RLock()
+	capabilities := dataOntologyAICapabilities
+	config := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	// 如果能力未检测或配置已更新，重新检测
+	if capabilities == nil && config != nil {
+		var err error
+		capabilities, err = detectAICapabilities(config)
+		if err != nil {
+			log.Printf("检测AI能力失败: %v", err)
+			apiInternalError(w, "检测AI能力失败")
+			return
+		}
+
+		// 保存检测结果
+		dataOntologyMu.Lock()
+		dataOntologyAICapabilities = capabilities
+		dataOntologyMu.Unlock()
+	}
+
+	jsonSuccess(w, map[string]interface{}{
+		"capabilities": capabilities,
+	})
 }
 
 // ========== 大模型管理 API ==========
@@ -6782,6 +6842,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	// 检查AI配置
 	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
+	aiCapabilities := dataOntologyAICapabilities
 	dataOntologyMu.RUnlock()
 
 	if aiConfig == nil {
@@ -6789,6 +6850,23 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			"message": "请先配置AI设置",
 		})
 		return
+	}
+
+	// 如果能力未检测，进行检测
+	if aiCapabilities == nil {
+		var err error
+		aiCapabilities, err = detectAICapabilities(aiConfig)
+		if err != nil {
+			log.Printf("检测AI能力失败: %v", err)
+			// 使用默认能力继续
+			aiCapabilities = &AICapabilities{
+				SupportsFunctionCall: false,
+				SupportsThinking:     false,
+				SupportsStreaming:    true,
+				ContextWindow:        4096,
+				SupportsJSONMode:     false,
+			}
+		}
 	}
 
 	// 发送读取表结构事件
@@ -6910,6 +6988,13 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		flusher.Flush()
 
+
+			// 根据上下文窗口大小截断历史
+			if aiCapabilities != nil && aiCapabilities.ContextWindow > 0 {
+				// 为当前prompt和响应预留一半的上下文空间
+				maxHistoryTokens := aiCapabilities.ContextWindow / 2
+				queryReq.History = truncateHistoryForContext(queryReq.History, maxHistoryTokens)
+			}
 		// 构建AI提示词（如果是重试，添加错误信息）
 		var prompt string
 		if retry == 0 {
@@ -6919,7 +7004,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 调用AI服务生成SQL
-		aiResponse, err := callAIService(aiConfig, prompt)
+		aiResponse, err := callAIServiceWithCapabilities(aiConfig, aiCapabilities, prompt)
 		if err != nil {
 			lastError = "AI服务调用失败: " + err.Error()
 			attempts = append(attempts, map[string]interface{}{
@@ -7104,7 +7189,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 			resultsSummary := truncateResultsForAI(results, 20, 2000)
 			reflectionPrompt := buildReflectionPrompt(queryReq.Message, sqlQuery, resultsSummary, dbConfig.Type)
-			reflectionResponse, refErr := callAIService(aiConfig, reflectionPrompt)
+			reflectionResponse, refErr := callAIServiceWithCapabilities(aiConfig, aiCapabilities, reflectionPrompt)
 			if refErr != nil {
 				log.Printf("反思失败: %v", refErr)
 			} else {
@@ -7775,6 +7860,11 @@ func extractJSONObject(s string) string {
 
 // callAIService 调用AI服务
 func callAIService(config *AIConfig, prompt string) (string, error) {
+	return callAIServiceWithCapabilities(config, nil, prompt)
+}
+
+// callAIServiceWithCapabilities 根据能力自适应调用AI服务
+func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilities, prompt string) (string, error) {
 	// 构建请求体
 	requestBody := map[string]interface{}{
 		"model": config.Model,
@@ -7785,6 +7875,22 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 			},
 		},
 		"temperature": 0.1,
+	}
+
+	// 如果支持JSON模式且需要结构化输出，启用JSON模式
+	if capabilities != nil && capabilities.SupportsJSONMode {
+		// 检查prompt是否要求JSON输出
+		if strings.Contains(prompt, "JSON") || strings.Contains(prompt, "json") ||
+		   strings.Contains(prompt, "返回JSON") || strings.Contains(prompt, "格式如下") {
+			requestBody["response_format"] = map[string]string{"type": "json_object"}
+		}
+	}
+
+	// 如果支持Extended Thinking，可以添加thinking参数（针对支持的模型）
+	// 注意：这需要API支持，目前先预留
+	if capabilities != nil && capabilities.SupportsThinking {
+		// 可以在这里添加thinking相关的参数
+		// 例如对于某些模型可以添加: requestBody["thinking"] = map[string]interface{}{...}
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -7843,6 +7949,124 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 	}
 
 	return "", fmt.Errorf("无法解析AI响应")
+}
+
+// detectAICapabilities 检测AI模型的能力
+func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
+	if config == nil || config.URL == "" || config.APIKey == "" || config.Model == "" {
+		return nil, fmt.Errorf("AI配置不完整")
+	}
+
+	capabilities := &AICapabilities{
+		SupportsFunctionCall: false,
+		SupportsThinking:     false,
+		SupportsStreaming:    true, // 默认支持流式，大多数模型都支持
+		ContextWindow:        4096, // 默认上下文窗口
+		SupportsJSONMode:     false,
+		DetectedAt:           time.Now().Unix(),
+	}
+
+	// 根据模型名称推断能力
+	modelLower := strings.ToLower(config.Model)
+
+	// 检测是否支持 Function Call / Tool Use
+	// OpenAI GPT-3.5-turbo, GPT-4, GPT-4-turbo, GPT-4o 系列支持
+	// Anthropic Claude 3 系列支持 tool use
+	// 其他模型可能不支持
+	if strings.Contains(modelLower, "gpt-3.5") ||
+	   strings.Contains(modelLower, "gpt-4") ||
+	   strings.Contains(modelLower, "claude-3") ||
+	   strings.Contains(modelLower, "claude-sonnet") ||
+	   strings.Contains(modelLower, "claude-opus") ||
+	   strings.Contains(modelLower, "claude-haiku") {
+		capabilities.SupportsFunctionCall = true
+	}
+
+	// 检测是否支持 Extended Thinking / Reasoning
+	// 目前只有 Claude 3.5 Sonnet 和部分模型支持
+	if strings.Contains(modelLower, "claude-3.5") ||
+	   strings.Contains(modelLower, "claude-sonnet-3.5") ||
+	   strings.Contains(modelLower, "o1") ||
+	   strings.Contains(modelLower, "deepseek-reasoner") {
+		capabilities.SupportsThinking = true
+	}
+
+	// 检测是否支持 JSON Mode
+	// OpenAI GPT-3.5-turbo-1106+, GPT-4-turbo+ 支持
+	if strings.Contains(modelLower, "gpt-3.5-turbo") ||
+	   strings.Contains(modelLower, "gpt-4") ||
+	   strings.Contains(modelLower, "claude") {
+		capabilities.SupportsJSONMode = true
+	}
+
+	// 根据模型推断上下文窗口大小
+	if strings.Contains(modelLower, "gpt-4-turbo") || strings.Contains(modelLower, "gpt-4o") {
+		capabilities.ContextWindow = 128000
+	} else if strings.Contains(modelLower, "gpt-4-32k") {
+		capabilities.ContextWindow = 32768
+	} else if strings.Contains(modelLower, "gpt-4") {
+		capabilities.ContextWindow = 8192
+	} else if strings.Contains(modelLower, "gpt-3.5-turbo-16k") {
+		capabilities.ContextWindow = 16384
+	} else if strings.Contains(modelLower, "gpt-3.5") {
+		capabilities.ContextWindow = 4096
+	} else if strings.Contains(modelLower, "claude-3") || strings.Contains(modelLower, "claude-sonnet") || strings.Contains(modelLower, "claude-opus") {
+		capabilities.ContextWindow = 200000
+	} else if strings.Contains(modelLower, "claude-2") {
+		capabilities.ContextWindow = 100000
+	} else if strings.Contains(modelLower, "claude-instant") {
+		capabilities.ContextWindow = 100000
+	}
+
+	// 尝试通过 API 测试检测能力（可选，更准确但会增加延迟）
+	// 这里我们使用基于模型名称的推断，避免额外API调用
+
+	return capabilities, nil
+}
+
+// truncateHistoryForContext 根据上下文窗口大小截断对话历史
+func truncateHistoryForContext(history []map[string]interface{}, maxTokens int) []map[string]interface{} {
+	if len(history) <= 1 {
+		return history
+	}
+
+	// 估算每个消息的平均token数（粗略估计：1 token ≈ 4 字符）
+	// 保留最近的消息，删除最早的消息
+	maxChars := maxTokens * 4
+	totalChars := 0
+
+	// 从后向前计算
+	result := make([]map[string]interface{}, 0, len(history))
+	for i := len(history) - 1; i >= 0; i-- {
+		msg := history[i]
+		content, _ := msg["content"].(string)
+		msgChars := len(content) + 50 // 额外50字符用于role等元数据
+
+		if totalChars+msgChars > maxChars {
+			break
+		}
+
+		result = append([]map[string]interface{}{msg}, result...)
+		totalChars += msgChars
+	}
+
+	// 至少保留最后一条消息
+	if len(result) == 0 && len(history) > 0 {
+		result = append(result, history[len(history)-1])
+	}
+
+	return result
+}
+
+// callAIWithCapabilities 根据模型能力自适应调用AI服务
+func callAIWithCapabilities(config *AIConfig, capabilities *AICapabilities, prompt string, useStreaming bool) (string, error) {
+	// 如果支持流式输出且请求流式，使用流式调用
+	if capabilities.SupportsStreaming && useStreaming {
+		return callAIService(config, prompt) // 暂时使用非流式，后续可扩展
+	}
+
+	// 降级到普通调用
+	return callAIService(config, prompt)
 }
 
 // extractCodeFromAIResponse 从 AI 返回中提取代码（去掉 ```js 等包裹）
@@ -11235,6 +11459,7 @@ func main() {
 
 	// AI助手API路由
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
+	mux.HandleFunc("/api/data-ontology/ai/capabilities", handleAICapabilities)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
