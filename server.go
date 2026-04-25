@@ -4300,7 +4300,7 @@ func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string)
 func handleTableData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-        log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
+	log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6889,7 +6889,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-        log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
+	log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
 		sendSSE(w, "error", map[string]interface{}{
@@ -9298,31 +9298,104 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 	// 构建创建接口的提示词
 	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas)
 
-	// 调用AI服务
-	aiResponse, err := callAIService(aiConfig, prompt)
-	if err != nil {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "AI服务调用失败: " + err.Error(),
-		})
-		sendSSE(w, "done", map[string]interface{}{})
-		flusher.Flush()
-		return
-	}
+	// 重试机制：最多重试3次
+	maxRetries := 3
+	var apiConfig map[string]interface{}
+	var lastValidationError string
 
-	// 解析AI返回的接口配置
-	apiConfig, parseError := parseApiConfigFromAI(aiResponse, dbSchemas)
-	if apiConfig == nil {
-		log.Printf("解析接口配置失败，AI响应: %s", aiResponse)
-		if parseError != "" {
-			log.Printf("解析错误: %s", parseError)
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// 调用AI服务
+		aiResponse, err := callAIService(aiConfig, prompt)
+		if err != nil {
+			sendSSE(w, "error", map[string]interface{}{
+				"message": "AI服务调用失败: " + err.Error(),
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
 		}
-		sendSSE(w, "error", map[string]interface{}{
-			"message":  "AI未能生成有效的接口配置。" + parseError,
-			"response": aiResponse,
-		})
-		sendSSE(w, "done", map[string]interface{}{})
-		flusher.Flush()
-		return
+
+		// 解析AI返回的接口配置
+		var parseError string
+		apiConfig, parseError = parseApiConfigFromAI(aiResponse, dbSchemas)
+		if apiConfig == nil {
+			log.Printf("解析接口配置失败（第%d次尝试），AI响应: %s", attempt, aiResponse)
+			if parseError != "" {
+				log.Printf("解析错误: %s", parseError)
+			}
+			// 解析失败，构建重试提示词
+			if attempt < maxRetries {
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, "无法解析接口配置: "+parseError, aiResponse)
+				continue
+			}
+			// 最后一次尝试仍然失败
+			sendSSE(w, "error", map[string]interface{}{
+				"message":  "AI未能生成有效的接口配置。" + parseError,
+				"response": aiResponse,
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+
+		// 校验SQL中的表名和字段名是否存在
+		sqlStr, _ := apiConfig["sql"].(string)
+		if sqlStr != "" && len(dbSchemas) > 0 {
+			// 静态校验：检查表名和字段名
+			valid, validationError := validateSQLTablesAndFields(sqlStr, dbSchemas)
+			if !valid {
+				log.Printf("SQL静态校验失败（第%d次尝试）: %s", attempt, validationError)
+				lastValidationError = validationError
+				// 验证失败，构建重试提示词
+				if attempt < maxRetries {
+					prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, validationError, aiResponse)
+					continue
+				}
+				// 最后一次尝试仍然失败
+				sendSSE(w, "sql_validation_error", map[string]interface{}{
+					"message":  "SQL静态校验失败（已重试" + fmt.Sprintf("%d", maxRetries) + "次）: " + validationError,
+					"sql":      sqlStr,
+					"response": aiResponse,
+				})
+				sendSSE(w, "done", map[string]interface{}{})
+				flusher.Flush()
+				return
+			}
+			log.Printf("SQL静态校验成功（第%d次尝试）", attempt)
+
+			// 执行校验：在目标数据库上实际执行SQL，检查语法、权限、函数等运行时问题
+			dbID, _ := dbSchemas[0]["id"].(string)
+			if dbID != "" {
+				sendSSE(w, "thinking", map[string]interface{}{
+					"message": "正在执行SQL校验...",
+				})
+				flusher.Flush()
+
+				validExec, execError := validateSQLByExecution(sqlStr, dbID)
+				if !validExec {
+					log.Printf("SQL执行校验失败（第%d次尝试）: %s", attempt, execError)
+					lastValidationError = execError
+					// 执行校验失败，构建重试提示词
+					if attempt < maxRetries {
+						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, execError, aiResponse)
+						continue
+					}
+					// 最后一次尝试仍然失败
+					sendSSE(w, "sql_validation_error", map[string]interface{}{
+						"message":  "SQL执行校验失败（已重试" + fmt.Sprintf("%d", maxRetries) + "次）: " + execError,
+						"sql":      sqlStr,
+						"response": aiResponse,
+					})
+					sendSSE(w, "done", map[string]interface{}{})
+					flusher.Flush()
+					return
+				}
+				log.Printf("SQL执行校验成功（第%d次尝试）", attempt)
+			}
+		}
+
+		// 验证成功，跳出重试循环
+		break
 	}
 
 	// 从数据库表中查询实际值填充 default_params
@@ -9407,6 +9480,82 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
 	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
 	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询"
+
+	return prompt
+}
+
+// buildCreateApiRetryPrompt 构建重试提示词，告知AI之前的错误
+func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, errorMsg string, lastResponse string) string {
+	prompt := "你之前的接口配置存在问题，请根据以下错误信息重新生成。\n\n"
+	prompt += "【错误信息】\n"
+	prompt += errorMsg + "\n\n"
+	prompt += "【你之前的响应】\n"
+	prompt += lastResponse + "\n\n"
+	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段重新生成SQL：\n\n"
+
+	for _, schema := range dbSchemas {
+		prompt += fmt.Sprintf("数据库: %s (类型: %s)\n", schema["name"], schema["type"])
+		prompt += "=" + strings.Repeat("=", 60) + "\n"
+
+		// 处理新格式（包含字段信息）
+		if tables, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, table := range tables {
+				tableName := table["name"].(string)
+				prompt += fmt.Sprintf("\n表名: %s\n", tableName)
+
+				if columns, ok := table["columns"].([]map[string]interface{}); ok && len(columns) > 0 {
+					prompt += "字段列表:\n"
+					for _, col := range columns {
+						colName := col["name"]
+						colType := col["type"]
+						prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+					}
+				} else {
+					prompt += "  （无法获取字段信息）\n"
+				}
+			}
+		} else if tables, ok := schema["tables"].([]string); ok {
+			// 兼容旧格式（只有表名）
+			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
+		}
+		prompt += "\n"
+	}
+
+	prompt += "\n原始用户需求：" + userMessage + "\n\n"
+	prompt += "请修正错误，重新生成接口配置，必须包含以下信息：\n"
+	prompt += "1. name: 接口名称（中文，简洁明了）\n"
+	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格）\n"
+	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE）\n"
+	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
+	prompt += "5. description: 接口描述\n"
+	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
+	prompt += "请按以下JSON格式返回：\n"
+	prompt += "```json\n"
+	prompt += "{\n"
+	prompt += "  \"name\": \"获取用户列表\",\n"
+	prompt += "  \"path\": \"/api/users\",\n"
+	prompt += "  \"method\": \"GET\",\n"
+	prompt += "  \"sql\": \"SELECT * FROM users WHERE status = #{status} LIMIT #{limit}\",\n"
+	prompt += "  \"description\": \"查询指定状态的用户列表\",\n"
+	prompt += "  \"default_params\": {\n"
+	prompt += "    \"status\": \"active\",\n"
+	prompt += "    \"limit\": 10\n"
+	prompt += "  }\n"
+	prompt += "}\n"
+	prompt += "```\n\n"
+	prompt += "【重要规则】：\n"
+	prompt += "1. SQL只能有一条语句\n"
+	prompt += "2. 使用#{参数名}表示预编译参数（推荐），使用${参数名}表示直接替换\n"
+	prompt += "3. 接口路径要符合RESTful规范（如 /api/users, /api/products/list）\n"
+	prompt += "4. 根据操作类型选择正确的HTTP方法（查询用GET，创建用POST，更新用PUT，删除用DELETE）\n"
+	prompt += "5. **必须使用上面列出的真实表名和字段名**，不要使用不存在的表或字段\n"
+	prompt += "6. 必须为SQL中的每个参数提供合理的默认值用于测试\n"
+	prompt += "7. 默认值要符合字段类型和实际使用场景：\n"
+	prompt += "   - 数字类型(int/bigint)：id一般为1，limit一般为10，page一般为1\n"
+	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
+	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
+	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询\n"
+	prompt += "9. **仔细检查你的SQL，确保所有表名和字段名都存在于上面的列表中**"
 
 	return prompt
 }
@@ -9505,6 +9654,595 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 	}
 
 	return config, ""
+}
+
+// extractTablesFromSQL 从 SQL 中提取所有表名
+// 支持 FROM table, JOIN table, FROM schema.table 等格式
+func extractTablesFromSQL(sql string) []string {
+	var tables []string
+	seen := make(map[string]bool)
+
+	// 匹配 FROM table_name
+	fromPattern := regexp.MustCompile(`(?i)\bFROM\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	fromMatches := fromPattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range fromMatches {
+		if len(match) > 1 {
+			table := strings.Trim(match[1], `"`)
+			if !seen[table] {
+				tables = append(tables, table)
+				seen[table] = true
+			}
+		}
+	}
+
+	// 匹配 JOIN table_name
+	joinPattern := regexp.MustCompile(`(?i)\bJOIN\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	joinMatches := joinPattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range joinMatches {
+		if len(match) > 1 {
+			table := strings.Trim(match[1], `"`)
+			if !seen[table] {
+				tables = append(tables, table)
+				seen[table] = true
+			}
+		}
+	}
+
+	// 匹配 UPDATE table_name
+	updatePattern := regexp.MustCompile(`(?i)\bUPDATE\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	updateMatches := updatePattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range updateMatches {
+		if len(match) > 1 {
+			table := strings.Trim(match[1], `"`)
+			if !seen[table] {
+				tables = append(tables, table)
+				seen[table] = true
+			}
+		}
+	}
+
+	// 匹配 INSERT INTO table_name
+	insertPattern := regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	insertMatches := insertPattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range insertMatches {
+		if len(match) > 1 {
+			table := strings.Trim(match[1], `"`)
+			if !seen[table] {
+				tables = append(tables, table)
+				seen[table] = true
+			}
+		}
+	}
+
+	// 匹配 DELETE FROM table_name
+	deletePattern := regexp.MustCompile(`(?i)\bDELETE\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	deleteMatches := deletePattern.FindAllStringSubmatch(sql, -1)
+	for _, match := range deleteMatches {
+		if len(match) > 1 {
+			table := strings.Trim(match[1], `"`)
+			if !seen[table] {
+				tables = append(tables, table)
+				seen[table] = true
+			}
+		}
+	}
+
+	return tables
+}
+
+// extractFieldsFromSQL 从 SQL 中提取所有字段名
+// 支持 table.field, field, "field" 等格式
+// 返回字段名列表（可能包含 table.field 格式）
+func extractFieldsFromSQL(sql string) []string {
+	var fields []string
+	seen := make(map[string]bool)
+
+	// 移除字符串常量，避免误匹配
+	cleanedSQL := removeStringLiterals(sql)
+
+	// 匹配 SELECT ... FROM 之间的字段
+	selectPattern := regexp.MustCompile(`(?i)\bSELECT\s+(.+?)\s+FROM`)
+	selectMatch := selectPattern.FindStringSubmatch(cleanedSQL)
+	if len(selectMatch) > 1 {
+		selectClause := selectMatch[1]
+		// 分割字段（考虑逗号分隔）
+		fieldParts := splitSelectFields(selectClause)
+		for _, part := range fieldParts {
+			part = strings.TrimSpace(part)
+			// 跳过 *
+			if part == "*" {
+				continue
+			}
+			// 提取字段名（去掉别名 AS xxx）
+			field := extractFieldName(part)
+			if field != "" && !seen[field] {
+				fields = append(fields, field)
+				seen[field] = true
+			}
+		}
+	}
+
+	// 匹配 WHERE 子句中的字段
+	wherePattern := regexp.MustCompile(`(?i)\bWHERE\s+(.+?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)`)
+	whereMatch := wherePattern.FindStringSubmatch(cleanedSQL)
+	if len(whereMatch) > 1 {
+		whereClause := whereMatch[1]
+		extractFieldsFromClause(whereClause, &fields, seen)
+	}
+
+	// 匹配 ORDER BY 子句中的字段
+	orderByPattern := regexp.MustCompile(`(?i)\bORDER\s+BY\s+(.+?)(?:\bLIMIT\b|\bOFFSET\b|$)`)
+	orderByMatch := orderByPattern.FindStringSubmatch(cleanedSQL)
+	if len(orderByMatch) > 1 {
+		orderClause := orderByMatch[1]
+		extractFieldsFromClause(orderClause, &fields, seen)
+	}
+
+	// 匹配 GROUP BY 子句中的字段
+	groupByPattern := regexp.MustCompile(`(?i)\bGROUP\s+BY\s+(.+?)(?:\bHAVING\b|\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)`)
+	groupByMatch := groupByPattern.FindStringSubmatch(cleanedSQL)
+	if len(groupByMatch) > 1 {
+		groupClause := groupByMatch[1]
+		extractFieldsFromClause(groupClause, &fields, seen)
+	}
+
+	// 匹配 HAVING 子句中的字段
+	havingPattern := regexp.MustCompile(`(?i)\bHAVING\s+(.+?)(?:\bORDER\s+BY\b|\bLIMIT\b|\bOFFSET\b|$)`)
+	havingMatch := havingPattern.FindStringSubmatch(cleanedSQL)
+	if len(havingMatch) > 1 {
+		havingClause := havingMatch[1]
+		extractFieldsFromClause(havingClause, &fields, seen)
+	}
+
+	// 匹配 JOIN ON 子句中的字段
+	joinOnPattern := regexp.MustCompile(`(?i)\bON\s+(.+?)(?:\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|$)`)
+	joinOnMatches := joinOnPattern.FindAllStringSubmatch(cleanedSQL, -1)
+	for _, match := range joinOnMatches {
+		if len(match) > 1 {
+			onClause := match[1]
+			extractFieldsFromClause(onClause, &fields, seen)
+		}
+	}
+
+	return fields
+}
+
+// removeStringLiterals 移除 SQL 中的字符串常量，避免误匹配字段
+func removeStringLiterals(sql string) string {
+	// 移除单引号字符串
+	result := regexp.MustCompile(`'[^']*'`).ReplaceAllString(sql, "''")
+	// 移除双引号字符串（某些数据库使用双引号）
+	result = regexp.MustCompile(`"[^"]*"`).ReplaceAllString(result, `""`)
+	return result
+}
+
+// splitSelectFields 分割 SELECT 字段列表（考虑括号嵌套）
+func splitSelectFields(selectClause string) []string {
+	var fields []string
+	var current strings.Builder
+	depth := 0
+
+	for _, ch := range selectClause {
+		switch ch {
+		case '(':
+			depth++
+			current.WriteRune(ch)
+		case ')':
+			depth--
+			current.WriteRune(ch)
+		case ',':
+			if depth == 0 {
+				fields = append(fields, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		fields = append(fields, current.String())
+	}
+
+	return fields
+}
+
+// extractFieldName 从字段表达式中提取字段名
+// 支持: field, table.field, schema.table.field, field AS alias
+func extractFieldName(expr string) string {
+	expr = strings.TrimSpace(expr)
+
+	// 移除别名 (AS alias 或 空格 alias)
+	if idx := strings.Index(strings.ToUpper(expr), " AS "); idx != -1 {
+		expr = strings.TrimSpace(expr[:idx])
+	} else {
+		// 处理空格别名（如 "field alias"）
+		parts := strings.Fields(expr)
+		if len(parts) >= 2 && !isSQLKeyword(parts[len(parts)-1]) {
+			// 最后一个词可能是别名，取前面的部分
+			expr = strings.Join(parts[:len(parts)-1], " ")
+		}
+	}
+
+	// 如果是函数调用或表达式，返回空（不校验）
+	if strings.Contains(expr, "(") || strings.Contains(expr, "+") ||
+		strings.Contains(expr, "-") || strings.Contains(expr, "*") && !strings.Contains(expr, ".") ||
+		strings.Contains(expr, "/") || strings.Contains(expr, "DISTINCT") {
+		return ""
+	}
+
+	// 移除引号
+	expr = strings.Trim(expr, `"`)
+
+	return expr
+}
+
+// isSQLKeyword 判断是否是 SQL 关键字
+func isSQLKeyword(word string) bool {
+	keywords := map[string]bool{
+		"FROM": true, "WHERE": true, "AND": true, "OR": true, "NOT": true,
+		"IN": true, "LIKE": true, "BETWEEN": true, "IS": true, "NULL": true,
+		"ASC": true, "DESC": true, "LIMIT": true, "OFFSET": true,
+	}
+	return keywords[strings.ToUpper(word)]
+}
+
+// extractFieldsFromClause 从子句中提取字段名
+func extractFieldsFromClause(clause string, fields *[]string, seen map[string]bool) {
+	// 匹配 table.field 或 field（标识符）
+	// 排除函数调用、数字常量、字符串常量
+	fieldPattern := regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)`)
+	matches := fieldPattern.FindAllString(clause, -1)
+
+	for _, match := range matches {
+		// 跳过 SQL 关键字
+		if isSQLKeyword(match) {
+			continue
+		}
+		// 跳过函数名（后面紧跟左括号的）
+		if strings.Contains(clause, match+"(") {
+			continue
+		}
+		// 跳过参数占位符
+		if strings.HasPrefix(match, "#{") || strings.HasPrefix(match, "${") {
+			continue
+		}
+
+		// 移除引号
+		field := strings.Trim(match, `"`)
+		if field != "" && !seen[field] {
+			*fields = append(*fields, field)
+			seen[field] = true
+		}
+	}
+}
+
+// validateSQLTablesAndFields 校验 SQL 中的表名和字段名是否存在
+// 返回校验结果和错误信息
+func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) (bool, string) {
+	// 提取表名
+	tables := extractTablesFromSQL(sql)
+	if len(tables) == 0 {
+		// 没有提取到表名，可能是非标准 SQL，跳过校验
+		return true, ""
+	}
+
+	log.Printf("SQL校验 - 提取到的表名: %v", tables)
+
+	// 构建表名到字段列表的映射
+	tableColumnsMap := make(map[string][]string)
+	tableExistsMap := make(map[string]bool)
+
+	// 从 dbSchemas 中构建表信息
+	for _, schema := range dbSchemas {
+		if tablesWithColumns, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, table := range tablesWithColumns {
+				tableName, _ := table["name"].(string)
+				tableNameLower := strings.ToLower(tableName)
+				tableExistsMap[tableNameLower] = true
+
+				// 提取字段名列表
+				var columnNames []string
+				if columns, ok := table["columns"].([]map[string]interface{}); ok {
+					for _, col := range columns {
+						if colName, ok := col["name"].(string); ok {
+							columnNames = append(columnNames, colName)
+						}
+					}
+				}
+				tableColumnsMap[tableNameLower] = columnNames
+			}
+		}
+	}
+
+	log.Printf("SQL校验 - 数据库中的表: %v", tableExistsMap)
+
+	// 校验表名是否存在
+	var missingTables []string
+	for _, table := range tables {
+		// 处理 schema.table 格式
+		tableName := table
+		if idx := strings.Index(table, "."); idx >= 0 {
+			tableName = table[idx+1:]
+		}
+		tableNameLower := strings.ToLower(tableName)
+
+		if !tableExistsMap[tableNameLower] {
+			missingTables = append(missingTables, table)
+		}
+	}
+
+	if len(missingTables) > 0 {
+		errMsg := fmt.Sprintf("SQL中引用的表不存在: %s", strings.Join(missingTables, ", "))
+		log.Printf("SQL校验失败 - %s", errMsg)
+		return false, errMsg
+	}
+
+	// 提取字段名
+	fields := extractFieldsFromSQL(sql)
+	if len(fields) == 0 {
+		// 没有提取到字段名，可能是 SELECT *，跳过字段校验
+		log.Printf("SQL校验 - 未提取到字段名，跳过字段校验")
+		return true, ""
+	}
+
+	log.Printf("SQL校验 - 提取到的字段名: %v", fields)
+
+	// 校验字段名是否存在
+	var missingFields []string
+	for _, field := range fields {
+		// 处理 table.field 格式
+		var tableName, fieldName string
+		if idx := strings.Index(field, "."); idx >= 0 {
+			tableName = field[:idx]
+			fieldName = field[idx+1:]
+		} else {
+			// 没有 table 前缀，需要检查所有表
+			fieldName = field
+			found := false
+			for _, columns := range tableColumnsMap {
+				for _, col := range columns {
+					if strings.EqualFold(col, fieldName) {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				missingFields = append(missingFields, field)
+			}
+			continue
+		}
+
+		// 有 table 前缀，检查指定表的字段
+		tableNameLower := strings.ToLower(tableName)
+		columns, exists := tableColumnsMap[tableNameLower]
+		if !exists {
+			// 表名不存在（前面已校验过，这里应该不会发生）
+			continue
+		}
+
+		found := false
+		for _, col := range columns {
+			if strings.EqualFold(col, fieldName) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingFields = append(missingFields, field)
+		}
+	}
+
+	if len(missingFields) > 0 {
+		errMsg := fmt.Sprintf("SQL中引用的字段不存在: %s", strings.Join(missingFields, ", "))
+		log.Printf("SQL校验失败 - %s", errMsg)
+		return false, errMsg
+	}
+
+	log.Printf("SQL校验成功 - 所有表名和字段名均有效")
+	return true, ""
+}
+
+// validateSQLByExecution 通过实际执行SQL来校验语法、权限和运行时错误
+// 返回 (bool, string) 表示校验结果和错误信息
+func validateSQLByExecution(sqlStr string, dbID string) (bool, string) {
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		return false, "数据库配置不存在"
+	}
+
+	// 获取数据库连接
+	db, err := getDBFromPool(dbConfig)
+	if err != nil {
+		return false, fmt.Sprintf("数据库连接失败: %v", err)
+	}
+
+	// 处理 MyBatis 参数占位符：将 #{param} 和 ${param} 替换为占位符或默认值
+	validationSQL := replaceMyBatisParamsForValidation(sqlStr)
+
+	// 判断SQL类型
+	isWrite := isWriteOperation(validationSQL)
+
+	var validationErr error
+
+	if isWrite {
+		// 写操作：使用事务 + ROLLBACK 或 PREPARE
+		validationErr = validateWriteSQL(db, dbConfig, validationSQL)
+	} else {
+		// 读操作：使用 EXPLAIN 或 LIMIT 0
+		validationErr = validateReadSQL(db, dbConfig, validationSQL)
+	}
+
+	if validationErr != nil {
+		return false, fmt.Sprintf("执行校验失败: %v", validationErr)
+	}
+
+	return true, ""
+}
+
+// replaceMyBatisParamsForValidation 将 MyBatis 参数占位符替换为校验用的占位符
+func replaceMyBatisParamsForValidation(sqlStr string) string {
+	result := sqlStr
+
+	// 替换 ${param} 为空字符串或默认值
+	dollarPattern := `\$\{([^}]+)\}`
+	result = replaceWithRegex(result, dollarPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			defaultValue := strings.TrimSpace(paramName[colonIdx+1:])
+			return defaultValue
+		}
+		// 没有默认值，返回空字符串
+		return ""
+	})
+
+	// 替换 #{param} 为 ? 占位符
+	hashPattern := `#\{([^}]+)\}`
+	result = replaceWithRegex(result, hashPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			defaultValue := strings.TrimSpace(paramName[colonIdx+1:])
+			// 根据默认值类型返回适当的占位符
+			if defaultValue != "" {
+				return fmt.Sprintf("'%s'", defaultValue)
+			}
+		}
+		// 没有默认值，返回 NULL
+		return "NULL"
+	})
+
+	return result
+}
+
+// validateReadSQL 校验读操作SQL（SELECT）
+func validateReadSQL(db *sql.DB, dbConfig *DatabaseConfig, sqlStr string) error {
+	var validationSQL string
+
+	switch dbConfig.Type {
+	case "mysql", "mariadb", "tidb":
+		// MySQL: 使用 EXPLAIN
+		validationSQL = "EXPLAIN " + sqlStr
+	case "postgresql", "timescaledb", "cockroachdb":
+		// PostgreSQL: 使用 EXPLAIN
+		validationSQL = "EXPLAIN " + sqlStr
+	case "sqlserver":
+		// SQL Server: 使用 SET SHOWPLAN_TEXT ON 或 EXPLAIN
+		validationSQL = "SET SHOWPLAN_TEXT ON; " + sqlStr
+	case "oracle":
+		// Oracle: 使用 EXPLAIN PLAN FOR
+		validationSQL = "EXPLAIN PLAN FOR " + sqlStr
+	case "dm":
+		// 达梦: 使用 EXPLAIN
+		validationSQL = "EXPLAIN " + sqlStr
+	case "sqlite", "duckdb":
+		// SQLite/DuckDB: 使用 EXPLAIN QUERY PLAN
+		validationSQL = "EXPLAIN QUERY PLAN " + sqlStr
+	case "clickhouse":
+		// ClickHouse: 使用 EXPLAIN
+		validationSQL = "EXPLAIN " + sqlStr
+	default:
+		// 默认：尝试 LIMIT 0 方式
+		validationSQL = sqlStr
+		// 如果SQL已有LIMIT，尝试替换为 LIMIT 0
+		if !strings.Contains(strings.ToUpper(sqlStr), "LIMIT") {
+			validationSQL = strings.TrimSuffix(sqlStr, ";") + " LIMIT 0"
+		}
+	}
+
+	// 执行校验SQL
+	_, err := db.Exec(validationSQL)
+	if err != nil {
+		return fmt.Errorf("SQL语法或权限错误: %v", err)
+	}
+
+	return nil
+}
+
+// validateWriteSQL 校验写操作SQL（INSERT/UPDATE/DELETE）
+func validateWriteSQL(db *sql.DB, dbConfig *DatabaseConfig, sqlStr string) error {
+	// 方案1：使用事务 + ROLLBACK（适用于大多数数据库）
+	// 方案2：使用 PREPARE（部分数据库支持）
+
+	// 优先使用事务方式
+	tx, err := db.Begin()
+	if err != nil {
+		// 如果无法开启事务，尝试 PREPARE 方式
+		return validateWithPrepare(db, dbConfig, sqlStr)
+	}
+	defer tx.Rollback()
+
+	// 在事务中执行SQL（不会真正提交）
+	_, err = tx.Exec(sqlStr)
+	if err != nil {
+		return fmt.Errorf("SQL语法或权限错误: %v", err)
+	}
+
+	// 成功执行，事务会自动 ROLLBACK
+	return nil
+}
+
+// validateWithPrepare 使用 PREPARE 方式校验SQL
+func validateWithPrepare(db *sql.DB, dbConfig *DatabaseConfig, sqlStr string) error {
+	// 不同数据库的 PREPARE 语法
+	var prepareSQL string
+	var cleanupSQL string
+
+	switch dbConfig.Type {
+	case "mysql", "mariadb", "tidb":
+		prepareSQL = "PREPARE stmt FROM ?"
+		cleanupSQL = "DEALLOCATE PREPARE stmt"
+	case "postgresql", "timescaledb", "cockroachdb":
+		prepareSQL = "PREPARE stmt AS " + sqlStr
+		cleanupSQL = "DEALLOCATE stmt"
+	case "oracle":
+		// Oracle 不支持标准 PREPARE，直接返回错误
+		return fmt.Errorf("Oracle 数据库不支持预编译校验，请检查SQL语法")
+	case "dm":
+		// 达梦支持 PREPARE
+		prepareSQL = "PREPARE stmt FROM ?"
+		cleanupSQL = "DEALLOCATE PREPARE stmt"
+	case "sqlserver":
+		// SQL Server 使用 sp_prepare
+		return fmt.Errorf("SQL Server 暂不支持预编译校验，请检查SQL语法")
+	default:
+		// 其他数据库尝试通用方式
+		prepareSQL = "PREPARE stmt FROM ?"
+		cleanupSQL = "DEALLOCATE PREPARE stmt"
+	}
+
+	// 执行 PREPARE
+	if strings.Contains(prepareSQL, "?") {
+		// MySQL 风格：PREPARE stmt FROM ?
+		_, err := db.Exec(prepareSQL, sqlStr)
+		if err != nil {
+			return fmt.Errorf("SQL语法错误: %v", err)
+		}
+	} else {
+		// PostgreSQL 风格：PREPARE stmt AS sql
+		_, err := db.Exec(prepareSQL)
+		if err != nil {
+			return fmt.Errorf("SQL语法错误: %v", err)
+		}
+	}
+
+	// 清理 PREPARE
+	if cleanupSQL != "" {
+		db.Exec(cleanupSQL)
+	}
+
+	return nil
 }
 
 // isNonConditionParam 判断参数是否出现在 SQL 的非条件子句位置（LIMIT/OFFSET/ORDER BY/GROUP BY）
@@ -9849,6 +10587,7 @@ func queryActualValueFromTable(dbConfig *DatabaseConfig, tableName, fieldName st
 
 	return value, nil
 }
+
 // parseAIResponse 解析AI响应提取SQL和回复文本
 func parseAIResponse(response string, dbSchemas []map[string]interface{}) (string, string, string) {
 	var sql string
