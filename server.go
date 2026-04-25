@@ -6008,9 +6008,12 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		// 先用默认参数初始化
 		params := make(map[string]interface{})
 		if matchedApi.DefaultParams != nil {
+			log.Printf("[API] 使用默认参数: api=%s, default_params=%v", matchedApi.Name, matchedApi.DefaultParams)
 			for k, v := range matchedApi.DefaultParams {
 				params[k] = v
 			}
+		} else {
+			log.Printf("[API] 无默认参数: api=%s", matchedApi.Name)
 		}
 		// 再合并请求参数（覆盖默认值）
 		isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
