@@ -5904,6 +5904,37 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             finalizeAiProcess(messageId);
             break;
             
+        case 'sql_validation_error':
+            statusEl.innerHTML = '';
+            let sqlErrorHtml = `<div class="ai-error"><div style="font-weight: 600; margin-bottom: 4px;">SQL 校验失败</div>`;
+            sqlErrorHtml += `<div style="margin-top: 6px; font-size: 13px;">${escapeHtml(data.message)}</div>`;
+            if (data.sql) {
+                sqlErrorHtml += `
+                    <div style="margin-top: 8px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 3px;">生成的 SQL</div>
+                        <div class="ai-sql-block">${escapeHtml(data.sql)}</div>
+                    </div>`;
+            }
+            if (data.response) {
+                const sqlDebugId = 'sql-debug-' + messageId;
+                sqlErrorHtml += `
+                    <div style="margin-top: 6px;">
+                        <div class="ai-retry-header" onclick="toggleRetryDetails('${sqlDebugId}')" style="cursor: pointer; padding: 4px 8px; background: rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 12px;">查看 AI 响应</span>
+                            <span id="${sqlDebugId}-icon" style="font-size: 11px;">?</span>
+                        </div>
+                        <div id="${sqlDebugId}" class="ai-retry-details" style="display: none; margin-top: 4px; padding: 8px; background: rgba(255, 255, 255, 0.2); border-radius: 4px;">
+                            <pre style="white-space: pre-wrap; word-break: break-word; font-size: 11px; margin: 0;">${escapeHtml(data.response)}</pre>
+                        </div>
+                    </div>`;
+            }
+            sqlErrorHtml += '</div>';
+            contentEl.innerHTML = sqlErrorHtml;
+            attemptsEl.style.display = 'none';
+            markStep('校验失败', data.message || 'SQL 校验失败', 'warning');
+            finalizeAiProcess(messageId);
+            break;
+            
         case 'api_config_generated':
             statusEl.innerHTML = '';
             const config = data.config;
