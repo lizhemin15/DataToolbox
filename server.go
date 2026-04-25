@@ -7972,14 +7972,21 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 	// 检测是否支持 Function Call / Tool Use
 	// OpenAI GPT-3.5-turbo, GPT-4, GPT-4-turbo, GPT-4o 系列支持
 	// Anthropic Claude 3 系列支持 tool use
-	// 其他模型可能不支持
+	// Qwen 系列支持 function call
 	if strings.Contains(modelLower, "gpt-3.5") ||
 	   strings.Contains(modelLower, "gpt-4") ||
 	   strings.Contains(modelLower, "claude-3") ||
 	   strings.Contains(modelLower, "claude-sonnet") ||
 	   strings.Contains(modelLower, "claude-opus") ||
-	   strings.Contains(modelLower, "claude-haiku") {
-		capabilities.SupportsFunctionCall = true
+	   strings.Contains(modelLower, "claude-haiku") ||
+	   strings.Contains(modelLower, "qwen") {
+		// Qwen 30B-A3B 等非满血版可能不稳定，保守处理
+		if strings.Contains(modelLower, "a3b") || strings.Contains(modelLower, "a14b") {
+			// MoE 蒸馏版本，function call 能力较弱，禁用
+			capabilities.SupportsFunctionCall = false
+		} else {
+			capabilities.SupportsFunctionCall = true
+		}
 	}
 
 	// 检测是否支持 Extended Thinking / Reasoning
@@ -7993,9 +8000,11 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 
 	// 检测是否支持 JSON Mode
 	// OpenAI GPT-3.5-turbo-1106+, GPT-4-turbo+ 支持
+	// Qwen 系列支持 JSON 输出
 	if strings.Contains(modelLower, "gpt-3.5-turbo") ||
 	   strings.Contains(modelLower, "gpt-4") ||
-	   strings.Contains(modelLower, "claude") {
+	   strings.Contains(modelLower, "claude") ||
+	   strings.Contains(modelLower, "qwen") {
 		capabilities.SupportsJSONMode = true
 	}
 
@@ -8016,6 +8025,25 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 		capabilities.ContextWindow = 100000
 	} else if strings.Contains(modelLower, "claude-instant") {
 		capabilities.ContextWindow = 100000
+	} else if strings.Contains(modelLower, "qwen") {
+		// Qwen 系列上下文窗口
+		if strings.Contains(modelLower, "32b") || strings.Contains(modelLower, "30b") {
+			// Qwen3 32B / 30B 系列
+			if strings.Contains(modelLower, "a3b") {
+				// Qwen3 30B-A3B 是 MoE 蒸馏版，上下文较短
+				capabilities.ContextWindow = 32768
+			} else {
+				// 满血版 32B
+				capabilities.ContextWindow = 32768
+			}
+		} else if strings.Contains(modelLower, "72b") || strings.Contains(modelLower, "70b") {
+			capabilities.ContextWindow = 32768
+		} else if strings.Contains(modelLower, "7b") || strings.Contains(modelLower, "14b") {
+			capabilities.ContextWindow = 32768
+		} else {
+			// 默认 Qwen 上下文
+			capabilities.ContextWindow = 32768
+		}
 	}
 
 	// 尝试通过 API 测试检测能力（可选，更准确但会增加延迟）
