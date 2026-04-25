@@ -10337,13 +10337,9 @@ async function runSmallModel(id) {
 
 // ==================== 本体关系表功能 ====================
 
-let ontologyRelations = [];
-let scanCandidates = [];
-
 // 显示本体关系表模态框
 function showOntologyRelationTable() {
-    document.getElementById('ontologyRelationModal').style.display = 'block';
-    refreshOntologyRelations();
+    showDbOntologyRelations();
 }
 
 // 隐藏本体关系表模态框
@@ -10351,22 +10347,41 @@ function hideOntologyRelationModal() {
     document.getElementById('ontologyRelationModal').style.display = 'none';
 }
 
-// 刷新本体关系列表
+// 刷新本体关系列表（兼容旧代码）
 async function refreshOntologyRelations() {
+    await refreshDbOntologyRelations();
+}
+
+// 显示数据库本体关系表
+async function showDbOntologyRelations() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+
+    // 显示模态框
+    document.getElementById('ontologyRelationModal').style.display = 'block';
+    await refreshDbOntologyRelations();
+}
+
+// 刷新数据库本体关系列表
+async function refreshDbOntologyRelations() {
+    if (!currentDb) return;
+
     const loading = document.getElementById('relationTableLoading');
     const tbody = document.getElementById('relationTableBody');
-    
+
     loading.style.display = 'flex';
-    
+
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/ontology/relations`, {
+        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
             headers: { 'Authorization': `Bearer ${currentUser.token}` }
         });
         const data = await res.json();
-        
+
         if (data.success) {
-            ontologyRelations = data.relations || [];
-            renderRelationTable();
+            const relations = data.relations || [];
+            renderDbRelationTable(relations);
         } else {
             alert('获取关系列表失败: ' + (data.message || '未知错误'));
         }
@@ -10378,16 +10393,16 @@ async function refreshOntologyRelations() {
     }
 }
 
-// 渲染关系表
-function renderRelationTable() {
+// 渲染数据库关系表
+function renderDbRelationTable(relations) {
     const tbody = document.getElementById('relationTableBody');
-    
-    if (ontologyRelations.length === 0) {
+
+    if (relations.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="empty-row">暂无数据</td></tr>';
         return;
     }
-    
-    tbody.innerHTML = ontologyRelations.map(rel => `
+
+    tbody.innerHTML = relations.map(rel => `
         <tr>
             <td>${escapeHtml(rel.name)}</td>
             <td>${escapeHtml(rel.source.table_name)}.${escapeHtml(rel.source.field_name)}</td>
@@ -10395,27 +10410,27 @@ function renderRelationTable() {
             <td>${escapeHtml(rel.match_type)}</td>
             <td>${new Date(rel.created_at).toLocaleString()}</td>
             <td>
-                <button class="btn btn-sm btn-danger" onclick="deleteOntologyRelation('${rel.id}')">删除</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteDbOntologyRelation('${rel.id}')">删除</button>
             </td>
         </tr>
     `).join('');
 }
 
-// 删除本体关系
-async function deleteOntologyRelation(relId) {
-    if (!confirm('确定要删除这个关系吗？')) {
+// 删除数据库本体关系
+async function deleteDbOntologyRelation(relId) {
+    if (!currentDb || !confirm('确定要删除这个关系吗？')) {
         return;
     }
-    
+
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/ontology/relations/${relId}`, {
+        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations/${relId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${currentUser.token}` }
         });
         const data = await res.json();
-        
+
         if (data.success) {
-            refreshOntologyRelations();
+            refreshDbOntologyRelations();
         } else {
             alert('删除失败: ' + (data.message || '未知错误'));
         }
@@ -10425,28 +10440,23 @@ async function deleteOntologyRelation(relId) {
     }
 }
 
-// 显示扫描模态框
-function scanOntologyRelations() {
-    document.getElementById('ontologyScanModal').style.display = 'block';
-    scanCandidates = [];
-    renderScanResults();
-}
+// 扫描数据库本体关系
+let dbScanCandidates = [];
 
-// 隐藏扫描模态框
-function hideOntologyScanModal() {
-    document.getElementById('ontologyScanModal').style.display = 'none';
-}
-
-// 开始扫描
-async function startOntologyScan() {
-    const loading = document.getElementById('scanLoading');
-    const summary = document.getElementById('scanResultSummary');
+async function scanDbOntologyRelations() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
     
-    loading.style.display = 'flex';
-    summary.style.display = 'none';
+    if (!confirm(`确定要扫描数据库 "${currentDb.name}" 的本体关系吗？`)) {
+        return;
+    }
     
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/ontology/scan`, {
+        showToast('正在扫描...', 'info');
+        
+        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/scan`, {
             method: 'POST',
             headers: { 
                 'Authorization': `Bearer ${currentUser.token}`,
@@ -10456,61 +10466,53 @@ async function startOntologyScan() {
         const data = await res.json();
         
         if (data.success) {
-            scanCandidates = data.candidates || [];
-            document.getElementById('scanCandidateCount').textContent = scanCandidates.length;
-            summary.style.display = 'block';
-            renderScanResults();
+            dbScanCandidates = data.candidates || [];
+            
+            if (dbScanCandidates.length === 0) {
+                alert('未发现等价字段关系');
+                return;
+            }
+            
+            // 显示候选列表让用户选择
+            let msg = `发现 ${dbScanCandidates.length} 个候选关系:\n\n`;
+            dbScanCandidates.forEach((cand, idx) => {
+                msg += `${idx + 1}. 【${cand.name}】\n`;
+                msg += `   ${cand.source.table_name}.${cand.source.field_name} ↔ ${cand.target.table_name}.${cand.target.field_name}\n`;
+                msg += `   匹配类型: ${cand.match_type} (得分: ${cand.match_score.toFixed(2)})\n\n`;
+            });
+            
+            const input = prompt(msg + '\n请输入要添加的关系编号（多个用逗号分隔，如: 1,3,5），或取消跳过:');
+            
+            if (input) {
+                const indices = input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < dbScanCandidates.length);
+                for (const idx of indices) {
+                    await addDbCandidateAsRelation(idx);
+                }
+                showToast(`已添加 ${indices.length} 个关系`, 'success');
+            }
         } else {
             alert('扫描失败: ' + (data.message || '未知错误'));
         }
     } catch (err) {
         console.error('扫描失败:', err);
         alert('扫描失败: ' + err.message);
-    } finally {
-        loading.style.display = 'none';
     }
-}
-
-// 渲染扫描结果
-function renderScanResults() {
-    const tbody = document.getElementById('scanResultBody');
-    
-    if (scanCandidates.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-row">点击"开始扫描"</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = scanCandidates.map((cand, idx) => `
-        <tr>
-            <td>${escapeHtml(cand.name)}</td>
-            <td>${escapeHtml(cand.source.table_name)}.${escapeHtml(cand.source.field_name)}</td>
-            <td>${escapeHtml(cand.target.table_name)}.${escapeHtml(cand.target.field_name)}</td>
-            <td>${escapeHtml(cand.match_type)}</td>
-            <td>${cand.match_score.toFixed(2)}</td>
-            <td>
-                <button class="btn btn-sm btn-primary" onclick="addCandidateAsRelation(${idx})">添加</button>
-            </td>
-        </tr>
-    `).join('');
 }
 
 // 将候选添加为关系
-async function addCandidateAsRelation(idx) {
-    const cand = scanCandidates[idx];
-    if (!cand) return;
-    
-    const name = prompt('请输入关系名称:', cand.name);
-    if (!name) return;
+async function addDbCandidateAsRelation(idx) {
+    const cand = dbScanCandidates[idx];
+    if (!cand || !currentDb) return;
     
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/ontology/relations`, {
+        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${currentUser.token}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                name: name,
+                name: cand.name,
                 description: cand.description,
                 source: cand.source,
                 target: cand.target,
@@ -10519,18 +10521,13 @@ async function addCandidateAsRelation(idx) {
         });
         const data = await res.json();
         
-        if (data.success) {
-            alert('添加成功');
-            // 从候选列表中移除已添加的项
-            scanCandidates.splice(idx, 1);
-            document.getElementById('scanCandidateCount').textContent = scanCandidates.length;
-            renderScanResults();
-        } else {
-            alert('添加失败: ' + (data.message || '未知错误'));
+        if (!data.success) {
+            console.error('添加关系失败:', data.message);
         }
     } catch (err) {
         console.error('添加关系失败:', err);
-        alert('添加失败: ' + err.message);
     }
 }
+
+// 保留旧函数兼容性（调用新函数）
 

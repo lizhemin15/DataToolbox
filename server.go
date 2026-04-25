@@ -62,10 +62,10 @@ const (
 	HTTPClientTimeout = 30 * time.Second // HTTP 客户端默认超时
 
 	// SSH 配置
-	SSHConnectTimeout = 15 * time.Second // SSH 连接超时
-	SFTPSessionTTL    = 30 * time.Minute // SFTP 会话过期时间
-	SFTPCleanInterval = 5 * time.Minute  // SFTP 会话清理间隔
-	TokenCleanInterval = 1 * time.Hour   // 登录 token 清理间隔
+	SSHConnectTimeout  = 15 * time.Second // SSH 连接超时
+	SFTPSessionTTL     = 30 * time.Minute // SFTP 会话过期时间
+	SFTPCleanInterval  = 5 * time.Minute  // SFTP 会话清理间隔
+	TokenCleanInterval = 1 * time.Hour    // 登录 token 清理间隔
 
 	// 治理任务配置
 	GovernanceSchedulerInterval = 30 * time.Second // 治理任务调度器检查间隔
@@ -813,27 +813,28 @@ type TokenEntry struct {
 
 // User 用户
 type User struct {
-	Username string                 `json:"username"`
-	Password string                 `json:"password"`
-	Token    string                 `json:"token,omitempty"`    // 已废弃：保留用于向后兼容，新登录会迁移到 Tokens
-	Tokens   []string               `json:"tokens,omitempty"`   // 支持多 token 同时有效，避免新登录顶掉旧登录（简化版，不带时间戳）
-	TokenEntries []TokenEntry       `json:"token_entries,omitempty"` // 可选：带时间戳的 token，支持过期清理
-	ApiKey   string                 `json:"api_key,omitempty"`
-	Settings map[string]interface{} `json:"settings,omitempty"` // 用户设置（嵌入模式等）
+	Username     string                 `json:"username"`
+	Password     string                 `json:"password"`
+	Token        string                 `json:"token,omitempty"`         // 已废弃：保留用于向后兼容，新登录会迁移到 Tokens
+	Tokens       []string               `json:"tokens,omitempty"`        // 支持多 token 同时有效，避免新登录顶掉旧登录（简化版，不带时间戳）
+	TokenEntries []TokenEntry           `json:"token_entries,omitempty"` // 可选：带时间戳的 token，支持过期清理
+	ApiKey       string                 `json:"api_key,omitempty"`
+	Settings     map[string]interface{} `json:"settings,omitempty"` // 用户设置（嵌入模式等）
 }
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	ID       string `json:"id"`
-	Owner    string `json:"owner,omitempty"` // 所属用户名
-	Type     string `json:"type"`            // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
-	Name     string `json:"name"`
-	Host     string `json:"host,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
-	Database string `json:"database,omitempty"`
-	Path     string `json:"path,omitempty"` // for sqlite
+	ID        string             `json:"id"`
+	Owner     string             `json:"owner,omitempty"` // 所属用户名
+	Type      string             `json:"type"`            // mysql, postgresql, oracle, dm, sqlite, mongodb, elasticsearch, influxdb
+	Name      string             `json:"name"`
+	Host      string             `json:"host,omitempty"`
+	Port      int                `json:"port,omitempty"`
+	User      string             `json:"user,omitempty"`
+	Password  string             `json:"password,omitempty"`
+	Database  string             `json:"database,omitempty"`
+	Path      string             `json:"path,omitempty"`      // for sqlite
+	Relations []OntologyRelation `json:"relations,omitempty"` // 本体关系
 }
 
 // DatabaseInfo 数据库信息（不包含敏感信息）
@@ -893,7 +894,7 @@ type AIConfig struct {
 	URL                   string `json:"url"`
 	APIKey                string `json:"api_key"`
 	Model                 string `json:"model"`
-	Timeout               int    `json:"timeout"` // 超时时间（秒），默认60
+	Timeout               int    `json:"timeout"`                           // 超时时间（秒），默认60
 	EnableFunctionCall    *bool  `json:"enable_function_call,omitempty"`    // 手动开关：是否启用 function call（nil 表示自动检测）
 	EnableThinking        *bool  `json:"enable_thinking,omitempty"`         // 手动开关：是否启用 thinking 模式（nil 表示自动检测）
 	EnableStreaming       *bool  `json:"enable_streaming,omitempty"`        // 手动开关：是否启用流式输出（nil 表示自动检测）
@@ -903,12 +904,12 @@ type AIConfig struct {
 
 // AICapabilities AI模型能力检测结果
 type AICapabilities struct {
-	SupportsFunctionCall   bool `json:"supports_function_call"`   // 是否支持 function call / tool use
-	SupportsThinking       bool `json:"supports_thinking"`        // 是否支持 extended thinking / reasoning
-	SupportsStreaming      bool `json:"supports_streaming"`       // 是否支持流式输出
-	ContextWindow          int  `json:"context_window"`           // 上下文窗口大小（tokens）
-	SupportsJSONMode       bool `json:"supports_json_mode"`       // 是否支持 JSON 输出模式
-	DetectedAt             int64 `json:"detected_at"`              // 检测时间戳
+	SupportsFunctionCall bool  `json:"supports_function_call"` // 是否支持 function call / tool use
+	SupportsThinking     bool  `json:"supports_thinking"`      // 是否支持 extended thinking / reasoning
+	SupportsStreaming    bool  `json:"supports_streaming"`     // 是否支持流式输出
+	ContextWindow        int   `json:"context_window"`         // 上下文窗口大小（tokens）
+	SupportsJSONMode     bool  `json:"supports_json_mode"`     // 是否支持 JSON 输出模式
+	DetectedAt           int64 `json:"detected_at"`            // 检测时间戳
 }
 
 // LLMModelConfig 大模型配置
@@ -1054,19 +1055,17 @@ type GovernanceTaskLog struct {
 
 // 数据本体池存储
 var (
-	dataOntologyUsers      = make(map[string]*User)
-	dataOntologyDatabases  = make(map[string]*DatabaseConfig)
-	dataOntologyApis       = make(map[string]*ApiConfig)
-	dataOntologyAIConfig   *AIConfig
+	dataOntologyUsers          = make(map[string]*User)
+	dataOntologyDatabases      = make(map[string]*DatabaseConfig)
+	dataOntologyApis           = make(map[string]*ApiConfig)
+	dataOntologyAIConfig       *AIConfig
 	dataOntologyAICapabilities *AICapabilities // AI模型能力检测结果
-	governanceTasks        = make(map[string]*GovernanceTask)
-	governanceTaskLogs     = make(map[string][]*GovernanceTaskLog)
-	dataOntologyMCPEnabled *bool // MCP 总开关，nil 视为 true
+	governanceTasks            = make(map[string]*GovernanceTask)
+	governanceTaskLogs         = make(map[string][]*GovernanceTaskLog)
+	dataOntologyMCPEnabled     *bool // MCP 总开关，nil 视为 true
 	// 模型管理
 	llmModels      = make(map[string]*LLMModelConfig)
 	smallModels    = make(map[string]*SmallModelConfig)
-	// 本体关系
-	ontologyRelations = make(map[string]*OntologyRelation)
 	dataOntologyMu sync.RWMutex
 )
 
@@ -1107,19 +1106,17 @@ type WebNavStore struct {
 
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
-	Users         map[string]*User                `json:"users"`
-	Databases     map[string]*DatabaseConfig      `json:"databases"`
-	Apis          map[string]*ApiConfig           `json:"apis"`
-	AIConfig      *AIConfig                       `json:"ai_config,omitempty"`
-	AICapabilities *AICapabilities                `json:"ai_capabilities,omitempty"`
-	Tasks         map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
-	TaskLogs      map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
-	MCPEnabled    *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	Users          map[string]*User                `json:"users"`
+	Databases      map[string]*DatabaseConfig      `json:"databases"`
+	Apis           map[string]*ApiConfig           `json:"apis"`
+	AIConfig       *AIConfig                       `json:"ai_config,omitempty"`
+	AICapabilities *AICapabilities                 `json:"ai_capabilities,omitempty"`
+	Tasks          map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
+	TaskLogs       map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
+	MCPEnabled     *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
-	// 本体关系
-	OntologyRelations map[string]*OntologyRelation `json:"ontology_relations,omitempty"`
 }
 
 var getDataOntologyStorePathFn = getDataOntologyStorePath
@@ -1214,11 +1211,6 @@ func loadDataOntologyStore() error {
 		smallModels = store.SmallModels
 		log.Printf("已加载 %d 个小模型配置", len(smallModels))
 	}
-	// 本体关系
-	if store.OntologyRelations != nil {
-		ontologyRelations = store.OntologyRelations
-		log.Printf("已加载 %d 个本体关系", len(ontologyRelations))
-	}
 	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
 	for _, c := range dataOntologyDatabases {
 		if c != nil && c.Owner == "" {
@@ -1263,17 +1255,16 @@ func saveDataOntologyStore() error {
 	// 构建存储结构
 	dataOntologyMu.RLock()
 	store := DataOntologyStore{
-		Users:         dataOntologyUsers,
-		Databases:     dataOntologyDatabases,
-		Apis:          dataOntologyApis,
-		AIConfig:      dataOntologyAIConfig,
+		Users:          dataOntologyUsers,
+		Databases:      dataOntologyDatabases,
+		Apis:           dataOntologyApis,
+		AIConfig:       dataOntologyAIConfig,
 		AICapabilities: dataOntologyAICapabilities,
-		Tasks:         governanceTasks,
-		TaskLogs:      governanceTaskLogs,
-		MCPEnabled:    dataOntologyMCPEnabled,
-		LLMModels:     llmModels,
-		SmallModels:   smallModels,
-		OntologyRelations: ontologyRelations,
+		Tasks:          governanceTasks,
+		TaskLogs:       governanceTaskLogs,
+		MCPEnabled:     dataOntologyMCPEnabled,
+		LLMModels:      llmModels,
+		SmallModels:    smallModels,
 	}
 	dataOntologyMu.RUnlock()
 
@@ -1598,8 +1589,8 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 				{Name: "19990102_国际新闻与运输情况通报_模拟数据.docx", Path: "19990102_国际新闻与运输情况通报_模拟数据.docx"},
 				{Name: "19990103_国际新闻与运输情况通报_模拟数据.docx", Path: "19990103_国际新闻与运输情况通报_模拟数据.docx"},
 			},
-			CreatedAt:    now,
-			Status:       "idle",
+			CreatedAt: now,
+			Status:    "idle",
 		},
 	}
 }
@@ -3327,15 +3318,15 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, ok := settings["tabVisibility"]; !ok {
 			settings["tabVisibility"] = map[string]interface{}{
-				"database": true,
+				"database":   true,
 				"governance": true,
-				"api":       true,
-				"ai":        true,
-				"ontology":  false,
-				"lineage":   false,
-				"mcp":       false,
-				"models":    false,
-				"quality":   false,
+				"api":        true,
+				"ai":         true,
+				"ontology":   false,
+				"lineage":    false,
+				"mcp":        false,
+				"models":     false,
+				"quality":    false,
 			}
 		}
 		if _, ok := settings["tabOrder"]; !ok {
@@ -3952,11 +3943,11 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		// 转换为 TableInfo 数组，并获取表备注
 		tableInfos := make([]TableInfo, len(tables))
 		var tableComments map[string]string
-		
+
 		// 对于 SQL 数据库，获取表备注
-		if connected && config.Type != "mongodb" && config.Type != "redis" && 
-			config.Type != "neo4j" && config.Type != "elasticsearch" && 
-			config.Type != "influxdb" && config.Type != "memcached" && 
+		if connected && config.Type != "mongodb" && config.Type != "redis" &&
+			config.Type != "neo4j" && config.Type != "elasticsearch" &&
+			config.Type != "influxdb" && config.Type != "memcached" &&
 			config.Type != "cassandra" && config.Type != "hbase" {
 			db, err := getDBFromPool(config)
 			if err == nil {
@@ -6545,7 +6536,7 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		jsonSuccess(w, map[string]interface{}{
-			"message":     "配置保存成功",
+			"message":      "配置保存成功",
 			"capabilities": capabilities,
 		})
 		return
@@ -7078,13 +7069,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		flusher.Flush()
 
-
-			// 根据上下文窗口大小截断历史
-			if aiCapabilities != nil && aiCapabilities.ContextWindow > 0 {
-				// 为当前prompt和响应预留一半的上下文空间
-				maxHistoryTokens := aiCapabilities.ContextWindow / 2
-				queryReq.History = truncateHistoryForContext(queryReq.History, maxHistoryTokens)
-			}
+		// 根据上下文窗口大小截断历史
+		if aiCapabilities != nil && aiCapabilities.ContextWindow > 0 {
+			// 为当前prompt和响应预留一半的上下文空间
+			maxHistoryTokens := aiCapabilities.ContextWindow / 2
+			queryReq.History = truncateHistoryForContext(queryReq.History, maxHistoryTokens)
+		}
 		// 构建AI提示词（如果是重试，添加错误信息）
 		var prompt string
 		if retry == 0 {
@@ -7971,7 +7961,7 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 	if capabilities != nil && capabilities.SupportsJSONMode {
 		// 检查prompt是否要求JSON输出
 		if strings.Contains(prompt, "JSON") || strings.Contains(prompt, "json") ||
-		   strings.Contains(prompt, "返回JSON") || strings.Contains(prompt, "格式如下") {
+			strings.Contains(prompt, "返回JSON") || strings.Contains(prompt, "格式如下") {
 			requestBody["response_format"] = map[string]string{"type": "json_object"}
 		}
 	}
@@ -8049,10 +8039,10 @@ type AICapabilityTestResult struct {
 
 // AICapabilitiesDetectionDetails 详细检测结果
 type AICapabilitiesDetectionDetails struct {
-	Connectivity   AICapabilityTestResult `json:"connectivity"`
-	FunctionCall   AICapabilityTestResult `json:"function_call"`
-	Streaming      AICapabilityTestResult `json:"streaming"`
-	JSONMode       AICapabilityTestResult `json:"json_mode"`
+	Connectivity AICapabilityTestResult `json:"connectivity"`
+	FunctionCall AICapabilityTestResult `json:"function_call"`
+	Streaming    AICapabilityTestResult `json:"streaming"`
+	JSONMode     AICapabilityTestResult `json:"json_mode"`
 }
 
 // detectAICapabilities 检测AI模型的能力（通过实际API调用测试）
@@ -8096,8 +8086,8 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 
 	// 如果所有能力都已手动设置，直接返回
 	if config.EnableFunctionCall != nil && config.EnableThinking != nil &&
-	   config.EnableStreaming != nil && config.EnableJSONMode != nil &&
-	   config.ContextWindowOverride > 0 {
+		config.EnableStreaming != nil && config.EnableJSONMode != nil &&
+		config.ContextWindowOverride > 0 {
 		log.Printf("[AI能力检测] 所有能力已手动设置，跳过自动检测")
 		return capabilities, nil
 	}
@@ -8322,7 +8312,7 @@ func testStreaming(client *http.Client, config *AIConfig) (bool, error) {
 	// 检查是否返回 SSE 流
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") ||
-	   strings.Contains(contentType, "application/stream+json") {
+		strings.Contains(contentType, "application/stream+json") {
 		return true, nil
 	}
 
@@ -8428,9 +8418,9 @@ func inferContextWindow(model string) int {
 func inferThinkingSupport(model string) bool {
 	modelLower := strings.ToLower(model)
 	return strings.Contains(modelLower, "claude-3.5") ||
-	       strings.Contains(modelLower, "claude-sonnet-3.5") ||
-	       strings.Contains(modelLower, "o1") ||
-	       strings.Contains(modelLower, "deepseek-reasoner")
+		strings.Contains(modelLower, "claude-sonnet-3.5") ||
+		strings.Contains(modelLower, "o1") ||
+		strings.Contains(modelLower, "deepseek-reasoner")
 }
 
 // truncateHistoryForContext 根据上下文窗口大小截断对话历史
@@ -10022,15 +10012,15 @@ func handleGovernanceTaskLogDelete(w http.ResponseWriter, r *http.Request, taskI
 
 	// 持久化
 	store := DataOntologyStore{
-		Users:        dataOntologyUsers,
-		Databases:    dataOntologyDatabases,
-		Apis:         dataOntologyApis,
-		AIConfig:     dataOntologyAIConfig,
-		Tasks:        governanceTasks,
-		TaskLogs:     governanceTaskLogs,
-		MCPEnabled:   dataOntologyMCPEnabled,
-		LLMModels:    llmModels,
-		SmallModels:  smallModels,
+		Users:       dataOntologyUsers,
+		Databases:   dataOntologyDatabases,
+		Apis:        dataOntologyApis,
+		AIConfig:    dataOntologyAIConfig,
+		Tasks:       governanceTasks,
+		TaskLogs:    governanceTaskLogs,
+		MCPEnabled:  dataOntologyMCPEnabled,
+		LLMModels:   llmModels,
+		SmallModels: smallModels,
 	}
 	storePath := getDataOntologyStorePathFn()
 	storeData, _ := json.MarshalIndent(store, "", "  ")
@@ -10058,15 +10048,15 @@ func handleGovernanceTaskLogsClear(w http.ResponseWriter, r *http.Request, taskI
 
 	// 持久化
 	store := DataOntologyStore{
-		Users:        dataOntologyUsers,
-		Databases:    dataOntologyDatabases,
-		Apis:         dataOntologyApis,
-		AIConfig:     dataOntologyAIConfig,
-		Tasks:        governanceTasks,
-		TaskLogs:     governanceTaskLogs,
-		MCPEnabled:   dataOntologyMCPEnabled,
-		LLMModels:    llmModels,
-		SmallModels:  smallModels,
+		Users:       dataOntologyUsers,
+		Databases:   dataOntologyDatabases,
+		Apis:        dataOntologyApis,
+		AIConfig:    dataOntologyAIConfig,
+		Tasks:       governanceTasks,
+		TaskLogs:    governanceTaskLogs,
+		MCPEnabled:  dataOntologyMCPEnabled,
+		LLMModels:   llmModels,
+		SmallModels: smallModels,
 	}
 	storePath := getDataOntologyStorePathFn()
 	storeData, _ := json.MarshalIndent(store, "", "  ")
@@ -11807,7 +11797,7 @@ func sftpRemoveAll(client *sftp.Client, remotePath string) error {
 }
 
 // handleOntologyScan 扫描所有数据库表结构，返回候选关系
-func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
+func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -11824,7 +11814,31 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 收集所有字段信息
+	// 从URL中提取数据库ID
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 5 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := pathParts[3]
+
+	// 检查数据库是否存在及权限
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在或无权限",
+		})
+		return
+	}
+
+	// 收集该数据库的字段信息
 	type TableField struct {
 		DatabaseID string
 		TableName  string
@@ -11834,120 +11848,113 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 
 	allFields := make([]TableField, 0)
 
-	dataOntologyMu.RLock()
-	for dbID, config := range dataOntologyDatabases {
-		if !dataOntologyResourceVisible(config.Owner, username) {
-			continue
-		}
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB 暂不支持",
+		})
+		return
+	}
 
-		// 获取表列表
-		var tables []string
-		var connected bool
+	// SQL 数据库
+	db, err := getDBFromPool(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接数据库失败",
+		})
+		return
+	}
 
-		if config.Type == "mongodb" {
-			// MongoDB 暂不支持
-			continue
-		} else {
-			// SQL 数据库
-			db, err := getDBFromPool(config)
-			if err != nil {
-				continue
-			}
+	// 获取表列表
+	var query string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+	case "mysql", "mariadb", "tidb":
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+	case "sqlserver":
+		query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
+	case "sqlite", "duckdb":
+		query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+	case "oracle":
+		query = "SELECT table_name FROM user_tables"
+	case "dm":
+		query = "SELECT table_name FROM user_tables"
+	default:
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+	}
 
-			var query string
-			switch config.Type {
-			case "postgresql", "timescaledb", "cockroachdb":
-				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-			case "mysql", "mariadb", "tidb":
-				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
-			case "sqlserver":
-				query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
-			case "sqlite", "duckdb":
-				query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-			case "oracle":
-				query = "SELECT table_name FROM user_tables"
-			case "dm":
-				query = "SELECT table_name FROM user_tables"
-			default:
-				query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
-			}
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询表列表失败",
+		})
+		return
+	}
 
-			rows, err := db.Query(query)
-			if err != nil {
-				continue
-			}
-
-			for rows.Next() {
-				var tableName string
-				if err := rows.Scan(&tableName); err == nil {
-					tables = append(tables, tableName)
-				}
-			}
-			rows.Close()
-			connected = true
-		}
-
-		// 获取每个表的字段
-		if connected {
-			db, err := getDBFromPool(config)
-			if err != nil {
-				continue
-			}
-
-			for _, tableName := range tables {
-				var fieldQuery string
-				switch config.Type {
-				case "postgresql", "timescaledb", "cockroachdb":
-					fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s'", tableName)
-				case "mysql", "mariadb", "tidb":
-					fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' AND table_schema = DATABASE()", tableName)
-				case "sqlite", "duckdb":
-					fieldQuery = fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
-				case "sqlserver":
-					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s'", tableName)
-				case "oracle":
-					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
-				case "dm":
-					fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
-				default:
-					continue
-				}
-
-				fieldRows, err := db.Query(fieldQuery)
-				if err != nil {
-					continue
-				}
-
-				for fieldRows.Next() {
-					var fieldName, fieldType string
-					
-					if config.Type == "sqlite" || config.Type == "duckdb" {
-						var cid, notnull, pk int
-						var dfltValue interface{}
-						if err := fieldRows.Scan(&cid, &fieldName, &fieldType, &notnull, &dfltValue, &pk); err == nil {
-							allFields = append(allFields, TableField{
-								DatabaseID: dbID,
-								TableName:  tableName,
-								FieldName:  fieldName,
-								FieldType:  fieldType,
-							})
-						}
-					} else {
-						if err := fieldRows.Scan(&fieldName, &fieldType); err == nil {
-							allFields = append(allFields, TableField{
-								DatabaseID: dbID,
-								TableName:  tableName,
-								FieldName:  fieldName,
-								FieldType:  fieldType,
-							})
-						}
-					}
-				}
-				fieldRows.Close()
-			}
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err == nil {
+			tables = append(tables, tableName)
 		}
 	}
-	dataOntologyMu.RUnlock()
+	rows.Close()
+
+	// 获取每个表的字段
+	for _, tableName := range tables {
+		var fieldQuery string
+		switch config.Type {
+		case "postgresql", "timescaledb", "cockroachdb":
+			fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s'", tableName)
+		case "mysql", "mariadb", "tidb":
+			fieldQuery = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' AND table_schema = DATABASE()", tableName)
+		case "sqlite", "duckdb":
+			fieldQuery = fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
+		case "sqlserver":
+			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+		case "oracle":
+			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+		case "dm":
+			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+		default:
+			continue
+		}
+
+		fieldRows, err := db.Query(fieldQuery)
+		if err != nil {
+			continue
+		}
+
+		for fieldRows.Next() {
+			var fieldName, fieldType string
+
+			if config.Type == "sqlite" || config.Type == "duckdb" {
+				var cid, notnull, pk int
+				var dfltValue interface{}
+				if err := fieldRows.Scan(&cid, &fieldName, &fieldType, &notnull, &dfltValue, &pk); err == nil {
+					allFields = append(allFields, TableField{
+						DatabaseID: dbID,
+						TableName:  tableName,
+						FieldName:  fieldName,
+						FieldType:  fieldType,
+					})
+				}
+			} else {
+				if err := fieldRows.Scan(&fieldName, &fieldType); err == nil {
+					allFields = append(allFields, TableField{
+						DatabaseID: dbID,
+						TableName:  tableName,
+						FieldName:  fieldName,
+						FieldType:  fieldType,
+					})
+				}
+			}
+		}
+		fieldRows.Close()
+	}
 
 	// 扫描候选关系
 	candidates := make([]RelationCandidate, 0)
@@ -11960,17 +11967,17 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// 同一个表的字段跳过
-			if field1.DatabaseID == field2.DatabaseID && field1.TableName == field2.TableName {
+			if field1.TableName == field2.TableName {
 				continue
 			}
 
 			// 检查是否已经处理过这对字段
-			pairKey := fmt.Sprintf("%s:%s:%s|%s:%s:%s",
-				field1.DatabaseID, field1.TableName, field1.FieldName,
-				field2.DatabaseID, field2.TableName, field2.FieldName)
-			reversePairKey := fmt.Sprintf("%s:%s:%s|%s:%s:%s",
-				field2.DatabaseID, field2.TableName, field2.FieldName,
-				field1.DatabaseID, field1.TableName, field1.FieldName)
+			pairKey := fmt.Sprintf("%s:%s|%s:%s",
+				field1.TableName, field1.FieldName,
+				field2.TableName, field2.FieldName)
+			reversePairKey := fmt.Sprintf("%s:%s|%s:%s",
+				field2.TableName, field2.FieldName,
+				field1.TableName, field1.FieldName)
 
 			if seenPairs[pairKey] || seenPairs[reversePairKey] {
 				continue
@@ -11995,7 +12002,6 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 
 			// 3. 命名风格转换匹配
 			if matchType == "" {
-				// 驼峰转下划线
 				name1 := toSnakeCase(field1.FieldName)
 				name2 := toSnakeCase(field2.FieldName)
 				if name1 == name2 {
@@ -12006,7 +12012,6 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 
 			// 4. 类型+关键词匹配
 			if matchType == "" && field1.FieldType == field2.FieldType {
-				// 提取关键词（去除常见前缀后缀）
 				keyword1 := extractKeyword(field1.FieldName)
 				keyword2 := extractKeyword(field2.FieldName)
 				if keyword1 != "" && keyword1 == keyword2 {
@@ -12053,50 +12058,14 @@ func handleOntologyScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
+		"success":    true,
 		"candidates": candidates,
-		"total":     len(candidates),
+		"total":      len(candidates),
 	})
 }
 
-// toSnakeCase 将驼峰命名转换为下划线命名
-func toSnakeCase(s string) string {
-	var result []rune
-	for i, r := range s {
-		if i > 0 && unicode.IsUpper(r) {
-			result = append(result, '_')
-		}
-		result = append(result, unicode.ToLower(r))
-	}
-	return string(result)
-}
-
-// extractKeyword 提取字段名关键词
-func extractKeyword(fieldName string) string {
-	// 去除常见前缀
-	prefixes := []string{"fk_", "id_", "ref_", "is_", "has_", "can_", "should_"}
-	name := strings.ToLower(fieldName)
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(name, prefix) {
-			name = strings.TrimPrefix(name, prefix)
-			break
-		}
-	}
-
-	// 去除常见后缀
-	suffixes := []string{"_id", "_code", "_key", "_no", "_num"}
-	for _, suffix := range suffixes {
-		if strings.HasSuffix(name, suffix) {
-			name = strings.TrimSuffix(name, suffix)
-			break
-		}
-	}
-
-	return name
-}
-
-// handleOntologyRelations 处理本体关系的CRUD
-func handleOntologyRelations(w http.ResponseWriter, r *http.Request) {
+// handleDatabaseOntologyRelations 处理数据库级别的本体关系CRUD
+func handleDatabaseOntologyRelations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -12105,14 +12074,38 @@ func handleOntologyRelations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 从URL中提取数据库ID
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 5 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的请求路径",
+		})
+		return
+	}
+	dbID := pathParts[3]
+
+	// 检查数据库是否存在及权限
+	dataOntologyMu.RLock()
+	config, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在或无权限",
+		})
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		// 获取关系列表
+		// 获取该数据库的关系列表
 		dataOntologyMu.RLock()
 		relations := make([]OntologyRelation, 0)
-		for _, rel := range ontologyRelations {
-			if dataOntologyResourceVisible(rel.Owner, username) {
-				relations = append(relations, *rel)
+		if config.Relations != nil {
+			for _, rel := range config.Relations {
+				relations = append(relations, rel)
 			}
 		}
 		dataOntologyMu.RUnlock()
@@ -12156,7 +12149,10 @@ func handleOntologyRelations(w http.ResponseWriter, r *http.Request) {
 		rel.CreatedAt = time.Now()
 
 		dataOntologyMu.Lock()
-		ontologyRelations[rel.ID] = &rel
+		if config.Relations == nil {
+			config.Relations = make([]OntologyRelation, 0)
+		}
+		config.Relations = append(config.Relations, rel)
 		dataOntologyMu.Unlock()
 
 		// 持久化保存
@@ -12177,8 +12173,8 @@ func handleOntologyRelations(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleOntologyRelationDetail 处理单个本体关系
-func handleOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
+// handleDatabaseOntologyRelationDetail 处理数据库级别的单个本体关系
+func handleDatabaseOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -12187,23 +12183,47 @@ func handleOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 从URL中提取关系ID
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/ontology/relations/"), "/")
-	if len(pathParts) < 1 || pathParts[0] == "" {
+	// 从URL中提取数据库ID和关系ID
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 7 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
+	dbID := pathParts[3]
+	relID := pathParts[6]
 
-	relID := pathParts[0]
-
+	// 检查数据库是否存在及权限
 	dataOntologyMu.RLock()
-	rel, exists := ontologyRelations[relID]
+	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 
-	if !exists || !dataOntologyResourceVisible(rel.Owner, username) {
+	if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在或无权限",
+		})
+		return
+	}
+
+	// 查找关系
+	dataOntologyMu.RLock()
+	var rel *OntologyRelation
+	var relIndex int = -1
+	if config.Relations != nil {
+		for i, r := range config.Relations {
+			if r.ID == relID {
+				rel = &config.Relations[i]
+				relIndex = i
+				break
+			}
+		}
+	}
+	dataOntologyMu.RUnlock()
+
+	if rel == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "关系不存在",
@@ -12222,7 +12242,9 @@ func handleOntologyRelationDetail(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		// 删除关系
 		dataOntologyMu.Lock()
-		delete(ontologyRelations, relID)
+		if relIndex >= 0 && relIndex < len(config.Relations) {
+			config.Relations = append(config.Relations[:relIndex], config.Relations[relIndex+1:]...)
+		}
 		dataOntologyMu.Unlock()
 
 		// 持久化保存
@@ -12308,6 +12330,23 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
+		// Handle ontology endpoints: /api/data-ontology/databases/{id}/ontology/...
+		if len(parts) >= 6 && parts[2] == "databases" && parts[4] == "ontology" {
+			switch parts[5] {
+			case "scan":
+				handleDatabaseOntologyScan(w, r)
+				return
+			case "relations":
+				if len(parts) == 6 {
+					handleDatabaseOntologyRelations(w, r)
+					return
+				} else if len(parts) == 7 {
+					handleDatabaseOntologyRelationDetail(w, r)
+					return
+				}
+			}
+		}
+		// Handle lineage endpoint
 		if len(parts) == 5 && parts[2] == "databases" && parts[4] == "lineage" {
 			handleDatabaseLineage(w, r)
 			return
@@ -12353,9 +12392,6 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
 	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
 
-	mux.HandleFunc("/api/data-ontology/ontology/scan", handleOntologyScan)
-	mux.HandleFunc("/api/data-ontology/ontology/relations", handleOntologyRelations)
-	mux.HandleFunc("/api/data-ontology/ontology/relations/", handleOntologyRelationDetail)
 	// 数据治理API路由
 	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
