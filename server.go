@@ -5923,7 +5923,14 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			}
 
 			// 解析请求参数
+			// 先用 default_params 初始化
 			params := make(map[string]interface{})
+			if matchedApi.DefaultParams != nil {
+				for k, v := range matchedApi.DefaultParams {
+					params[k] = v
+				}
+			}
+			// 再合并请求参数
 			isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
 			if isBodyMethod && r.Body != nil {
 				json.NewDecoder(r.Body).Decode(&params)
@@ -6005,7 +6012,14 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		// query类型：执行SQL查询
 		w.Header().Set("Content-Type", "application/json")
 
+		// 先用默认参数初始化
 		params := make(map[string]interface{})
+		if matchedApi.DefaultParams != nil {
+			for k, v := range matchedApi.DefaultParams {
+				params[k] = v
+			}
+		}
+		// 再合并请求参数（覆盖默认值）
 		isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
 		if isBodyMethod && r.Body != nil {
 			json.NewDecoder(r.Body).Decode(&params)
@@ -6244,8 +6258,18 @@ func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string,
 	dollarPattern := `\$\{([^}]+)\}`
 	finalSQL = replaceWithRegex(finalSQL, dollarPattern, func(match string) string {
 		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		defaultValue := ""
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			defaultValue = strings.TrimSpace(paramName[colonIdx+1:])
+			paramName = strings.TrimSpace(paramName[:colonIdx])
+		}
 		if val, exists := params[paramName]; exists {
 			return fmt.Sprintf("%v", val)
+		}
+		// 如果参数不存在但有默认值，使用默认值
+		if defaultValue != "" {
+			return defaultValue
 		}
 		missingParams = append(missingParams, paramName)
 		return match
@@ -6255,8 +6279,19 @@ func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string,
 	hashPattern := `#\{([^}]+)\}`
 	finalSQL = replaceWithRegex(finalSQL, hashPattern, func(match string) string {
 		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		defaultValue := ""
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			defaultValue = strings.TrimSpace(paramName[colonIdx+1:])
+			paramName = strings.TrimSpace(paramName[:colonIdx])
+		}
 		if val, exists := params[paramName]; exists {
 			args = append(args, val)
+			return "?"
+		}
+		// 如果参数不存在但有默认值，使用默认值
+		if defaultValue != "" {
+			args = append(args, defaultValue)
 			return "?"
 		}
 		missingParams = append(missingParams, paramName)
@@ -9445,7 +9480,40 @@ func parseAIResponse(response string, dbSchemas []map[string]interface{}) (strin
 			strings.HasPrefix(strings.ToUpper(line), "INSERT") ||
 			strings.HasPrefix(strings.ToUpper(line), "UPDATE") ||
 			strings.HasPrefix(strings.ToUpper(line), "DELETE") {
-			sql = line
+			// 收集多行SQL，直到遇到空行或非SQL行
+			var sqlLines []string
+			sqlLines = append(sqlLines, line)
+			for j := i + 1; j < len(lines); j++ {
+				nextLine := strings.TrimSpace(lines[j])
+				if nextLine == "" {
+					break
+				}
+				// 检查是否是SQL续行（以SQL关键字开头或是明显的SQL片段）
+				upperLine := strings.ToUpper(nextLine)
+				if strings.HasPrefix(upperLine, "FROM") ||
+					strings.HasPrefix(upperLine, "WHERE") ||
+					strings.HasPrefix(upperLine, "AND") ||
+					strings.HasPrefix(upperLine, "OR") ||
+					strings.HasPrefix(upperLine, "ORDER") ||
+					strings.HasPrefix(upperLine, "GROUP") ||
+					strings.HasPrefix(upperLine, "HAVING") ||
+					strings.HasPrefix(upperLine, "LIMIT") ||
+					strings.HasPrefix(upperLine, "JOIN") ||
+					strings.HasPrefix(upperLine, "LEFT") ||
+					strings.HasPrefix(upperLine, "RIGHT") ||
+					strings.HasPrefix(upperLine, "INNER") ||
+					strings.HasPrefix(upperLine, "ON") ||
+					strings.HasPrefix(upperLine, "SET") ||
+					strings.HasPrefix(upperLine, "VALUES") ||
+					strings.Contains(nextLine, ",") ||
+					strings.HasSuffix(line, ",") {
+					sqlLines = append(sqlLines, nextLine)
+					line = nextLine
+				} else {
+					break
+				}
+			}
+			sql = strings.Join(sqlLines, " ")
 			// SQL之前的行作为回复文本
 			if i > 0 {
 				responseText = strings.TrimSpace(strings.Join(beforeSQL, " "))
