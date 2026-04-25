@@ -1,6 +1,8 @@
 module github.com/YOUR_USERNAME/DataToolbox
 
-go 1.18
+go 1.23.0
+
+toolchain go1.23.4
 
 require (
 	gitee.com/chunanyong/dm v1.8.14

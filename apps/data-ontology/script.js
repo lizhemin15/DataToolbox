@@ -4439,7 +4439,7 @@ async function detectAiCapabilities() {
             document.getElementById('aiEnableThinking').checked = aiCapabilities.supports_thinking;
             document.getElementById('aiEnableStreaming').checked = aiCapabilities.supports_streaming;
             document.getElementById('aiEnableJSONMode').checked = aiCapabilities.supports_json_mode;
-            document.getElementById('aiContextWindow').value = 0; // 使用自动检测
+            document.getElementById('aiContextWindow').value = aiCapabilities.context_window || 0;
             
             btn.textContent = '检测完成';
             setTimeout(() => {
