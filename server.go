@@ -1140,6 +1140,12 @@ func loadDataOntologyStore() error {
 	if store.Apis != nil {
 		dataOntologyApis = store.Apis
 		log.Printf("已加载 %d 个接口配置", len(dataOntologyApis))
+		// 调试：打印每个接口的 default_params
+		for id, api := range dataOntologyApis {
+			if api.DefaultParams != nil {
+				log.Printf("[DEBUG] API %s (%s) default_params: %v", id, api.Name, api.DefaultParams)
+			}
+		}
 	}
 
 	if store.AIConfig != nil {
