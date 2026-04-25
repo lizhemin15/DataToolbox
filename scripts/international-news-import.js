@@ -20,7 +20,7 @@ const DDL = [
     '    region        VARCHAR(128),',
     '    event         TEXT,',
     '    PRIMARY KEY (news_id)',
-    ')',
+    ');',
     '',
     '-- 运输保障情况表',
     'CREATE TABLE IF NOT EXISTS transport_support (',
@@ -29,7 +29,7 @@ const DDL = [
     '    region        VARCHAR(128),',
     '    transport_info TEXT,',
     '    PRIMARY KEY (support_id)',
-    ')',
+    ');',
     '',
     '-- 保障力量出动情况表',
     'CREATE TABLE IF NOT EXISTS dispatch_force (',
@@ -39,33 +39,28 @@ const DDL = [
     '    sorties       INT,',
     '    batches       INT,',
     '    PRIMARY KEY (dispatch_id)',
-    ')',
-].join('\\n');
+    ');',
+].join('\n');
 
 // 达梦数据库 COMMENT 语句（表注释 + 字段注释）
 const COMMENT_DDL = [
-    '-- intl_news 表注释',
-    "COMMENT ON TABLE intl_news IS '国际新闻动态表，记录国际新闻事件信息';",
-    "COMMENT ON COLUMN intl_news.news_id IS '新闻内码，唯一标识，格式：NWS_yyyyMMdd_HHmmss_序号';",
-    "COMMENT ON COLUMN intl_news.news_time IS '新闻发生时间，格式：yyyy-MM-dd HH:mm:ss';",
-    "COMMENT ON COLUMN intl_news.region IS '新闻发生的区域或地点';",
-    "COMMENT ON COLUMN intl_news.event IS '新闻事件内容描述';",
-    '',
-    '-- transport_support 表注释',
-    "COMMENT ON TABLE transport_support IS '运输保障情况表，记录运输保障相关信息';",
-    "COMMENT ON COLUMN transport_support.support_id IS '运保内码，唯一标识，格式：TRS_yyyyMMdd_HHmmss_序号';",
-    "COMMENT ON COLUMN transport_support.support_time IS '运输保障发生时间，格式：yyyy-MM-dd HH:mm:ss';",
-    "COMMENT ON COLUMN transport_support.region IS '运输保障发生的区域或地点';",
-    "COMMENT ON COLUMN transport_support.transport_info IS '运输保障情况详细描述';",
-    '',
-    '-- dispatch_force 表注释',
-    "COMMENT ON TABLE dispatch_force IS '保障力量出动情况表，记录保障力量出动详细信息';",
-    "COMMENT ON COLUMN dispatch_force.dispatch_id IS '出动内码，唯一标识，格式：DSP_yyyyMMdd_HHmmss_序号';",
-    "COMMENT ON COLUMN dispatch_force.support_id IS '运保内码，关联运输保障表主键';",
-    "COMMENT ON COLUMN dispatch_force.equip_model IS '装备型号，如飞机型号、车辆型号等';",
-    "COMMENT ON COLUMN dispatch_force.sorties IS '架次，出动飞机或装备的次数';",
-    "COMMENT ON COLUMN dispatch_force.batches IS '批次，出动飞机或装备的批次数';",
-].join('\\n');
+    "COMMENT ON TABLE intl_news IS '国际新闻动态表';",
+    "COMMENT ON COLUMN intl_news.news_id IS '新闻内码';",
+    "COMMENT ON COLUMN intl_news.news_time IS '时间';",
+    "COMMENT ON COLUMN intl_news.region IS '区域';",
+    "COMMENT ON COLUMN intl_news.event IS '事件';",
+    "COMMENT ON TABLE transport_support IS '运输保障情况表';",
+    "COMMENT ON COLUMN transport_support.support_id IS '运保内码';",
+    "COMMENT ON COLUMN transport_support.support_time IS '时间';",
+    "COMMENT ON COLUMN transport_support.region IS '区域';",
+    "COMMENT ON COLUMN transport_support.transport_info IS '运输情况';",
+    "COMMENT ON TABLE dispatch_force IS '保障力量出动表';",
+    "COMMENT ON COLUMN dispatch_force.dispatch_id IS '出动内码';",
+    "COMMENT ON COLUMN dispatch_force.support_id IS '运保内码';",
+    "COMMENT ON COLUMN dispatch_force.equip_model IS '装备型号';",
+    "COMMENT ON COLUMN dispatch_force.sorties IS '架次';",
+    "COMMENT ON COLUMN dispatch_force.batches IS '批次';",
+].join(';\n');
 
 // ============================================================
 // 2. AI Prompt 模板
@@ -544,8 +539,8 @@ try {
             .filter(s => s)
             .map(s => {
                 // 去掉开头的注释行
-                const lines = s.split('\\n').filter(l => !l.trim().startsWith('--'));
-                return lines.join('\\n').trim();
+                const lines = s.split('\n').filter(l => !l.trim().startsWith('--'));
+                return lines.join('\n').trim();
             })
             .filter(s => s);
         for (const stmt of ddlStatements) {
