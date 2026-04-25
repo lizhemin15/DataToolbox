@@ -9344,7 +9344,6 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			valid, validationError := validateSQLTablesAndFields(sqlStr, dbSchemas)
 			if !valid {
 				log.Printf("SQL静态校验失败（第%d次尝试）: %s", attempt, validationError)
-				lastValidationError = validationError
 				// 验证失败，构建重试提示词
 				if attempt < maxRetries {
 					prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, validationError, aiResponse)
@@ -9373,7 +9372,6 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 				validExec, execError := validateSQLByExecution(sqlStr, dbID)
 				if !validExec {
 					log.Printf("SQL执行校验失败（第%d次尝试）: %s", attempt, execError)
-					lastValidationError = execError
 					// 执行校验失败，构建重试提示词
 					if attempt < maxRetries {
 						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, execError, aiResponse)
