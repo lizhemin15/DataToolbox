@@ -341,7 +341,10 @@
                         <div class="tables-section">
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <h3>执行日志</h3>
-                                <button class="btn btn-sm" onclick="loadGovTaskLogs()">🔄 刷新</button>
+                                <div>
+                                    <button class="btn btn-sm btn-danger" onclick="clearGovTaskLogs()">🗑️ 清空日志</button>
+                                    <button class="btn btn-sm" onclick="loadGovTaskLogs()">🔄 刷新</button>
+                                </div>
                             </div>
                             <div id="govTaskOutput" class="gov-output-area">
                                 <div class="gov-output-placeholder">暂无执行记录</div>

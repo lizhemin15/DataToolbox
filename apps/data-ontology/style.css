@@ -3687,6 +3687,17 @@ textarea#testApiParams {
     margin-bottom: 4px;
 }
 
+.gov-log-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.gov-log-actions .btn-sm {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
 .form-row {
     display: flex;
     gap: 16px;

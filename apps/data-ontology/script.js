@@ -6559,16 +6559,59 @@ function renderGovLogs(logs) {
     }
     const sorted = [...logs].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
     container.innerHTML = sorted.map(log => `
-        <div class="gov-log-entry">
+        <div class="gov-log-entry" data-log-id="${log.id}">
             <div class="gov-log-header">
-                <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' ? ' + new Date(log.end_time).toLocaleString() : ''}</span>
-                <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '失败' : '运行中'}</span>
+                <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' → ' + new Date(log.end_time).toLocaleString() : ''}</span>
+                <div class="gov-log-actions">
+                    <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '失败' : '运行中'}</span>
+                    <button class="btn btn-sm btn-danger" onclick="deleteGovTaskLog('${log.id}')" title="删除此日志">🗑️</button>
+                </div>
             </div>
             ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
             ${log.output ? `<div class="gov-log-output">${renderGovOutput(log.output)}</div>` : ''}
             ${log.error ? `<div class="gov-log-error">${escapeHtml(log.error)}</div>` : ''}
         </div>
     `).join('');
+}
+
+async function deleteGovTaskLog(logId) {
+    if (!currentGovTask || !logId) return;
+    if (!confirm('确定要删除这条执行日志吗？')) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs/${logId}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('日志已删除', 'success');
+            loadGovTaskLogs();
+        } else {
+            showToast(data.message || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除日志失败', error);
+        showToast('删除日志失败', 'error');
+    }
+}
+
+async function clearGovTaskLogs() {
+    if (!currentGovTask) return;
+    if (!confirm('确定要清空所有执行日志吗？此操作不可恢复。')) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/logs-clear`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('日志已清空', 'success');
+            loadGovTaskLogs();
+        } else {
+            showToast(data.message || '清空失败', 'error');
+        }
+    } catch (error) {
+        console.error('清空日志失败', error);
+        showToast('清空日志失败', 'error');
+    }
 }
 
 // 新增/编辑治理任务

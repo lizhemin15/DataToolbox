@@ -9055,7 +9055,15 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			handleGovernanceTaskToggle(w, r, taskID)
 			return
 		case "logs":
+			if len(pathParts) > 2 {
+				// DELETE /api/data-ontology/governance/tasks/{taskID}/logs/{logID}
+				handleGovernanceTaskLogDelete(w, r, taskID, pathParts[2])
+				return
+			}
 			handleGovernanceTaskLogs(w, r, taskID)
+			return
+		case "logs-clear":
+			handleGovernanceTaskLogsClear(w, r, taskID)
 			return
 		case "upload":
 			handleGovernanceTaskUpload(w, r, taskID)
@@ -9220,15 +9228,45 @@ func handleGovernanceTaskToggle(w http.ResponseWriter, r *http.Request, taskID s
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "enabled": task.Enabled})
 }
 
-// handleGovernanceTaskLogs 获取任务执行日志
+// handleGovernanceTaskLogs 获取或删除任务执行日志
 func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID string) {
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
-		return
-	}
 	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
 	if !ok {
+		return
+	}
+
+	// DELETE: 删除指定日志
+	if r.Method == http.MethodDelete {
+		var req struct {
+			LogID string `json:"log_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析请求失败"})
+			return
+		}
+		if req.LogID == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少 log_id"})
+			return
+		}
+		dataOntologyMu.Lock()
+		logs := governanceTaskLogs[taskID]
+		newLogs := make([]*GovernanceTaskLog, 0, len(logs))
+		for _, l := range logs {
+			if l != nil && l.ID != req.LogID {
+				newLogs = append(newLogs, l)
+			}
+		}
+		governanceTaskLogs[taskID] = newLogs
+		saveDataOntologyStore()
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "日志已删除"})
+		return
+	}
+
+	// GET: 获取日志
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET和DELETE"})
 		return
 	}
 	dataOntologyMu.RLock()
@@ -9275,6 +9313,100 @@ func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID str
 		}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "logs": logs})
+}
+
+// handleGovernanceTaskLogDelete 删除单条任务执行日志
+func handleGovernanceTaskLogDelete(w http.ResponseWriter, r *http.Request, taskID string, logID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodDelete {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持DELETE"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	logs := governanceTaskLogs[taskID]
+	if logs == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "日志不存在"})
+		return
+	}
+
+	// 找到并删除指定日志
+	found := false
+	newLogs := make([]*GovernanceTaskLog, 0, len(logs))
+	for _, l := range logs {
+		if l != nil && l.ID == logID {
+			found = true
+			continue // 跳过要删除的
+		}
+		newLogs = append(newLogs, l)
+	}
+
+	if !found {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "日志ID不存在"})
+		return
+	}
+
+	governanceTaskLogs[taskID] = newLogs
+
+	// 持久化
+	store := DataOntologyStore{
+		Users:        dataOntologyUsers,
+		Databases:    dataOntologyDatabases,
+		Apis:         dataOntologyApis,
+		AIConfig:     dataOntologyAIConfig,
+		Tasks:        governanceTasks,
+		TaskLogs:     governanceTaskLogs,
+		MCPEnabled:   dataOntologyMCPEnabled,
+		LLMModels:    llmModels,
+		SmallModels:  smallModels,
+	}
+	storePath := getDataOntologyStorePathFn()
+	storeData, _ := json.MarshalIndent(store, "", "  ")
+	os.WriteFile(storePath, storeData, 0644)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "日志已删除"})
+}
+
+// handleGovernanceTaskLogsClear 清空任务所有执行日志
+func handleGovernanceTaskLogsClear(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodDelete {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持DELETE"})
+		return
+	}
+	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	governanceTaskLogs[taskID] = []*GovernanceTaskLog{}
+
+	// 持久化
+	store := DataOntologyStore{
+		Users:        dataOntologyUsers,
+		Databases:    dataOntologyDatabases,
+		Apis:         dataOntologyApis,
+		AIConfig:     dataOntologyAIConfig,
+		Tasks:        governanceTasks,
+		TaskLogs:     governanceTaskLogs,
+		MCPEnabled:   dataOntologyMCPEnabled,
+		LLMModels:    llmModels,
+		SmallModels:  smallModels,
+	}
+	storePath := getDataOntologyStorePathFn()
+	storeData, _ := json.MarshalIndent(store, "", "  ")
+	os.WriteFile(storePath, storeData, 0644)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "日志已清空"})
 }
 
 // handleGovernanceTaskRun 执行治理任务（后端异步执行）
