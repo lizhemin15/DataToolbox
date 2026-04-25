@@ -10499,22 +10499,14 @@ async function scanDbOntologyRelations() {
                 return;
             }
 
-            // 显示候选列表让用户选择
-            let msg = `发现 ${dbScanCandidates.length} 个候选关系:\n\n`;
-            dbScanCandidates.forEach((cand, idx) => {
-                msg += `${idx + 1}. 【${cand.name}】\n`;
-                msg += `   ${cand.source.table_name}.${cand.source.field_name} ↔ ${cand.target.table_name}.${cand.target.field_name}\n`;
-                msg += `   匹配类型: ${cand.match_type} (得分: ${cand.match_score.toFixed(2)})\n\n`;
-            });
-
-            const input = prompt(msg + '\n请输入要添加的关系编号（多个用逗号分隔，如: 1,3,5），或取消跳过:');
-
-            if (input) {
-                const indices = input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < dbScanCandidates.length);
-                for (const idx of indices) {
+            // 显示候选列表让用户勾选
+            const selectedIndices = await showRelationSelectionDialog(dbScanCandidates);
+            
+            if (selectedIndices.length > 0) {
+                for (const idx of selectedIndices) {
                     await addDbCandidateAsRelation(idx);
                 }
-                showToast(`已添加 ${indices.length} 个关系`, 'success');
+                showToast(`已添加 ${selectedIndices.length} 个关系`, 'success');
             }
         } else {
             alert('扫描失败: ' + (data.message || '未知错误'));
@@ -10617,6 +10609,111 @@ function showTableSelectionDialog(tables) {
             if (e.target === modal) {
                 document.body.removeChild(modal);
                 resolve(null);
+            }
+        });
+    });
+}
+
+// 显示关系选择对话框
+function showRelationSelectionDialog(candidates) {
+    return new Promise((resolve) => {
+        // 创建模态对话框
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        `;
+
+        let html = `
+            <h3 style="margin: 0 0 15px 0;">选择要入库的关系</h3>
+            <div style="margin-bottom: 15px;">
+                <button id="selectAllBtn" style="margin-right: 10px; padding: 5px 15px; cursor: pointer;">全选</button>
+                <button id="deselectAllBtn" style="padding: 5px 15px; cursor: pointer;">全不选</button>
+            </div>
+            <div style="margin-bottom: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px;">
+        `;
+
+        candidates.forEach((cand, idx) => {
+            html += `
+                <div style="margin-bottom: 12px; padding: 8px; background: #f9f9f9; border-radius: 4px;">
+                    <label style="display: flex; align-items: flex-start; cursor: pointer;">
+                        <input type="checkbox" class="relation-checkbox" value="${idx}" checked style="margin-right: 10px; margin-top: 3px;">
+                        <div>
+                            <div style="font-weight: bold; margin-bottom: 4px;">${cand.name}</div>
+                            <div style="font-size: 12px; color: #666;">
+                                ${cand.source.table_name}.${cand.source.field_name} ↔ ${cand.target.table_name}.${cand.target.field_name}
+                            </div>
+                            <div style="font-size: 11px; color: #999;">
+                                匹配类型: ${cand.match_type} | 得分: ${cand.match_score.toFixed(2)}
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            `;
+        });
+
+        html += `
+            </div>
+            <div style="text-align: right;">
+                <button id="cancelBtn" style="margin-right: 10px; padding: 8px 20px; cursor: pointer;">取消</button>
+                <button id="confirmBtn" style="padding: 8px 20px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">确定入库</button>
+            </div>
+        `;
+
+        dialog.innerHTML = html;
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+
+        // 全选按钮
+        dialog.querySelector('#selectAllBtn').addEventListener('click', () => {
+            dialog.querySelectorAll('.relation-checkbox').forEach(cb => cb.checked = true);
+        });
+
+        // 全不选按钮
+        dialog.querySelector('#deselectAllBtn').addEventListener('click', () => {
+            dialog.querySelectorAll('.relation-checkbox').forEach(cb => cb.checked = false);
+        });
+
+        // 取消按钮
+        dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+            document.body.removeChild(modal);
+            resolve([]);
+        });
+
+        // 确定按钮
+        dialog.querySelector('#confirmBtn').addEventListener('click', () => {
+            const selected = [];
+            dialog.querySelectorAll('.relation-checkbox:checked').forEach(cb => {
+                selected.push(parseInt(cb.value));
+            });
+            document.body.removeChild(modal);
+            resolve(selected);
+        });
+
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+                resolve([]);
             }
         });
     });

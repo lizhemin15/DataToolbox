@@ -4300,6 +4300,7 @@ func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string)
 func handleTableData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+        log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6888,6 +6889,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
+        log.Printf("[handleTableData] path=%s, parts=%v, len=%d", r.URL.Path, strings.Split(r.URL.Path, "/"), len(strings.Split(r.URL.Path, "/")))
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
 		sendSSE(w, "error", map[string]interface{}{
