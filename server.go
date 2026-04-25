@@ -6033,7 +6033,6 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			} else {
 				params[k] = v
 			}
-			}
 		}
 
 		finalSQL, args, err := parseMyBatisSQL(matchedApi.SQL, params)
