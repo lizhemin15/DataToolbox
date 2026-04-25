@@ -9301,7 +9301,6 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 	// 重试机制：最多重试3次
 	maxRetries := 3
 	var apiConfig map[string]interface{}
-	var lastValidationError string
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// 调用AI服务
