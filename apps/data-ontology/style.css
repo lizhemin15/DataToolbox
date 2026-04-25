@@ -2524,6 +2524,88 @@ textarea#testApiParams {
     line-height: 1.5;
 }
 
+/* AI 处理过程时间线样式 */
+.ai-process-timeline {
+    margin: 8px 0;
+    padding: 0;
+}
+
+.ai-process-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.ai-process-step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.ai-process-step.running .ai-process-step-dot {
+    background: #1890ff;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ai-process-step.done .ai-process-step-dot {
+    background: #28a745;
+}
+
+.ai-process-step.warning .ai-process-step-dot {
+    background: #ffc107;
+}
+
+.ai-process-step-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ai-process-step-phase {
+    font-size: 10px;
+    color: #718096;
+    margin-bottom: 1px;
+}
+
+.ai-process-step-title {
+    color: #2d3748;
+    font-weight: 500;
+}
+
+.ai-process-step-detail {
+    color: #718096;
+    font-size: 11px;
+    margin-top: 1px;
+}
+
+/* 折叠状态 */
+.ai-process-card.ai-process-collapsed .ai-process-timeline {
+    display: none;
+}
+
+.ai-process-card.ai-process-collapsed .ai-stream-status {
+    display: none;
+}
+
+.ai-process-toggle {
+    font-size: 11px;
+    color: #718096;
+    background: none;
+    border: 1px solid #e2e8f0;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-left: 8px;
+}
+
+.ai-process-toggle:hover {
+    background: #f7fafc;
+}
+
 .ai-confirm-write {
     margin-top: 8px;
     border: 1px solid #ffc107;
