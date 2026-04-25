@@ -10448,31 +10448,57 @@ async function scanDbOntologyRelations() {
         alert('请先选择数据库');
         return;
     }
-    
-    if (!confirm(`确定要扫描数据库 "${currentDb.name}" 的本体关系吗？`)) {
-        return;
-    }
-    
+
     try {
+        showToast('正在获取表列表...', 'info');
+
+        // 先获取表列表
+        const tablesRes = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
+            headers: { 'Authorization': `Bearer ${currentUser.token}` }
+        });
+        const tablesData = await tablesRes.json();
+
+        if (!tablesData.success) {
+            alert('获取表列表失败: ' + (tablesData.message || '未知错误'));
+            return;
+        }
+
+        if (!tablesData.tables || tablesData.tables.length === 0) {
+            alert('数据库中没有表');
+            return;
+        }
+
+        // 显示表选择对话框
+        const selectedTables = await showTableSelectionDialog(tablesData.tables);
+        if (!selectedTables || selectedTables.length === 0) {
+            showToast('已取消扫描', 'info');
+            return;
+        }
+
+        if (!confirm(`确定要扫描数据库 "${currentDb.name}" 中 ${selectedTables.length} 个表的本体关系吗？`)) {
+            return;
+        }
+
         showToast('正在扫描...', 'info');
-        
+
         const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/scan`, {
             method: 'POST',
-            headers: { 
+            headers: {
                 'Authorization': `Bearer ${currentUser.token}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ tables: selectedTables })
         });
         const data = await res.json();
-        
+
         if (data.success) {
             dbScanCandidates = data.candidates || [];
-            
+
             if (dbScanCandidates.length === 0) {
                 alert('未发现等价字段关系');
                 return;
             }
-            
+
             // 显示候选列表让用户选择
             let msg = `发现 ${dbScanCandidates.length} 个候选关系:\n\n`;
             dbScanCandidates.forEach((cand, idx) => {
@@ -10480,9 +10506,9 @@ async function scanDbOntologyRelations() {
                 msg += `   ${cand.source.table_name}.${cand.source.field_name} ↔ ${cand.target.table_name}.${cand.target.field_name}\n`;
                 msg += `   匹配类型: ${cand.match_type} (得分: ${cand.match_score.toFixed(2)})\n\n`;
             });
-            
+
             const input = prompt(msg + '\n请输入要添加的关系编号（多个用逗号分隔，如: 1,3,5），或取消跳过:');
-            
+
             if (input) {
                 const indices = input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < dbScanCandidates.length);
                 for (const idx of indices) {
@@ -10497,6 +10523,103 @@ async function scanDbOntologyRelations() {
         console.error('扫描失败:', err);
         alert('扫描失败: ' + err.message);
     }
+}
+
+// 显示表选择对话框
+function showTableSelectionDialog(tables) {
+    return new Promise((resolve) => {
+        // 创建模态对话框
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        `;
+
+        let html = `
+            <h3 style="margin: 0 0 15px 0;">选择要扫描的表</h3>
+            <div style="margin-bottom: 15px;">
+                <button id="selectAllBtn" style="margin-right: 10px; padding: 5px 15px; cursor: pointer;">全选</button>
+                <button id="deselectAllBtn" style="padding: 5px 15px; cursor: pointer;">全不选</button>
+            </div>
+            <div style="margin-bottom: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px;">
+        `;
+
+        tables.forEach((table, idx) => {
+            html += `
+                <div style="margin-bottom: 8px;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" class="table-checkbox" value="${table}" checked style="margin-right: 8px;">
+                        <span>${table}</span>
+                    </label>
+                </div>
+            `;
+        });
+
+        html += `
+            </div>
+            <div style="text-align: right;">
+                <button id="cancelBtn" style="margin-right: 10px; padding: 8px 20px; cursor: pointer;">取消</button>
+                <button id="confirmBtn" style="padding: 8px 20px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">确定</button>
+            </div>
+        `;
+
+        dialog.innerHTML = html;
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+
+        // 全选按钮
+        dialog.querySelector('#selectAllBtn').addEventListener('click', () => {
+            dialog.querySelectorAll('.table-checkbox').forEach(cb => cb.checked = true);
+        });
+
+        // 全不选按钮
+        dialog.querySelector('#deselectAllBtn').addEventListener('click', () => {
+            dialog.querySelectorAll('.table-checkbox').forEach(cb => cb.checked = false);
+        });
+
+        // 取消按钮
+        dialog.querySelector('#cancelBtn').addEventListener('click', () => {
+            document.body.removeChild(modal);
+            resolve(null);
+        });
+
+        // 确定按钮
+        dialog.querySelector('#confirmBtn').addEventListener('click', () => {
+            const selected = [];
+            dialog.querySelectorAll('.table-checkbox:checked').forEach(cb => {
+                selected.push(cb.value);
+            });
+            document.body.removeChild(modal);
+            resolve(selected);
+        });
+
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal);
+                resolve(null);
+            }
+        });
+    });
 }
 
 // 将候选添加为关系

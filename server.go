@@ -4336,10 +4336,17 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 如果路径以 /tables 结尾（创建表）
-	if strings.HasSuffix(path, "/tables") && r.Method == http.MethodPost {
-		handleTableCreate(w, r, config)
-		return
+	// 如果路径以 /tables 结尾
+	if strings.HasSuffix(path, "/tables") {
+		if r.Method == http.MethodGet {
+			// 获取表列表
+			handleDatabaseTablesList(w, r, config)
+			return
+		} else if r.Method == http.MethodPost {
+			// 创建表
+			handleTableCreate(w, r, config)
+			return
+		}
 	}
 
 	// 其他情况需要表名
@@ -11796,6 +11803,71 @@ func sftpRemoveAll(client *sftp.Client, remotePath string) error {
 	return client.RemoveDirectory(remotePath)
 }
 
+// handleDatabaseTablesList 获取数据库表列表
+func handleDatabaseTablesList(w http.ResponseWriter, r *http.Request, config *DatabaseConfig) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if config.Type == "mongodb" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "MongoDB 暂不支持",
+		})
+		return
+	}
+
+	// SQL 数据库
+	db, err := getDBFromPool(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "连接数据库失败",
+		})
+		return
+	}
+
+	// 获取表列表
+	var query string
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+	case "mysql", "mariadb", "tidb":
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+	case "sqlserver":
+		query = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'"
+	case "sqlite", "duckdb":
+		query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+	case "oracle":
+		query = "SELECT table_name FROM user_tables"
+	case "dm":
+		query = "SELECT table_name FROM user_tables"
+	default:
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+	}
+
+	rows, err := db.Query(query)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询表列表失败",
+		})
+		return
+	}
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err == nil {
+			tables = append(tables, tableName)
+		}
+	}
+	rows.Close()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"tables":  tables,
+	})
+}
+
 // handleOntologyScan 扫描所有数据库表结构，返回候选关系
 func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -11836,6 +11908,15 @@ func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 			"message": "数据库不存在或无权限",
 		})
 		return
+	}
+
+	// 解析请求体，获取可选的表列表
+	var requestBody struct {
+		Tables []string `json:"tables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+		// 如果解析失败，使用空列表（扫描所有表）
+		requestBody.Tables = nil
 	}
 
 	// 收集该数据库的字段信息
@@ -11902,6 +11983,21 @@ func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows.Close()
+
+	// 如果请求中指定了表列表，则只处理这些表
+	if len(requestBody.Tables) > 0 {
+		tableSet := make(map[string]bool)
+		for _, t := range requestBody.Tables {
+			tableSet[t] = true
+		}
+		var filteredTables []string
+		for _, t := range tables {
+			if tableSet[t] {
+				filteredTables = append(filteredTables, t)
+			}
+		}
+		tables = filteredTables
+	}
 
 	// 获取每个表的字段
 	for _, tableName := range tables {
