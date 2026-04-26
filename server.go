@@ -9807,8 +9807,11 @@ func extractFieldsFromSQL(sql string) []string {
 
 // removeStringLiterals 移除 SQL 中的字符串常量，避免误匹配字段
 func removeStringLiterals(sql string) string {
+	// 移除 MyBatis 占位符 #{xxx} 和 ${xxx}，避免被当作字段名
+	result := regexp.MustCompile(`#\{[^}]+\}`).ReplaceAllString(sql, "?")
+	result = regexp.MustCompile(`\$\{[^}]+\}`).ReplaceAllString(result, "?")
 	// 移除单引号字符串
-	result := regexp.MustCompile(`'[^']*'`).ReplaceAllString(sql, "''")
+	result = regexp.MustCompile(`'[^']*'`).ReplaceAllString(result, "''")
 	// 移除双引号字符串（某些数据库使用双引号）
 	result = regexp.MustCompile(`"[^"]*"`).ReplaceAllString(result, `""`)
 	return result
