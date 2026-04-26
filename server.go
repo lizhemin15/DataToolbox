@@ -10037,7 +10037,22 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 	}
 
 	if len(missingFields) > 0 {
-		errMsg := fmt.Sprintf("SQL中引用的字段不存在: %s", strings.Join(missingFields, ", "))
+		// 构建可用字段列表，帮助 AI 修正
+		var availableFieldsHint strings.Builder
+		availableFieldsHint.WriteString(fmt.Sprintf("SQL中引用的字段不存在: %s\n\n", strings.Join(missingFields, ", ")))
+		availableFieldsHint.WriteString("【可用字段列表】\n")
+		for _, table := range tables {
+			tableName := table
+			if idx := strings.Index(table, "."); idx >= 0 {
+				tableName = table[idx+1:]
+			}
+			tableNameLower := strings.ToLower(tableName)
+			if columns, exists := tableColumnsMap[tableNameLower]; exists && len(columns) > 0 {
+				availableFieldsHint.WriteString(fmt.Sprintf("表 %s 的字段: %s\n", tableName, strings.Join(columns, ", ")))
+			}
+		}
+		availableFieldsHint.WriteString("\n请使用上述字段重新生成SQL，不要编造不存在的字段名。")
+		errMsg := availableFieldsHint.String()
 		log.Printf("SQL校验失败 - %s", errMsg)
 		return false, errMsg
 	}
