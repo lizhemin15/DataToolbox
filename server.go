@@ -7103,6 +7103,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 		// 调用AI服务生成SQL
 		aiResponse, err := callAIServiceWithCapabilities(aiConfig, aiCapabilities, prompt)
+		log.Printf("[AI Query] AI响应: %q, 错误: %v", aiResponse, err)
 		if err != nil {
 			lastError = "AI服务调用失败: " + err.Error()
 			attempts = append(attempts, map[string]interface{}{
