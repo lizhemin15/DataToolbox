@@ -13776,6 +13776,207 @@ func handleDatabaseOntologyRelationDetail(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// TextSection 文本结构化解析的节点
+type TextSection struct {
+	Level    int           `json:"level"`
+	Number   string        `json:"number"`
+	Title    string        `json:"title"`
+	Content  string        `json:"content"`
+	Children []TextSection `json:"children"`
+}
+
+// TextParseRequest 文本解析请求
+type TextParseRequest struct {
+	Text    string                 `json:"text"`
+	Format  string                 `json:"format"`
+	Options map[string]interface{} `json:"options"`
+}
+
+// parseOfficialDocument 解析公文格式文本
+func parseOfficialDocument(text string, minLevel, maxLevel int, detectNumbering, includeContent bool) ([]TextSection, map[string]interface{}) {
+	// 定义各级标题的正则表达式
+	levelPatterns := []struct {
+		level   int
+		pattern *regexp.Regexp
+	}{
+		{1, regexp.MustCompile(`^[一二三四五六七八九十]+、`)},                           // 一、二、三、
+		{2, regexp.MustCompile(`^[（(][一二三四五六七八九十]+[)）]`)},                   // （一）（二）或 (一)(二)
+		{3, regexp.MustCompile(`^\d+[.、]`)},                                      // 1. 2. 或 1、2、
+		{4, regexp.MustCompile(`^[（(]\d+[)）]`)},                                  // （1）（2）或 (1)(2)
+		{5, regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩]|^\d+\)`)},                         // ①②③ 或 1) 2)
+	}
+
+	lines := strings.Split(text, "\n")
+	var sections []TextSection
+	var stack []*TextSection // 用于构建树形结构的栈
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// 检测标题
+		detectedLevel := 0
+		var number, title string
+
+		for _, lp := range levelPatterns {
+			if lp.level < minLevel || lp.level > maxLevel {
+				continue
+			}
+
+			if match := lp.pattern.FindString(line); match != "" {
+				detectedLevel = lp.level
+				number = match
+				title = strings.TrimSpace(strings.TrimPrefix(line, match))
+
+				// 如果不检测编号标题，跳过
+				if !detectNumbering {
+					continue
+				}
+				break
+			}
+		}
+
+		if detectedLevel > 0 {
+			// 这是一个标题行
+			section := TextSection{
+				Level:   detectedLevel,
+				Number:  number,
+				Title:   title,
+				Content: "",
+			}
+
+			// 构建树形结构
+			// 弹出栈中所有级别 >= 当前级别的节点
+			for len(stack) > 0 && stack[len(stack)-1].Level >= detectedLevel {
+				stack = stack[:len(stack)-1]
+			}
+
+			if len(stack) == 0 {
+				// 顶级节点
+				sections = append(sections, section)
+				stack = append(stack, &sections[len(sections)-1])
+			} else {
+				// 子节点
+				parent := stack[len(stack)-1]
+				parent.Children = append(parent.Children, section)
+				stack = append(stack, &parent.Children[len(parent.Children)-1])
+			}
+		} else if includeContent && len(stack) > 0 {
+			// 这是正文内容，添加到当前栈顶节点
+			current := stack[len(stack)-1]
+			if current.Content != "" {
+				current.Content += "\n"
+			}
+			current.Content += line
+		}
+	}
+
+	// 计算元数据
+	totalSections := 0
+	maxDepth := 0
+
+	var countSections func([]TextSection, int)
+	countSections = func(sections []TextSection, depth int) {
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+		for i := range sections {
+			totalSections++
+			countSections(sections[i].Children, depth+1)
+		}
+	}
+	countSections(sections, 1)
+
+	metadata := map[string]interface{}{
+		"total_sections":  totalSections,
+		"max_depth":       maxDepth,
+		"format_detected": "official",
+	}
+
+	return sections, metadata
+}
+
+// handleGovParseText 处理文本结构化解析 API
+func handleGovParseText(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "仅支持 POST 请求",
+		})
+		return
+	}
+
+	var req TextParseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求体解析失败: " + err.Error(),
+		})
+		return
+	}
+
+	if req.Text == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "文本内容不能为空",
+		})
+		return
+	}
+
+	// 解析选项
+	minLevel := 1
+	maxLevel := 5
+	detectNumbering := true
+	includeContent := true
+
+	if req.Options != nil {
+		if v, ok := req.Options["min_level"].(float64); ok {
+			minLevel = int(v)
+		}
+		if v, ok := req.Options["max_level"].(float64); ok {
+			maxLevel = int(v)
+		}
+		if v, ok := req.Options["detect_numbering"].(bool); ok {
+			detectNumbering = v
+		}
+		if v, ok := req.Options["include_content"].(bool); ok {
+			includeContent = v
+		}
+	}
+
+	// 根据格式选择解析器
+	format := req.Format
+	if format == "" {
+		format = "official"
+	}
+
+	var sections []TextSection
+	var metadata map[string]interface{}
+
+	switch format {
+	case "official":
+		sections, metadata = parseOfficialDocument(req.Text, minLevel, maxLevel, detectNumbering, includeContent)
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的格式类型: " + format,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"sections":  sections,
+			"metadata":  metadata,
+		},
+	})
+}
+
 func main() {
 	// 子命令 mcp：以 stdio 运行 MCP 服务，供 Cursor 等连接（需设置 DATA_ONTOLOGY_BASE_URL、DATA_ONTOLOGY_API_KEY）
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
@@ -13914,6 +14115,9 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
 	mux.HandleFunc("/api/data-ontology/quality-audit/", handleQualityAuditAPI)
+
+	// 文本结构化解析API路由
+	mux.HandleFunc("/api/data-ontology/gov/parse-text", handleGovParseText)
 
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
