@@ -7072,36 +7072,58 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	// 如果没有明确指定模块，进行意图检测
 	if len(moduleSet) == 0 {
 		intent := detectUserIntent(queryReq.Message)
-		log.Printf("[AI Query] 意图检测: module=%s, confidence=%.2f, reason=%s", intent.DetectedModule, intent.Confidence, intent.Reason)
+		log.Printf("[AI Query] 关键词意图检测: module=%s, confidence=%.2f, reason=%s", intent.DetectedModule, intent.Confidence, intent.Reason)
 		
-		// 置信度低于 0.7 时，返回意图选择卡片
-		if intent.Confidence < 0.7 {
-			intentOptions := []map[string]interface{}{
-				{"id": "db-manage", "name": "通用提问", "description": "查询数据、统计信息、了解表结构等", "icon": "💬"},
-				{"id": "api-dispatch", "name": "接口制作", "description": "创建 API 接口、生成数据服务", "icon": "🔌"},
-				{"id": "data-governance", "name": "数据治理", "description": "创建定时任务、数据导入导出", "icon": "⚙️"},
-				{"id": "quality-audit", "name": "质量审计", "description": "数据质量检查、校验规则", "icon": "✅"},
-				{"id": "ontology", "name": "本体查询", "description": "概念关系、语义分析", "icon": "🧠"},
-			}
-			
-			sendSSE(w, "intent_selection_required", map[string]interface{}{
-				"message":    "我不太确定您想要做什么，请选择一个操作类型：",
-				"intents":    intentOptions,
-				"user_query": queryReq.Message,
-				"detected":   intent,
-			})
-			sendSSE(w, "done", map[string]interface{}{})
-			flusher.Flush()
-			return
-		}
-		
-		// 高置信度意图，自动路由
-		if intent.DetectedModule != "" {
+		// 关键词置信度足够高，直接路由
+		if intent.Confidence >= 0.7 && intent.DetectedModule != "" {
 			moduleSet[intent.DetectedModule] = true
 			sendSSE(w, "thinking", map[string]interface{}{
 				"message": fmt.Sprintf("检测到意图: %s，正在处理...", intent.Reason),
 			})
 			flusher.Flush()
+		} else {
+			// 关键词置信度不足，调用 AI 进行意图分类
+			sendSSE(w, "thinking", map[string]interface{}{
+				"message": "正在分析您的意图...",
+			})
+			flusher.Flush()
+			
+			aiIntent := detectIntentWithAI(aiConfig, aiCapabilities, queryReq.Message)
+			log.Printf("[AI Query] AI 意图分类: module=%s, confidence=%.2f, reason=%s", aiIntent.DetectedModule, aiIntent.Confidence, aiIntent.Reason)
+			
+			// 合并：取置信度更高的结果
+			finalIntent := intent
+			if aiIntent.Confidence > intent.Confidence && aiIntent.DetectedModule != "" {
+				finalIntent = aiIntent
+			}
+			
+			// 如果最终置信度 >= 0.7，自动路由
+			if finalIntent.Confidence >= 0.7 && finalIntent.DetectedModule != "" {
+				moduleSet[finalIntent.DetectedModule] = true
+				sendSSE(w, "thinking", map[string]interface{}{
+					"message": fmt.Sprintf("识别意图: %s，正在处理...", finalIntent.Reason),
+				})
+				flusher.Flush()
+			} else {
+				// AI 也不确定，返回意图选择卡片
+				intentOptions := []map[string]interface{}{
+					{"id": "db-manage", "name": "通用提问", "description": "查询数据、统计信息、了解表结构等", "icon": "💬"},
+					{"id": "api-dispatch", "name": "接口制作", "description": "创建 API 接口、生成数据服务", "icon": "🔌"},
+					{"id": "data-governance", "name": "数据治理", "description": "创建定时任务、数据导入导出", "icon": "⚙️"},
+					{"id": "quality-audit", "name": "质量审计", "description": "数据质量检查、校验规则", "icon": "✅"},
+					{"id": "ontology", "name": "本体查询", "description": "概念关系、语义分析", "icon": "🧠"},
+				}
+				
+				sendSSE(w, "intent_selection_required", map[string]interface{}{
+					"message":    "我不太确定您想要做什么，请选择一个操作类型：",
+					"intents":    intentOptions,
+					"user_query": queryReq.Message,
+					"detected":   finalIntent,
+				})
+				sendSSE(w, "done", map[string]interface{}{})
+				flusher.Flush()
+				return
+			}
 		}
 	}
 
@@ -9085,6 +9107,85 @@ func detectUserIntent(message string) IntentInfo {
 	
 	// 未检测到明确意图
 	return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "未检测到明确意图"}
+}
+
+// detectIntentWithAI 使用 AI 进行意图分类
+func detectIntentWithAI(config *AIConfig, capabilities *AICapabilities, message string) IntentInfo {
+	prompt := `你是一个意图分类助手。分析用户消息，判断用户想要做什么操作。
+
+可选操作类型：
+1. api-dispatch - 创建 API 接口、生成数据服务
+2. data-governance - 创建定时任务、数据导入导出、数据处理
+3. quality-audit - 数据质量检查、校验规则
+4. ontology - 本体查询、概念关系、语义分析
+5. small-model - 小模型相关、本地模型、离线推理
+6. db-manage - 通用数据查询、统计、了解表结构
+
+用户消息：` + message + `
+
+请只返回一个 JSON 对象，格式如下：
+{"module": "操作类型ID", "confidence": 0.95, "reason": "判断理由"}
+
+confidence 范围 0-1，表示置信度。如果不确定，confidence 设为较低值。`
+
+	// 调用 AI
+	response, err := callAIServiceWithCapabilities(config, capabilities, prompt)
+	if err != nil {
+		log.Printf("[AI Intent] AI 调用失败: %v", err)
+		return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "AI 调用失败: " + err.Error()}
+	}
+
+	// 解析 JSON
+	response = strings.TrimSpace(response)
+	// 去除可能的 markdown 代码块
+	if strings.HasPrefix(response, "```") {
+		lines := strings.Split(response, "\n")
+		var jsonLines []string
+		inBlock := false
+		for _, line := range lines {
+			if strings.HasPrefix(line, "```") {
+				inBlock = !inBlock
+				continue
+			}
+			if inBlock {
+				jsonLines = append(jsonLines, line)
+			}
+		}
+		response = strings.Join(jsonLines, "\n")
+	}
+
+	var result struct {
+		Module     string  `json:"module"`
+		Confidence float64 `json:"confidence"`
+		Reason     string  `json:"reason"`
+	}
+
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		log.Printf("[AI Intent] JSON 解析失败: %v, response: %s", err, response)
+		return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "JSON 解析失败"}
+	}
+
+	// 验证模块是否有效
+	validModules := map[string]bool{
+		"api-dispatch":    true,
+		"data-governance": true,
+		"quality-audit":   true,
+		"ontology":        true,
+		"small-model":     true,
+		"db-manage":       true,
+	}
+
+	if !validModules[result.Module] {
+		log.Printf("[AI Intent] 无效模块: %s", result.Module)
+		return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "无效模块: " + result.Module}
+	}
+
+	log.Printf("[AI Intent] AI 分类结果: module=%s, confidence=%.2f, reason=%s", result.Module, result.Confidence, result.Reason)
+	return IntentInfo{
+		DetectedModule: result.Module,
+		Confidence:     result.Confidence,
+		Reason:         result.Reason,
+	}
 }
 
 // isGovernanceTaskRequest 检测是否是数据治理任务相关请求（创建/生成/修改 定时或交互任务）
