@@ -7034,7 +7034,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if moduleSet["api-dispatch"] {
-		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig)
+		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig, aiCapabilities)
 		return
 	}
 
@@ -7060,7 +7060,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 	// 无模块时保留关键词检测兜底
 	if !moduleSet["db-manage"] && isCreateApiRequest(queryReq.Message) {
-		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig)
+		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig, aiCapabilities)
 		return
 	}
 
@@ -9237,7 +9237,7 @@ func handleAISmallModel(w http.ResponseWriter, flusher http.Flusher, queryReq *A
 }
 
 // handleAICreateApi 处理AI创建接口请求
-func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig) {
+func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AIQueryRequest, dbSchemas []map[string]interface{}, aiConfig *AIConfig, aiCapabilities *AICapabilities) {
 
 	// 如果 dbSchemas 尚未增强（tables 还是 []string），则获取字段信息
 	needEnhance := false
@@ -9305,7 +9305,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		// 调用AI服务
-		aiResponse, err := callAIService(aiConfig, prompt)
+		aiResponse, err := callAIServiceWithCapabilities(aiConfig, aiCapabilities, prompt)
 		if err != nil {
 			sendSSE(w, "error", map[string]interface{}{
 				"message": "AI服务调用失败: " + err.Error(),
