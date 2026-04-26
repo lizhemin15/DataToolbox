@@ -8035,19 +8035,31 @@ func cleanAIResponse(response string) string {
 	}
 
 	response = strings.TrimSpace(response)
+	
+	// 处理代码块标记
+	// 优先处理 ```json 和 ```sql，它们会包含结束的 ```
+	hasCodeBlock := false
 	if idx := strings.Index(response, "```json"); idx >= 0 {
 		response = response[idx+len("```json"):]
-	}
-	if idx := strings.Index(response, "```sql"); idx >= 0 && strings.Index(response, "```json") < 0 {
+		hasCodeBlock = true
+	} else if idx := strings.Index(response, "```sql"); idx >= 0 {
 		response = response[idx+len("```sql"):]
-	}
-	if idx := strings.Index(response, "```"); idx >= 0 {
+		hasCodeBlock = true
+	} else if idx := strings.Index(response, "```"); idx >= 0 {
+		// 只有在没有 ```json 或 ```sql 时才处理普通的 ```
 		response = response[idx+len("```"):]
+		hasCodeBlock = true
 	}
+	
 	response = strings.TrimSpace(response)
-	if idx := strings.LastIndex(response, "```"); idx >= 0 {
-		response = response[:idx]
+	
+	// 如果有代码块开始标记，找结束标记
+	if hasCodeBlock {
+		if idx := strings.LastIndex(response, "```"); idx >= 0 {
+			response = response[:idx]
+		}
 	}
+	
 	return strings.TrimSpace(response)
 }
 
