@@ -5166,15 +5166,8 @@ async function handleSendAiMessage() {
         aiSessionContext.databases = dbReferences;
     } else if (aiSessionContext.databases.length > 0) {
         dbReferences.push(...aiSessionContext.databases);
-    } else {
-        // 增强错误提示：列出可用的数据库名称
-        const availableDbs = databases.map(d => d.name).join('、');
-        const hint = databases.length > 0 
-            ? `请 @数据库 选择至少一个数据库。可用数据库：${availableDbs}`
-            : '当前没有配置数据库，请先添加数据库';
-        showAiError(hint);
-        return;
     }
+    // 如果没有指定数据库，让后端返回数据库选择卡片，不再前端拦截
 
     updateAiContextDisplay();
 
@@ -5932,6 +5925,41 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             contentEl.innerHTML = sqlErrorHtml;
             attemptsEl.style.display = 'none';
             markStep('校验失败', data.message || 'SQL 校验失败', 'warning');
+            finalizeAiProcess(messageId);
+            break;
+            
+        case 'database_selection_required':
+            statusEl.innerHTML = '';
+            const dbList = data.databases || [];
+            const userQuery = data.user_query || '';
+            let dbSelectionHtml = `
+                <div class="ai-db-selection-card">
+                    <div class="ai-db-selection-header">
+                        <span style="font-size: 16px;">📊</span>
+                        <span style="font-weight: 600; margin-left: 8px;">${escapeHtml(data.message)}</span>
+                    </div>
+                    <div class="ai-db-selection-body">
+            `;
+            
+            dbList.forEach(db => {
+                dbSelectionHtml += `
+                    <div class="ai-db-option" onclick="selectDatabaseAndRetry('${db.id}', '${escapeHtml(userQuery).replace(/'/g, "\\'")}', '${messageId}')" style="cursor: pointer; padding: 12px 16px; margin: 6px 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white; display: flex; align-items: center; justify-content: space-between; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(102,126,234,0.4)';" onmouseout="this.style.transform='';this.style.boxShadow='';">
+                        <div>
+                            <div style="font-weight: 600; font-size: 14px;">${escapeHtml(db.name)}</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;">${escapeHtml(db.type || 'database')}</div>
+                        </div>
+                        <span style="font-size: 18px;">→</span>
+                    </div>
+                `;
+            });
+            
+            dbSelectionHtml += `
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = dbSelectionHtml;
+            attemptsEl.style.display = 'none';
+            markStep('等待选择', '请选择要操作的数据库', 'waiting');
             finalizeAiProcess(messageId);
             break;
             
@@ -10797,4 +10825,89 @@ async function addDbCandidateAsRelation(idx) {
 }
 
 // 保留旧函数兼容性（调用新函数）
+
+// 用户选择数据库后重新发起 AI 请求
+async function selectDatabaseAndRetry(dbId, userQuery, oldMessageId) {
+    // 更新旧消息，显示用户已选择
+    const oldContentEl = document.getElementById(`${oldMessageId}-content`);
+    if (oldContentEl) {
+        const dbName = databases.find(d => d.id === dbId)?.name || dbId;
+        oldContentEl.innerHTML = `<div style="padding: 12px; background: #e6fffa; border-radius: 8px; border-left: 4px solid #38b2ac;">
+            <div style="font-size: 13px; color: #234e52;">已选择数据库：<strong>${escapeHtml(dbName)}</strong></div>
+            <div style="font-size: 11px; color: #4a5568; margin-top: 4px;">正在继续处理您的请求...</div>
+        </div>`;
+    }
+    
+    // 更新上下文
+    aiSessionContext.databases = [{id: dbId, name: databases.find(d => d.id === dbId)?.name || ''}];
+    updateAiContextDisplay();
+    
+    // 发起新的 AI 请求
+    const streamMessageId = addAiStreamMessage();
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: userQuery,
+                databases: [dbId],
+                modules: aiSessionContext.modules.map(m => m.id),
+                history: aiSessionContext.history.slice(-5)
+            })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, {stream: true});
+            const chunks = buffer.split(/\n\n+/);
+            buffer = chunks.pop() || '';
+            
+            for (const chunk of chunks) {
+                if (!chunk.trim()) continue;
+                const eventLines = chunk.split('\n');
+                let eventType = '';
+                const dataLines = [];
+                for (const line of eventLines) {
+                    if (line.startsWith('event:')) eventType = line.slice(6).trim();
+                    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+                }
+                if (!eventType || dataLines.length === 0) continue;
+                try {
+                    const data = JSON.parse(dataLines.join('\n'));
+                    handleStreamEvent(streamMessageId, eventType, data, userQuery);
+                } catch (err) {
+                    console.warn('SSE JSON parse failed', eventType, dataLines.join('\n'), err);
+                }
+            }
+        }
+        
+        // 记录到历史
+        aiSessionContext.history.push({
+            role: 'user',
+            content: userQuery,
+            databases: [dbId],
+            modules: aiSessionContext.modules.map(m => m.id)
+        });
+        
+    } catch (err) {
+        console.error('AI 请求失败:', err);
+        const statusEl = document.getElementById(`${streamMessageId}-status`);
+        if (statusEl) {
+            statusEl.innerHTML = `<div class="ai-error">请求失败: ${escapeHtml(err.message)}</div>`;
+        }
+    }
+    
+    // 恢复发送按钮
+    const sendBtn = document.getElementById('aiSendBtn');
+    if (sendBtn) sendBtn.disabled = false;
+}
 

@@ -6965,6 +6965,42 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
+	// 如果没有指定数据库，返回数据库选择卡片
+	if len(queryReq.Databases) == 0 {
+		// 获取用户可访问的数据库列表
+		dataOntologyMu.RLock()
+		var availableDBs []map[string]interface{}
+		for id, db := range dataOntologyDatabases {
+			if dataOntologyResourceVisible(db.Owner, username) {
+				availableDBs = append(availableDBs, map[string]interface{}{
+					"id":   id,
+					"name": db.Name,
+					"type": db.Type,
+				})
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		if len(availableDBs) == 0 {
+			sendSSE(w, "error", map[string]interface{}{
+				"message": "没有可用的数据库，请先添加数据库配置",
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+
+		// 返回数据库选择卡片
+		sendSSE(w, "database_selection_required", map[string]interface{}{
+			"message":    "请选择要操作的数据库",
+			"databases":  availableDBs,
+			"user_query": queryReq.Message,
+		})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
 	// 获取数据库配置和表结构（含字段信息）
 	dataOntologyMu.RLock()
 	var dbSchemas []map[string]interface{}
