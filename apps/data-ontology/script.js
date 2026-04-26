@@ -3991,6 +3991,8 @@ async function handleDeleteApi() {
         const data = await response.json();
 
         if (data.success) {
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
             currentApi = null;
             document.getElementById('apiWelcomeView').style.display = 'flex';
             document.getElementById('apiDetailView').style.display = 'none';
