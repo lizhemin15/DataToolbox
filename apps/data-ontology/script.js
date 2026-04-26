@@ -117,7 +117,10 @@ async function ensureQualityAuditScriptLoaded() {
 function handleUnauthorizedFromApi() {
     if (!localStorage.getItem('dataOntologyToken')) return;
     try { closeUserMgmtPanel(true); } catch (e) {}
-    try { window._qualityAuditDataLoaded = false; } catch (e) {}
+    try {
+        window._qualityAuditDataLoaded = false;
+        window._qualityAuditRulesLoaded = false;
+    } catch (e) {}
     saveReturnUrlForLogin();
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
@@ -129,37 +132,60 @@ function handleUnauthorizedFromApi() {
     showLoginPage();
 }
 
-async function fetchWithAuth(input, init) {
+async function fetchWithAuth(input, init, timeoutMs = 60000) {
     const initCopy = init ? { ...init } : {};
     const headers = new Headers(initCopy.headers || {});
     const token = localStorage.getItem('dataOntologyToken');
     if (token) {
         headers.set('Authorization', 'Bearer ' + token);
     }
-    const response = await fetch(input, { ...initCopy, headers });
-    if (response.status === 401) {
-        const ct401 = response.headers.get('Content-Type') || '';
-        if (ct401.includes('application/json')) {
+    
+    // 添加超时控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    initCopy.signal = controller.signal;
+    
+    try {
+        const response = await fetch(input, { ...initCopy, headers });
+        clearTimeout(timeoutId);
+        if (response.status === 401) {
+            const ct401 = response.headers.get('Content-Type') || '';
+            if (ct401.includes('application/json')) {
+                try {
+                    const data401 = await response.clone().json();
+                    if (data401 && typeof data401.message === 'string' && data401.message.indexOf('未授权') !== -1) {
+                        handleUnauthorizedFromApi();
+                    }
+                } catch (e) {}
+            }
+            return response;
+        }
+        const ct = response.headers.get('Content-Type') || '';
+        if (ct.includes('application/json')) {
+            const cloned = response.clone();
             try {
-                const data401 = await response.clone().json();
-                if (data401 && typeof data401.message === 'string' && data401.message.indexOf('未授权') !== -1) {
+                const data = await cloned.json();
+                if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
                     handleUnauthorizedFromApi();
                 }
             } catch (e) {}
         }
         return response;
+    } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+            // 返回一个模拟的 Response 对象，标记为超时
+            return {
+                ok: false,
+                status: 0,
+                statusText: 'Timeout',
+                json: async () => ({ success: false, message: '请求超时，请检查网络连接或联系管理员' }),
+                text: async () => '请求超时',
+                headers: new Headers()
+            };
+        }
+        throw e;
     }
-    const ct = response.headers.get('Content-Type') || '';
-    if (ct.includes('application/json')) {
-        const cloned = response.clone();
-        try {
-            const data = await cloned.json();
-            if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
-                handleUnauthorizedFromApi();
-            }
-        } catch (e) {}
-    }
-    return response;
 }
 
 /**
@@ -985,7 +1011,10 @@ async function handleLogin(e) {
 function handleLogout() {
     closeUserMgmtPanel(true);
     try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
-    try { window._qualityAuditDataLoaded = false; } catch (e) {}
+    try {
+        window._qualityAuditDataLoaded = false;
+        window._qualityAuditRulesLoaded = false;
+    } catch (e) {}
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;

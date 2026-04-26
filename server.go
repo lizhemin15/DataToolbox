@@ -2392,26 +2392,26 @@ func generateToken() string {
 func buildDSN(config *DatabaseConfig) (string, string, error) {
 	switch config.Type {
 	case "mysql", "mariadb":
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&readTimeout=30s&writeTimeout=30s",
 			config.User, config.Password, config.Host, config.Port, config.Database)
 		return "mysql", dsn, nil
 
 	case "postgresql", "timescaledb":
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=10",
 			config.Host, config.Port, config.User, config.Password, config.Database)
 		return "postgres", dsn, nil
 
 	case "sqlserver":
-		dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s",
+		dsn := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&connection+timeout=10",
 			config.User, config.Password, config.Host, config.Port, config.Database)
 		return "sqlserver", dsn, nil
 
 	case "oracle":
-		// 使用 go-ora 驱动，必须提供 SID 或服务名
+		// 使用 go-ora 驶动，必须提供 SID 或服务名
 		if config.Database == "" {
 			return "", "", fmt.Errorf("Oracle 连接需要填写 SID 或服务名（在「SID/服务名」中填写，例如 ORCL、XE）")
 		}
-		dsn := fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
+		dsn := fmt.Sprintf("oracle://%s:%s@%s:%d/%s?TIMEOUT=10",
 			config.User, config.Password, config.Host, config.Port, config.Database)
 		return "oracle", dsn, nil
 
@@ -2436,10 +2436,10 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 		encodedUser := url.QueryEscape(config.User)
 		encodedPassword := url.QueryEscape(config.Password)
 
-		dsn := fmt.Sprintf("dm://%s:%s@%s:%d",
+		dsn := fmt.Sprintf("dm://%s:%s@%s:%d?timeout=10",
 			encodedUser, encodedPassword, host, port)
 		if config.Database != "" {
-			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s",
+			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s?timeout=10",
 				encodedUser, encodedPassword, host, port, config.Database)
 		}
 
@@ -2464,13 +2464,13 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 
 	case "tidb":
 		// TiDB 兼容 MySQL 协议
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True",
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&timeout=10s&readTimeout=30s&writeTimeout=30s",
 			config.User, config.Password, config.Host, config.Port, config.Database)
 		return "mysql", dsn, nil
 
 	case "cockroachdb":
 		// CockroachDB 兼容 PostgreSQL 协议
-		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=10",
 			config.Host, config.Port, config.User, config.Password, config.Database)
 		return "postgres", dsn, nil
 

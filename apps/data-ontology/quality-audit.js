@@ -972,11 +972,19 @@
 
     window.initQualityAuditTab = function () {
         bindListeners();
-        if (window._qualityAuditDataLoaded) return;
-        window._qualityAuditDataLoaded = true;
-        loadRules().then(loadDatabases).then(loadFillRates).then(function () {
+        var needLoadRules = !window._qualityAuditRulesLoaded;
+        var chain = needLoadRules ? loadRules() : Promise.resolve();
+        if (needLoadRules) {
+            chain = chain.then(function () {
+                window._qualityAuditRulesLoaded = true;
+            });
+        }
+        chain.then(loadDatabases).then(loadFillRates).then(function () {
             return syncQaReportTemplateIdFromServer();
         }).catch(function (e) {
+            if (needLoadRules) {
+                window._qualityAuditRulesLoaded = false;
+            }
             showMsg(e.message || String(e), true);
         });
     };
