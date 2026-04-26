@@ -5963,6 +5963,52 @@ function handleStreamEvent(messageId, eventType, data, userMessage) {
             finalizeAiProcess(messageId);
             break;
             
+        case 'intent_selection_required':
+            statusEl.innerHTML = '';
+            const intentList = data.intents || [];
+            const intentUserQuery = data.user_query || '';
+            const detectedIntent = data.detected || {};
+            let intentSelectionHtml = `
+                <div class="ai-db-selection-card">
+                    <div class="ai-db-selection-header">
+                        <span style="font-size: 16px;">🤔</span>
+                        <span style="font-weight: 600; margin-left: 8px;">${escapeHtml(data.message)}</span>
+                    </div>
+            `;
+            
+            // 如果检测到低置信度意图，显示提示
+            if (detectedIntent.reason && detectedIntent.confidence > 0) {
+                intentSelectionHtml += `
+                    <div style="padding: 8px 16px; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; margin: 8px 0; font-size: 12px; color: #856404;">
+                        💡 检测到: ${escapeHtml(detectedIntent.reason)} (置信度 ${Math.round(detectedIntent.confidence * 100)}%)
+                    </div>
+                `;
+            }
+            
+            intentSelectionHtml += `<div class="ai-db-selection-body">`;
+            
+            intentList.forEach(intent => {
+                intentSelectionHtml += `
+                    <div class="ai-db-option" onclick="selectIntentAndRetry('${intent.id}', '${escapeHtml(intentUserQuery).replace(/'/g, "\\'")}', '${messageId}')" style="cursor: pointer; padding: 12px 16px; margin: 6px 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white; display: flex; align-items: center; justify-content: space-between; transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(102,126,234,0.4)';" onmouseout="this.style.transform='';this.style.boxShadow='';">
+                        <div>
+                            <div style="font-weight: 600; font-size: 14px;"><span style="margin-right: 6px;">${intent.icon}</span>${escapeHtml(intent.name)}</div>
+                            <div style="font-size: 11px; opacity: 0.8; margin-top: 2px;">${escapeHtml(intent.description)}</div>
+                        </div>
+                        <span style="font-size: 18px;">→</span>
+                    </div>
+                `;
+            });
+            
+            intentSelectionHtml += `
+                    </div>
+                </div>
+            `;
+            contentEl.innerHTML = intentSelectionHtml;
+            attemptsEl.style.display = 'none';
+            markStep('等待选择', '请选择操作类型', 'waiting');
+            finalizeAiProcess(messageId);
+            break;
+            
         case 'api_config_generated':
             statusEl.innerHTML = '';
             const config = data.config;
@@ -10896,6 +10942,103 @@ async function selectDatabaseAndRetry(dbId, userQuery, oldMessageId) {
             content: userQuery,
             databases: [dbId],
             modules: aiSessionContext.modules.map(m => m.id)
+        });
+        
+    } catch (err) {
+        console.error('AI 请求失败:', err);
+        const statusEl = document.getElementById(`${streamMessageId}-status`);
+        if (statusEl) {
+            statusEl.innerHTML = `<div class="ai-error">请求失败: ${escapeHtml(err.message)}</div>`;
+        }
+    }
+    
+    // 恢复发送按钮
+    const sendBtn = document.getElementById('aiSendBtn');
+    if (sendBtn) sendBtn.disabled = false;
+}
+
+// 用户选择意图后重新发起 AI 请求
+async function selectIntentAndRetry(intentId, userQuery, oldMessageId) {
+    // 意图名称映射
+    const intentNames = {
+        'db-manage': '通用提问',
+        'api-dispatch': '接口制作',
+        'data-governance': '数据治理',
+        'quality-audit': '质量审计',
+        'ontology': '本体查询',
+        'small-model': '小模型'
+    };
+    
+    // 更新旧消息，显示用户已选择
+    const oldContentEl = document.getElementById(`${oldMessageId}-content`);
+    if (oldContentEl) {
+        const intentName = intentNames[intentId] || intentId;
+        oldContentEl.innerHTML = `<div style="padding: 12px; background: #e6fffa; border-radius: 8px; border-left: 4px solid #38b2ac;">
+            <div style="font-size: 13px; color: #234e52;">已选择操作类型：<strong>${escapeHtml(intentName)}</strong></div>
+            <div style="font-size: 11px; color: #4a5568; margin-top: 4px;">正在继续处理您的请求...</div>
+        </div>`;
+    }
+    
+    // 更新上下文模块
+    aiSessionContext.modules = [{id: intentId, name: intentNames[intentId] || intentId}];
+    updateAiContextDisplay();
+    
+    // 发起新的 AI 请求
+    const streamMessageId = addAiStreamMessage();
+    
+    const currentDBs = aiSessionContext.databases.map(d => d.id);
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: userQuery,
+                databases: currentDBs,
+                modules: [intentId],
+                history: aiSessionContext.history.slice(-5)
+            })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, {stream: true});
+            const chunks = buffer.split(/\n\n+/);
+            buffer = chunks.pop() || '';
+            
+            for (const chunk of chunks) {
+                if (!chunk.trim()) continue;
+                const eventLines = chunk.split('\n');
+                let eventType = '';
+                const dataLines = [];
+                for (const line of eventLines) {
+                    if (line.startsWith('event:')) eventType = line.slice(6).trim();
+                    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+                }
+                if (!eventType || dataLines.length === 0) continue;
+                try {
+                    const data = JSON.parse(dataLines.join('\n'));
+                    handleStreamEvent(streamMessageId, eventType, data, userQuery);
+                } catch (err) {
+                    console.warn('SSE JSON parse failed', eventType, dataLines.join('\n'), err);
+                }
+            }
+        }
+        
+        // 记录到历史
+        aiSessionContext.history.push({
+            role: 'user',
+            content: userQuery,
+            databases: currentDBs,
+            modules: [intentId]
         });
         
     } catch (err) {

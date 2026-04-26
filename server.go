@@ -7068,6 +7068,42 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	for _, m := range queryReq.Modules {
 		moduleSet[m] = true
 	}
+	
+	// 如果没有明确指定模块，进行意图检测
+	if len(moduleSet) == 0 {
+		intent := detectUserIntent(queryReq.Message)
+		log.Printf("[AI Query] 意图检测: module=%s, confidence=%.2f, reason=%s", intent.DetectedModule, intent.Confidence, intent.Reason)
+		
+		// 置信度低于 0.7 时，返回意图选择卡片
+		if intent.Confidence < 0.7 {
+			intentOptions := []map[string]interface{}{
+				{"id": "db-manage", "name": "通用提问", "description": "查询数据、统计信息、了解表结构等", "icon": "💬"},
+				{"id": "api-dispatch", "name": "接口制作", "description": "创建 API 接口、生成数据服务", "icon": "🔌"},
+				{"id": "data-governance", "name": "数据治理", "description": "创建定时任务、数据导入导出", "icon": "⚙️"},
+				{"id": "quality-audit", "name": "质量审计", "description": "数据质量检查、校验规则", "icon": "✅"},
+				{"id": "ontology", "name": "本体查询", "description": "概念关系、语义分析", "icon": "🧠"},
+			}
+			
+			sendSSE(w, "intent_selection_required", map[string]interface{}{
+				"message":    "我不太确定您想要做什么，请选择一个操作类型：",
+				"intents":    intentOptions,
+				"user_query": queryReq.Message,
+				"detected":   intent,
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+		
+		// 高置信度意图，自动路由
+		if intent.DetectedModule != "" {
+			moduleSet[intent.DetectedModule] = true
+			sendSSE(w, "thinking", map[string]interface{}{
+				"message": fmt.Sprintf("检测到意图: %s，正在处理...", intent.Reason),
+			})
+			flusher.Flush()
+		}
+	}
 
 	if moduleSet["api-dispatch"] {
 		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig, aiCapabilities)
@@ -7091,12 +7127,6 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 
 	if moduleSet["ontology"] {
 		handleAIOntologyQuery(w, flusher, &queryReq, dbSchemas, aiConfig)
-		return
-	}
-
-	// 无模块时保留关键词检测兜底
-	if !moduleSet["db-manage"] && isCreateApiRequest(queryReq.Message) {
-		handleAICreateApi(w, flusher, &queryReq, dbSchemas, aiConfig, aiCapabilities)
 		return
 	}
 
@@ -8984,6 +9014,77 @@ func isCreateApiRequest(message string) bool {
 		}
 	}
 	return false
+}
+
+// IntentInfo 意图检测结果
+type IntentInfo struct {
+	DetectedModule string  `json:"detected_module,omitempty"`
+	Confidence     float64 `json:"confidence"`
+	Reason         string  `json:"reason"`
+}
+
+// detectUserIntent 检测用户意图，返回意图信息和置信度
+func detectUserIntent(message string) IntentInfo {
+	lowerMsg := strings.ToLower(message)
+	
+	// 接口创建关键词（高置信度）
+	apiKeywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "生成api", "创建api", "添加api"}
+	for _, kw := range apiKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "api-dispatch", Confidence: 0.95, Reason: "包含接口创建关键词: " + kw}
+		}
+	}
+	
+	// 数据治理关键词
+	governanceKeywords := []string{"创建任务", "新建任务", "生成任务", "定时任务", "交互任务", "数据治理", "定时执行", "文件导入"}
+	for _, kw := range governanceKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "data-governance", Confidence: 0.9, Reason: "包含数据治理关键词: " + kw}
+		}
+	}
+	
+	// 质量审计关键词
+	qualityKeywords := []string{"质量规则", "数据质量", "质量检查", "质量审计", "校验规则"}
+	for _, kw := range qualityKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "quality-audit", Confidence: 0.9, Reason: "包含质量审计关键词: " + kw}
+		}
+	}
+	
+	// 本体查询关键词
+	ontologyKeywords := []string{"本体", "概念", "实体关系", "语义"}
+	for _, kw := range ontologyKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "ontology", Confidence: 0.85, Reason: "包含本体相关关键词: " + kw}
+		}
+	}
+	
+	// 小模型关键词
+	smallModelKeywords := []string{"小模型", "本地模型", "离线模型"}
+	for _, kw := range smallModelKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "small-model", Confidence: 0.85, Reason: "包含小模型关键词: " + kw}
+		}
+	}
+	
+	// 询问数据库信息（中等置信度）
+	dbInfoKeywords := []string{"有哪些表", "什么表", "表结构", "字段有哪些", "数据库里有什么"}
+	for _, kw := range dbInfoKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "db-manage", Confidence: 0.8, Reason: "包含数据库查询关键词: " + kw}
+		}
+	}
+	
+	// 通用查询关键词（低置信度）
+	queryKeywords := []string{"查询", "统计", "有多少", "列出", "显示", "查找", "搜索"}
+	for _, kw := range queryKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "db-manage", Confidence: 0.5, Reason: "包含通用查询关键词: " + kw}
+		}
+	}
+	
+	// 未检测到明确意图
+	return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "未检测到明确意图"}
 }
 
 // isGovernanceTaskRequest 检测是否是数据治理任务相关请求（创建/生成/修改 定时或交互任务）
