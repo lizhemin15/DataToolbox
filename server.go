@@ -5738,17 +5738,35 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 标准化接口类型
-		if apiConfig.Type == "" {
-			apiConfig.Type = "query"
-		}
+	// 标准化接口类型
+	if apiConfig.Type == "" {
+		apiConfig.Type = "query"
+	}
 
-		// 验证必填字段
-		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
-			apiInvalidInput(w, "缺少必填字段")
+	// 验证必填字段
+	if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
+		apiInvalidInput(w, "缺少必填字段")
+		return
+	}
+
+	// 验证路径格式：必须是 /api/xxx/yyy（两级路径）
+	if !isValidApiPath(apiConfig.Path) {
+		apiInvalidInput(w, "接口路径格式错误，必须是 /api/xxx/yyy 格式（两级路径）")
+		return
+	}
+
+	// 验证 path+method 唯一性
+	dataOntologyMu.RLock()
+	for _, existingApi := range dataOntologyApis {
+		if existingApi.Path == apiConfig.Path && existingApi.Method == apiConfig.Method {
+			dataOntologyMu.RUnlock()
+			apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", apiConfig.Path, apiConfig.Method))
 			return
 		}
-		if apiConfig.Type == "forward" {
+	}
+	dataOntologyMu.RUnlock()
+
+	if apiConfig.Type == "forward" {
 			if apiConfig.ForwardURL == "" {
 				apiInvalidInput(w, "转发类型接口必须填写转发URL")
 				return
@@ -5875,14 +5893,32 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 更新字段
-		if apiUpdate.Name != "" {
-			api.Name = apiUpdate.Name
-		}
+		newPath := api.Path
+		newMethod := api.Method
 		if apiUpdate.Path != "" {
+			// 验证路径格式
+			if !isValidApiPath(apiUpdate.Path) {
+				dataOntologyMu.Unlock()
+				apiInvalidInput(w, "接口路径格式错误，必须是 /api/xxx/yyy 格式（两级路径）")
+				return
+			}
+			newPath = apiUpdate.Path
 			api.Path = apiUpdate.Path
 		}
 		if apiUpdate.Method != "" {
+			newMethod = apiUpdate.Method
 			api.Method = apiUpdate.Method
+		}
+		// 验证新的 path+method 唯一性（排除自身）
+		for _, existingApi := range dataOntologyApis {
+			if existingApi.ID != apiID && existingApi.Path == newPath && existingApi.Method == newMethod {
+				dataOntologyMu.Unlock()
+				apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", newPath, newMethod))
+				return
+			}
+		}
+		if apiUpdate.Name != "" {
+			api.Name = apiUpdate.Name
 		}
 		api.Type = updateType
 		if updateType == "query" {
@@ -9050,6 +9086,22 @@ func isCreateApiRequest(message string) bool {
 	return false
 }
 
+// isValidApiPath 验证 API 路径格式：必须是 /api/xxx/yyy（两级路径）
+func isValidApiPath(path string) bool {
+	// 路径必须以 /api/ 开头
+	if !strings.HasPrefix(path, "/api/") {
+		return false
+	}
+	// 去掉 /api/ 前缀后，必须有两级路径（xxx/yyy）
+	rest := strings.TrimPrefix(path, "/api/")
+	parts := strings.Split(rest, "/")
+	// 必须有两部分，且每部分不为空
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	return true
+}
+
 // IntentInfo 意图检测结果
 type IntentInfo struct {
 	DetectedModule string  `json:"detected_module,omitempty"`
@@ -9546,8 +9598,20 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 	})
 	flusher.Flush()
 
+	// 获取已有接口列表，用于路径唯一性校验和分类参考
+	dataOntologyMu.RLock()
+	existingApis := make([]map[string]interface{}, 0, len(dataOntologyApis))
+	for _, api := range dataOntologyApis {
+		existingApis = append(existingApis, map[string]interface{}{
+			"name":   api.Name,
+			"path":   api.Path,
+			"method": api.Method,
+		})
+	}
+	dataOntologyMu.RUnlock()
+
 	// 构建创建接口的提示词
-	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas)
+	prompt := buildCreateApiPrompt(queryReq.Message, dbSchemas, existingApis)
 
 	// 重试机制：最多重试3次
 	maxRetries := 3
@@ -9575,7 +9639,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			}
 			// 解析失败，构建重试提示词
 			if attempt < maxRetries {
-				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, "无法解析接口配置: "+parseError, aiResponse)
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, "无法解析接口配置: "+parseError, aiResponse)
 				continue
 			}
 			// 最后一次尝试仍然失败
@@ -9597,7 +9661,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 				log.Printf("SQL静态校验失败（第%d次尝试）: %s", attempt, validationError)
 				// 验证失败，构建重试提示词
 				if attempt < maxRetries {
-					prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, validationError, aiResponse)
+					prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, validationError, aiResponse)
 					continue
 				}
 				// 最后一次尝试仍然失败
@@ -9625,7 +9689,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 					log.Printf("SQL执行校验失败（第%d次尝试）: %s", attempt, execError)
 					// 执行校验失败，构建重试提示词
 					if attempt < maxRetries {
-						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, execError, aiResponse)
+						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, execError, aiResponse)
 						continue
 					}
 					// 最后一次尝试仍然失败
@@ -9662,7 +9726,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 }
 
 // buildCreateApiPrompt 构建创建接口的提示词
-func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}) string {
+func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}, existingApis []map[string]interface{}) string {
 	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求和以下真实数据库结构生成接口配置。\n\n"
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL：\n\n"
 
@@ -9692,6 +9756,28 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
 		}
 		prompt += "\n"
+	}
+
+	// 添加已有接口信息
+	if len(existingApis) > 0 {
+		prompt += "\n【已有接口列表】\n"
+		prompt += "以下是系统中已存在的接口，供您参考：\n\n"
+		for i, api := range existingApis {
+			name, _ := api["name"].(string)
+			path, _ := api["path"].(string)
+			method, _ := api["method"].(string)
+			prompt += fmt.Sprintf("%d. %s - %s %s\n", i+1, name, method, path)
+		}
+		prompt += "\n【重要提示】\n"
+		prompt += "1. 新接口的 path + method 组合不能与已有接口重复\n"
+		prompt += "2. 请分析新接口是否属于某个已有的一级分类（path中的 /api/xxx/ 部分）\n"
+		prompt += "   - 如果属于已有分类，请使用相同的一级分类路径\n"
+		prompt += "   - 如果不属于已有分类，可以创建新的一级分类\n"
+		prompt += "3. 例如：已有 /api/users/list，新接口可以是 /api/users/detail（属于同一分类）\n"
+		prompt += "         或创建新分类 /api/products/list（属于不同分类）\n\n"
+	} else {
+		prompt += "\n【已有接口列表】\n"
+		prompt += "当前系统中暂无已有接口，您可以创建第一个接口。\n\n"
 	}
 
 	prompt += "\n用户需求：" + userMessage + "\n\n"
@@ -9733,7 +9819,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 }
 
 // buildCreateApiRetryPrompt 构建重试提示词，告知AI之前的错误
-func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, errorMsg string, lastResponse string) string {
+func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, existingApis []map[string]interface{}, errorMsg string, lastResponse string) string {
 	prompt := "你之前的接口配置存在问题，请根据以下错误信息重新生成。\n\n"
 	prompt += "【错误信息】\n"
 	prompt += errorMsg + "\n\n"
@@ -9767,6 +9853,28 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
 		}
 		prompt += "\n"
+	}
+
+	// 添加已有接口信息
+	if len(existingApis) > 0 {
+		prompt += "\n【已有接口列表】\n"
+		prompt += "以下是系统中已存在的接口，供您参考：\n\n"
+		for i, api := range existingApis {
+			name, _ := api["name"].(string)
+			path, _ := api["path"].(string)
+			method, _ := api["method"].(string)
+			prompt += fmt.Sprintf("%d. %s - %s %s\n", i+1, name, method, path)
+		}
+		prompt += "\n【重要提示】\n"
+		prompt += "1. 新接口的 path + method 组合不能与已有接口重复\n"
+		prompt += "2. 请分析新接口是否属于某个已有的一级分类（path中的 /api/xxx/ 部分）\n"
+		prompt += "   - 如果属于已有分类，请使用相同的一级分类路径\n"
+		prompt += "   - 如果不属于已有分类，可以创建新的一级分类\n"
+		prompt += "3. 例如：已有 /api/users/list，新接口可以是 /api/users/detail（属于同一分类）\n"
+		prompt += "         或创建新分类 /api/products/list（属于不同分类）\n\n"
+	} else {
+		prompt += "\n【已有接口列表】\n"
+		prompt += "当前系统中暂无已有接口，您可以创建第一个接口。\n\n"
 	}
 
 	prompt += "\n原始用户需求：" + userMessage + "\n\n"
