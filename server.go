@@ -5743,6 +5743,10 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 		apiConfig.Type = "query"
 	}
 
+	// 标准化 path 和 method
+	apiConfig.Path = strings.ToLower(strings.TrimSpace(apiConfig.Path))
+	apiConfig.Method = strings.ToUpper(strings.TrimSpace(apiConfig.Method))
+
 	// 验证必填字段
 	if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
 		apiInvalidInput(w, "缺少必填字段")
@@ -5758,7 +5762,7 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 	// 验证 path+method 唯一性
 	dataOntologyMu.RLock()
 	for _, existingApi := range dataOntologyApis {
-		if existingApi.Path == apiConfig.Path && existingApi.Method == apiConfig.Method {
+		if existingApi.Path == apiConfig.Path && strings.EqualFold(existingApi.Method, apiConfig.Method) {
 			dataOntologyMu.RUnlock()
 			apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", apiConfig.Path, apiConfig.Method))
 			return
@@ -5896,22 +5900,26 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 		newPath := api.Path
 		newMethod := api.Method
 		if apiUpdate.Path != "" {
+			// 标准化路径
+			normalizedPath := strings.ToLower(strings.TrimSpace(apiUpdate.Path))
 			// 验证路径格式
-			if !isValidApiPath(apiUpdate.Path) {
+			if !isValidApiPath(normalizedPath) {
 				dataOntologyMu.Unlock()
 				apiInvalidInput(w, "接口路径格式错误，必须是 /api/xxx/yyy 格式（两级路径）")
 				return
 			}
-			newPath = apiUpdate.Path
-			api.Path = apiUpdate.Path
+			newPath = normalizedPath
+			api.Path = normalizedPath
 		}
 		if apiUpdate.Method != "" {
-			newMethod = apiUpdate.Method
-			api.Method = apiUpdate.Method
+			// 标准化方法
+			normalizedMethod := strings.ToUpper(strings.TrimSpace(apiUpdate.Method))
+			newMethod = normalizedMethod
+			api.Method = normalizedMethod
 		}
 		// 验证新的 path+method 唯一性（排除自身）
 		for _, existingApi := range dataOntologyApis {
-			if existingApi.ID != apiID && existingApi.Path == newPath && existingApi.Method == newMethod {
+			if existingApi.ID != apiID && existingApi.Path == newPath && strings.EqualFold(existingApi.Method, newMethod) {
 				dataOntologyMu.Unlock()
 				apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", newPath, newMethod))
 				return
@@ -9088,6 +9096,14 @@ func isCreateApiRequest(message string) bool {
 
 // isValidApiPath 验证 API 路径格式：必须是 /api/xxx/yyy（两级路径）
 func isValidApiPath(path string) bool {
+	// 去除首尾空格
+	path = strings.TrimSpace(path)
+
+	// 拒绝路径中包含空格
+	if strings.Contains(path, " ") {
+		return false
+	}
+
 	// 路径必须以 /api/ 开头
 	if !strings.HasPrefix(path, "/api/") {
 		return false
@@ -9783,8 +9799,8 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "\n用户需求：" + userMessage + "\n\n"
 	prompt += "请生成接口配置，必须包含以下信息：\n"
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
-	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格）\n"
-	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE）\n"
+	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格，全部小写）\n"
+	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE，全部大写）\n"
 	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
 	prompt += "5. description: 接口描述\n"
 	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
@@ -9880,8 +9896,8 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 	prompt += "\n原始用户需求：" + userMessage + "\n\n"
 	prompt += "请修正错误，重新生成接口配置，必须包含以下信息：\n"
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
-	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格）\n"
-	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE）\n"
+	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格，全部小写）\n"
+	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE，全部大写）\n"
 	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
 	prompt += "5. description: 接口描述\n"
 	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
@@ -10000,6 +10016,14 @@ func parseApiConfigFromAI(response string, dbSchemas []map[string]interface{}) (
 		if _, exists := config[field]; !exists {
 			return nil, fmt.Sprintf("缺少必需字段: %s", field)
 		}
+	}
+
+	// 标准化 path 和 method
+	if path, ok := config["path"].(string); ok {
+		config["path"] = strings.ToLower(strings.TrimSpace(path))
+	}
+	if method, ok := config["method"].(string); ok {
+		config["method"] = strings.ToUpper(strings.TrimSpace(method))
 	}
 
 	// 添加数据库ID
