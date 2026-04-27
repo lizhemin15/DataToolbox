@@ -11458,9 +11458,7 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		task.CronExpr = update.CronExpr
 		task.InputType = update.InputType
-		if update.AcceptExts != nil {
-			task.AcceptExts = update.AcceptExts
-		}
+		task.AcceptExts = update.AcceptExts
 		task.FileBatchMode = update.FileBatchMode
 		task.Enabled = update.Enabled
 		// API 注册字段
