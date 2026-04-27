@@ -38,6 +38,12 @@ export interface GovHelper {
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
   readCSV(text: string): Promise<any[][]>;
   readWord(file: FileLike): Promise<{ value: string }>;
+  parseWordStructure(file: FileLike, options?: Record<string, any>): Promise<{
+    title: string;
+    sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+    tables: Array<{ headers: string[]; rows: string[][] }>;
+    rawText: string;
+  }>;
   querySQL(sql: string, params?: any[]): Promise<any[]>;
   executeSQL(sql: string, params?: any[]): Promise<number>;
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
@@ -138,6 +144,149 @@ export function createGovHelper(
       });
       const value = texts.join('');
       return { value };
+    },
+
+    async parseWordStructure(file: FileLike, options: Record<string, any> = {}): Promise<{
+      title: string;
+      sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+      tables: Array<{ headers: string[]; rows: string[][] }>;
+      rawText: string;
+    }> {
+      if (!file) throw new Error('缺少文件');
+      const arrayBuffer = await file.arrayBuffer();
+      // 复用 readWord 的文本提取逻辑
+      const buf = Buffer.from(arrayBuffer);
+      const zip = new PizZip(buf);
+      const docXml = zip.file('word/document.xml');
+      if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
+      const xml = docXml.asText() || '';
+
+      // 从 XML 中提取 <w:p> 段落，每个段落合并其 <w:t> 文本
+      // 同时尝试从 <w:pStyle w:val="HeadingX"/> 识别标题级别
+      const paraRegex = /<w:p[ >][\s\S]*?<\/w:p>/g;
+      const paragraphs: Array<{ text: string; headingLevel: number }> = [];
+      let m: RegExpExecArray | null;
+      while ((m = paraRegex.exec(xml)) !== null) {
+        const paraXml = m[0];
+        // 提取段落文本
+        const tMatches = paraXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+        const text = tMatches.map(tm => {
+          const tm2 = tm.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+          return tm2 ? tm2[1] : '';
+        }).join('');
+        if (!text.trim()) continue;
+        // 检测标题样式
+        let headingLevel = 0;
+        const styleMatch = paraXml.match(/<w:pStyle[^>]*w:val="Heading(\d+)"[^>]*\/?>/i)
+          || paraXml.match(/<w:pStyle[^>]*w:val="(\d)"[^>]*\/?>/);  // 某些样式只用数字
+        if (styleMatch) {
+          headingLevel = parseInt(styleMatch[1], 10);
+        }
+        paragraphs.push({ text: text.trim(), headingLevel });
+      }
+
+      const rawText = paragraphs.map(p => p.text).join('\n');
+      const maxLen = options.maxTextLength || 50000;
+      const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
+
+      // 公文标题正则
+      const titlePatterns: RegExp[] = [
+        /^[一二三四五六七八九十]+、[^\n]+/,
+        /^（[一二三四五六七八九十]+）[^\n]+/,
+        /^\d+[\\.、．][^\n]+/,
+        /^（\d+）[^\n]+/,
+        /^[（(][一二三四五六七八九十\d]+[）)][^\n]+/
+      ];
+
+      const lines = text.split(/\r?\n/);
+      const sections: Array<{ level: number; title: string; paragraphs: string[] }> = [];
+      const tables: Array<{ headers: string[]; rows: string[][]; _building?: boolean }> = [];
+      let currentSection: typeof sections[0] | null = null;
+      let title = '';
+
+      // 识别文档标题
+      for (let i = 0; i < Math.min(10, lines.length); i++) {
+        const line = lines[i].trim();
+        if (line && line.length > 2 && line.length < 100) {
+          let isChapterTitle = false;
+          for (const pattern of titlePatterns) {
+            if (pattern.test(line)) { isChapterTitle = true; break; }
+          }
+          if (!isChapterTitle) { title = line; break; }
+        }
+      }
+
+      // 如果有 XML 样式标题信息，优先使用
+      const hasHeadingStyles = paragraphs.some(p => p.headingLevel > 0);
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        let matchedLevel = 0;
+        let matchedTitle = '';
+
+        // 优先使用 XML 样式标题
+        if (hasHeadingStyles) {
+          const paraInfo = paragraphs.find(p => p.text === line);
+          if (paraInfo && paraInfo.headingLevel > 0) {
+            matchedLevel = paraInfo.headingLevel;
+            matchedTitle = line;
+          }
+        }
+
+        // 回退到正则匹配
+        if (matchedLevel === 0) {
+          const m1 = line.match(/^([一二三四五六七八九十]+)、(.*)$/);
+          if (m1) { matchedLevel = 1; matchedTitle = line; }
+          const m2 = line.match(/^（([一二三四五六七八九十]+)）(.*)$/);
+          if (m2) { matchedLevel = 2; matchedTitle = line; }
+          const m3 = line.match(/^(\d+)[\\.、．](.*)$/);
+          if (m3) { matchedLevel = 3; matchedTitle = line; }
+          const m4 = line.match(/^（(\d+)）(.*)$/);
+          if (m4) { matchedLevel = 4; matchedTitle = line; }
+        }
+
+        if (matchedLevel > 0) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: matchedLevel, title: matchedTitle, paragraphs: [] };
+        } else if (currentSection) {
+          if (line.length > 0) currentSection.paragraphs.push(line);
+        } else {
+          const preface = sections.find(s => s.level === 0);
+          if (!preface) {
+            currentSection = { level: 0, title: '前言', paragraphs: [line] };
+            sections.push(currentSection);
+          } else {
+            preface.paragraphs.push(line);
+          }
+        }
+
+        // 简单表格检测
+        if (line.includes('\t') || line.includes('|')) {
+          const cells = line.split(/[\t|]+/).filter(c => c.trim());
+          if (cells.length >= 2) {
+            const lastTable = tables.length > 0 ? tables[tables.length - 1] : null;
+            if (lastTable && (lastTable as any)._building) {
+              lastTable.rows.push(cells);
+            } else {
+              tables.push({ headers: cells, rows: [], _building: true });
+            }
+          }
+        } else {
+          if (tables.length > 0) {
+            const lastTable = tables[tables.length - 1];
+            if ((lastTable as any)._building) {
+              delete (lastTable as any)._building;
+            }
+          }
+        }
+      }
+
+      if (currentSection) sections.push(currentSection);
+      for (const t of tables) delete (t as any)._building;
+
+      return { title, sections, tables, rawText: text };
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
