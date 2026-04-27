@@ -8082,6 +8082,163 @@ function createGovHelper(logLines, uploadedFiles) {
             const outName = /\.json$/i.test(filename) ? filename : `${filename}.json`;
             _govDownloadBlob(blob, outName);
         },
+        /**
+         * 解析 Word 文档结构，识别公文格式的标题层级、段落、表格等。
+         * @param {File|Blob} file - Word 文件对象
+         * @param {Object} options - 可选配置 { maxTextLength?: number }
+         * @returns {Promise<{title: string, sections: Array, tables: Array, rawText: string}>}
+         */
+        async parseWordStructure(file, options = {}) {
+            if (!file) throw new Error('缺少文件');
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const rawText = result.value || '';
+            const maxLen = options.maxTextLength || 50000;
+            const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
+
+            // 公文标题正则：一、二、三、... 或 （一）（二）... 或 1. 2. ... 或 （1）（2）...
+            const titlePatterns = [
+                /^[一二三四五六七八九十]+、[^\n]+/,           // 一、标题
+                /^（[一二三四五六七八九十]+）[^\n]+/,         // （一）标题
+                /^\d+[\.、．][^\n]+/,                        // 1. 标题
+                /^（\d+）[^\n]+/,                            // （1）标题
+                /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/ // 混合括号
+            ];
+
+            const lines = text.split(/\r?\n/);
+            const sections = [];
+            const tables = [];
+            let currentSection = null;
+            let title = '';
+
+            // 尝试识别文档标题（第一个非空行，通常是大标题）
+            for (let i = 0; i < Math.min(10, lines.length); i++) {
+                const line = lines[i].trim();
+                if (line && line.length > 2 && line.length < 100) {
+                    // 检查是否是章节标题
+                    let isChapterTitle = false;
+                    for (const pattern of titlePatterns) {
+                        if (pattern.test(line)) {
+                            isChapterTitle = true;
+                            break;
+                        }
+                    }
+                    if (!isChapterTitle) {
+                        title = line;
+                        break;
+                    }
+                }
+            }
+
+            // 解析章节和段落
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                let matchedLevel = 0;
+                let matchedTitle = '';
+
+                // 检测一级标题：一、二、三、
+                const m1 = line.match(/^([一二三四五六七八九十]+)、(.*)$/);
+                if (m1) {
+                    matchedLevel = 1;
+                    matchedTitle = line;
+                }
+
+                // 检测二级标题：（一）（二）
+                const m2 = line.match(/^（([一二三四五六七八九十]+)）(.*)$/);
+                if (m2) {
+                    matchedLevel = 2;
+                    matchedTitle = line;
+                }
+
+                // 检测三级标题：1. 2. 或 1、2、
+                const m3 = line.match(/^(\d+)[\.、．](.*)$/);
+                if (m3) {
+                    matchedLevel = 3;
+                    matchedTitle = line;
+                }
+
+                // 检测四级标题：（1）（2）
+                const m4 = line.match(/^（(\d+)）(.*)$/);
+                if (m4) {
+                    matchedLevel = 4;
+                    matchedTitle = line;
+                }
+
+                if (matchedLevel > 0) {
+                    // 保存上一个 section
+                    if (currentSection) {
+                        sections.push(currentSection);
+                    }
+                    currentSection = {
+                        level: matchedLevel,
+                        title: matchedTitle,
+                        paragraphs: []
+                    };
+                } else if (currentSection) {
+                    // 添加到当前 section 的段落
+                    if (line.length > 0) {
+                        currentSection.paragraphs.push(line);
+                    }
+                } else {
+                    // 还没有遇到标题，可能是前言
+                    if (!sections.find(s => s.level === 0)) {
+                        sections.push({
+                            level: 0,
+                            title: '前言',
+                            paragraphs: [line]
+                        });
+                        currentSection = sections[sections.length - 1];
+                    } else if (sections.length > 0) {
+                        sections[sections.length - 1].paragraphs.push(line);
+                    }
+                }
+
+                // 简单的表格检测：连续包含多个制表符或 | 分隔的行
+                if (line.includes('\t') || line.includes('|')) {
+                    const cells = line.split(/[\t|]+/).filter(c => c.trim());
+                    if (cells.length >= 2) {
+                        // 尝试识别表格
+                        const lastTable = tables.length > 0 ? tables[tables.length - 1] : null;
+                        if (lastTable && lastTable._building) {
+                            lastTable.rows.push(cells);
+                        } else {
+                            tables.push({
+                                headers: cells,
+                                rows: [],
+                                _building: true
+                            });
+                        }
+                    }
+                } else {
+                    // 结束表格构建
+                    if (tables.length > 0) {
+                        const lastTable = tables[tables.length - 1];
+                        if (lastTable._building) {
+                            delete lastTable._building;
+                        }
+                    }
+                }
+            }
+
+            // 保存最后一个 section
+            if (currentSection) {
+                sections.push(currentSection);
+            }
+
+            // 清理表格对象中的临时属性
+            for (const t of tables) {
+                delete t._building;
+            }
+
+            return {
+                title,
+                sections,
+                tables,
+                rawText: text
+            };
+        },
     };
 }
 

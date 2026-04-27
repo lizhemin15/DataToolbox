@@ -45,6 +45,12 @@ const GOV_API_SECTIONS = [
                 example: 'const result = await gov.readWord(INPUT_FILE);\nconst text = result.value;\ngov.log(\'字数: \' + text.length);'
             },
             {
+                name: 'gov.parseWordStructure',
+                signature: 'await gov.parseWordStructure(file, options?) → {title, sections, tables, rawText}',
+                desc: '解析 Word 文档结构，识别公文格式的标题层级（一、二、三、 / （一）（二） / 1. 2. / （1）（2））、段落、表格等。返回结构化数据，便于后续处理。',
+                example: 'const structure = await gov.parseWordStructure(INPUT_FILE);\ngov.log(\'文档标题: \' + structure.title);\ngov.log(\'章节数: \' + structure.sections.length);\nstructure.sections.forEach(s => gov.log(s.title + \': \' + s.paragraphs.length + \'段\'));'
+            },
+            {
                 name: 'gov.writeExcel',
                 signature: 'gov.writeExcel(filename, data, options?)',
                 desc: '从空白生成 Excel 并下载。data 为二维数组或对象数组；options 可选 { sheetName }。若需基于已有 .xlsx 模板只填单元格，请用 gov.fillExcelTemplate。',
