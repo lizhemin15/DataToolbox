@@ -2120,14 +2120,19 @@ textarea#testApiParams {
 }
 
 .ai-message-avatar {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 15px;
     flex-shrink: 0;
+    overflow: hidden;
+}
+
+.ai-message-avatar svg {
+    width: 100%;
+    height: 100%;
 }
 
 .ai-message.user .ai-message-avatar {
@@ -2135,7 +2140,8 @@ textarea#testApiParams {
 }
 
 .ai-message.assistant .ai-message-avatar {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
 .ai-message-content {

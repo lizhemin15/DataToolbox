@@ -3860,7 +3860,7 @@ async function handleAddApi(e) {
                     const messageId = 'msg-success-' + Date.now();
                     const messageHtml = `
                         <div class="ai-message assistant" id="${messageId}">
-                            <div class="ai-message-avatar">?</div>
+                            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
                             <div class="ai-message-content">
                                 <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
                                     <strong>创建成功</strong><br>
@@ -5280,6 +5280,39 @@ async function handleSendAiMessage() {
     }
 }
 
+// 生成用户头像 SVG
+function getUserAvatarSvg() {
+    return `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="16" fill="url(#userGrad)"/>
+        <circle cx="16" cy="12" r="5" fill="white"/>
+        <path d="M8 26c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="white"/>
+        <defs>
+            <linearGradient id="userGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#667eea"/>
+                <stop offset="100%" stop-color="#764ba2"/>
+            </linearGradient>
+        </defs>
+    </svg>`;
+}
+
+// 生成 AI 助手头像 SVG
+function getAiAvatarSvg() {
+    return `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="16" fill="url(#aiGrad)"/>
+        <rect x="10" y="10" width="12" height="10" rx="2" fill="white"/>
+        <circle cx="13" cy="14" r="1.5" fill="#6366f1"/>
+        <circle cx="19" cy="14" r="1.5" fill="#6366f1"/>
+        <path d="M13 17h6" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M16 8v2M12 9l1 1.5M20 9l-1 1.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        <defs>
+            <linearGradient id="aiGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#8b5cf6"/>
+            </linearGradient>
+        </defs>
+    </svg>`;
+}
+
 // 添加 AI 消息。
 function addAiMessage(role, content) {
     const messagesEl = document.getElementById('aiChatMessages');
@@ -5291,7 +5324,7 @@ function addAiMessage(role, content) {
         welcomeMsg.remove();
     }
     
-    const avatar = role === 'user' ? '我' : 'AI';
+    const avatar = role === 'user' ? getUserAvatarSvg() : getAiAvatarSvg();
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     // 保留 HTML 片段并对普通文本做转义。
@@ -5351,7 +5384,7 @@ function addAiAssistantMessage(content, sql, results) {
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
     
-    const avatar = 'AI';
+    const avatar = getAiAvatarSvg();
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     let resultHtml = '';
@@ -5427,7 +5460,7 @@ function addAiAssistantMessageWithRetries(content, sql, results, attempts, retri
     const messagesEl = document.getElementById('aiChatMessages');
     const messageId = 'msg-' + Date.now();
     
-    const avatar = 'AI';
+    const avatar = getAiAvatarSvg();
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     let resultHtml = '';
@@ -5522,7 +5555,7 @@ function showAiErrorWithAttempts(message, attempts) {
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">AI</div>
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
             <div class="ai-message-content">
                 <div class="ai-error">
                     <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(message)}</div>
@@ -5641,7 +5674,7 @@ function addAiStreamMessage() {
         welcomeMsg.remove();
     }
     
-    const avatar = 'AI';
+    const avatar = getAiAvatarSvg();
     const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     
     const messageHtml = `
@@ -6191,7 +6224,7 @@ function addAiLoadingMessage() {
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">AI</div>
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
             <div class="ai-message-content">
                 <div class="ai-message-bubble">
                     <div class="ai-loading">
@@ -6225,7 +6258,7 @@ function showAiError(message) {
     
     const messageHtml = `
         <div class="ai-message assistant" id="${messageId}">
-            <div class="ai-message-avatar">助手</div>
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
             <div class="ai-message-content">
                 <div class="ai-error">${escapeHtml(message)}</div>
             </div>
@@ -6369,7 +6402,7 @@ function clearAiContext() {
         const messageId = 'msg-clear-' + Date.now();
         const messageHtml = `
             <div class="ai-message assistant" id="${messageId}" style="opacity: 0.8;">
-                <div class="ai-message-avatar">AI</div>
+                <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
                 <div class="ai-message-content">
                     <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
                         当前上下文已清空，可继续通过 @ 选择数据库或模块。
