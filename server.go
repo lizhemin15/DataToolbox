@@ -11433,18 +11433,12 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
 			return
 		}
-		if update.Name != "" {
-			task.Name = update.Name
-		}
-		if update.Type != "" {
-			task.Type = update.Type
-		}
-		if update.Description != "" {
-			task.Description = update.Description
-		}
-		if update.JsCode != "" {
-			task.JsCode = update.JsCode
-		}
+		// Direct assignments - frontend always sends all fields, including empty strings
+		task.Name = update.Name
+		task.Type = update.Type
+		task.Description = update.Description
+		task.JsCode = update.JsCode
+		// DatabaseID needs validation - only update if non-empty and valid
 		if update.DatabaseID != "" {
 			dc, dcOk := dataOntologyDatabases[update.DatabaseID]
 			if !dcOk || !dataOntologyResourceVisible(dc.Owner, username) {
@@ -11454,27 +11448,16 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			task.DatabaseID = update.DatabaseID
 		}
-		if update.Runtime != "" {
-			task.Runtime = update.Runtime
-		}
-		if update.RunMode != "" {
-			task.RunMode = update.RunMode
-		}
-		if update.ExecutionMode != "" {
-			task.ExecutionMode = update.ExecutionMode
-		}
-		if task.RunMode == "" {
+		task.Runtime = update.Runtime
+		task.RunMode = update.RunMode
+		task.ExecutionMode = update.ExecutionMode
+		// Backfill run_mode/execution_mode only if BOTH are empty (legacy compatibility)
+		if task.RunMode == "" && task.ExecutionMode == "" {
 			task.RunMode = task.Runtime
-		}
-		if task.ExecutionMode == "" {
 			task.ExecutionMode = task.RunMode
 		}
-		if update.CronExpr != "" {
-			task.CronExpr = update.CronExpr
-		}
-		if update.InputType != "" {
-			task.InputType = update.InputType
-		}
+		task.CronExpr = update.CronExpr
+		task.InputType = update.InputType
 		if update.AcceptExts != nil {
 			task.AcceptExts = update.AcceptExts
 		}
@@ -11487,21 +11470,6 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if update.APIMethod != "" {
 			task.APIMethod = update.APIMethod
-		}
-		if update.Runtime != "" {
-			task.Runtime = update.Runtime
-		}
-		if update.RunMode != "" {
-			task.RunMode = update.RunMode
-		}
-		if update.ExecutionMode != "" {
-			task.ExecutionMode = update.ExecutionMode
-		}
-		if task.RunMode == "" {
-			task.RunMode = task.Runtime
-		}
-		if task.ExecutionMode == "" {
-			task.ExecutionMode = task.RunMode
 		}
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()

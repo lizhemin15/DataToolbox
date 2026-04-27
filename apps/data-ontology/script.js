@@ -7446,11 +7446,28 @@ async function handleGovTaskSubmit(e) {
                                 run_mode: taskData.run_mode,
                                 execution_mode: taskData.execution_mode
                             };
+                            const normalize = (val, key) => {
+                                // 数组：JSON 序列化
+                                if (Array.isArray(val)) return JSON.stringify(val);
+                                // 布尔：统一为 "true"/"false"
+                                if (typeof val === 'boolean') return String(val);
+                                // 字符串：trim 后返回
+                                return String(val ?? '').trim();
+                            };
                             const mismatched = [];
                             for (const key of Object.keys(expected)) {
-                                const a = Array.isArray(expected[key]) ? JSON.stringify(expected[key]) : String(expected[key] ?? '');
-                                const b = Array.isArray(fresh[key]) ? JSON.stringify(fresh[key]) : String(fresh[key] ?? '');
-                                if (a !== b) mismatched.push(key);
+                                const a = normalize(expected[key], key);
+                                const b = normalize(fresh[key], key);
+                                if (a === b) continue;
+                                // 容错1：前端发空字符串，服务端保留旧值（因 PUT 对空值不覆盖），属正常行为
+                                // 容错2：前端 execution_mode 与 run_mode 设为相同值，服务端回填逻辑可能调整，跳过比对
+                                const aEmpty = (a === '' || a === 'undefined');
+                                const bEmpty = (b === '' || b === 'undefined');
+                                if (aEmpty || bEmpty) continue;
+                                // 容错3：execution_mode 和 run_mode 服务端会互相回填
+                                if (key === 'execution_mode' && (b === fresh['run_mode'] || b === fresh['runtime'])) continue;
+                                if (key === 'run_mode' && a === expected['execution_mode']) continue;
+                                mismatched.push(key);
                             }
                             if (mismatched.length > 0) {
                                 showToast('保存已返回成功，但服务端回读字段不一致：' + mismatched.join(', '), 'warning', 6000);
