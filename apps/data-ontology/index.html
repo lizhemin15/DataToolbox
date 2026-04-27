@@ -690,6 +690,14 @@
                             </div>
                             <small class="mcp-hint">与「接口分发」中的 API Key 共用；在 MCP 客户端中用于认证。</small>
                         </div>
+                        <div class="mcp-info-item">
+                            <label>MCP 端口</label>
+                            <div class="mcp-info-value-wrap">
+                                <input type="number" id="mcpPortInput" class="form-input" placeholder="0 (使用主服务器端口)" min="0" max="65535" style="width: 200px;">
+                                <button type="button" class="btn btn-sm btn-primary" id="mcpSavePortBtn">保存</button>
+                            </div>
+                            <small class="mcp-hint">设置为 0 或留空使用主服务器端口；修改后需重启服务生效。</small>
+                        </div>
                     </div>
                 </div>
                 <div class="mcp-section">
@@ -712,6 +720,42 @@
                     <div class="mcp-steps" id="mcpStepsContent">
                         <h4>步骤</h4>
                         <ol id="mcpStepsList"></ol>
+                    </div>
+                </div>
+                <div class="mcp-section">
+                    <h3>🛡️ 安全配置</h3>
+                    <p class="mcp-desc">配置 MCP SQL 执行的安全限制，防止危险操作。</p>
+                    <div class="mcp-safety-config">
+                        <div class="mcp-safety-row">
+                            <label class="switch-wrap">
+                                <input type="checkbox" id="mcpReadOnlyMode" onchange="saveMcpSafeConfig()">
+                                <span class="switch-slider"></span>
+                            </label>
+                            <div class="mcp-safety-label">
+                                <strong>只读模式</strong>
+                                <small>仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN 查询，禁止所有写操作</small>
+                            </div>
+                        </div>
+                        <div class="mcp-safety-row">
+                            <label class="switch-wrap">
+                                <input type="checkbox" id="mcpBlockDangerous" onchange="saveMcpSafeConfig()">
+                                <span class="switch-slider"></span>
+                            </label>
+                            <div class="mcp-safety-label">
+                                <strong>阻止危险操作</strong>
+                                <small>阻止 DROP、DELETE、TRUNCATE、ALTER、GRANT 等危险 SQL 关键词</small>
+                            </div>
+                        </div>
+                        <div class="mcp-safety-row mcp-safety-textarea">
+                            <label>自定义阻止关键词</label>
+                            <textarea id="mcpBlockedKeywords" placeholder="每行一个关键词，如：&#10;INSERT&#10;UPDATE&#10;TRUNCATE" onchange="saveMcpSafeConfig()"></textarea>
+                            <small>额外要阻止的 SQL 关键词，每行一个</small>
+                        </div>
+                        <div class="mcp-safety-row mcp-safety-textarea">
+                            <label>允许操作的表白名单</label>
+                            <textarea id="mcpAllowedTables" placeholder="每行一个表名，如：&#10;users&#10;orders&#10;products" onchange="saveMcpSafeConfig()"></textarea>
+                            <small>留空则不限制；填写后仅允许操作这些表</small>
+                        </div>
                     </div>
                 </div>
                 <div class="mcp-section">

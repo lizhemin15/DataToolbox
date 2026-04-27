@@ -1063,6 +1063,8 @@ var (
 	governanceTasks            = make(map[string]*GovernanceTask)
 	governanceTaskLogs         = make(map[string][]*GovernanceTaskLog)
 	dataOntologyMCPEnabled     *bool // MCP 总开关，nil 视为 true
+	dataOntologyMCPSafeConfig  *MCPSafeConfig // MCP 安全配置
+	dataOntologyMCPPort        int = 0 // MCP 服务端口，0 表示使用主服务器端口
 	// 模型管理
 	llmModels      = make(map[string]*LLMModelConfig)
 	smallModels    = make(map[string]*SmallModelConfig)
@@ -1104,6 +1106,15 @@ type WebNavStore struct {
 	Links []WebNavLink `json:"links"`
 }
 
+// MCPSafeConfig MCP 安全配置
+type MCPSafeConfig struct {
+	ReadOnlyMode    bool     `json:"read_only_mode"`    // 只读模式，禁止所有写操作
+	BlockDangerous  bool     `json:"block_dangerous"`   // 阻止危险操作（DROP, DELETE, TRUNCATE 等）
+	BlockedKeywords []string `json:"blocked_keywords"`  // 自定义阻止的关键词列表
+	AllowedTables   []string `json:"allowed_tables"`    // 允许操作的表白名单（空则不限制）
+	Port            int      `json:"port"`              // MCP 服务端口，0 表示使用主服务器端口
+}
+
 // DataOntologyStore 持久化存储结构
 type DataOntologyStore struct {
 	Users          map[string]*User                `json:"users"`
@@ -1114,6 +1125,7 @@ type DataOntologyStore struct {
 	Tasks          map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
 	TaskLogs       map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
 	MCPEnabled     *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	MCPSafeConfig  *MCPSafeConfig                  `json:"mcp_safe_config,omitempty"` // MCP 安全配置
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
@@ -1202,6 +1214,11 @@ func loadDataOntologyStore() error {
 	if store.MCPEnabled != nil {
 		dataOntologyMCPEnabled = store.MCPEnabled
 	}
+	if store.MCPSafeConfig != nil {
+		dataOntologyMCPSafeConfig = store.MCPSafeConfig
+		dataOntologyMCPPort = store.MCPSafeConfig.Port
+		log.Printf("已加载 MCP 安全配置: read_only=%v, block_dangerous=%v, port=%d", store.MCPSafeConfig.ReadOnlyMode, store.MCPSafeConfig.BlockDangerous, store.MCPSafeConfig.Port)
+	}
 	// 模型管理
 	if store.LLMModels != nil {
 		llmModels = store.LLMModels
@@ -1263,6 +1280,7 @@ func saveDataOntologyStore() error {
 		Tasks:          governanceTasks,
 		TaskLogs:       governanceTaskLogs,
 		MCPEnabled:     dataOntologyMCPEnabled,
+		MCPSafeConfig:  dataOntologyMCPSafeConfig,
 		LLMModels:      llmModels,
 		SmallModels:    smallModels,
 	}
@@ -3539,8 +3557,9 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		dataOntologyMu.RLock()
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+		port := dataOntologyMCPPort
 		dataOntologyMu.RUnlock()
-		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
+		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled, "port": port})
 	case http.MethodPut:
 		var body struct {
 			Enabled *bool `json:"enabled"`
@@ -3558,6 +3577,88 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 		enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 		log.Printf("[MCP] 配置已更新: enabled=%v", enabled)
 		jsonSuccess(w, map[string]interface{}{"success": true, "enabled": enabled})
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+// handleMCPSafeConfig MCP 安全配置：GET 返回当前配置，PUT 更新（需授权）
+func handleMCPSafeConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		config := dataOntologyMCPSafeConfig
+		if config == nil {
+			config = &MCPSafeConfig{} // 返回默认值
+		}
+		dataOntologyMu.RUnlock()
+		jsonSuccess(w, map[string]interface{}{"success": true, "config": config})
+	case http.MethodPut:
+		var body struct {
+			Config MCPSafeConfig `json:"config"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		dataOntologyMu.Lock()
+		dataOntologyMCPSafeConfig = &body.Config
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[MCP] 保存安全配置失败: err=%v", err)
+		}
+		log.Printf("[MCP] 安全配置已更新: read_only=%v, block_dangerous=%v, blocked_keywords=%v, allowed_tables=%v, port=%d",
+			body.Config.ReadOnlyMode, body.Config.BlockDangerous, body.Config.BlockedKeywords, body.Config.AllowedTables, body.Config.Port)
+		jsonSuccess(w, map[string]interface{}{"success": true, "config": dataOntologyMCPSafeConfig})
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+// MCP 端口配置
+func handleMCPPort(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		dataOntologyMu.RLock()
+		port := dataOntologyMCPPort
+		dataOntologyMu.RUnlock()
+		jsonSuccess(w, map[string]interface{}{"success": true, "port": port})
+	case http.MethodPut:
+		var body struct {
+			Port int `json:"port"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		// 验证端口范围
+		if body.Port < 0 || body.Port > 65535 {
+			apiBadRequest(w, "端口号必须在 0-65535 范围内")
+			return
+		}
+		dataOntologyMu.Lock()
+		dataOntologyMCPPort = body.Port
+		// 同时更新 MCPSafeConfig 中的 Port 字段
+		if dataOntologyMCPSafeConfig == nil {
+			dataOntologyMCPSafeConfig = &MCPSafeConfig{}
+		}
+		dataOntologyMCPSafeConfig.Port = body.Port
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[MCP] 保存端口配置失败: err=%v", err)
+		}
+		log.Printf("[MCP] 端口配置已更新: port=%d (需重启服务生效)", body.Port)
+		jsonSuccess(w, map[string]interface{}{"success": true, "port": body.Port, "message": "端口配置已保存，重启服务后生效"})
 	default:
 		apiMethodNotAllowed(w)
 	}
@@ -14257,6 +14358,8 @@ func main() {
 
 	// MCP 配置（总开关）
 	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
+	mux.HandleFunc("/api/data-ontology/mcp/safe-config", handleMCPSafeConfig)
+	mux.HandleFunc("/api/data-ontology/mcp/port", handleMCPPort)
 	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
 	mux.Handle("/mcp/", http.HandlerFunc(handleMCPHTTP))
 	// 接口管理API路由

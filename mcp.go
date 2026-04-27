@@ -24,6 +24,82 @@ const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
 const mcpProtocolVersion = "2024-11-05"
 
+// ─── SQL 安全检查 ───────────────────────────────────────────────────────────
+
+// 默认危险 SQL 关键词
+var defaultDangerousKeywords = []string{
+	"DROP", "DELETE", "TRUNCATE", "ALTER", "GRANT", "REVOKE",
+	"CREATE USER", "DROP USER", "CREATE ROLE", "DROP ROLE",
+	"SHUTDOWN", "KILL", "EXEC", "EXECUTE",
+}
+
+// checkSQLSafety 检查 SQL 是否符合安全配置
+// 返回 (是否允许, 错误信息)
+func checkSQLSafety(sql string) (bool, string) {
+	dataOntologyMu.RLock()
+	config := dataOntologyMCPSafeConfig
+	dataOntologyMu.RUnlock()
+
+	if config == nil {
+		return true, "" // 无配置则允许
+	}
+
+	upperSQL := strings.ToUpper(sql)
+
+	// 1. 检查只读模式
+	if config.ReadOnlyMode {
+		// 只允许 SELECT, SHOW, DESCRIBE, EXPLAIN
+		allowed := []string{"SELECT", "SHOW", "DESCRIBE", "DESC ", "EXPLAIN"}
+		isAllowed := false
+		for _, prefix := range allowed {
+			if strings.HasPrefix(strings.TrimSpace(upperSQL), prefix) {
+				isAllowed = true
+				break
+			}
+		}
+		if !isAllowed {
+			return false, "只读模式已启用，仅允许 SELECT/SHOW/DESCRIBE/EXPLAIN 查询"
+		}
+	}
+
+	// 2. 检查危险操作阻止
+	if config.BlockDangerous {
+		for _, keyword := range defaultDangerousKeywords {
+			if strings.Contains(upperSQL, keyword) {
+				return false, fmt.Sprintf("危险操作已被阻止: 包含关键词 %s", keyword)
+			}
+		}
+	}
+
+	// 3. 检查自定义阻止关键词
+	for _, keyword := range config.BlockedKeywords {
+		if keyword != "" && strings.Contains(upperSQL, strings.ToUpper(keyword)) {
+			return false, fmt.Sprintf("SQL 包含被阻止的关键词: %s", keyword)
+		}
+	}
+
+	// 4. 检查表白名单（如果有配置）
+	if len(config.AllowedTables) > 0 {
+		// 简单检查：从 SQL 中提取表名并验证
+		// 这里使用简单的正则匹配，实际生产环境可能需要更复杂的 SQL 解析
+		for _, table := range config.AllowedTables {
+			if table != "" && strings.Contains(upperSQL, strings.ToUpper(table)) {
+				return true, "" // 表在白名单中
+			}
+		}
+		// 如果有白名单但没匹配到任何表，检查是否是系统查询
+		systemPrefixes := []string{"SHOW", "DESCRIBE", "DESC ", "EXPLAIN", "SELECT 1", "SELECT NOW", "SELECT VERSION"}
+		for _, prefix := range systemPrefixes {
+			if strings.HasPrefix(strings.TrimSpace(upperSQL), prefix) {
+				return true, "" // 允许系统查询
+			}
+		}
+		return false, "SQL 涉及的表不在允许的白名单中"
+	}
+
+	return true, ""
+}
+
 // ─── HTTP 客户端（供 HTTP 模式和 Stdio 模式共用） ────────────────────────────
 
 type mcpClient struct {
@@ -247,6 +323,10 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 		json.Unmarshal(argsRaw, &args)
 		if args.DatabaseID == "" || args.SQL == "" {
 			return nil, fmt.Errorf("database_id 和 sql 不能为空")
+		}
+		// SQL 安全检查
+		if allowed, reason := checkSQLSafety(args.SQL); !allowed {
+			return nil, fmt.Errorf("SQL 安全检查失败: %s", reason)
 		}
 		body, _ := json.Marshal(map[string]interface{}{
 			"database_id": args.DatabaseID,

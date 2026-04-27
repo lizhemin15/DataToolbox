@@ -881,7 +881,11 @@ function initEventListeners() {
         if (!pre) return;
         copyToClipboard(pre.textContent, this, '已复制');
     });
-    
+    const mcpSavePortBtn = document.getElementById('mcpSavePortBtn');
+    if (mcpSavePortBtn) mcpSavePortBtn.addEventListener('click', async function() {
+        await saveMcpPort();
+    });
+
     // 基础校验。
     document.getElementById('closeTestApiModal').addEventListener('click', hideTestApiModal);
     document.getElementById('testApiModal').addEventListener('click', function(e) {
@@ -2905,16 +2909,24 @@ function renderApiKeyUI() {
 
 // MCP 配置展示与生成。
 let mcpConfigEnabled = true;
+let mcpConfigPort = 0;
 async function loadMcpInfo() {
     await loadApiKey();
     try {
         const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/config`);
         const data = await r.json();
-        if (data.success) mcpConfigEnabled = data.enabled !== false;
-    } catch (e) { mcpConfigEnabled = true; }
+        if (data.success) {
+            mcpConfigEnabled = data.enabled !== false;
+            mcpConfigPort = data.port || 0;
+        }
+    } catch (e) { mcpConfigEnabled = true; mcpConfigPort = 0; }
     const mcpCb = document.getElementById('mcpEnabledCheck');
     if (mcpCb) mcpCb.checked = mcpConfigEnabled;
+    const mcpPortInput = document.getElementById('mcpPortInput');
+    if (mcpPortInput) mcpPortInput.value = mcpConfigPort || '';
     updateMcpDisplay();
+    // 加载安全配置
+    await loadMcpSafeConfig();
 }
 
 async function toggleMcpEnabled() {
@@ -2934,6 +2946,63 @@ async function toggleMcpEnabled() {
         else cb.checked = !next;
     } catch (e) {
         cb.checked = !next;
+    }
+}
+
+// MCP 安全配置
+async function loadMcpSafeConfig() {
+    try {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/safe-config`);
+        const data = await r.json();
+        if (data.success && data.config) {
+            const config = data.config;
+            const readOnlyCb = document.getElementById('mcpReadOnlyMode');
+            const blockDangerousCb = document.getElementById('mcpBlockDangerous');
+            const blockedKeywordsEl = document.getElementById('mcpBlockedKeywords');
+            const allowedTablesEl = document.getElementById('mcpAllowedTables');
+            
+            if (readOnlyCb) readOnlyCb.checked = config.read_only_mode || false;
+            if (blockDangerousCb) blockDangerousCb.checked = config.block_dangerous || false;
+            if (blockedKeywordsEl && config.blocked_keywords) {
+                blockedKeywordsEl.value = config.blocked_keywords.join('\n');
+            }
+            if (allowedTablesEl && config.allowed_tables) {
+                allowedTablesEl.value = config.allowed_tables.join('\n');
+            }
+        }
+    } catch (e) {
+        console.error('加载 MCP 安全配置失败:', e);
+    }
+}
+
+async function saveMcpSafeConfig() {
+    const readOnlyCb = document.getElementById('mcpReadOnlyMode');
+    const blockDangerousCb = document.getElementById('mcpBlockDangerous');
+    const blockedKeywordsEl = document.getElementById('mcpBlockedKeywords');
+    const allowedTablesEl = document.getElementById('mcpAllowedTables');
+    
+    const config = {
+        read_only_mode: readOnlyCb ? readOnlyCb.checked : false,
+        block_dangerous: blockDangerousCb ? blockDangerousCb.checked : false,
+        blocked_keywords: blockedKeywordsEl ? blockedKeywordsEl.value.split('\n').map(s => s.trim()).filter(s => s) : [],
+        allowed_tables: allowedTablesEl ? allowedTablesEl.value.split('\n').map(s => s.trim()).filter(s => s) : []
+    };
+    
+    try {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/safe-config`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ config })
+        });
+        const data = await r.json();
+        if (data.success) {
+            showToast('安全配置已保存');
+        }
+    } catch (e) {
+        console.error('保存 MCP 安全配置失败:', e);
+        showToast('保存失败', 'error');
     }
 }
 
@@ -11118,3 +11187,34 @@ async function selectIntentAndRetry(intentId, userQuery, oldMessageId) {
     if (sendBtn) sendBtn.disabled = false;
 }
 
+
+async function saveMcpPort() {
+    const portInput = document.getElementById('mcpPortInput');
+    if (!portInput) return;
+
+    const port = parseInt(portInput.value) || 0;
+
+    // 验证端口范围
+    if (port < 0 || port > 65535) {
+        showToast('端口号必须在 0-65535 范围内', 'error');
+        return;
+    }
+
+    try {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/mcp/port`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ port })
+        });
+        const data = await r.json();
+        if (data.success) {
+            mcpConfigPort = port;
+            showToast('端口配置已保存，重启服务后生效');
+        }
+    } catch (e) {
+        console.error('保存 MCP 端口配置失败:', e);
+        showToast('保存失败', 'error');
+    }
+}
