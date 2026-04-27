@@ -9668,6 +9668,57 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			return
 		}
 
+		// 校验 path 格式和 path+method 唯一性
+		pathStr, _ := apiConfig["path"].(string)
+		methodStr, _ := apiConfig["method"].(string)
+		
+		// 校验路径格式
+		if !isValidApiPath(pathStr) {
+			log.Printf("路径格式校验失败（第%d次尝试）: %s 不是有效的两级路径", attempt, pathStr)
+			if attempt < maxRetries {
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, 
+					fmt.Sprintf("接口路径格式错误: '%s' 不是有效的两级路径格式。必须是 /api/xxx/yyy 格式，例如 /api/users/list", pathStr), aiResponse)
+				continue
+			}
+			sendSSE(w, "error", map[string]interface{}{
+				"message":  fmt.Sprintf("路径格式校验失败（已重试%d次）: %s 不是有效的两级路径格式", maxRetries, pathStr),
+				"response": aiResponse,
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+		
+		// 校验 path+method 唯一性
+		pathConflict := false
+		var conflictApiName string
+		for _, existingApi := range existingApis {
+			existingPath, _ := existingApi["path"].(string)
+			existingMethod, _ := existingApi["method"].(string)
+			if existingPath == pathStr && strings.EqualFold(existingMethod, methodStr) {
+				pathConflict = true
+				conflictApiName, _ = existingApi["name"].(string)
+				break
+			}
+		}
+		if pathConflict {
+			log.Printf("路径唯一性校验失败（第%d次尝试）: %s %s 与已有接口 '%s' 冲突", attempt, methodStr, pathStr, conflictApiName)
+			if attempt < maxRetries {
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, 
+					fmt.Sprintf("接口路径冲突: %s %s 已被接口 '%s' 使用，请使用不同的路径或方法", methodStr, pathStr, conflictApiName), aiResponse)
+				continue
+			}
+			sendSSE(w, "error", map[string]interface{}{
+				"message":  fmt.Sprintf("路径唯一性校验失败（已重试%d次）: %s %s 已存在", maxRetries, methodStr, pathStr),
+				"response": aiResponse,
+			})
+			sendSSE(w, "done", map[string]interface{}{})
+			flusher.Flush()
+			return
+		}
+		
+		log.Printf("路径校验成功（第%d次尝试）: %s %s", attempt, methodStr, pathStr)
+
 		// 校验SQL中的表名和字段名是否存在
 		sqlStr, _ := apiConfig["sql"].(string)
 		if sqlStr != "" && len(dbSchemas) > 0 {
