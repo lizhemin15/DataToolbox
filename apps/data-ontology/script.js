@@ -7447,8 +7447,9 @@ async function handleGovTaskSubmit(e) {
                                 execution_mode: taskData.execution_mode
                             };
                             const normalize = (val, key) => {
-                                // 数组：JSON 序列化
+                                // 数组或 null：JSON 序列化，null/undefined 视为空数组
                                 if (Array.isArray(val)) return JSON.stringify(val);
+                                if (val === null || val === undefined) return '[]';
                                 // 布尔：统一为 "true"/"false"
                                 if (typeof val === 'boolean') return String(val);
                                 // 字符串：trim 后返回
