@@ -110,10 +110,15 @@ jobs:
           chmod +x package/install.sh
           # 复制静态文件到包根目录
           cp -r index.html apps css js lib package/
-          # 自动注入版本号：从 tag 提取版本并替换静态资源 URL
+          # 注入版本号：替换静态资源 URL 中的 ?v=X.Y.Z
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            python3 scripts/inject_version.py "$VERSION" package
+            for f in package/apps/data-ontology/index.html package/apps/data-ontology/script.js; do
+              if [ -f "$f" ]; then
+                sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
+                echo "  PATCHED: $f -> v=${VERSION}"
+              fi
+            done
           fi
           # 复制 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
