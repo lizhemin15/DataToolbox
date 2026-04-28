@@ -1,9 +1,78 @@
-// 综合日报生成器 v2：两阶段 LLM — 先逐单位解析、再汇总整合
+// 综合日报生成器 v3：可配置模板框架 — 两阶段 LLM（先逐单位解析、再汇总整合）
 // 使用 gov.parseWordStructure 保留公文结构，分块调用 LLM 避免上下文溢出
 
-function parseDailyReportFilename(name) {
+const CONFIG = {
+  fileClassification: {
+    template: { pattern: /模板|template|综合日报模板|日报模板/i },
+    dataFiles: { pattern: /^(\d{4})年(\d{1,2})月(\d{1,2})日(.+?)日报$/ }
+  },
+  extraction: {
+    fields: ["unit_name", "unit_report_date", "unit_summary", "unit_overview", "unit_key_projects", "unit_risks", "unit_risk", "unit_tomorrow", "metrics"],
+    promptTemplate: `你是政务数据治理助手。请从以下单位日报中提取关键信息，输出一个 JSON 对象（不要用 markdown 代码块包裹）。
+输出 JSON 结构：
+{
+  "unit_name": "单位名称（从文件名或内容推断）",
+  "unit_report_date": "报告日期",
+  "unit_summary": "一行摘要：今日核心工作要点",
+  "unit_overview": "工作进展概述（几句话）",
+  "unit_key_projects": "重点项目与进展",
+  "unit_risks": "存在的问题与风险",
+  "unit_risk": "待协调或需关注的总体风险一句话",
+  "unit_tomorrow": "明日计划",
+  "metrics": ["关键指标或数据点1", "指标2"]
+}
+规则：字段缺失填"暂无"，metrics 为数组。
+
+单位日报内容：
+文件名：{filename}
+-----
+{content}`
+  },
+  aggregation: {
+    fields: ["report_title", "report_date", "overview", "key_projects", "risks", "risk_detail", "risk_items", "tomorrow_plan", "units"],
+    promptTemplate: `你是政务/企业数据治理与综合日报编辑。请根据以下各单位日报摘要，归纳合并为一份综合日报数据，仅输出一个 JSON 对象（不要用 markdown 代码块包裹）。
+
+输出 JSON 结构（所有键必须存在，值缺省填"暂无"）：
+{
+  "report_title": "综合日报标题（可含日期）",
+  "report_date": "主报告日期（YYYY-MM-DD 或中文日期）",
+  "overview": "全局工作概述，整合各单位要点",
+  "key_projects": "全局重点项目与进展摘要",
+  "risks": "全局问题与风险综述（一段话）",
+  "risk_detail": "对风险与问题的补充说明",
+  "risk_items": ["分项风险或问题要点1", "要点2"],
+  "tomorrow_plan": "全局明日计划与协调事项",
+  "units": [
+    {
+      "unit_name": "单位名称",
+      "unit_report_date": "该单位日报日期",
+      "unit_summary": "一行当日重点摘要",
+      "unit_risk": "该单位风险/待协调项摘要",
+      "unit_overview": "该单位工作概述",
+      "unit_key_projects": "该单位重点项目",
+      "unit_risks": "该单位问题与风险",
+      "unit_tomorrow": "该单位明日计划"
+    }
+  ]
+}
+规则：
+1. units 顺序必须与输入顺序一致，条数与输入单位数一致（{unitCount} 个）。
+2. 严格依据各单位摘要，可归纳合并但禁止编造具体数字与事实。
+3. 若某字段原文未涉及，填"暂无"。
+4. risk_items 至少 0 条，宜从各单位风险中拆分整合。
+
+各单位摘要输入：
+{unitsJson}`
+  },
+  output: {
+    namingPattern: "综合日报_{report_date}.docx",
+    defaultTitle: "数据治理综合日报"
+  }
+};
+
+function parseFilenameWithPattern(name, pattern) {
   const base = name.replace(/\.(docx?|DOCX?)$/i, '');
-  const m = base.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日(.+?)日报$/);
+  const m = base.match(pattern);
   if (!m) return { unitName: base.trim(), dateStr: '', dateDisplay: '' };
   const y = m[1];
   const mo = m[2].padStart(2, '0');
@@ -15,14 +84,10 @@ function parseDailyReportFilename(name) {
   };
 }
 
-function pickTemplate(files) {
-  const byName = files.find((f) => /模板|template|综合日报模板|日报模板/i.test(f.name));
-  if (byName) return byName;
-  return files[0];
-}
-
-function pickUnitFiles(files, template) {
-  return files.filter((f) => f !== template);
+function classifyFiles(files, rules) {
+  const template = files.find((f) => rules.template.pattern.test(f.name)) || files[0];
+  const dataFiles = files.filter((f) => f !== template);
+  return { template, dataFiles };
 }
 
 function str(v) {
@@ -77,23 +142,21 @@ function summarizeStructureForAI(parsed) {
 }
 
 // 将阶段1的单位提取结果规范化
-function normalizeUnitExtraction(raw) {
+function normalizeUnitExtraction(raw, fields) {
   const o = raw && typeof raw === 'object' ? raw : {};
-  return {
-    unit_name: str(o.unit_name),
-    unit_report_date: str(o.unit_report_date),
-    unit_summary: str(o.unit_summary),
-    unit_overview: str(o.unit_overview),
-    unit_key_projects: str(o.unit_key_projects),
-    unit_risks: str(o.unit_risks),
-    unit_risk: str(o.unit_risk),
-    unit_tomorrow: str(o.unit_tomorrow),
-    metrics: Array.isArray(o.metrics) ? o.metrics.map((x) => str(x)) : [],
-  };
+  const result = {};
+  for (const f of fields) {
+    if (f === 'metrics') {
+      result[f] = Array.isArray(o[f]) ? o[f].map((x) => str(x)) : [];
+    } else {
+      result[f] = str(o[f]);
+    }
+  }
+  return result;
 }
 
 // 将阶段2的汇总结果规范化
-function normalizeTemplateData(raw) {
+function normalizeTemplateData(raw, fields) {
   const o = raw && typeof raw === 'object' ? raw : {};
   const unitsIn = Array.isArray(o.units) ? o.units : [];
 
@@ -117,7 +180,7 @@ function normalizeTemplateData(raw) {
       .slice(0, 12);
   }
 
-  return {
+  const result = {
     report_title: str(o.report_title),
     report_date: str(o.report_date),
     unit_count: String(units.length || o.unit_count || ''),
@@ -129,6 +192,62 @@ function normalizeTemplateData(raw) {
     tomorrow_plan: str(o.tomorrow_plan),
     units,
   };
+  return result;
+}
+
+async function extractFromDocument(file, config) {
+  const meta = parseFilenameWithPattern(file.name, config.fileClassification.dataFiles.pattern);
+
+  let parsed;
+  try {
+    parsed = await gov.parseWordStructure(file);
+  } catch (e) {
+    gov.log('结构解析失败 ' + file.name + ': ' + (e.message || e));
+    parsed = { title: '', sections: [], tables: [], rawText: '' };
+  }
+
+  const aiInput = summarizeStructureForAI(parsed);
+  let aiText = aiInput;
+  if (aiText.length < 50 && parsed.rawText) {
+    aiText = parsed.rawText.slice(0, 8000);
+  }
+
+  const prompt = config.extraction.promptTemplate
+    .replace('{filename}', file.name)
+    .replace('{content}', aiText);
+
+  let extraction;
+  try {
+    const aiResult = await gov.callAI(prompt);
+    const jsonStr = extractJsonObject(aiResult);
+    if (!jsonStr) throw new Error('阶段1: 未从模型输出解析到 JSON, unit=' + meta.unitName);
+    const raw = JSON.parse(jsonStr);
+    extraction = normalizeUnitExtraction(raw, config.extraction.fields);
+  } catch (e) {
+    gov.log('阶段1提取失败 ' + file.name + ': ' + (e.message || e) + '，使用文件名兜底');
+    extraction = normalizeUnitExtraction({
+      unit_name: meta.unitName,
+      unit_report_date: meta.dateStr || meta.dateDisplay,
+    }, config.extraction.fields);
+  }
+  return extraction;
+}
+
+async function aggregateResults(extractions, config) {
+  const unitsContext = extractions.map((u, i) => ({
+    序号: i + 1,
+    ...u,
+  }));
+
+  const prompt = config.aggregation.promptTemplate
+    .replace('{unitCount}', String(extractions.length))
+    .replace('{unitsJson}', JSON.stringify(unitsContext, null, 2));
+
+  const aiText = await gov.callAI(prompt);
+  const jsonStr = extractJsonObject(aiText);
+  if (!jsonStr) throw new Error('阶段2: 未从模型输出解析到 JSON');
+  const data = JSON.parse(jsonStr);
+  return normalizeTemplateData(data, config.aggregation.fields);
 }
 
 async function main() {
@@ -139,8 +258,7 @@ async function main() {
     return;
   }
 
-  const template = pickTemplate(files);
-  const unitFiles = pickUnitFiles(files, template);
+  const { template, dataFiles: unitFiles } = classifyFiles(files, CONFIG.fileClassification);
   if (unitFiles.length === 0) {
     gov.log('未识别到单位日报文件（除模板外的 .docx）。');
     return;
@@ -153,109 +271,17 @@ async function main() {
   const unitExtractions = [];
   for (let i = 0; i < unitFiles.length; i++) {
     const f = unitFiles[i];
-    const meta = parseDailyReportFilename(f.name);
     gov.log('解析第 ' + (i + 1) + '/' + unitFiles.length + ' 份: ' + f.name);
-
-    let parsed;
-    try {
-      parsed = await gov.parseWordStructure(f);
-    } catch (e) {
-      gov.log('结构解析失败 ' + f.name + ': ' + (e.message || e));
-      parsed = { title: '', sections: [], tables: [], rawText: '' };
-    }
-
-    const aiInput = summarizeStructureForAI(parsed);
-    // 如果结构化太少且没有 rawText，回退到 readWord
-    let aiText = aiInput;
-    if (aiText.length < 50 && parsed.rawText) {
-      aiText = parsed.rawText.slice(0, 8000);
-    }
-
-    const prompt1 = `你是政务数据治理助手。请从以下单位日报中提取关键信息，输出一个 JSON 对象（不要用 markdown 代码块包裹）。
-输出 JSON 结构：
-{
-  "unit_name": "单位名称（从文件名或内容推断）",
-  "unit_report_date": "报告日期",
-  "unit_summary": "一行摘要：今日核心工作要点",
-  "unit_overview": "工作进展概述（几句话）",
-  "unit_key_projects": "重点项目与进展",
-  "unit_risks": "存在的问题与风险",
-  "unit_risk": "待协调或需关注的总体风险一句话",
-  "unit_tomorrow": "明日计划",
-  "metrics": ["关键指标或数据点1", "指标2"]
-}
-规则：字段缺失填"暂无"，metrics 为数组。
-
-单位日报内容：
-文件名：${f.name}
------
-${aiText}`;
-
-    let extraction;
-    try {
-      const aiResult = await gov.callAI(prompt1);
-      const jsonStr = extractJsonObject(aiResult);
-      if (!jsonStr) throw new Error('阶段1: 未从模型输出解析到 JSON, unit=' + meta.unitName);
-      const raw = JSON.parse(jsonStr);
-      extraction = normalizeUnitExtraction(raw);
-    } catch (e) {
-      gov.log('阶段1提取失败 ' + f.name + ': ' + (e.message || e) + '，使用文件名兜底');
-      extraction = normalizeUnitExtraction({
-        unit_name: meta.unitName,
-        unit_report_date: meta.dateStr || meta.dateDisplay,
-      });
-    }
+    const extraction = await extractFromDocument(f, CONFIG);
     unitExtractions.push(extraction);
   }
 
   gov.log('阶段1完成: 已提取 ' + unitExtractions.length + ' 份单位日报摘要');
 
   // ====== 阶段 2：汇总整合 ======
-  const unitsContext = unitExtractions.map((u, i) => ({
-    序号: i + 1,
-    ...u,
-  }));
-
-  const prompt2 = `你是政务/企业数据治理与综合日报编辑。请根据以下各单位日报摘要，归纳合并为一份综合日报数据，仅输出一个 JSON 对象（不要用 markdown 代码块包裹）。
-
-输出 JSON 结构（所有键必须存在，值缺省填"暂无"）：
-{
-  "report_title": "综合日报标题（可含日期）",
-  "report_date": "主报告日期（YYYY-MM-DD 或中文日期）",
-  "overview": "全局工作概述，整合各单位要点",
-  "key_projects": "全局重点项目与进展摘要",
-  "risks": "全局问题与风险综述（一段话）",
-  "risk_detail": "对风险与问题的补充说明",
-  "risk_items": ["分项风险或问题要点1", "要点2"],
-  "tomorrow_plan": "全局明日计划与协调事项",
-  "units": [
-    {
-      "unit_name": "单位名称",
-      "unit_report_date": "该单位日报日期",
-      "unit_summary": "一行当日重点摘要",
-      "unit_risk": "该单位风险/待协调项摘要",
-      "unit_overview": "该单位工作概述",
-      "unit_key_projects": "该单位重点项目",
-      "unit_risks": "该单位问题与风险",
-      "unit_tomorrow": "该单位明日计划"
-    }
-  ]
-}
-规则：
-1. units 顺序必须与输入顺序一致，条数与输入单位数一致（${unitExtractions.length} 个）。
-2. 严格依据各单位摘要，可归纳合并但禁止编造具体数字与事实。
-3. 若某字段原文未涉及，填"暂无"。
-4. risk_items 至少 0 条，宜从各单位风险中拆分整合。
-
-各单位摘要输入：
-${JSON.stringify(unitsContext, null, 2)}`;
-
   let data;
   try {
-    const aiText2 = await gov.callAI(prompt2);
-    const jsonStr2 = extractJsonObject(aiText2);
-    if (!jsonStr2) throw new Error('阶段2: 未从模型输出解析到 JSON');
-    data = JSON.parse(jsonStr2);
+    data = await aggregateResults(unitExtractions, CONFIG);
   } catch (e) {
     gov.log('阶段2整合失败: ' + (e.message || e));
     return;
@@ -263,21 +289,22 @@ ${JSON.stringify(unitsContext, null, 2)}`;
 
   gov.log('阶段2完成: AI 汇总成功');
 
-  const filled = normalizeTemplateData(data);
-  if (!filled.units.length) {
+  if (!data.units.length) {
     gov.log('AI 返回的 units 为空，已中止');
     return;
   }
-  if (!filled.report_title) {
-    filled.report_title = '数据治理综合日报';
+  if (!data.report_title) {
+    data.report_title = CONFIG.output.defaultTitle;
   }
-  if (!filled.report_date && filled.units[0]) {
-    filled.report_date = filled.units[0].unit_report_date || '';
+  if (!data.report_date && data.units[0]) {
+    data.report_date = data.units[0].unit_report_date || '';
   }
 
   gov.log('开始生成 Word 文档...');
-  const outName = '综合日报_' + (filled.report_date || '输出').replace(/[/\\:*?"<>|]/g, '-') + '.docx';
-  await gov.fillWordTemplate(template, filled, outName);
+  const outName = CONFIG.output.namingPattern
+    .replace('{report_date}', data.report_date || '输出')
+    .replace(/[/\\:*?"<>|]/g, '-');
+  await gov.fillWordTemplate(template, data, outName);
   gov.log('完成：已按模板生成 ' + outName);
 }
 
