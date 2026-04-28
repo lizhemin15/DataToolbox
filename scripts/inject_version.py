@@ -19,12 +19,9 @@ def main():
     version = sys.argv[1]
     package_dir = Path(sys.argv[2])
 
-    # Determine base path: use package_dir if apps/ exists, otherwise package_dir/web
-    # This supports both source tree (apps/...) and release packages (web/apps/...)
-    if (package_dir / "apps").exists():
-        base_path = package_dir
-    else:
-        base_path = package_dir / "web"
+    # 静态文件直接在包根目录（apps/ 与可执行文件同级）
+    # 不再使用 web 子目录
+    base_path = package_dir
 
     files = [
         base_path / "apps" / "data-ontology" / "index.html",

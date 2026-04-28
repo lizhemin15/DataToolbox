@@ -100,14 +100,15 @@ jobs:
 
       - name: Prepare package files
         run: |
-          mkdir -p package/web
+          # 静态文件直接放在包根目录，与可执行文件同级
+          # 消除 web 子目录冗余，静态文件和配置文件（apps/data-ontology/data-store.json）统一位置
           cp ${{ matrix.output }} package/
           cp server.config.json package/
           cp scripts/install.sh package/install.sh
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
-          # 复制静态文件到发布目录
-          cp -r index.html apps css js lib package/web/
+          # 复制静态文件到包根目录
+          cp -r index.html apps css js lib package/
           # 自动注入版本号：从 tag 提取版本并替换静态资源 URL
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
@@ -217,17 +218,21 @@ jobs:
             解压后目录结构：
             ```
             datatoolbox/
-            ├── datatoolbox-server    # 可执行文件（体积小，不含静态资源）
-            ├── web/                  # 静态资源目录
-            │   ├── index.html
-            │   ├── apps/
-            │   ├── css/
-            │   ├── js/
-            │   └── lib/
-            ├── gov-runner           # 治理任务运行器
-            ├── server.config.json   # 配置文件
-            └── install.sh           # 安装脚本
+            ├── datatoolbox-server    # 可执行文件
+            ├── index.html            # 主页（静态文件）
+            ├── apps/                 # 应用目录（含配置文件）
+            │   └── data-ontology/
+            │       ├── script.js     # 前端脚本
+            │       └── data-store.json  # 配置文件（服务端读写）
+            ├── css/                  # 样式文件
+            ├── js/                   # JavaScript 库
+            ├── lib/                  # 第三方库
+            ├── gov-runner            # 治理任务运行器
+            ├── server.config.json    # 服务器配置
+            └── install.sh            # 安装脚本
             ```
+            
+            **注意**：静态文件和配置文件统一在 `apps/` 目录，更新前端只需修改一处。
             
             ### 🚀 使用方法
             

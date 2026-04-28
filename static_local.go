@@ -9,7 +9,8 @@ import (
 )
 
 // release 模式下从本地文件系统读取静态文件
-// 静态文件放在可执行文件同级的 web 目录下
+// 静态文件直接放在可执行文件同级目录（index.html, apps, css, js, lib）
+// 与配置文件（apps/data-ontology/data-store.json）共用同一目录，消除 web 副本冗余
 
 func newStaticFileHandler() http.Handler {
 	// 获取可执行文件所在目录
@@ -20,13 +21,7 @@ func newStaticFileHandler() http.Handler {
 		execPath = filepath.Dir(execPath)
 	}
 
-	// 静态文件目录
-	webDir := filepath.Join(execPath, "web")
-
-	// 如果 web 目录不存在，尝试当前目录下的 web
-	if _, err := os.Stat(webDir); os.IsNotExist(err) {
-		webDir = "web"
-	}
-
-	return http.FileServer(http.Dir(webDir))
+	// 静态文件直接在可执行文件目录下，不需要 web 子目录
+	// 这样静态文件和配置文件（apps/data-ontology/data-store.json）在同一位置
+	return http.FileServer(http.Dir(execPath))
 }

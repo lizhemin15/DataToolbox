@@ -163,9 +163,15 @@ copy_package_to() {
       cp -f "$SCRIPT_DIR/$f" "$dest/"
     fi
   done
-  # 复制 web 目录（静态资源）
-  if [[ -d "$SCRIPT_DIR/web" ]]; then
-    cp -r "$SCRIPT_DIR/web" "$dest/"
+  # 复制静态文件目录（apps, css, js, lib 直接在包根目录）
+  for dir in apps css js lib; do
+    if [[ -d "$SCRIPT_DIR/$dir" ]]; then
+      cp -r "$SCRIPT_DIR/$dir" "$dest/"
+    fi
+  done
+  # 复制 index.html
+  if [[ -f "$SCRIPT_DIR/index.html" ]]; then
+    cp -f "$SCRIPT_DIR/index.html" "$dest/"
   fi
   chmod +x "$dest/$bin_name" 2>/dev/null || true
   [[ -f "$dest/start.sh" ]] && chmod +x "$dest/start.sh" 2>/dev/null || true
