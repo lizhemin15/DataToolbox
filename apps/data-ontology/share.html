@@ -14,393 +14,431 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f5f5f5;
             min-height: 100vh;
-            padding: 20px;
+            padding: 24px;
+            color: #1a1a2e;
         }
 
         .share-container {
-            max-width: 900px;
+            max-width: 860px;
             margin: 0 auto;
             background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
             overflow: hidden;
         }
 
         /* 头部区域 */
         .share-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
+            background: white;
+            color: #0f172a;
+            padding: 36px 32px;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .share-header h1 {
-            font-size: 32px;
+            font-size: 22px;
             font-weight: 600;
-            margin-bottom: 12px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 8px;
+            color: #0f172a;
+            letter-spacing: -0.01em;
         }
 
         .share-header p {
-            font-size: 16px;
-            opacity: 0.95;
+            font-size: 14px;
+            color: #64748b;
             line-height: 1.6;
         }
 
         /* 步骤指引 */
         .steps-guide {
-            background: #f8f9fa;
-            padding: 30px;
-            border-bottom: 1px solid #e9ecef;
+            padding: 28px 32px;
+            border-bottom: 1px solid #e5e7eb;
+            background: white;
         }
 
         .steps-guide h2 {
-            font-size: 20px;
-            color: #2d3748;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .steps-guide h2::before {
-            content: "📋";
-            font-size: 24px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .steps-list {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
         }
 
         .step-item {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .step-item:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+            background: #f8fafc;
+            padding: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
         }
 
         .step-number {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 32px;
-            height: 32px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 24px;
+            height: 24px;
+            background: #0f172a;
             color: white;
             border-radius: 50%;
             font-weight: 600;
-            font-size: 16px;
-            margin-bottom: 12px;
+            font-size: 12px;
+            margin-bottom: 10px;
         }
 
         .step-item h3 {
-            font-size: 16px;
-            color: #2d3748;
-            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 4px;
         }
 
         .step-item p {
-            font-size: 14px;
-            color: #718096;
-            line-height: 1.6;
+            font-size: 13px;
+            color: #64748b;
+            line-height: 1.5;
         }
 
         /* 示例文件区域 */
         .example-section {
-            padding: 30px;
+            padding: 28px 32px;
             background: white;
-            border-bottom: 1px solid #e9ecef;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .example-section h3 {
-            font-size: 20px;
-            color: #2d3748;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .example-section h3::before {
-            content: "📁";
-            font-size: 24px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .example-files-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 12px;
+            gap: 8px;
         }
 
         .example-file {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 14px 16px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 8px;
+            gap: 8px;
+            padding: 10px 14px;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
             text-decoration: none;
-            color: #2d3748;
-            font-size: 14px;
-            transition: all 0.2s;
-            border: 2px solid transparent;
+            color: #334155;
+            font-size: 13px;
+            transition: background 0.15s, border-color 0.15s;
         }
 
         .example-file:hover {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            background: #f8fafc;
+            border-color: #3b82f6;
+            color: #1e40af;
         }
 
         .example-file::before {
-            content: "📄";
-            font-size: 18px;
+            content: "";
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            background: currentColor;
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cpath d='M4 2h5.5L12 4.5V14H4V2z'/%3E%3Cpath d='M9.5 2v3H12'/%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cpath d='M4 2h5.5L12 4.5V14H4V2z'/%3E%3Cpath d='M9.5 2v3H12'/%3E%3C/svg%3E");
+            -webkit-mask-size: contain;
+            mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+            flex-shrink: 0;
         }
 
         /* 上传区域 */
         .upload-section {
-            padding: 30px;
+            padding: 28px 32px;
         }
 
         .upload-area {
-            border: 3px dashed #cbd5e0;
-            border-radius: 12px;
-            padding: 60px 40px;
+            border: 2px dashed #d1d5db;
+            border-radius: 4px;
+            padding: 48px 32px;
             text-align: center;
-            margin: 20px 0;
+            margin: 0 0 20px 0;
             cursor: pointer;
-            transition: all 0.3s;
-            background: #fafbfc;
+            transition: border-color 0.15s, background 0.15s;
+            background: white;
         }
 
         .upload-area:hover {
-            border-color: #667eea;
-            background: #f0f4ff;
+            border-color: #3b82f6;
+            background: #f8fafc;
         }
 
         .upload-area.dragover {
-            border-color: #667eea;
-            background: #e6edff;
-            transform: scale(1.02);
+            border-color: #3b82f6;
+            background: #eff6ff;
         }
 
         .upload-icon {
-            font-size: 64px;
-            margin-bottom: 16px;
             display: block;
+            margin: 0 auto 12px;
+            width: 32px;
+            height: 32px;
+            color: #94a3b8;
         }
 
         .upload-text {
-            font-size: 18px;
-            color: #4a5568;
-            margin-bottom: 8px;
+            font-size: 15px;
+            color: #334155;
+            margin-bottom: 4px;
+            font-weight: 500;
         }
 
         .upload-hint {
-            font-size: 14px;
-            color: #a0aec0;
+            font-size: 13px;
+            color: #94a3b8;
         }
 
         /* 文件列表 */
         .file-list {
-            margin: 20px 0;
+            margin: 0 0 20px 0;
         }
 
         .file-item {
             display: flex;
             align-items: center;
-            padding: 14px 16px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-            border-radius: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #e9ecef;
-            transition: all 0.2s;
-        }
-
-        .file-item:hover {
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            padding: 10px 14px;
+            background: white;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            border: 1px solid #e5e7eb;
         }
 
         .file-item::before {
-            content: "📎";
-            font-size: 20px;
-            margin-right: 12px;
+            content: "";
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            background: #64748b;
+            margin-right: 10px;
+            flex-shrink: 0;
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cpath d='M4 2h5.5L12 4.5V14H4V2z'/%3E%3Cpath d='M9.5 2v3H12'/%3E%3Cpath d='M6 8h4M8 6v4'/%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5'%3E%3Cpath d='M4 2h5.5L12 4.5V14H4V2z'/%3E%3Cpath d='M9.5 2v3H12'/%3E%3Cpath d='M6 8h4M8 6v4'/%3E%3C/svg%3E");
+            -webkit-mask-size: contain;
+            mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
         }
 
         .file-item span {
             flex: 1;
-            font-size: 14px;
-            color: #2d3748;
+            font-size: 13px;
+            color: #334155;
         }
 
         .file-item button {
-            background: #f56565;
-            color: white;
-            border: none;
-            padding: 6px 16px;
-            border-radius: 6px;
+            background: transparent;
+            color: #ef4444;
+            border: 1px solid #fecaca;
+            padding: 4px 12px;
+            border-radius: 3px;
             cursor: pointer;
-            font-size: 13px;
-            transition: background 0.2s;
+            font-size: 12px;
+            transition: background 0.15s;
         }
 
         .file-item button:hover {
-            background: #e53e3e;
+            background: #fef2f2;
         }
 
         /* 按钮 */
         .btn-container {
             text-align: center;
-            margin: 30px 0;
+            margin: 0;
         }
 
         .btn {
-            padding: 14px 40px;
+            padding: 10px 32px;
             border: none;
-            border-radius: 8px;
+            border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: all 0.3s;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.15s;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #0f172a;
             color: white;
-            box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4);
         }
 
         .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+            background: #1e293b;
         }
 
         .btn-primary:disabled {
-            background: #cbd5e0;
+            background: #e5e7eb;
+            color: #94a3b8;
             cursor: not-allowed;
-            box-shadow: none;
         }
 
         /* 进度条 */
         .progress-container {
-            margin: 30px;
+            margin: 28px 32px;
             display: none;
         }
 
         .progress-bar {
             width: 100%;
-            height: 24px;
-            background: #e9ecef;
-            border-radius: 12px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 3px;
             overflow: hidden;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: #3b82f6;
             transition: width 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
-            font-weight: 600;
+            border-radius: 3px;
         }
 
         .progress-text {
             text-align: center;
+            margin-top: 10px;
+            color: #475569;
+            font-size: 13px;
+        }
+
+        .progress-output {
             margin-top: 12px;
-            color: #4a5568;
-            font-size: 14px;
+            background: #f8fafc;
+            padding: 14px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: 'SF Mono', 'Courier New', monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #334155;
+        }
+
+        .progress-completed {
+            background: #22c55e !important;
+        }
+
+        .progress-failed {
+            background: #ef4444 !important;
         }
 
         /* 结果区域 */
         .result-container {
-            margin: 30px;
+            margin: 28px 32px;
             display: none;
         }
 
         .result-container h3 {
-            font-size: 20px;
-            color: #2d3748;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         .result-container h3::before {
-            content: "✅";
-            font-size: 24px;
+            content: "";
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            background: #22c55e;
+            margin-right: 8px;
+            vertical-align: middle;
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+            -webkit-mask-size: contain;
+            mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
         }
 
         .result-output {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 4px;
             white-space: pre-wrap;
-            font-family: 'Courier New', monospace;
+            font-family: 'SF Mono', 'Courier New', monospace;
             max-height: 400px;
             overflow-y: auto;
-            border: 1px solid #e9ecef;
-            font-size: 13px;
+            border: 1px solid #e5e7eb;
+            font-size: 12px;
             line-height: 1.6;
+            color: #334155;
         }
 
         .result-files {
-            margin-top: 20px;
+            margin-top: 16px;
         }
 
         .result-file {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            margin: 6px;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-            color: white;
-            border-radius: 8px;
+            gap: 6px;
+            margin: 4px;
+            padding: 8px 16px;
+            background: white;
+            color: #3b82f6;
+            border: 1px solid #3b82f6;
+            border-radius: 4px;
             text-decoration: none;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            transition: all 0.2s;
-            box-shadow: 0 2px 8px rgba(72, 187, 120, 0.3);
+            transition: background 0.15s;
         }
 
         .result-file:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
+            background: #eff6ff;
         }
 
         .result-file::before {
-            content: "⬇️";
-            font-size: 16px;
+            content: "";
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            background: currentColor;
+            -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M8 2v10M4 8l4 4 4-4'/%3E%3C/svg%3E");
+            mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M8 2v10M4 8l4 4 4-4'/%3E%3C/svg%3E");
+            -webkit-mask-size: contain;
+            mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
         }
 
         /* 响应式 */
         @media (max-width: 768px) {
             body {
-                padding: 10px;
+                padding: 12px;
             }
 
             .share-header {
-                padding: 30px 20px;
+                padding: 24px 20px;
             }
 
             .share-header h1 {
-                font-size: 24px;
+                font-size: 18px;
             }
 
             .steps-guide, .example-section, .upload-section {
@@ -408,11 +446,11 @@
             }
 
             .upload-area {
-                padding: 40px 20px;
+                padding: 32px 16px;
             }
 
-            .upload-icon {
-                font-size: 48px;
+            .progress-container, .result-container {
+                margin: 20px;
             }
         }
     </style>
@@ -461,7 +499,9 @@
         <!-- 上传区域 -->
         <div class="upload-section">
             <div class="upload-area" id="uploadArea">
-                <span class="upload-icon">📤</span>
+                <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
                 <div class="upload-text">拖拽文件到此处或点击上传</div>
                 <div class="upload-hint">支持多文件上传</div>
                 <input type="file" id="fileInput" multiple style="display:none;">
@@ -480,6 +520,7 @@
                 <div class="progress-fill" id="progressFill" style="width: 0%"></div>
             </div>
             <div class="progress-text" id="progressText">准备中...</div>
+            <div class="progress-output" id="progressOutput" style="display:none;"></div>
         </div>
 
         <!-- 结果区域 -->
@@ -626,8 +667,10 @@
                 const data = await response.json();
                 if (data.success) {
                     currentRunId = data.runId;
+                    sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
                     document.getElementById('progressContainer').style.display = '';
                     document.getElementById('resultContainer').style.display = 'none';
+                    document.getElementById('progressFill').classList.remove('progress-completed', 'progress-failed');
                     pollProgress();
                 } else {
                     alert('执行失败: ' + data.message);
@@ -650,14 +693,29 @@
                 if (data.success) {
                     const progressFill = document.getElementById('progressFill');
                     const progressText = document.getElementById('progressText');
+                    const progressOutput = document.getElementById('progressOutput');
 
                     progressFill.style.width = data.progress + '%';
-                    progressText.textContent = `进度: ${data.progress}% - ${data.status}`;
+                    progressText.textContent = `进度: ${data.progress}% — ${data.status}`;
+
+                    // 实时显示输出日志
+                    if (data.output) {
+                        progressOutput.style.display = '';
+                        progressOutput.textContent = data.output;
+                        progressOutput.scrollTop = progressOutput.scrollHeight;
+                    }
 
                     if (data.status === 'completed' || data.status === 'failed') {
+                        // 设置完成/失败样式
+                        progressFill.classList.remove('progress-completed', 'progress-failed');
+                        if (data.status === 'completed') {
+                            progressFill.classList.add('progress-completed');
+                        } else {
+                            progressFill.classList.add('progress-failed');
+                        }
                         showResult(data);
                     } else {
-                        setTimeout(pollProgress, 1000);
+                        setTimeout(pollProgress, 300);
                     }
                 } else {
                     alert('查询进度失败: ' + data.message);
@@ -670,7 +728,14 @@
 
         // 显示结果
         function showResult(data) {
-            document.getElementById('progressContainer').style.display = 'none';
+            // 保留进度区域为完成态，不隐藏
+            const progressText = document.getElementById('progressText');
+            if (data.status === 'completed') {
+                progressText.textContent = `处理完成 — 进度: ${data.progress}%`;
+            } else {
+                progressText.textContent = `处理失败 — ${data.status}`;
+            }
+
             document.getElementById('resultContainer').style.display = '';
             document.getElementById('resultOutput').textContent = data.output || '无输出';
 
@@ -679,17 +744,29 @@
                 resultFiles.innerHTML = data.result_files.map(file =>
                     `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${currentRunId}/download?file=${encodeURIComponent(file)}" class="result-file" download>${file}</a>`
                 ).join('');
-            } else {
+            } else if (data.status === 'completed') {
                 resultFiles.innerHTML = '<a href="' + API_BASE + '/api/data-ontology/share/' + shareToken + '/run/' + currentRunId + '/download" class="result-file">下载全部结果</a>';
+            } else {
+                resultFiles.innerHTML = '';
             }
 
             document.getElementById('runBtn').disabled = false;
+            // 保存 run_id 以便刷新恢复
+            sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
         }
 
         // 页面加载时初始化
-        window.addEventListener('DOMContentLoaded', () => {
-            loadTaskInfo();
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadTaskInfo();
             initUploadArea();
+
+            const savedRunId = sessionStorage.getItem('share_' + shareToken + '_runId');
+            if (savedRunId) {
+                currentRunId = savedRunId;
+                document.getElementById('progressContainer').style.display = '';
+                document.getElementById('resultContainer').style.display = 'none';
+                pollProgress();
+            }
         });
     </script>
 </body>
