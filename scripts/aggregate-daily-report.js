@@ -2,6 +2,7 @@
 // 使用 gov.parseWordStructure 保留公文结构，分块调用 LLM 避免上下文溢出
 
 const CONFIG = {
+  mode: "parse", // "parse" 或 "ai"，默认 "parse"
   fileClassification: {
     template: { pattern: /模板|template|综合日报模板|日报模板/i },
     dataFiles: { pattern: /^(\d{4})年(\d{1,2})月(\d{1,2})日(.+?)日报$/ }
@@ -93,6 +94,71 @@ function classifyFiles(files, rules) {
 function str(v) {
   if (v === undefined || v === null) return '';
   return String(v);
+}
+
+// 格式化单个单位解析结果（parse 模式专用）
+function formatUnitContent(parsed, meta, index) {
+  const lines = [];
+  lines.push("========================================");
+  lines.push("【" + meta.unitName + "日报】" + meta.dateDisplay);
+  lines.push("----------------------------------------");
+
+  if (parsed.title) {
+    lines.push("标题：" + parsed.title);
+  }
+
+  if (Array.isArray(parsed.sections)) {
+    for (const sec of parsed.sections) {
+      if (sec.title) {
+        lines.push("");
+        lines.push("■ " + sec.title);
+      }
+      if (Array.isArray(sec.paragraphs)) {
+        for (const p of sec.paragraphs) {
+          if (p && p.trim()) lines.push(p);
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(parsed.tables) && parsed.tables.length > 0) {
+    for (let i = 0; i < parsed.tables.length; i++) {
+      const t = parsed.tables[i];
+      lines.push("");
+      lines.push("[表格" + (i + 1) + "]");
+      if (t.headers) lines.push("表头：" + t.headers.join(" | "));
+      if (t.rows) {
+        for (const row of t.rows) {
+          lines.push(row.join(" | "));
+        }
+      }
+    }
+  }
+
+  if (lines.length < 8 && parsed.rawText) {
+    lines.push("");
+    lines.push(parsed.rawText.slice(0, 3000));
+  }
+
+  return lines.join("\n");
+}
+
+// 从解析结果提取特定字段（parse 模式专用）
+function extractFieldFromParsed(parsed, keywords) {
+  const result = [];
+  if (Array.isArray(parsed.sections)) {
+    for (const sec of parsed.sections) {
+      const titleLower = (sec.title || "").toLowerCase();
+      for (const kw of keywords) {
+        if (titleLower.includes(kw)) {
+          if (Array.isArray(sec.paragraphs)) {
+            result.push(...sec.paragraphs.filter(p => p && p.trim()));
+          }
+        }
+      }
+    }
+  }
+  return result.join("；");
 }
 
 function extractJsonObject(text) {
@@ -206,6 +272,20 @@ async function extractFromDocument(file, config) {
     parsed = { title: '', sections: [], tables: [], rawText: '' };
   }
 
+  if (config.mode === 'parse') {
+    return {
+      unit_name: meta.unitName,
+      unit_report_date: meta.dateStr || meta.dateDisplay,
+      unit_summary: parsed.title || '暂无',
+      unit_overview: formatUnitContent(parsed, meta),
+      unit_key_projects: extractFieldFromParsed(parsed, ['重点项目', '项目进展', '重点工作']) || '暂无',
+      unit_risks: extractFieldFromParsed(parsed, ['风险', '问题', '困难']) || '暂无',
+      unit_risk: extractFieldFromParsed(parsed, ['风险', '问题', '困难']) || '暂无',
+      unit_tomorrow: extractFieldFromParsed(parsed, ['明日计划', '明天计划', '下一步', '后续工作']) || '暂无',
+      metrics: [],
+    };
+  }
+
   const aiInput = summarizeStructureForAI(parsed);
   let aiText = aiInput;
   if (aiText.length < 50 && parsed.rawText) {
@@ -234,6 +314,36 @@ async function extractFromDocument(file, config) {
 }
 
 async function aggregateResults(extractions, config) {
+  if (config.mode === 'parse') {
+    const units = extractions.map((u) => ({
+      unit_name: str(u.unit_name),
+      unit_report_date: str(u.unit_report_date),
+      unit_summary: str(u.unit_summary),
+      unit_risk: str(u.unit_risk),
+      unit_overview: str(u.unit_overview),
+      unit_key_projects: str(u.unit_key_projects),
+      unit_risks: str(u.unit_risks),
+      unit_tomorrow: str(u.unit_tomorrow),
+    }));
+
+    const reportDate = units[0] ? units[0].unit_report_date : '';
+    const keyProjects = units.map((u) => u.unit_key_projects).filter(Boolean).filter((v) => v !== '暂无').join('；');
+    const risks = units.map((u) => u.unit_risks).filter(Boolean).filter((v) => v !== '暂无').join('；');
+    const tomorrowPlan = units.map((u) => u.unit_tomorrow).filter(Boolean).filter((v) => v !== '暂无').join('；');
+
+    return normalizeTemplateData({
+      report_title: CONFIG.output.defaultTitle,
+      report_date: reportDate,
+      overview: '已基于解析结果汇总 ' + units.length + ' 个单位日报。',
+      key_projects: keyProjects || '暂无',
+      risks: risks || '暂无',
+      risk_detail: risks || '暂无',
+      risk_items: risks ? risks.split(/[；;\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 12) : [],
+      tomorrow_plan: tomorrowPlan || '暂无',
+      units,
+    }, config.aggregation.fields);
+  }
+
   const unitsContext = extractions.map((u, i) => ({
     序号: i + 1,
     ...u,
@@ -265,6 +375,7 @@ async function main() {
   }
 
   gov.log('模板识别: ' + template.name);
+  gov.log('运行模式: ' + (CONFIG.mode === 'ai' ? 'AI 提取与汇总' : '纯解析模式'));
   gov.log('单位日报 ' + unitFiles.length + ' 份，开始逐份解析...');
 
   // ====== 阶段 1：逐份解析 ======
@@ -287,10 +398,10 @@ async function main() {
     return;
   }
 
-  gov.log('阶段2完成: AI 汇总成功');
+  gov.log('阶段2完成: ' + (CONFIG.mode === 'ai' ? 'AI 汇总成功' : '解析结果汇总成功'));
 
   if (!data.units.length) {
-    gov.log('AI 返回的 units 为空，已中止');
+    gov.log('汇总结果 units 为空，已中止');
     return;
   }
   if (!data.report_title) {
