@@ -100,6 +100,7 @@ jobs:
 
       - name: Prepare package files
         run: |
+          mkdir -p package
           # 静态文件直接放在包根目录，与可执行文件同级
           # 消除 web 子目录冗余，静态文件和配置文件（apps/data-ontology/data-store.json）统一位置
           cp ${{ matrix.output }} package/
