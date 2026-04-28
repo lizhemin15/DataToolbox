@@ -14516,6 +14516,13 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 路由分发
+	// GET /api/data-ontology/share/{token}/examples/{filename} - 免鉴权下载示例文件
+	if len(pathParts) >= 3 && pathParts[1] == "examples" {
+		filename := pathParts[2]
+		handleGovernanceShareExampleDownload(w, r, task, filename)
+		return
+	}
+
 	if len(pathParts) >= 2 && pathParts[1] == "run" {
 		if len(pathParts) >= 3 && pathParts[2] != "" {
 			runID := pathParts[2]
@@ -14553,6 +14560,55 @@ func handleGovernanceShareInfo(w http.ResponseWriter, r *http.Request, task *Gov
 		"accept_exts":  task.AcceptExts,
 		"example_files": task.ExampleFiles,
 	})
+}
+
+// handleGovernanceShareExampleDownload 免鉴权下载分享任务的示例文件
+func handleGovernanceShareExampleDownload(w http.ResponseWriter, r *http.Request, task *GovernanceTask, filename string) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+
+	// URL 解码文件名
+	decodedFilename, err := url.PathUnescape(filename)
+	if err != nil {
+		decodedFilename = filename
+	}
+
+	// 验证文件名在任务的 example_files 中
+	found := false
+	var actualPath string
+	for _, ef := range task.ExampleFiles {
+		if ef.Path == decodedFilename || ef.Name == decodedFilename {
+			found = true
+			actualPath = ef.Path
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	// 安全检查
+	safe := sanitizeGovernanceExampleFilename(actualPath)
+	if safe == "" {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	// 从 embed FS 读取文件
+	data, err := governanceExamplesFS.ReadFile("examples/governance/" + safe)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safe+`"`)
+	w.Write(data)
 }
 
 // handleGovernanceShareRun 执行分享任务

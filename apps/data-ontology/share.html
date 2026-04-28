@@ -526,7 +526,7 @@
                         const exampleFiles = document.getElementById('exampleFiles');
                         exampleSection.style.display = '';
                         exampleFiles.innerHTML = data.example_files.map(file =>
-                            `<a href="${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(file.path)}" class="example-file" download title="点击下载 ${file.name}">${file.name}</a>`
+                            `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/examples/${encodeURIComponent(file.path)}" class="example-file" download title="点击下载 ${file.name}">${file.name}</a>`
                         ).join('');
                     }
 
