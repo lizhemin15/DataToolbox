@@ -427,6 +427,126 @@
             mask-repeat: no-repeat;
         }
 
+        /* 错误弹窗 */
+        .error-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .error-modal {
+            background: white;
+            border-radius: 6px;
+            max-width: 480px;
+            width: 90%;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .error-modal-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .error-icon {
+            width: 32px;
+            height: 32px;
+            background: #fef2f2;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #dc2626;
+            font-size: 18px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .error-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .error-message {
+            font-size: 14px;
+            color: #334155;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+
+        .error-suggestion {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 16px;
+        }
+
+        .error-suggestion-title {
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
+
+        .error-detail-toggle {
+            font-size: 12px;
+            color: #94a3b8;
+            cursor: pointer;
+            margin-bottom: 8px;
+            user-select: none;
+        }
+
+        .error-detail-toggle:hover {
+            color: #64748b;
+        }
+
+        .error-detail {
+            background: #1e293b;
+            border-radius: 4px;
+            padding: 12px;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 11px;
+            color: #e2e8f0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-bottom: 16px;
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .error-actions {
+            text-align: right;
+        }
+
+        .error-btn {
+            padding: 8px 20px;
+            background: #0f172a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .error-btn:hover {
+            background: #1e293b;
+        }
+
         /* 响应式 */
         @media (max-width: 768px) {
             body {
@@ -538,6 +658,42 @@
         let selectedFiles = [];
         let currentRunId = null;
 
+        // 显示错误弹窗
+        function showError(title, message, suggestion, detail) {
+            // 移除已有弹窗
+            const existing = document.querySelector('.error-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'error-overlay';
+            overlay.innerHTML = `
+                <div class="error-modal">
+                    <div class="error-modal-header">
+                        <div class="error-icon">!</div>
+                        <div class="error-title">${title || '出错了'}</div>
+                    </div>
+                    <div class="error-message">${message || '操作失败，请稍后重试'}</div>
+                    ${suggestion ? `
+                    <div class="error-suggestion">
+                        <div class="error-suggestion-title">建议</div>
+                        ${suggestion}
+                    </div>
+                    ` : ''}
+                    ${detail ? `
+                    <div class="error-detail-toggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display?'':'block'">▶ 查看详细信息</div>
+                    <div class="error-detail">${detail}</div>
+                    ` : ''}
+                    <div class="error-actions">
+                        <button class="error-btn" onclick="this.closest('.error-overlay').remove()">确定</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) overlay.remove();
+            });
+        }
+
         // 从 URL 中提取 token
         function extractToken() {
             const path = window.location.pathname;
@@ -549,7 +705,7 @@
         async function loadTaskInfo() {
             shareToken = extractToken();
             if (!shareToken) {
-                alert('无效的分享链接');
+                showError('链接无效', '无法从当前链接中提取分享标识，请检查链接是否完整。', '请确认链接格式为：站点地址/share/xxxxx', window.location.href);
                 return;
             }
 
@@ -577,11 +733,11 @@
                         fileInput.accept = data.accept_exts.join(',');
                     }
                 } else {
-                    alert('加载任务信息失败: ' + data.message);
+                    showError('加载失败', '获取任务信息失败：' + (data.message || '未知错误'));
                 }
             } catch (error) {
                 console.error('加载任务信息失败:', error);
-                alert('加载任务信息失败');
+                showError('网络错误', '无法连接到服务器，请检查网络连接后重试。', '如果问题持续存在，请联系分享者确认服务是否正常运行。', error.message);
             }
         }
 
@@ -647,7 +803,7 @@
         // 执行任务
         async function runTask() {
             if (selectedFiles.length === 0) {
-                alert('请先选择文件');
+                showError('请选择文件', '请先上传需要处理的文件，再点击"开始处理"。');
                 return;
             }
 
@@ -673,12 +829,12 @@
                     document.getElementById('progressFill').classList.remove('progress-completed', 'progress-failed');
                     pollProgress();
                 } else {
-                    alert('执行失败: ' + data.message);
+                    showError('执行失败', '任务执行失败：' + (data.message || '未知错误'));
                     runBtn.disabled = false;
                 }
             } catch (error) {
                 console.error('执行任务失败:', error);
-                alert('执行任务失败');
+                showError('网络错误', '提交任务时无法连接服务器，请检查网络后重试。', null, error.message);
                 runBtn.disabled = false;
             }
         }
@@ -718,7 +874,7 @@
                         setTimeout(pollProgress, 300);
                     }
                 } else {
-                    alert('查询进度失败: ' + data.message);
+                    showError('查询失败', '无法获取任务进度：' + (data.message || '未知错误'));
                 }
             } catch (error) {
                 console.error('查询进度失败:', error);
