@@ -11944,6 +11944,56 @@ func sanitizeGovernanceExampleFilename(s string) string {
 	return base
 }
 
+// handleGovernanceExamplesList GET …/examples 返回示例文件列表
+func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	_ = username
+
+	// 从 embed.FS 读取示例文件列表
+	entries, err := governanceExamplesFS.ReadDir("examples/governance")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取示例目录失败"})
+		return
+	}
+
+	type ExampleFile struct {
+		Name string `json:"name"`
+		Size int64  `json:"size"`
+	}
+
+	var examples []ExampleFile
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".docx") {
+			info, err := entry.Info()
+			size := int64(0)
+			if err == nil {
+				size = info.Size()
+			}
+			examples = append(examples, ExampleFile{
+				Name: entry.Name(),
+				Size: size,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"examples": examples,
+	})
+}
+
 // handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 	rawPath := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
@@ -11968,8 +12018,13 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = username
 	raw := rawPath
-	if raw == "" || raw == "download" {
+	if raw == "download" {
 		http.NotFound(w, r)
+		return
+	}
+	// 空路径返回示例文件列表
+	if raw == "" {
+		handleGovernanceExamplesList(w, r)
 		return
 	}
 	safe := sanitizeGovernanceExampleFilename(raw)
