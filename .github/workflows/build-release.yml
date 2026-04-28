@@ -73,7 +73,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            python3 scripts/inject_version.py "$VERSION" .
+            for f in apps/data-ontology/index.html apps/data-ontology/script.js; do
+              if [ -f "$f" ]; then
+                sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
+                echo "  PATCHED: $f -> v=${VERSION}"
+              fi
+            done
           fi
 
       - name: Build
