@@ -1584,6 +1584,27 @@
                     </div>
                 </div>
                 <div class="form-group">
+                    <label>开启分享</label>
+                    <div class="gov-toggle-wrap">
+                        <label class="gov-switch">
+                            <input type="checkbox" id="govShareEnabledInput" onchange="onGovShareEnabledChange()">
+                            <span class="gov-slider"></span>
+                        </label>
+                        <span id="govShareEnabledLabel">未开启</span>
+                    </div>
+                    <small>开启后，生成免鉴权分享链接，让其他人也能使用该任务</small>
+                </div>
+                <div id="govShareFields" style="display:none;">
+                    <div class="form-group">
+                        <label>分享链接</label>
+                        <div class="share-link-container">
+                            <input type="text" id="govShareLinkInput" readonly>
+                            <button type="button" class="btn btn-secondary" onclick="copyShareLink()">复制链接</button>
+                        </div>
+                        <small>分享此链接，其他人无需登录即可使用该任务</small>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label for="govRunModeSelect">运行位置</label>
                     <select id="govRunModeSelect">
                         <option value="backend">后端运行</option>

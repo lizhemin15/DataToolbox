@@ -7283,6 +7283,13 @@ function editGovTask() {
     document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
     document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
     document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
+    // 分享设置
+    document.getElementById('govShareEnabledInput').checked = currentGovTask.share_enabled || false;
+    document.getElementById('govShareEnabledLabel').textContent = currentGovTask.share_enabled ? '已开启' : '未开启';
+    document.getElementById('govShareFields').style.display = currentGovTask.share_enabled ? '' : 'none';
+    if (currentGovTask.share_enabled && currentGovTask.share_token) {
+        updateShareLink(currentGovTask.share_token);
+    }
     const currentRunMode = currentGovTask.run_mode || currentGovTask.execution_mode || currentGovTask.exec_mode || 'backend';
     const runModeSelect = document.getElementById('govRunModeSelect');
     if (runModeSelect) runModeSelect.value = currentRunMode;
@@ -7356,7 +7363,7 @@ function onGovRegisterAPIChange() {
     const checked = document.getElementById('govRegisterAPIInput').checked;
     document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
     document.getElementById('govRegisterAPILabel').textContent = checked ? '启用' : '关闭';
-    
+
     // 若启用 API 注册，则自动生成路径。
     if (checked && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
@@ -7364,6 +7371,54 @@ function onGovRegisterAPIChange() {
             const initials = chineseToPinyinInitials(taskName);
             document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
         }
+    }
+}
+
+function onGovShareEnabledChange() {
+    const checked = document.getElementById('govShareEnabledInput').checked;
+    document.getElementById('govShareFields').style.display = checked ? '' : 'none';
+    document.getElementById('govShareEnabledLabel').textContent = checked ? '已开启' : '未开启';
+
+    if (checked && currentGovTask && currentGovTask.share_token) {
+        updateShareLink(currentGovTask.share_token);
+    }
+}
+
+function updateShareLink(shareToken) {
+    const baseUrl = window.location.origin;
+    const shareLink = `${baseUrl}/share/${shareToken}`;
+    document.getElementById('govShareLinkInput').value = shareLink;
+}
+
+function copyShareLink() {
+    const input = document.getElementById('govShareLinkInput');
+    input.select();
+    document.execCommand('copy');
+    alert('分享链接已复制到剪贴板');
+}
+
+async function toggleGovTaskShare(taskId, enable) {
+    try {
+        const url = `${API_BASE}/api/data-ontology/governance/tasks/${taskId}/share`;
+        const method = enable ? 'POST' : 'DELETE';
+        const response = await fetchWithAuth(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        const data = await response.json();
+        if (data.success) {
+            await loadGovernanceTasks();
+            return data;
+        } else {
+            alert('操作失败: ' + data.message);
+            return null;
+        }
+    } catch (error) {
+        console.error('切换分享状态失败:', error);
+        alert('操作失败');
+        return null;
     }
 }
 
@@ -7380,6 +7435,7 @@ async function handleGovTaskSubmit(e) {
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
     const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
+    const shareEnabled = document.getElementById('govShareEnabledInput').checked;
     const runMode = document.getElementById('govRunModeSelect') ? document.getElementById('govRunModeSelect').value : (currentGovTask?.run_mode || 'backend');
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
@@ -7395,6 +7451,7 @@ async function handleGovTaskSubmit(e) {
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
+        share_enabled: shareEnabled,
         run_mode: runMode,
         execution_mode: runMode
     };

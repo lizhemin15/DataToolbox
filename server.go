@@ -1038,6 +1038,9 @@ type GovernanceTask struct {
 	Percent        int    `json:"percent,omitempty"`         // 进度百分比
 	CurrentFile    string `json:"current_file,omitempty"`    // 当前处理的文件
 	StartedAt      string `json:"started_at,omitempty"`      // 开始时间
+	// 分享功能
+	ShareEnabled bool   `json:"share_enabled"` // 是否开启分享
+	ShareToken   string `json:"share_token"`   // 分享token（UUID）
 }
 
 // GovernanceTaskLog 任务执行日志
@@ -1078,12 +1081,29 @@ type GovernanceJob struct {
 	Token      string
 	InputFiles []string // 文件路径列表
 	InputText  string
+	ShareToken string // 如果是分享执行的，记录分享token
+}
+
+// GovernanceShareRun 分享执行记录
+type GovernanceShareRun struct {
+	ID          string    `json:"id"`
+	TaskID      string    `json:"task_id"`
+	ShareToken  string    `json:"share_token"`
+	Status      string    `json:"status"`       // pending/running/completed/failed
+	Progress    int       `json:"progress"`     // 0-100
+	Output      string    `json:"output"`       // 执行日志
+	ResultFiles []string  `json:"result_files"` // 结果文件列表
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 var (
 	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
 	govRunnerPath      = "gov-runner"                   // 未嵌入时从可执行文件旁查找
 	govRunnerAPIBase   string                           // 供 gov-runner 回调本机 API，在 main 中设置
+	// 分享执行记录存储
+	governanceShareRuns   = make(map[string]*GovernanceShareRun) // runID -> run
+	governanceShareRunsMu sync.RWMutex
 )
 
 // 网页导航
@@ -11405,6 +11425,28 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "progress":
 			handleGovernanceTaskProgress(w, r, taskID)
 			return
+		case "share":
+			// 分享相关操作
+			if len(pathParts) >= 3 {
+				switch pathParts[2] {
+				case "enable":
+					handleGovernanceTaskShareEnable(w, r, taskID)
+					return
+				case "disable":
+					handleGovernanceTaskShareDisable(w, r, taskID)
+					return
+				}
+			}
+			// POST /api/data-ontology/governance/tasks/{id}/share - 开启分享
+			// DELETE /api/data-ontology/governance/tasks/{id}/share - 关闭分享
+			if r.Method == http.MethodPost {
+				handleGovernanceTaskShareEnable(w, r, taskID)
+			} else if r.Method == http.MethodDelete {
+				handleGovernanceTaskShareDisable(w, r, taskID)
+			} else {
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+			}
+			return
 		}
 	}
 
@@ -11468,6 +11510,14 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if update.APIMethod != "" {
 			task.APIMethod = update.APIMethod
+		}
+		// 分享字段
+		task.ShareEnabled = update.ShareEnabled
+		if update.ShareEnabled && task.ShareToken == "" {
+			task.ShareToken = uuid.New().String()
+		}
+		if !update.ShareEnabled {
+			task.ShareToken = ""
 		}
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()
@@ -12547,6 +12597,32 @@ func sanitizeGovOutputFilename(name string) string {
 	return base
 }
 
+// governanceWriteOutputFilesForShare 将分享任务的输出文件落盘到 share-outputs 目录
+func governanceWriteOutputFilesForShare(shareToken string, runID string, files []GovOutputFile) []string {
+	if shareToken == "" || runID == "" || len(files) == 0 {
+		return nil
+	}
+	dir := filepath.Join("apps", "data-ontology", "share-outputs", shareToken, runID)
+	_ = os.MkdirAll(dir, 0755)
+	var lines []string
+	for _, f := range files {
+		if f.Name == "" || f.ContentBase64 == "" {
+			continue
+		}
+		safe := sanitizeGovOutputFilename(f.Name)
+		data, err := base64.StdEncoding.DecodeString(f.ContentBase64)
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(dir, safe)
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("输出文件: %s", safe))
+	}
+	return lines
+}
+
 // governanceWriteOutputFiles 将 gov-runner 输出的文件落盘并返回日志行（含下载路径）
 func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
 	if runID == "" || len(files) == 0 {
@@ -12580,12 +12656,16 @@ func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
 func executeGovernanceJob(job *GovernanceJob) {
 	taskID := job.TaskID
 	runID := job.RunID
+	isShare := job.ShareToken != ""
 
 	// 获取任务信息
 	dataOntologyMu.RLock()
 	task, exists := governanceTasks[taskID]
 	if !exists {
 		dataOntologyMu.RUnlock()
+		if isShare {
+			updateShareRun(runID, "failed", 0, "任务不存在", nil)
+		}
 		return
 	}
 	code := task.JsCode
@@ -12612,6 +12692,11 @@ func executeGovernanceJob(job *GovernanceJob) {
 	}
 	dataOntologyMu.RUnlock()
 
+	// 如果是分享任务，初始化执行记录
+	if isShare {
+		updateShareRun(runID, "running", 0, "开始执行...", nil)
+	}
+
 	// 准备任务参数
 	taskData := map[string]interface{}{
 		"code":        code,
@@ -12630,17 +12715,22 @@ func executeGovernanceJob(job *GovernanceJob) {
 				data, err := os.ReadFile(filePath)
 				if err != nil {
 					log.Printf("读取文件失败: %v", err)
-					dataOntologyMu.Lock()
-					if t, ok := governanceTasks[taskID]; ok {
-						t.Status = "error"
-						t.LastError = "读取文件失败: " + err.Error()
-						t.LastRunAt = time.Now().Format(time.RFC3339)
-						t.ProcessedFiles = len(job.InputFiles)
-						t.Percent = 100
+					errMsg := "读取文件失败: " + err.Error()
+					if isShare {
+						updateShareRun(runID, "failed", 100, errMsg, nil)
+					} else {
+						dataOntologyMu.Lock()
+						if t, ok := governanceTasks[taskID]; ok {
+							t.Status = "error"
+							t.LastError = errMsg
+							t.LastRunAt = time.Now().Format(time.RFC3339)
+							t.ProcessedFiles = len(job.InputFiles)
+							t.Percent = 100
+						}
+						dataOntologyMu.Unlock()
+						saveDataOntologyStore()
+						governanceFinalizeRunLogFromTask(taskID, runID)
 					}
-					dataOntologyMu.Unlock()
-					saveDataOntologyStore()
-					governanceFinalizeRunLogFromTask(taskID, runID)
 					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 					os.RemoveAll(tmpDir)
 					return
@@ -12655,49 +12745,76 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			taskData["files"] = filePayloads
 
-			dataOntologyMu.Lock()
-			if t, ok := governanceTasks[taskID]; ok {
-				t.ProcessedFiles = 0
-				t.Percent = 50
-				t.CurrentFile = "合并执行"
+			if isShare {
+				updateShareRun(runID, "running", 50, "合并执行...", nil)
+			} else {
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					t.ProcessedFiles = 0
+					t.Percent = 50
+					t.CurrentFile = "合并执行"
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
 			}
-			dataOntologyMu.Unlock()
-			saveDataOntologyStore()
 
 			result := callGovRunner(taskData)
 			var extraLines []string
 			if len(result.OutputFiles) > 0 {
-				extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+				if isShare {
+					// 分享任务：写入到 share-outputs 目录
+					extraLines = governanceWriteOutputFilesForShare(job.ShareToken, runID, result.OutputFiles)
+				} else {
+					extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+				}
 			}
 			if !result.Success {
 				log.Printf("任务 %s 合并执行失败: %s", taskID, result.Error)
 			} else {
 				log.Printf("任务 %s 合并执行成功", taskID)
 			}
-			dataOntologyMu.Lock()
-			if t, ok := governanceTasks[taskID]; ok {
-				if result.Success {
-					t.Status = "success"
-					out := strings.Join(result.Output, "\n")
-					if len(extraLines) > 0 {
-						out += "\n" + strings.Join(extraLines, "\n")
-					}
-					t.LastOutput = out
-				} else {
-					t.Status = "error"
-					t.LastError = result.Error
-					if len(result.Output) > 0 {
-						t.LastOutput = strings.Join(result.Output, "\n")
-					}
+
+			if isShare {
+				var resultFiles []string
+				for _, f := range result.OutputFiles {
+					resultFiles = append(resultFiles, f.Name)
 				}
-				t.LastRunAt = time.Now().Format(time.RFC3339)
-				t.ProcessedFiles = len(job.InputFiles)
-				t.Percent = 100
-				t.CurrentFile = ""
+				status := "completed"
+				output := strings.Join(result.Output, "\n")
+				if len(extraLines) > 0 {
+					output += "\n" + strings.Join(extraLines, "\n")
+				}
+				if !result.Success {
+					status = "failed"
+					output = result.Error + "\n" + output
+				}
+				updateShareRun(runID, status, 100, output, resultFiles)
+			} else {
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					if result.Success {
+						t.Status = "success"
+						out := strings.Join(result.Output, "\n")
+						if len(extraLines) > 0 {
+							out += "\n" + strings.Join(extraLines, "\n")
+						}
+						t.LastOutput = out
+					} else {
+						t.Status = "error"
+						t.LastError = result.Error
+						if len(result.Output) > 0 {
+							t.LastOutput = strings.Join(result.Output, "\n")
+						}
+					}
+					t.LastRunAt = time.Now().Format(time.RFC3339)
+					t.ProcessedFiles = len(job.InputFiles)
+					t.Percent = 100
+					t.CurrentFile = ""
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+				governanceFinalizeRunLogFromTask(taskID, runID)
 			}
-			dataOntologyMu.Unlock()
-			saveDataOntologyStore()
-			governanceFinalizeRunLogFromTask(taskID, runID)
 		} else {
 			var allOutput []string
 			var lastError string
@@ -12713,20 +12830,29 @@ func executeGovernanceJob(job *GovernanceJob) {
 				taskData["file_name"] = filepath.Base(filePath)
 
 				// 更新进度
-				dataOntologyMu.Lock()
-				if t, ok := governanceTasks[taskID]; ok {
-					t.ProcessedFiles = i
-					t.Percent = (i * 100) / len(job.InputFiles)
-					t.CurrentFile = filepath.Base(filePath)
+				progress := (i * 100) / len(job.InputFiles)
+				if isShare {
+					updateShareRun(runID, "running", progress, fmt.Sprintf("处理文件: %s", filepath.Base(filePath)), nil)
+				} else {
+					dataOntologyMu.Lock()
+					if t, ok := governanceTasks[taskID]; ok {
+						t.ProcessedFiles = i
+						t.Percent = progress
+						t.CurrentFile = filepath.Base(filePath)
+					}
+					dataOntologyMu.Unlock()
+					saveDataOntologyStore()
 				}
-				dataOntologyMu.Unlock()
-				saveDataOntologyStore()
 
 				// 执行单个文件
 				result := callGovRunner(taskData)
 				var extraLines []string
 				if len(result.OutputFiles) > 0 {
-					extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+					if isShare {
+						extraLines = governanceWriteOutputFilesForShare(job.ShareToken, runID, result.OutputFiles)
+					} else {
+						extraLines = governanceWriteOutputFiles(job.RunID, result.OutputFiles)
+					}
 				}
 				if !result.Success {
 					log.Printf("任务 %s 文件 %s 执行失败: %s", taskID, filePath, result.Error)
@@ -12748,40 +12874,64 @@ func executeGovernanceJob(job *GovernanceJob) {
 				// 清理临时文件
 				os.Remove(filePath)
 
-				// 每处理完一个文件更新 last_output，便于轮询与合并到「运行中」日志
+				// 每处理完一个文件更新输出
+				if isShare {
+					updateShareRun(runID, "running", progress, strings.Join(allOutput, "\n"), nil)
+				} else {
+					dataOntologyMu.Lock()
+					if t, ok := governanceTasks[taskID]; ok {
+						if len(allOutput) > 0 {
+							t.LastOutput = strings.Join(allOutput, "\n")
+						}
+						if lastError != "" {
+							t.LastError = lastError
+						}
+					}
+					dataOntologyMu.Unlock()
+					saveDataOntologyStore()
+				}
+			}
+
+			// 更新最终状态
+			if isShare {
+				var resultFiles []string
+				// 收集所有输出文件名
+				outputDir := filepath.Join("apps", "data-ontology", "share-outputs", job.ShareToken, runID)
+				if files, err := os.ReadDir(outputDir); err == nil {
+					for _, f := range files {
+						if !f.IsDir() {
+							resultFiles = append(resultFiles, f.Name())
+						}
+					}
+				}
+				status := "completed"
+				output := strings.Join(allOutput, "\n")
+				if lastError != "" {
+					status = "failed"
+					output = lastError + "\n" + output
+				}
+				updateShareRun(runID, status, 100, output, resultFiles)
+			} else {
 				dataOntologyMu.Lock()
 				if t, ok := governanceTasks[taskID]; ok {
-					if len(allOutput) > 0 {
+					if lastError == "" {
+						t.Status = "success"
 						t.LastOutput = strings.Join(allOutput, "\n")
-					}
-					if lastError != "" {
+					} else {
+						t.Status = "error"
 						t.LastError = lastError
+						if len(allOutput) > 0 {
+							t.LastOutput = strings.Join(allOutput, "\n")
+						}
 					}
+					t.LastRunAt = time.Now().Format(time.RFC3339)
+					t.ProcessedFiles = len(job.InputFiles)
+					t.Percent = 100
 				}
 				dataOntologyMu.Unlock()
 				saveDataOntologyStore()
+				governanceFinalizeRunLogFromTask(taskID, runID)
 			}
-
-			// 更新任务状态
-			dataOntologyMu.Lock()
-			if t, ok := governanceTasks[taskID]; ok {
-				if lastError == "" {
-					t.Status = "success"
-					t.LastOutput = strings.Join(allOutput, "\n")
-				} else {
-					t.Status = "error"
-					t.LastError = lastError
-					if len(allOutput) > 0 {
-						t.LastOutput = strings.Join(allOutput, "\n")
-					}
-				}
-				t.LastRunAt = time.Now().Format(time.RFC3339)
-				t.ProcessedFiles = len(job.InputFiles)
-				t.Percent = 100
-			}
-			dataOntologyMu.Unlock()
-			saveDataOntologyStore()
-			governanceFinalizeRunLogFromTask(taskID, runID)
 		}
 	} else {
 		// 无文件，直接执行
@@ -12793,20 +12943,41 @@ func executeGovernanceJob(job *GovernanceJob) {
 		}
 
 		// 更新任务状态
-		dataOntologyMu.Lock()
-		if t, ok := governanceTasks[taskID]; ok {
-			if result.Success {
-				t.Status = "success"
-				t.LastOutput = strings.Join(result.Output, "\n")
-			} else {
-				t.Status = "error"
-				t.LastError = result.Error
+		if isShare {
+			var resultFiles []string
+			var extraLines []string
+			if len(result.OutputFiles) > 0 {
+				extraLines = governanceWriteOutputFilesForShare(job.ShareToken, runID, result.OutputFiles)
+				for _, f := range result.OutputFiles {
+					resultFiles = append(resultFiles, f.Name)
+				}
 			}
-			t.LastRunAt = time.Now().Format(time.RFC3339)
+			status := "completed"
+			output := strings.Join(result.Output, "\n")
+			if len(extraLines) > 0 {
+				output += "\n" + strings.Join(extraLines, "\n")
+			}
+			if !result.Success {
+				status = "failed"
+				output = result.Error + "\n" + output
+			}
+			updateShareRun(runID, status, 100, output, resultFiles)
+		} else {
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if result.Success {
+					t.Status = "success"
+					t.LastOutput = strings.Join(result.Output, "\n")
+				} else {
+					t.Status = "error"
+					t.LastError = result.Error
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTask(taskID, runID)
 		}
-		dataOntologyMu.Unlock()
-		saveDataOntologyStore()
-		governanceFinalizeRunLogFromTask(taskID, runID)
 	}
 
 	// 清理临时目录
@@ -14286,6 +14457,365 @@ func handleGovParseText(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// updateShareRun 更新分享执行记录
+func updateShareRun(runID string, status string, progress int, output string, resultFiles []string) {
+	governanceShareRunsMu.Lock()
+	if run, exists := governanceShareRuns[runID]; exists {
+		run.Status = status
+		run.Progress = progress
+		if output != "" {
+			run.Output += output + "\n"
+		}
+		if resultFiles != nil {
+			run.ResultFiles = resultFiles
+		}
+		run.UpdatedAt = time.Now()
+	}
+	governanceShareRunsMu.Unlock()
+}
+
+// handleSharePage 处理分享页面请求
+func handleSharePage(w http.ResponseWriter, r *http.Request) {
+	// 提取 token
+	token := strings.TrimPrefix(r.URL.Path, "/share/")
+	if token == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// 提供分享页面
+	http.ServeFile(w, r, "apps/data-ontology/share.html")
+}
+
+// handleGovernanceShare 处理分享任务请求（免鉴权）
+func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// 解析路径: /api/data-ontology/share/{token}[/run[/run_id[/download]]]
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/share/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少分享token"})
+		return
+	}
+	shareToken := pathParts[0]
+
+	// 查找对应的任务
+	dataOntologyMu.RLock()
+	var task *GovernanceTask
+	for _, t := range governanceTasks {
+		if t.ShareToken == shareToken && t.ShareEnabled {
+			task = t
+			break
+		}
+	}
+	dataOntologyMu.RUnlock()
+
+	if task == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "分享链接无效或已关闭"})
+		return
+	}
+
+	// 路由分发
+	if len(pathParts) >= 2 && pathParts[1] == "run" {
+		if len(pathParts) >= 3 && pathParts[2] != "" {
+			runID := pathParts[2]
+			if len(pathParts) >= 4 && pathParts[3] == "download" {
+				// GET /api/data-ontology/share/{token}/run/{run_id}/download
+				handleGovernanceShareRunDownload(w, r, task, runID)
+				return
+			}
+			// GET /api/data-ontology/share/{token}/run/{run_id}
+			handleGovernanceShareRunStatus(w, r, task, runID)
+			return
+		}
+		// POST /api/data-ontology/share/{token}/run
+		handleGovernanceShareRun(w, r, task, shareToken)
+		return
+	}
+
+	// GET /api/data-ontology/share/{token}
+	handleGovernanceShareInfo(w, r, task)
+}
+
+// handleGovernanceShareInfo 获取分享任务信息
+func handleGovernanceShareInfo(w http.ResponseWriter, r *http.Request, task *GovernanceTask) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"name":         task.Name,
+		"description":  task.Description,
+		"input_type":   task.InputType,
+		"accept_exts":  task.AcceptExts,
+		"example_files": task.ExampleFiles,
+	})
+}
+
+// handleGovernanceShareRun 执行分享任务
+func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *GovernanceTask, shareToken string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	// 解析上传的文件
+	var filePaths []string
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		maxSize := int64(100 * 1024 * 1024) // 100MB
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		if err := r.ParseMultipartForm(maxSize); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析表单失败: " + err.Error()})
+			return
+		}
+
+		files := r.MultipartForm.File["files"]
+		for _, fileHeader := range files {
+			safeFilename, err := sanitizeFilename(fileHeader.Filename)
+			if err != nil {
+				log.Printf("[GovernanceShare] 文件名无效: %v", err)
+				continue
+			}
+			file, err := fileHeader.Open()
+			if err != nil {
+				continue
+			}
+
+			// 保存到 share-uploads/{token}/{run_id}/
+			runID := uuid.New().String()
+			uploadDir := filepath.Join("apps", "data-ontology", "share-uploads", shareToken, runID)
+			if err := os.MkdirAll(uploadDir, 0755); err != nil {
+				file.Close()
+				continue
+			}
+			tmpPath := filepath.Join(uploadDir, safeFilename)
+			dst, err := os.Create(tmpPath)
+			if err != nil {
+				file.Close()
+				continue
+			}
+			_, copyErr := io.Copy(dst, file)
+			file.Close()
+			closeErr := dst.Close()
+			if copyErr != nil || closeErr != nil {
+				os.Remove(tmpPath)
+				continue
+			}
+			filePaths = append(filePaths, tmpPath)
+		}
+	}
+
+	if len(filePaths) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未上传文件"})
+		return
+	}
+
+	// 创建执行记录
+	runID := uuid.New().String()
+	now := time.Now()
+	shareRun := &GovernanceShareRun{
+		ID:          runID,
+		TaskID:      task.ID,
+		ShareToken:  shareToken,
+		Status:      "pending",
+		Progress:    0,
+		Output:      "",
+		ResultFiles: []string{},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	governanceShareRunsMu.Lock()
+	governanceShareRuns[runID] = shareRun
+	governanceShareRunsMu.Unlock()
+
+	// 创建任务并入队
+	job := &GovernanceJob{
+		TaskID:     task.ID,
+		RunID:      runID,
+		Token:      "", // 分享任务无需 token
+		InputFiles: filePaths,
+		InputText:  "",
+		ShareToken: shareToken,
+	}
+
+	select {
+	case governanceJobQueue <- job:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"run_id":  runID,
+			"message": "任务已入队，正在后台执行",
+		})
+	default:
+		governanceShareRunsMu.Lock()
+		delete(governanceShareRuns, runID)
+		governanceShareRunsMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "任务队列已满，请稍后重试",
+		})
+	}
+}
+
+// handleGovernanceShareRunStatus 查询分享任务执行状态
+func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task *GovernanceTask, runID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+
+	governanceShareRunsMu.RLock()
+	run, exists := governanceShareRuns[runID]
+	governanceShareRunsMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"status":       run.Status,
+		"progress":     run.Progress,
+		"output":       run.Output,
+		"result_files": run.ResultFiles,
+		"created_at":   run.CreatedAt,
+		"updated_at":   run.UpdatedAt,
+	})
+}
+
+// handleGovernanceShareRunDownload 下载分享任务结果文件
+func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, task *GovernanceTask, runID string) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+
+	governanceShareRunsMu.RLock()
+	run, exists := governanceShareRuns[runID]
+	governanceShareRunsMu.RUnlock()
+
+	if !exists {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
+		return
+	}
+
+	// 获取要下载的文件名
+	filename := r.URL.Query().Get("file")
+	if filename == "" {
+		// 打包所有结果文件
+		outputDir := filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
+		if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "结果文件不存在"})
+			return
+		}
+
+		// 创建 ZIP 文件
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=results-%s.zip", runID))
+		zipWriter := zip.NewWriter(w)
+		defer zipWriter.Close()
+
+		filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			relPath, _ := filepath.Rel(outputDir, path)
+			zipEntry, _ := zipWriter.Create(relPath)
+			file, _ := os.Open(path)
+			defer file.Close()
+			io.Copy(zipEntry, file)
+			return nil
+		})
+		return
+	}
+
+	// 下载单个文件
+	outputDir := filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
+	filePath := filepath.Join(outputDir, filename)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件不存在"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	http.ServeFile(w, r, filePath)
+}
+
+// handleGovernanceTaskShareEnable 开启任务分享
+func handleGovernanceTaskShareEnable(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	dataOntologyMu.Lock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	task.ShareEnabled = true
+	if task.ShareToken == "" {
+		task.ShareToken = uuid.New().String()
+	}
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存分享设置失败: %v", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"share_token": task.ShareToken,
+		"message":     "分享已开启",
+	})
+}
+
+// handleGovernanceTaskShareDisable 关闭任务分享
+func handleGovernanceTaskShareDisable(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodDelete {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持DELETE"})
+		return
+	}
+
+	dataOntologyMu.Lock()
+	task, exists := governanceTasks[taskID]
+	if !exists {
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	task.ShareEnabled = false
+	task.ShareToken = ""
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存分享设置失败: %v", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "分享已关闭",
+	})
+}
+
 func main() {
 	// 子命令 mcp：以 stdio 运行 MCP 服务，供 Cursor 等连接（需设置 DATA_ONTOLOGY_BASE_URL、DATA_ONTOLOGY_API_KEY）
 	if len(os.Args) >= 2 && os.Args[1] == "mcp" {
@@ -14427,6 +14957,9 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
 	mux.HandleFunc("/api/data-ontology/quality-audit/", handleQualityAuditAPI)
 
+	// 分享API路由（免鉴权）
+	mux.HandleFunc("/api/data-ontology/share/", handleGovernanceShare)
+
 	// 文本结构化解析API路由
 	mux.HandleFunc("/api/data-ontology/gov/parse-text", handleGovParseText)
 
@@ -14444,6 +14977,9 @@ func main() {
 
 	// 静态资源（嵌入二进制，无需外置 apps/css/js/lib）
 	mux.Handle("/", newStaticFileHandler())
+
+	// 分享页面路由
+	mux.HandleFunc("/share/", handleSharePage)
 
 	handler := loggingMiddleware(corsMiddleware(handleApiDispatch(mux)))
 

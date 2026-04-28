@@ -4069,6 +4069,20 @@ textarea#testApiParams {
     transform: translateX(20px);
 }
 
+.share-link-container {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.share-link-container input {
+    flex: 1;
+}
+
+.share-link-container button {
+    white-space: nowrap;
+}
+
 #govCodeInput {
     background: #1a202c;
     color: #e2e8f0;

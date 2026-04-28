@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分享任务</title>
+    <link rel="stylesheet" href="style.css?v=4.0.69">
+    <style>
+        .share-container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        .share-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .share-header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .share-header p {
+            color: #666;
+            font-size: 16px;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #4CAF50;
+            background: #f9f9f9;
+        }
+        .upload-area.dragover {
+            border-color: #4CAF50;
+            background: #f0f8f0;
+        }
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        .upload-text {
+            font-size: 16px;
+            color: #666;
+        }
+        .file-list {
+            margin: 20px 0;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .file-item span {
+            flex: 1;
+        }
+        .file-item button {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .progress-container {
+            margin: 20px 0;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s;
+        }
+        .progress-text {
+            text-align: center;
+            margin-top: 10px;
+            color: #666;
+        }
+        .result-container {
+            margin: 20px 0;
+            display: none;
+        }
+        .result-output {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .result-files {
+            margin-top: 20px;
+        }
+        .result-file {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .example-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .example-section h3 {
+            margin-bottom: 10px;
+        }
+        .example-file {
+            display: inline-block;
+            margin: 5px;
+            padding: 6px 12px;
+            background: #2196F3;
+            color: white;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="share-container">
+        <div class="share-header">
+            <h1 id="taskName">加载中...</h1>
+            <p id="taskDescription"></p>
+        </div>
+
+        <div class="example-section" id="exampleSection" style="display:none;">
+            <h3>示例文件</h3>
+            <div id="exampleFiles"></div>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">拖拽文件到此处或点击上传</div>
+            <input type="file" id="fileInput" multiple style="display:none;">
+        </div>
+
+        <div class="file-list" id="fileList"></div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button class="btn btn-primary" id="runBtn" disabled onclick="runTask()">开始处理</button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div class="progress-text" id="progressText">准备中...</div>
+        </div>
+
+        <div class="result-container" id="resultContainer">
+            <h3>执行结果</h3>
+            <div class="result-output" id="resultOutput"></div>
+            <div class="result-files" id="resultFiles"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let shareToken = '';
+        let taskInfo = null;
+        let selectedFiles = [];
+        let currentRunId = null;
+
+        // 从 URL 中提取 token
+        function extractToken() {
+            const path = window.location.pathname;
+            const match = path.match(/\/share\/([^\/]+)/);
+            return match ? match[1] : null;
+        }
+
+        // 加载任务信息
+        async function loadTaskInfo() {
+            shareToken = extractToken();
+            if (!shareToken) {
+                alert('无效的分享链接');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}`);
+                const data = await response.json();
+                if (data.success) {
+                    taskInfo = data;
+                    document.getElementById('taskName').textContent = data.name;
+                    document.getElementById('taskDescription').textContent = data.description || '暂无描述';
+
+                    // 显示示例文件
+                    if (data.example_files && data.example_files.length > 0) {
+                        const exampleSection = document.getElementById('exampleSection');
+                        const exampleFiles = document.getElementById('exampleFiles');
+                        exampleSection.style.display = '';
+                        exampleFiles.innerHTML = data.example_files.map(file =>
+                            `<a href="${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(file.path)}" class="example-file" download>${file.name}</a>`
+                        ).join('');
+                    }
+
+                    // 设置文件类型限制
+                    if (data.accept_exts && data.accept_exts.length > 0) {
+                        const fileInput = document.getElementById('fileInput');
+                        fileInput.accept = data.accept_exts.join(',');
+                    }
+                } else {
+                    alert('加载任务信息失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('加载任务信息失败:', error);
+                alert('加载任务信息失败');
+            }
+        }
+
+        // 初始化上传区域
+        function initUploadArea() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        // 处理选择的文件
+        function handleFiles(files) {
+            selectedFiles = Array.from(files);
+            updateFileList();
+            document.getElementById('runBtn').disabled = selectedFiles.length === 0;
+        }
+
+        // 更新文件列表显示
+        function updateFileList() {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = selectedFiles.map((file, index) => `
+                <div class="file-item">
+                    <span>${file.name} (${formatFileSize(file.size)})</span>
+                    <button onclick="removeFile(${index})">删除</button>
+                </div>
+            `).join('');
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        // 移除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+            document.getElementById('runBtn').disabled = selectedFiles.length === 0;
+        }
+
+        // 执行任务
+        async function runTask() {
+            if (selectedFiles.length === 0) {
+                alert('请先选择文件');
+                return;
+            }
+
+            const runBtn = document.getElementById('runBtn');
+            runBtn.disabled = true;
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            try {
+                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (data.success) {
+                    currentRunId = data.runId;
+                    document.getElementById('progressContainer').style.display = '';
+                    document.getElementById('resultContainer').style.display = 'none';
+                    pollProgress();
+                } else {
+                    alert('执行失败: ' + data.message);
+                    runBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('执行任务失败:', error);
+                alert('执行任务失败');
+                runBtn.disabled = false;
+            }
+        }
+
+        // 轮询进度
+        async function pollProgress() {
+            if (!currentRunId) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run/${currentRunId}`);
+                const data = await response.json();
+                if (data.success) {
+                    const progressFill = document.getElementById('progressFill');
+                    const progressText = document.getElementById('progressText');
+
+                    progressFill.style.width = data.progress + '%';
+                    progressText.textContent = `进度: ${data.progress}% - ${data.status}`;
+
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        showResult(data);
+                    } else {
+                        setTimeout(pollProgress, 1000);
+                    }
+                } else {
+                    alert('查询进度失败: ' + data.message);
+                }
+            } catch (error) {
+                console.error('查询进度失败:', error);
+                setTimeout(pollProgress, 2000);
+            }
+        }
+
+        // 显示结果
+        function showResult(data) {
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('resultContainer').style.display = '';
+            document.getElementById('resultOutput').textContent = data.output || '无输出';
+
+            const resultFiles = document.getElementById('resultFiles');
+            if (data.result_files && data.result_files.length > 0) {
+                resultFiles.innerHTML = data.result_files.map(file =>
+                    `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${currentRunId}/download?file=${encodeURIComponent(file)}" class="result-file" download>${file}</a>`
+                ).join('');
+            } else {
+                resultFiles.innerHTML = '<a href="' + API_BASE + '/api/data-ontology/share/' + shareToken + '/run/' + currentRunId + '/download" class="result-file">下载全部结果</a>';
+            }
+
+            document.getElementById('runBtn').disabled = false;
+        }
+
+        // 页面加载时初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            loadTaskInfo();
+            initUploadArea();
+        });
+    </script>
+</body>
+</html>
