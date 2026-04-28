@@ -14540,6 +14540,12 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GET /api/data-ontology/share/{token}/runs - 列出所有执行记录
+	if len(pathParts) >= 2 && pathParts[1] == "runs" {
+		handleGovernanceShareRuns(w, r, shareToken)
+		return
+	}
+
 	// GET /api/data-ontology/share/{token}
 	handleGovernanceShareInfo(w, r, task)
 }
@@ -14743,6 +14749,49 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 		"result_files": run.ResultFiles,
 		"created_at":   run.CreatedAt,
 		"updated_at":   run.UpdatedAt,
+	})
+}
+
+// handleGovernanceShareRuns 列出分享任务的所有执行记录
+func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, shareToken string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+
+	governanceShareRunsMu.RLock()
+	defer governanceShareRunsMu.RUnlock()
+
+	// 收集该 share_token 下的所有执行记录
+	var runs []*GovernanceShareRun
+	for _, run := range governanceShareRuns {
+		if run.ShareToken == shareToken {
+			runs = append(runs, run)
+		}
+	}
+
+	// 按创建时间倒序排列
+	sort.Slice(runs, func(i, j int) bool {
+		return runs[i].CreatedAt.After(runs[j].CreatedAt)
+	})
+
+	// 转换为前端需要的格式
+	result := make([]map[string]interface{}, len(runs))
+	for i, run := range runs {
+		result[i] = map[string]interface{}{
+			"id":           run.ID,
+			"status":       run.Status,
+			"progress":     run.Progress,
+			"result_files": run.ResultFiles,
+			"created_at":   run.CreatedAt,
+			"updated_at":   run.UpdatedAt,
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"runs":    result,
 	})
 }
 

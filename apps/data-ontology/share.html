@@ -393,6 +393,105 @@
             margin-top: 16px;
         }
 
+        /* 历史记录区 */
+        .history-section {
+            margin: 28px 32px;
+        }
+
+        .history-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .history-list {
+            background: #f8fafc;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .history-item:hover {
+            background: #f1f5f9;
+        }
+
+        .history-item-info {
+            flex: 1;
+        }
+
+        .history-item-time {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .history-item-status {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .history-item-status.completed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .history-item-status.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .history-item-status.pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .history-empty {
+            padding: 24px;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .history-item-files {
+            font-size: 12px;
+            color: #64748b;
+            margin-left: 12px;
+        }
+
+        .history-download {
+            font-size: 12px;
+            color: #3b82f6;
+            text-decoration: none;
+            margin-left: 12px;
+            padding: 2px 10px;
+            border: 1px solid #3b82f6;
+            border-radius: 3px;
+            transition: background 0.15s;
+        }
+
+        .history-download:hover {
+            background: #eff6ff;
+        }
+
         .result-file {
             display: inline-flex;
             align-items: center;
@@ -577,46 +676,13 @@
 </head>
 <body>
     <div class="share-container">
-        <!-- 头部 -->
+        <!-- 标题区 -->
         <div class="share-header">
             <h1 id="taskName">加载中...</h1>
             <p id="taskDescription"></p>
         </div>
 
-        <!-- 操作步骤指引 -->
-        <div class="steps-guide">
-            <h2>操作步骤</h2>
-            <div class="steps-list">
-                <div class="step-item">
-                    <div class="step-number">1</div>
-                    <h3>下载示例文件</h3>
-                    <p>查看并下载示例文件，了解数据格式要求</p>
-                </div>
-                <div class="step-item">
-                    <div class="step-number">2</div>
-                    <h3>上传您的文件</h3>
-                    <p>拖拽或点击上传按钮，选择需要处理的文件</p>
-                </div>
-                <div class="step-item">
-                    <div class="step-number">3</div>
-                    <h3>开始处理</h3>
-                    <p>点击"开始处理"按钮，等待任务执行完成</p>
-                </div>
-                <div class="step-item">
-                    <div class="step-number">4</div>
-                    <h3>下载结果</h3>
-                    <p>处理完成后，下载生成的结果文件</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- 示例文件区域 -->
-        <div class="example-section" id="exampleSection" style="display:none;">
-            <h3>示例文件</h3>
-            <div class="example-files-grid" id="exampleFiles"></div>
-        </div>
-
-        <!-- 上传区域 -->
+        <!-- 文件处理区：上传 + 进度 + 结果 -->
         <div class="upload-section">
             <div class="upload-area" id="uploadArea">
                 <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -648,6 +714,45 @@
             <h3>执行结果</h3>
             <div class="result-output" id="resultOutput"></div>
             <div class="result-files" id="resultFiles"></div>
+        </div>
+
+        <!-- 历史记录区 -->
+        <div class="history-section" id="historySection">
+            <h3>历史记录</h3>
+            <div class="history-list" id="historyList"></div>
+        </div>
+
+        <!-- 操作步骤 -->
+        <div class="steps-guide">
+            <h2>操作步骤</h2>
+            <div class="steps-list">
+                <div class="step-item">
+                    <div class="step-number">1</div>
+                    <h3>下载示例文件</h3>
+                    <p>查看并下载示例文件，了解数据格式要求</p>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">2</div>
+                    <h3>上传您的文件</h3>
+                    <p>拖拽或点击上传按钮，选择需要处理的文件</p>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">3</div>
+                    <h3>开始处理</h3>
+                    <p>点击"开始处理"按钮，等待任务执行完成</p>
+                </div>
+                <div class="step-item">
+                    <div class="step-number">4</div>
+                    <h3>下载结果</h3>
+                    <p>处理完成后，下载生成的结果文件</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 示例文件区域 -->
+        <div class="example-section" id="exampleSection" style="display:none;">
+            <h3>示例文件</h3>
+            <div class="example-files-grid" id="exampleFiles"></div>
         </div>
     </div>
 
@@ -909,12 +1014,48 @@
             document.getElementById('runBtn').disabled = false;
             // 保存 run_id 以便刷新恢复
             sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
+            // 刷新历史记录
+            loadHistory();
+        }
+
+        // 加载历史记录
+        async function loadHistory() {
+            if (!shareToken) return;
+            try {
+                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/runs`);
+                const data = await response.json();
+                const historyList = document.getElementById('historyList');
+                if (!data.success || !data.runs || data.runs.length === 0) {
+                    historyList.innerHTML = '<div class="history-empty">暂无执行记录</div>';
+                    return;
+                }
+                historyList.innerHTML = data.runs.map(run => {
+                    const statusClass = run.status === 'completed' ? 'completed' :
+                                        run.status === 'failed' ? 'failed' : 'pending';
+                    const statusText = run.status === 'completed' ? '已完成' :
+                                       run.status === 'failed' ? '失败' : '处理中';
+                    const time = new Date(run.created_at).toLocaleString('zh-CN');
+                    const downloadLink = run.status === 'completed' && run.result_files && run.result_files.length > 0
+                        ? `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download" class="history-download" target="_blank">下载</a>`
+                        : '';
+                    return `<div class="history-item">
+                        <div class="history-item-status ${statusClass}">${statusText}</div>
+                        <div class="history-item-time">${time}</div>
+                        <div class="history-item-files">${run.result_files ? run.result_files.length : 0} 个文件</div>
+                        ${downloadLink}
+                    </div>`;
+                }).join('');
+            } catch (error) {
+                console.error('加载历史记录失败:', error);
+                document.getElementById('historyList').innerHTML = '<div class="history-empty">加载失败</div>';
+            }
         }
 
         // 页面加载时初始化
         window.addEventListener('DOMContentLoaded', async () => {
             await loadTaskInfo();
             initUploadArea();
+            loadHistory();
 
             const savedRunId = sessionStorage.getItem('share_' + shareToken + '_runId');
             if (savedRunId) {
