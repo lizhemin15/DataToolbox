@@ -9208,6 +9208,38 @@ func handleAICompletion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "content": content})
 }
 
+// handleGovernanceShareAICompletion 分享任务专用 AI 调用（免授权）
+func handleGovernanceShareAICompletion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	// 分享任务通过 URL 中的 share_token 验证，无需用户 token
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持 POST"})
+		return
+	}
+	var req AICompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+	if req.Prompt == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "prompt 不能为空"})
+		return
+	}
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请先在 AI 助手中配置 AI 设置（URL、API Key、模型）"})
+		return
+	}
+	content, err := callAIService(aiConfig, req.Prompt)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "AI 调用失败: " + err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "content": content})
+}
+
 // isCreateApiRequest 检测是否是创建接口的请求
 func isCreateApiRequest(message string) bool {
 	keywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "帮我创建", "生成API", "创建API"}
@@ -12707,6 +12739,10 @@ func executeGovernanceJob(job *GovernanceJob) {
 		"databases":   databases,
 		"input_text":  job.InputText,
 	}
+	// 如果是分享任务，传入 share_token 让 runner 使用免鉴权端点
+	if isShare {
+		taskData["share_token"] = job.ShareToken
+	}
 
 	// 如果有文件，读取并转为 base64
 	if len(job.InputFiles) > 0 {
@@ -14547,6 +14583,12 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// POST /api/data-ontology/share/{token}/ai/completion - 免授权 AI 调用
+	if len(pathParts) >= 3 && pathParts[1] == "ai" && pathParts[2] == "completion" {
+		handleGovernanceShareAICompletion(w, r)
+		return
+	}
+
 	// GET /api/data-ontology/share/{token}
 	handleGovernanceShareInfo(w, r, task)
 }
@@ -14709,22 +14751,11 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 	governanceShareRuns[runID] = shareRun
 	governanceShareRunsMu.Unlock()
 
-	// 获取任务所属用户的有效 token（用于 AI 调用等需要鉴权的场景）
-	var ownerToken string
-	dataOntologyMu.RLock()
-	if task.Owner != "" {
-		if user, exists := dataOntologyUsers[task.Owner]; exists && len(user.Tokens) > 0 {
-			// 使用最新的 token
-			ownerToken = user.Tokens[len(user.Tokens)-1]
-		}
-	}
-	dataOntologyMu.RUnlock()
-
-	// 创建任务并入队
+	// 创建任务并入队（分享任务不依赖用户 token，AI 调用走免鉴权端点）
 	job := &GovernanceJob{
 		TaskID:     task.ID,
 		RunID:      runID,
-		Token:      ownerToken, // 使用任务所属用户的 token
+		Token:      "", // 分享任务不需要用户 token
 		InputFiles: filePaths,
 		InputText:  "",
 		ShareToken: shareToken,

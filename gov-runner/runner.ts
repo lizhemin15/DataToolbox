@@ -16,6 +16,7 @@ export interface GovContext {
   databaseId: string;
   dbType: string;
   databases: Array<{ id: string; name: string; type: string }>;
+  shareToken?: string; // 分享任务专用：用于免鉴权 AI 调用
 }
 
 export interface FileLike {
@@ -65,7 +66,7 @@ export function createGovHelper(
   logLines: string[],
   outputFiles: GovOutputFile[]
 ): GovHelper {
-  const { apiBase, token, databaseId, dbType, databases } = ctx;
+  const { apiBase, token, databaseId, dbType, databases, shareToken } = ctx;
 
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
     const resp = await fetch(`${apiBase}/api/data-ontology/governance/execute-sql`, {
@@ -312,6 +313,18 @@ export function createGovHelper(
     },
 
     async callAI(prompt: string): Promise<string> {
+      // 分享模式：使用免鉴权端点
+      if (shareToken) {
+        const resp = await fetch(`${apiBase}/api/data-ontology/share/${shareToken}/ai/completion`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || 'AI 调用失败');
+        return data.content || '';
+      }
+      // 常规模式：需要用户 token
       const resp = await fetch(`${apiBase}/api/data-ontology/ai/completion`, {
         method: 'POST',
         headers: { 

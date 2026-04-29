@@ -159,6 +159,7 @@ async function runFromCLI() {
     databaseId: task.database_id,
     dbType: task.db_type || '',
     databases: task.databases || [],
+    shareToken: task.share_token, // 分享任务专用
   };
 
   let inputFile: FileLike | null = null;
