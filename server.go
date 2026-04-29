@@ -14540,10 +14540,7 @@ func updateShareRun(runID string, status string, progress int, output string, re
 		// 只在任务完成或失败时持久化，避免频繁IO
 		if status == "completed" || status == "failed" {
 			needSave = true
-			log.Printf("[ShareRun] 任务 %s 状态变更为 %s，准备持久化", runID, status)
 		}
-	} else {
-		log.Printf("[ShareRun] 警告: 尝试更新不存在的任务 %s", runID)
 	}
 	governanceShareRunsMu.Unlock()
 	
@@ -14551,8 +14548,6 @@ func updateShareRun(runID string, status string, progress int, output string, re
 	if needSave {
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("[ShareRun] 保存分享执行记录失败: %v", err)
-		} else {
-			log.Printf("[ShareRun] 分享执行记录已持久化 (run=%s, status=%s)", runID, status)
 		}
 	}
 }
