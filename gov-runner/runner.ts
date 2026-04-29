@@ -78,6 +78,14 @@ export interface GovHelper {
     tables: Array<{ headers: string[]; rows: string[][] }>;
     rawText: string;
   }>;
+  
+  // 章节查找
+  findSection(parsed: any, selector: string): any;
+  findByNum(parsed: any, num: string): any;
+  
+  // 取值工具
+  get(obj: any, path: string, defaultValue?: any): any;
+  flatParas(section: any): string[];
   querySQL(sql: string, params?: any[]): Promise<any[]>;
   executeSQL(sql: string, params?: any[]): Promise<number>;
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
@@ -128,6 +136,53 @@ export function createGovHelper(
     }
   };
 
+  // ========== 章节查找工具 ==========
+  
+  function findSection(parsed: any, selector: string): any {
+    const parts = selector.split('.');
+    const topLevel = get(parsed, 'sections.0.children', parsed.sections);
+    
+    let current: any = null;
+    let pool: any[] = topLevel;
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const levelMap: Record<number, RegExp> = {
+        1: /^[一二三四五六七八九十]+、/,
+        2: /^（[一二三四五六七八九十]+）/,
+        3: /^\d+\./,
+        4: /^（\d+）/
+      };
+      const targetLevel = i + 1;
+      const pattern = levelMap[targetLevel];
+      
+      current = pool.find(s => 
+        s?.title?.startsWith(part) || 
+        (pattern && s?.title?.match(pattern) && s?.title?.includes(part))
+      );
+      if (!current) return null;
+      pool = current.children || [];
+    }
+    
+    return current;
+  }
+  
+  function findByNum(parsed: any, num: string): any {
+    const cnNums = ['一','二','三','四','五','六','七','八','九','十'];
+    const cn = /^[一二三四五六七八九十]$/.test(num) ? num : cnNums[parseInt(num) - 1];
+    return findSection(parsed, cn);
+  }
+  
+  function get(obj: any, path: string, defaultValue: any = ''): any {
+    return path.split('.').reduce((o: any, k: string) => o?.[k], obj) ?? defaultValue;
+  }
+  
+  function flatParas(section: any): string[] {
+    const paras = [...(section?.paragraphs || [])];
+    (section?.children || []).forEach((c: any) => paras.push(...flatParas(c)));
+    return paras;
+  }
+  
   return {
     log(msg: string) {
       logLines.push(String(msg));
@@ -390,6 +445,51 @@ export function createGovHelper(
       const nestedSections = buildNestedSections(dedupedSections);
 
       return { title, sections: nestedSections, tables, rawText: text };
+    },
+
+    findSection(parsed: any, selector: string): any {
+      const parts = selector.split('.');
+      const topLevel = this.get(parsed, 'sections.0.children', parsed.sections);
+      
+      let current: any = null;
+      let pool: any[] = topLevel;
+      
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const levelMap: Record<number, RegExp> = {
+          1: /^[一二三四五六七八九十]+、/,
+          2: /^（[一二三四五六七八九十]+）/,
+          3: /^\d+\./,
+          4: /^（\d+）/
+        };
+        const targetLevel = i + 1;
+        const pattern = levelMap[targetLevel];
+        
+        current = pool.find(s => 
+          s?.title?.startsWith(part) || 
+          (pattern && s?.title?.match(pattern) && s?.title?.includes(part))
+        );
+        if (!current) return null;
+        pool = current.children || [];
+      }
+      
+      return current;
+    },
+
+    findByNum(parsed: any, num: string): any {
+      const cnNums = ['一','二','三','四','五','六','七','八','九','十'];
+      const cn = /^[一二三四五六七八九十]$/.test(num) ? num : cnNums[parseInt(num) - 1];
+      return this.findSection(parsed, cn);
+    },
+
+    get(obj: any, path: string, defaultValue: any = ''): any {
+      return path.split('.').reduce((o: any, k: string) => o?.[k], obj) ?? defaultValue;
+    },
+
+    flatParas(section: any): string[] {
+      const paras = [...(section?.paragraphs || [])];
+      (section?.children || []).forEach((c: any) => paras.push(...this.flatParas(c)));
+      return paras;
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
