@@ -1150,6 +1150,8 @@ type DataOntologyStore struct {
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
 	SmallModels map[string]*SmallModelConfig `json:"small_models,omitempty"`
+	// 分享任务执行记录（按 shareToken 索引）
+	ShareRuns map[string]map[string]*GovernanceShareRun `json:"share_runs,omitempty"` // shareToken -> runID -> run
 }
 
 var getDataOntologyStorePathFn = getDataOntologyStorePath
@@ -1249,6 +1251,21 @@ func loadDataOntologyStore() error {
 		smallModels = store.SmallModels
 		log.Printf("已加载 %d 个小模型配置", len(smallModels))
 	}
+	// 加载分享任务执行记录
+	if store.ShareRuns != nil {
+		governanceShareRunsMu.Lock()
+		for token, runs := range store.ShareRuns {
+			for runID, run := range runs {
+				governanceShareRuns[runID] = run
+			}
+		}
+		governanceShareRunsMu.Unlock()
+		totalRuns := 0
+		for _, runs := range store.ShareRuns {
+			totalRuns += len(runs)
+		}
+		log.Printf("已加载 %d 条分享任务执行记录（%d 个分享）", totalRuns, len(store.ShareRuns))
+	}
 	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
 	for _, c := range dataOntologyDatabases {
 		if c != nil && c.Owner == "" {
@@ -1292,6 +1309,17 @@ func saveDataOntologyStore() error {
 
 	// 构建存储结构
 	dataOntologyMu.RLock()
+	// 构建分享执行记录索引（shareToken -> runID -> run）
+	governanceShareRunsMu.RLock()
+	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+	for runID, run := range governanceShareRuns {
+		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+		}
+		shareRunsByToken[run.ShareToken][runID] = run
+	}
+	governanceShareRunsMu.RUnlock()
+
 	store := DataOntologyStore{
 		Users:          dataOntologyUsers,
 		Databases:      dataOntologyDatabases,
@@ -1304,6 +1332,7 @@ func saveDataOntologyStore() error {
 		MCPSafeConfig:  dataOntologyMCPSafeConfig,
 		LLMModels:      llmModels,
 		SmallModels:    smallModels,
+		ShareRuns:      shareRunsByToken,
 	}
 	dataOntologyMu.RUnlock()
 
@@ -14496,6 +14525,7 @@ func handleGovParseText(w http.ResponseWriter, r *http.Request) {
 
 // updateShareRun 更新分享执行记录
 func updateShareRun(runID string, status string, progress int, output string, resultFiles []string) {
+	needSave := false
 	governanceShareRunsMu.Lock()
 	if run, exists := governanceShareRuns[runID]; exists {
 		run.Status = status
@@ -14507,8 +14537,19 @@ func updateShareRun(runID string, status string, progress int, output string, re
 			run.ResultFiles = resultFiles
 		}
 		run.UpdatedAt = time.Now()
+		// 只在任务完成或失败时持久化，避免频繁IO
+		if status == "completed" || status == "failed" {
+			needSave = true
+		}
 	}
 	governanceShareRunsMu.Unlock()
+	
+	// 持久化到文件
+	if needSave {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存分享执行记录失败: %v", err)
+		}
+	}
 }
 
 // handleSharePage 处理分享页面请求
@@ -14750,6 +14791,11 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 	governanceShareRunsMu.Lock()
 	governanceShareRuns[runID] = shareRun
 	governanceShareRunsMu.Unlock()
+
+	// 持久化新创建的执行记录
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存分享执行记录失败: %v", err)
+	}
 
 	// 创建任务并入队（分享任务不依赖用户 token，AI 调用走免鉴权端点）
 	job := &GovernanceJob{
