@@ -1092,6 +1092,7 @@ type GovernanceShareRun struct {
 	Status      string    `json:"status"`       // pending/running/completed/failed
 	Progress    int       `json:"progress"`     // 0-100
 	Output      string    `json:"output"`       // 执行日志
+	InputFiles  []string  `json:"input_files"`  // 输入文件列表
 	ResultFiles []string  `json:"result_files"` // 结果文件列表
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -14627,12 +14628,21 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 
 	// 解析上传的文件
 	var filePaths []string
+	var inputFileNames []string
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
 		maxSize := int64(100 * 1024 * 1024) // 100MB
 		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 		if err := r.ParseMultipartForm(maxSize); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析表单失败: " + err.Error()})
+			return
+		}
+
+		// 先生成 runID，所有文件保存到同一个目录
+		runID := uuid.New().String()
+		uploadDir := filepath.Join("apps", "data-ontology", "share-uploads", shareToken, runID)
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建上传目录失败"})
 			return
 		}
 
@@ -14648,13 +14658,6 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 				continue
 			}
 
-			// 保存到 share-uploads/{token}/{run_id}/
-			runID := uuid.New().String()
-			uploadDir := filepath.Join("apps", "data-ontology", "share-uploads", shareToken, runID)
-			if err := os.MkdirAll(uploadDir, 0755); err != nil {
-				file.Close()
-				continue
-			}
 			tmpPath := filepath.Join(uploadDir, safeFilename)
 			dst, err := os.Create(tmpPath)
 			if err != nil {
@@ -14669,7 +14672,11 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 				continue
 			}
 			filePaths = append(filePaths, tmpPath)
+			inputFileNames = append(inputFileNames, safeFilename)
 		}
+
+		// 保存 runID 供后续使用
+		r.URL.RawQuery = r.URL.RawQuery + "&_runID=" + runID
 	}
 
 	if len(filePaths) == 0 {
@@ -14677,8 +14684,13 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 		return
 	}
 
+	// 获取 runID（从上面保存的参数中提取）
+	runID := r.URL.Query().Get("_runID")
+	if runID == "" {
+		runID = uuid.New().String()
+	}
+
 	// 创建执行记录
-	runID := uuid.New().String()
 	now := time.Now()
 	shareRun := &GovernanceShareRun{
 		ID:          runID,
@@ -14687,6 +14699,7 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 		Status:      "pending",
 		Progress:    0,
 		Output:      "",
+		InputFiles:  inputFileNames,
 		ResultFiles: []string{},
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -14746,6 +14759,7 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 		"status":       run.Status,
 		"progress":     run.Progress,
 		"output":       run.Output,
+		"input_files":  run.InputFiles,
 		"result_files": run.ResultFiles,
 		"created_at":   run.CreatedAt,
 		"updated_at":   run.UpdatedAt,
@@ -14783,6 +14797,7 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, shareToke
 			"id":           run.ID,
 			"status":       run.Status,
 			"progress":     run.Progress,
+			"input_files":  run.InputFiles,
 			"result_files": run.ResultFiles,
 			"created_at":   run.CreatedAt,
 			"updated_at":   run.UpdatedAt,
@@ -14795,7 +14810,7 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, shareToke
 	})
 }
 
-// handleGovernanceShareRunDownload 下载分享任务结果文件
+// handleGovernanceShareRunDownload 下载分享任务文件（输入/输出）
 func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, task *GovernanceTask, runID string) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
@@ -14813,40 +14828,38 @@ func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 
+	// 确定下载类型：input 或 output（默认 output）
+	downloadType := r.URL.Query().Get("type")
+	if downloadType == "" {
+		downloadType = "output"
+	}
+
+	// 根据类型选择目录
+	var baseDir string
+	if downloadType == "input" {
+		baseDir = filepath.Join("apps", "data-ontology", "share-uploads", run.ShareToken, runID)
+	} else {
+		baseDir = filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
+	}
+
 	// 获取要下载的文件名
 	filename := r.URL.Query().Get("file")
 	if filename == "" {
-		// 打包所有结果文件
-		outputDir := filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
-		if _, err := os.Stat(outputDir); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "结果文件不存在"})
-			return
-		}
-
-		// 创建 ZIP 文件
-		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=results-%s.zip", runID))
-		zipWriter := zip.NewWriter(w)
-		defer zipWriter.Close()
-
-		filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return err
-			}
-			relPath, _ := filepath.Rel(outputDir, path)
-			zipEntry, _ := zipWriter.Create(relPath)
-			file, _ := os.Open(path)
-			defer file.Close()
-			io.Copy(zipEntry, file)
-			return nil
-		})
+		// 无 file 参数 — 返回错误，前端应逐个下载
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请指定 file 参数"})
 		return
 	}
 
-	// 下载单个文件
-	outputDir := filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
-	filePath := filepath.Join(outputDir, filename)
+	// 安全检查：防止路径遍历
+	safeName, err := sanitizeFilename(filename)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件名无效"})
+		return
+	}
+
+	filePath := filepath.Join(baseDir, safeName)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件不存在"})
@@ -14854,7 +14867,7 @@ func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, ta
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, safeName))
 	http.ServeFile(w, r, filePath)
 }
 

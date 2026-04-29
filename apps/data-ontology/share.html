@@ -477,6 +477,53 @@
             margin-left: 12px;
         }
 
+        .history-item-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .history-item-body {
+            display: flex;
+            gap: 24px;
+        }
+
+        .history-file-group {
+            flex: 1;
+        }
+
+        .history-file-label {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .history-file-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .history-file-link {
+            font-size: 12px;
+            color: #3b82f6;
+            text-decoration: none;
+            padding: 2px 8px;
+            background: #eff6ff;
+            border-radius: 3px;
+            transition: background 0.15s;
+        }
+
+        .history-file-link:hover {
+            background: #dbeafe;
+        }
+
+        .history-file-none {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
         .history-download {
             font-size: 12px;
             color: #3b82f6;
@@ -820,6 +867,7 @@
                 if (data.success) {
                     taskInfo = data;
                     document.getElementById('taskName').textContent = data.name;
+                    document.title = data.name;
                     document.getElementById('taskDescription').textContent = data.description || '暂无描述';
 
                     // 显示示例文件
@@ -1035,14 +1083,32 @@
                     const statusText = run.status === 'completed' ? '已完成' :
                                        run.status === 'failed' ? '失败' : '处理中';
                     const time = new Date(run.created_at).toLocaleString('zh-CN');
-                    const downloadLink = run.status === 'completed' && run.result_files && run.result_files.length > 0
-                        ? `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download" class="history-download" target="_blank">下载</a>`
-                        : '';
+                    
+                    // 输入文件列表
+                    const inputFilesHtml = (run.input_files && run.input_files.length > 0)
+                        ? run.input_files.map(f => `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=input" class="history-file-link" target="_blank">${f}</a>`).join('')
+                        : '<span class="history-file-none">-</span>';
+                    
+                    // 输出文件列表
+                    const outputFilesHtml = (run.result_files && run.result_files.length > 0)
+                        ? run.result_files.map(f => `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=output" class="history-file-link" target="_blank">${f}</a>`).join('')
+                        : '<span class="history-file-none">-</span>';
+                    
                     return `<div class="history-item">
-                        <div class="history-item-status ${statusClass}">${statusText}</div>
-                        <div class="history-item-time">${time}</div>
-                        <div class="history-item-files">${run.result_files ? run.result_files.length : 0} 个文件</div>
-                        ${downloadLink}
+                        <div class="history-item-header">
+                            <div class="history-item-status ${statusClass}">${statusText}</div>
+                            <div class="history-item-time">${time}</div>
+                        </div>
+                        <div class="history-item-body">
+                            <div class="history-file-group">
+                                <div class="history-file-label">输入文件</div>
+                                <div class="history-file-list">${inputFilesHtml}</div>
+                            </div>
+                            <div class="history-file-group">
+                                <div class="history-file-label">输出文件</div>
+                                <div class="history-file-list">${outputFilesHtml}</div>
+                            </div>
+                        </div>
                     </div>`;
                 }).join('');
             } catch (error) {
