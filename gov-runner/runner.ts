@@ -286,13 +286,14 @@ export function createGovHelper(
         } else if (currentSection) {
           if (line.length > 0) currentSection.paragraphs.push(line);
         } else {
-          const preface = sections.find(s => s.level === 0);
+          // 没有当前 section，查找或创建前言
+          let preface = sections.find(s => s.level === 0);
           if (!preface) {
-            currentSection = { level: 0, title: '前言', paragraphs: [line] };
-            sections.push(currentSection);
-          } else {
-            preface.paragraphs.push(line);
+            preface = { level: 0, title: '前言', paragraphs: [] };
+            sections.push(preface);
           }
+          if (line.length > 0) preface.paragraphs.push(line);
+          currentSection = preface;
         }
 
         // 简单表格检测
@@ -332,6 +333,19 @@ export function createGovHelper(
         const stack: NestedSection[] = [];
         
         for (const s of flatSections) {
+          // level 0 (前言) 不参与嵌套，直接作为根节点
+          if (s.level === 0) {
+            const node: NestedSection = {
+              level: s.level,
+              title: s.title,
+              paragraphs: s.paragraphs,
+              children: []
+            };
+            root.push(node);
+            stack.length = 0;  // 清空栈
+            continue;
+          }
+          
           const node: NestedSection = {
             level: s.level,
             title: s.title,
@@ -345,7 +359,12 @@ export function createGovHelper(
           }
           
           if (stack.length === 0) {
-            root.push(node);
+            // 没有父节点，添加到根或最后一个 level 0 节点
+            if (root.length > 0 && root[root.length - 1].level === 0) {
+              root[root.length - 1].children.push(node);
+            } else {
+              root.push(node);
+            }
           } else {
             stack[stack.length - 1].children.push(node);
           }
@@ -356,7 +375,19 @@ export function createGovHelper(
         return root;
       }
       
-      const nestedSections = buildNestedSections(sections);
+      // 去重：合并多个 level 0 section
+      const dedupedSections: typeof sections = [];
+      for (const s of sections) {
+        if (s.level === 0 && dedupedSections.length > 0 && dedupedSections[dedupedSections.length - 1].level === 0) {
+          // 合并到前一个 level 0
+          const prev = dedupedSections[dedupedSections.length - 1];
+          prev.paragraphs.push(...s.paragraphs);
+        } else {
+          dedupedSections.push(s);
+        }
+      }
+      
+      const nestedSections = buildNestedSections(dedupedSections);
 
       return { title, sections: nestedSections, tables, rawText: text };
     },
