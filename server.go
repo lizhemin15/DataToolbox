@@ -14709,11 +14709,22 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 	governanceShareRuns[runID] = shareRun
 	governanceShareRunsMu.Unlock()
 
+	// 获取任务所属用户的有效 token（用于 AI 调用等需要鉴权的场景）
+	var ownerToken string
+	dataOntologyMu.RLock()
+	if task.Owner != "" {
+		if user, exists := dataOntologyUsers[task.Owner]; exists && len(user.Tokens) > 0 {
+			// 使用最新的 token
+			ownerToken = user.Tokens[len(user.Tokens)-1]
+		}
+	}
+	dataOntologyMu.RUnlock()
+
 	// 创建任务并入队
 	job := &GovernanceJob{
 		TaskID:     task.ID,
 		RunID:      runID,
-		Token:      "", // 分享任务无需 token
+		Token:      ownerToken, // 使用任务所属用户的 token
 		InputFiles: filePaths,
 		InputText:  "",
 		ShareToken: shareToken,
