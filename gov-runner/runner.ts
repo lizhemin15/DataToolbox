@@ -35,13 +35,46 @@ export interface GovHelper {
   log(msg: string): void;
   showTable(data: any[]): void;
   getDbType(): string;
-  getDatabases(): Array<{ id: string; name: string; type: string }>;
+  getDatabases(): Array<{ id: string; name: string; type: string }>; 
+  // ==================== 新增的通用 API ====================
+  classifyFiles(
+    files: FileLike[],
+    config: {
+      template?: { contains?: string; extension?: string; hint?: string };
+      data?: { contains?: string; excludeContains?: string; extension?: string; hint?: string };
+    }
+  ): { template: FileLike | null; dataFiles: FileLike[] };
+  parseFilename(
+    filename: string,
+    fields: Array<{ field: string; pattern?: string; extract?: string; transform?: string }>
+  ): Record<string, string>;
+  extractFields(
+    parsed: {
+      title: string;
+      sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+      tables: Array<{ headers: string[]; rows: string[][] }>;
+      rawText: string;
+    },
+    sectionFields: Array<{ match: string; field: string; level?: number }>,
+    meta?: Record<string, any>
+  ): Record<string, any>;
+  aggregateBySection(
+    extractions: Array<Record<string, any>>,
+    config: { sections: string[]; labelWith: string; outputFields?: Record<string, string> }
+  ): Record<string, any>;
+  today(): string;
+  renderTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
   readCSV(text: string): Promise<any[][]>;
   readWord(file: FileLike): Promise<{ value: string }>;
   parseWordStructure(file: FileLike, options?: Record<string, any>): Promise<{
     title: string;
-    sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+    sections: Array<{
+      level: number;
+      title: string;
+      paragraphs: string[];
+      children: any[];
+    }>;
     tables: Array<{ headers: string[]; rows: string[][] }>;
     rawText: string;
   }>;
@@ -101,7 +134,6 @@ export function createGovHelper(
     },
 
     showTable,
-    table: showTable,
 
     getDbType() {
       return dbType;
@@ -149,7 +181,7 @@ export function createGovHelper(
 
     async parseWordStructure(file: FileLike, options: Record<string, any> = {}): Promise<{
       title: string;
-      sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+      sections: Array<{ level: number; title: string; paragraphs: string[]; children: any[] }>;
       tables: Array<{ headers: string[]; rows: string[][] }>;
       rawText: string;
     }> {
@@ -287,7 +319,46 @@ export function createGovHelper(
       if (currentSection) sections.push(currentSection);
       for (const t of tables) delete (t as any)._building;
 
-      return { title, sections, tables, rawText: text };
+      // 构建嵌套层级结构
+      interface NestedSection {
+        level: number;
+        title: string;
+        paragraphs: string[];
+        children: NestedSection[];
+      }
+      
+      function buildNestedSections(flatSections: typeof sections): NestedSection[] {
+        const root: NestedSection[] = [];
+        const stack: NestedSection[] = [];
+        
+        for (const s of flatSections) {
+          const node: NestedSection = {
+            level: s.level,
+            title: s.title,
+            paragraphs: s.paragraphs,
+            children: []
+          };
+          
+          // 找到父节点：栈中最后一个 level < 当前 level 的节点
+          while (stack.length > 0 && stack[stack.length - 1].level >= s.level) {
+            stack.pop();
+          }
+          
+          if (stack.length === 0) {
+            root.push(node);
+          } else {
+            stack[stack.length - 1].children.push(node);
+          }
+          
+          stack.push(node);
+        }
+        
+        return root;
+      }
+      
+      const nestedSections = buildNestedSections(sections);
+
+      return { title, sections: nestedSections, tables, rawText: text };
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
@@ -439,6 +510,165 @@ export function createGovHelper(
       outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
       logLines.push(`已生成输出文件: ${outName}`);
     },
+
+    // ==================== 新增的通用 API ====================
+
+    classifyFiles(
+      files: FileLike[],
+      config: {
+        template?: { contains?: string; extension?: string; hint?: string };
+        data?: { contains?: string; excludeContains?: string; extension?: string; hint?: string };
+      }
+    ): { template: FileLike | null; dataFiles: FileLike[] } {
+      let template: FileLike | null = null;
+      const dataFiles: FileLike[] = [];
+
+      for (const file of files) {
+        const name = file.name.toLowerCase();
+        const ext = name.split('.').pop() || '';
+
+        if (config.template) {
+          const tc = config.template;
+          const isTemplate = (tc.contains && name.includes(tc.contains.toLowerCase())) ||
+                            (tc.extension && ext === tc.extension.replace('.', '').toLowerCase());
+          if (isTemplate) {
+            template = file;
+            continue;
+          }
+        }
+
+        if (config.data) {
+          const dc = config.data;
+          const isData = (!dc.extension || ext === dc.extension.replace('.', '').toLowerCase()) &&
+                        (!dc.contains || name.includes(dc.contains.toLowerCase())) &&
+                        (!dc.excludeContains || !name.includes(dc.excludeContains.toLowerCase()));
+          if (isData) {
+            dataFiles.push(file);
+          }
+        } else {
+          if (ext === 'docx') {
+            dataFiles.push(file);
+          }
+        }
+      }
+
+      return { template, dataFiles };
+    },
+
+    parseFilename(
+      filename: string,
+      fields: Array<{ field: string; pattern?: string; extract?: string; transform?: string }>
+    ): Record<string, string> {
+      const result: Record<string, string> = {};
+      const baseName = filename.replace(/\.[^.]+$/, '');
+
+      for (const f of fields) {
+        if (f.pattern) {
+          const dateMatch = baseName.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+          if (dateMatch && f.field === 'report_date') {
+            result[f.field] = dateMatch[1] + '-' + dateMatch[2].padStart(2, '0') + '-' + dateMatch[3].padStart(2, '0');
+            continue;
+          }
+
+          if (f.pattern === '日报' && f.extract === 'before') {
+            const afterDate = baseName.replace(/\d{4}年\d{1,2}月\d{1,2}日/, '');
+            const unitMatch = afterDate.match(/^(.+?)日报/);
+            if (unitMatch) {
+              result[f.field] = unitMatch[1];
+            }
+          }
+        }
+      }
+
+      return result;
+    },
+
+    extractFields(
+      parsed: { title: string; sections: Array<{ level: number; title: string; paragraphs: string[] }>; tables: Array<{ headers: string[]; rows: string[][] }>; rawText: string },
+      sectionFields: Array<{ match: string; field: string; level?: number }>,
+      meta?: Record<string, any>
+    ): Record<string, any> {
+      const result: Record<string, any> = { ...meta };
+
+      for (const sf of sectionFields) {
+        const section = parsed.sections.find(s => s.title.includes(sf.match));
+        if (section) {
+          result[sf.field] = section.paragraphs.join('\n');
+        }
+      }
+
+      result._parsed = parsed;
+      return result;
+    },
+
+    aggregateBySection(
+      extractions: Array<Record<string, any>>,
+      config: { sections: string[]; labelWith: string; outputFields?: Record<string, string> }
+    ): Record<string, any> {
+      const mergedSections: Record<string, Array<{ unit: string; items: string[] }>> = {};
+
+      for (const ext of extractions) {
+        const unitName = ext[config.labelWith] || '未知';
+        const parsed = ext._parsed;
+        if (!parsed || !parsed.sections) continue;
+
+        for (const section of parsed.sections) {
+          const isTarget = config.sections.some(s => section.title.includes(s));
+          if (!isTarget) continue;
+
+          let sectionName = section.title;
+          for (const s of config.sections) {
+            if (section.title.includes(s)) {
+              sectionName = s;
+              break;
+            }
+          }
+
+          if (!mergedSections[sectionName]) {
+            mergedSections[sectionName] = [];
+          }
+
+          const items = section.paragraphs.filter(p => p.trim() && !p.startsWith('【'));
+
+          if (items.length > 0) {
+            mergedSections[sectionName].push({ unit: unitName, items });
+          }
+        }
+      }
+
+      const result: Record<string, any> = {};
+      const NL = '\n';
+
+      for (const sectionName of config.sections) {
+        const entries = mergedSections[sectionName] || [];
+        const merged: string[] = [];
+        for (const entry of entries) {
+          for (const item of entry.items) {
+            merged.push('【' + entry.unit + '】' + item);
+          }
+        }
+        result[sectionName] = merged.join(NL);
+      }
+
+      if (config.outputFields) {
+        const mapped: Record<string, any> = {};
+        for (const [from, to] of Object.entries(config.outputFields)) {
+          mapped[to] = result[from] || '';
+        }
+        return mapped;
+      }
+
+      return result;
+    },
+
+    today(): string {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    },
+
+    async renderTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void> {
+      return this.fillWordTemplate(templateFile, data, outputFilename);
+    }
   };
 }
 
