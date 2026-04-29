@@ -1254,7 +1254,7 @@ func loadDataOntologyStore() error {
 	// 加载分享任务执行记录
 	if store.ShareRuns != nil {
 		governanceShareRunsMu.Lock()
-		for token, runs := range store.ShareRuns {
+		for _, runs := range store.ShareRuns {
 			for runID, run := range runs {
 				governanceShareRuns[runID] = run
 			}
