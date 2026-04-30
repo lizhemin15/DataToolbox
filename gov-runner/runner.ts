@@ -85,7 +85,10 @@ export interface GovHelper {
   
   // 取值工具
   get(obj: any, path: string, defaultValue?: any): any;
-  flatParas(section: any): string[];
+  flatParas(section: any): string[];  // 合并自身 + 所有子标题段落
+  getParas(section: any): string[];   // 只取自身段落
+  getChildParas(section: any): string[];  // 只取子标题段落（递归）
+  getSectionText(section: any, options?: { includeSelf?: boolean; includeChildren?: boolean; separator?: string }): string;
   querySQL(sql: string, params?: any[]): Promise<any[]>;
   executeSQL(sql: string, params?: any[]): Promise<number>;
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
@@ -490,6 +493,35 @@ export function createGovHelper(
       const paras = [...(section?.paragraphs || [])];
       (section?.children || []).forEach((c: any) => paras.push(...this.flatParas(c)));
       return paras;
+    },
+    
+    getParas(section: any): string[] {
+      return [...(section?.paragraphs || [])];
+    },
+    
+    getChildParas(section: any): string[] {
+      const paras: string[] = [];
+      (section?.children || []).forEach((c: any) => {
+        paras.push(...(c?.paragraphs || []));
+        paras.push(...this.getChildParas(c));
+      });
+      return paras;
+    },
+    
+    getSectionText(section: any, options: { includeSelf?: boolean; includeChildren?: boolean; separator?: string } = {}): string {
+      const { includeSelf = true, includeChildren = true, separator = '；' } = options;
+      const parts: string[] = [];
+      
+      if (includeSelf && section?.paragraphs?.length) {
+        parts.push(...section.paragraphs);
+      }
+      
+      if (includeChildren) {
+        const childParas = this.getChildParas(section);
+        parts.push(...childParas);
+      }
+      
+      return parts.join(separator) || '暂无';
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
