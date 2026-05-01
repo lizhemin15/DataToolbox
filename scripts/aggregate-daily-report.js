@@ -376,6 +376,57 @@ function generateAggregatedText(aggregationMap) {
   return lines.join('\n');
 }
 
+// ========== 从 rawText 重新解析 sections（修复 parseWordStructure 的 bug） ==========
+
+function parseSectionsFromRawText(rawText) {
+  const lines = rawText.split(/\r?\n/);
+  const sections = [];
+  let currentSection = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let matchedLevel = 0;
+    let matchedTitle = '';
+
+    // 一级标题：一、二、三、
+    const m1 = trimmed.match(/^([一二三四五六七八九十]+)、(.*)$/);
+    if (m1) { matchedLevel = 1; matchedTitle = trimmed; }
+
+    // 二级标题：（一）（二）
+    const m2 = trimmed.match(/^（([一二三四五六七八九十]+)）(.*)$/);
+    if (m2) { matchedLevel = 2; matchedTitle = trimmed; }
+
+    // 三级标题：1. 2. 或 1、2、
+    const m3 = trimmed.match(/^(\d+)[\\.、．](.*)$/);
+    if (m3) { matchedLevel = 3; matchedTitle = trimmed; }
+
+    // 四级标题：（1）（2）
+    const m4 = trimmed.match(/^（(\d+)）(.*)$/);
+    if (m4) { matchedLevel = 4; matchedTitle = trimmed; }
+
+    if (matchedLevel > 0) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = { level: matchedLevel, title: matchedTitle, paragraphs: [] };
+    } else if (currentSection) {
+      currentSection.paragraphs.push(trimmed);
+    } else {
+      // 还没有标题，作为前言
+      let preface = sections.find(s => s.level === 0);
+      if (!preface) {
+        preface = { level: 0, title: '前言', paragraphs: [] };
+        sections.push(preface);
+      }
+      preface.paragraphs.push(trimmed);
+      currentSection = preface;
+    }
+  }
+
+  if (currentSection) sections.push(currentSection);
+  return sections;
+}
+
 // ========== 改造后的 extractFromDocument ==========
 
 async function extractFromDocument(file, config) {
@@ -384,11 +435,16 @@ async function extractFromDocument(file, config) {
   let parsed;
   try {
     parsed = await gov.parseWordStructure(file);
-    gov.log('[DEBUG] parseWordStructure returned: title=' + parsed.title + ' sections=' + (parsed.sections?.length||0) + ' rawText_len=' + (parsed.rawText?.length||0));
-    if (parsed.rawText) gov.log('[DEBUG] rawText preview: ' + parsed.rawText.slice(0, 200));
   } catch (e) {
     gov.log('结构解析失败 ' + file.name + ': ' + (e.message || e));
     parsed = { title: '', sections: [], tables: [], rawText: '' };
+  }
+
+  // 修复：如果 parseWordStructure 返回的 sections 不完整（只有前言），用 rawText 重新解析
+  const validSections = (parsed.sections || []).filter(s => s.level > 0);
+  if (validSections.length === 0 && parsed.rawText && parsed.rawText.length > 50) {
+    gov.log('[FIX] parseWordStructure sections 无效，用 rawText 重新解析');
+    parsed.sections = parseSectionsFromRawText(parsed.rawText);
   }
 
   if (config.mode === 'parse') {
