@@ -62,6 +62,19 @@ export interface GovHelper {
     extractions: Array<Record<string, any>>,
     config: { sections: string[]; labelWith: string; outputFields?: Record<string, string> }
   ): Record<string, any>;
+  
+  // JSON 提取
+  extractJsonObject(text: string): any | null;
+  
+  // 层级解析与聚合
+  parseSectionsFromRawText(rawText: string): Array<{ level: number; title: string; paragraphs: string[] }>;
+  findLeafSections(sections: Array<{ level: number; title: string; paragraphs: string[] }>): Array<{ index: number; section: { level: number; title: string; paragraphs: string[] } }>;
+  buildSectionPaths(sections: Array<{ level: number; title: string; paragraphs: string[] }>): Array<string[] | null>;
+  aggregateByHierarchy(
+    unitParsedList: Array<{ unitName: string; parsed: any }>,
+    options?: { skipKeywords?: string[] }
+  ): Map<string, { path: string[]; items: Array<{ unitName: string; content: string }> }>;
+  
   today(): string;
   renderTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -849,6 +862,155 @@ export function createGovHelper(
       }
 
       return result;
+    },
+
+    extractJsonObject(text: string): any | null {
+      if (!text || typeof text !== 'string') return null;
+      let s = text.trim();
+      const fence = s.match(/^```(?:json)?\s*([\s\S]*?)```$/im);
+      if (fence) s = fence[1].trim();
+      const start = s.indexOf('{');
+      const end = s.lastIndexOf('}');
+      if (start === -1 || end <= start) return null;
+      try {
+        return JSON.parse(s.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    },
+
+    parseSectionsFromRawText(rawText: string): Array<{ level: number; title: string; paragraphs: string[] }> {
+      const lines = rawText.split(/\r?\n/);
+      const sections: Array<{ level: number; title: string; paragraphs: string[] }> = [];
+      let currentSection: { level: number; title: string; paragraphs: string[] } | null = null;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        let matchedLevel = 0;
+        let matchedTitle = '';
+
+        const m1 = trimmed.match(/^([一二三四五六七八九十]+)、(.*)$/);
+        if (m1) { matchedLevel = 1; matchedTitle = trimmed; }
+
+        const m2 = trimmed.match(/^（([一二三四五六七八九十]+)）(.*)$/);
+        if (m2) { matchedLevel = 2; matchedTitle = trimmed; }
+
+        const m3 = trimmed.match(/^(\d+)[\\.\u3001．](.*)$/);
+        if (m3) { matchedLevel = 3; matchedTitle = trimmed; }
+
+        const m4 = trimmed.match(/^（(\d+)）(.*)$/);
+        if (m4) { matchedLevel = 4; matchedTitle = trimmed; }
+
+        if (matchedLevel > 0) {
+          if (currentSection && currentSection.level > 0) sections.push(currentSection);
+          currentSection = { level: matchedLevel, title: matchedTitle, paragraphs: [] };
+        } else if (currentSection) {
+          currentSection.paragraphs.push(trimmed);
+        } else {
+          let preface = sections.find(s => s.level === 0);
+          if (!preface) {
+            preface = { level: 0, title: '前言', paragraphs: [] };
+            sections.push(preface);
+          }
+          preface.paragraphs.push(trimmed);
+          currentSection = preface;
+        }
+      }
+
+      if (currentSection && currentSection.level > 0) {
+        sections.push(currentSection);
+      }
+      return sections;
+    },
+
+    findLeafSections(sections: Array<{ level: number; title: string; paragraphs: string[] }>): Array<{ index: number; section: { level: number; title: string; paragraphs: string[] } }> {
+      const leaves: Array<{ index: number; section: { level: number; title: string; paragraphs: string[] } }> = [];
+
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
+        if (sec.level === 0) continue;
+        const currentLevel = Math.max(1, Number(sec.level || 1));
+
+        let hasDeeperChild = false;
+        for (let j = i + 1; j < sections.length; j++) {
+          const nextLevel = Math.max(1, Number(sections[j].level || 1));
+          if (nextLevel <= currentLevel) break;
+          if (nextLevel > currentLevel) {
+            hasDeeperChild = true;
+            break;
+          }
+        }
+
+        if (!hasDeeperChild) {
+          leaves.push({ index: i, section: sec });
+        }
+      }
+
+      return leaves;
+    },
+
+    buildSectionPaths(sections: Array<{ level: number; title: string; paragraphs: string[] }>): Array<string[] | null> {
+      const paths: Array<string[] | null> = new Array(sections.length).fill(null);
+      const currentPath: string[] = [];
+
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i] || {};
+        if (sec.level === 0) continue;
+        const level = Math.max(1, Number(sec.level || 1));
+        currentPath[level - 1] = sec.title || '无标题';
+        currentPath.length = level;
+        paths[i] = currentPath.slice();
+      }
+
+      return paths;
+    },
+
+    aggregateByHierarchy(
+      unitParsedList: Array<{ unitName: string; parsed: any }>,
+      options?: { skipKeywords?: string[] }
+    ): Map<string, { path: string[]; items: Array<{ unitName: string; content: string }> }> {
+      const aggregationMap = new Map<string, { path: string[]; items: Array<{ unitName: string; content: string }> }>();
+      const skipKeywords = options?.skipKeywords || [];
+
+      for (const unitData of unitParsedList) {
+        const { unitName, parsed } = unitData;
+        const sections = parsed.sections || [];
+
+        // 如果 sections 无效（只有前言），用 rawText 兜底解析
+        const validSections = sections.filter((s: any) => s.level > 0);
+        const effectiveSections = validSections.length === 0 && parsed.rawText && parsed.rawText.length > 50
+          ? this.parseSectionsFromRawText(parsed.rawText)
+          : sections;
+
+        const paths = this.buildSectionPaths(effectiveSections);
+        const leaves = this.findLeafSections(effectiveSections);
+
+        for (const leaf of leaves) {
+          const path = paths[leaf.index] || [];
+          const pathKey = path.join(' > ');
+
+          // 跳过指定关键词的路径
+          if (skipKeywords.length > 0 && path.some(p => skipKeywords.some(kw => p.includes(kw)))) {
+            continue;
+          }
+
+          const content = (leaf.section.paragraphs || [])
+            .filter((p: string) => p && p.trim())
+            .join('；');
+
+          if (!content || content.trim() === '' || content === '暂无') continue;
+
+          if (!aggregationMap.has(pathKey)) {
+            aggregationMap.set(pathKey, { path, items: [] });
+          }
+
+          aggregationMap.get(pathKey)!.items.push({ unitName, content });
+        }
+      }
+
+      return aggregationMap;
     },
 
     today(): string {

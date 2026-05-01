@@ -114,17 +114,6 @@ function extractFieldFromParsed(parsed, keywords) {
   return result.join("；");
 }
 
-function extractJsonObject(text) {
-  if (!text || typeof text !== 'string') return null;
-  let s = text.trim();
-  const fence = s.match(/^```(?:json)?\s*([\s\S]*?)```$/im);
-  if (fence) s = fence[1].trim();
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  return s.slice(start, end + 1);
-}
-
 // 把 gov.parseWordStructure 的返回压缩成适合 LLM 输入的文本
 function summarizeStructureForAI(parsed) {
   const parts = [];
@@ -214,61 +203,9 @@ function normalizeTemplateData(raw, fields) {
   return result;
 }
 
-// ========== 新增：按标题层级细分合并的核心函数 ==========
-
-/**
- * 找到所有最深层级节点（叶子节点）
- * 规则：扁平数组中，一个 section 是叶子节点，当且仅当它后面没有更深层级的 section（直到遇到同级或更高级标题）
- */
-function findLeafSections(sections) {
-  const leaves = [];
-
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    if (sec.level === 0) continue;
-    const currentLevel = Math.max(1, Number(sec.level || 1));
-
-    let hasDeeperChild = false;
-    for (let j = i + 1; j < sections.length; j++) {
-      const nextLevel = Math.max(1, Number(sections[j].level || 1));
-      if (nextLevel <= currentLevel) {
-        break;
-      }
-      if (nextLevel > currentLevel) {
-        hasDeeperChild = true;
-        break;
-      }
-    }
-
-    if (!hasDeeperChild) {
-      leaves.push({
-        index: i,
-        section: sec
-      });
-    }
-  }
-
-  return leaves;
-}
-
-/**
- * 为每个 section 构建完整标题路径
- */
-function buildSectionPaths(sections) {
-  const paths = [];
-  const currentPath = [];
-
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i] || {};
-    if (sec.level === 0) continue;
-    const level = Math.max(1, Number(sec.level || 1));
-    currentPath[level - 1] = sec.title || '无标题';
-    currentPath.length = level;
-    paths[i] = currentPath.slice();
-  }
-
-  return paths;
-}
+// ========== 使用 gov API 的层级聚合函数 ==========
+// 注：parseSectionsFromRawText、findLeafSections、buildSectionPaths、aggregateByHierarchy
+// 已封装到 gov API，脚本直接调用 gov.xxx() 即可
 
 /**
  * 提取节点的所有段落内容
@@ -276,157 +213,6 @@ function buildSectionPaths(sections) {
 function extractSectionContent(section) {
   const paras = section.paragraphs || [];
   return paras.filter(p => p && p.trim()).join('；');
-}
-
-/**
- * 按标题路径聚合各单位内容
- * 返回：Map<path, Array<{unitName, content}>>
- */
-function aggregateByHierarchy(unitParsedList) {
-  const aggregationMap = new Map();
-
-  for (const unitData of unitParsedList) {
-    const { unitName, parsed } = unitData;
-    const sections = parsed.sections || [];
-    const paths = buildSectionPaths(sections);
-    const leaves = findLeafSections(sections);
-
-    for (const leaf of leaves) {
-      const path = paths[leaf.index] || [];
-      const pathKey = path.join(' > ');
-      const content = extractSectionContent(leaf.section);
-
-      if (!content || content.trim() === '' || content === '暂无') {
-        continue;
-      }
-
-      if (!aggregationMap.has(pathKey)) {
-        aggregationMap.set(pathKey, {
-          path,
-          items: []
-        });
-      }
-
-      aggregationMap.get(pathKey).items.push({
-        unitName,
-        content
-      });
-    }
-  }
-
-  return aggregationMap;
-}
-
-/**
- * 生成汇总文本
- * 格式：
- *   一、今日工作进展
- *     （一）系统开发
- *       【单位A】完成数据采集模块、修复登录 bug
- *       【单位B】完成前端重构、优化查询性能
- *       ─────────────────────────────────
- *       【汇总】共完成 5 项：数据采集模块、登录 bug 修复...
- */
-function generateAggregatedText(aggregationMap) {
-  const lines = [];
-  const emittedTitleKeys = new Set();
-
-  // 按路径排序（确保一级标题在前）
-  const sortedEntries = Array.from(aggregationMap.entries()).sort((a, b) => {
-    return a[0].localeCompare(b[0], 'zh-CN');
-  });
-
-  for (const [pathKey, data] of sortedEntries) {
-    const { path, items } = data;
-
-    // 输出标题层级（同一路径前缀标题只输出一次）
-    for (let i = 0; i < path.length; i++) {
-      const titleKey = path.slice(0, i + 1).join(' > ');
-      if (emittedTitleKeys.has(titleKey)) {
-        continue;
-      }
-
-      const indent = '  '.repeat(i);
-      const title = path[i];
-      lines.push(indent + title);
-      emittedTitleKeys.add(titleKey);
-    }
-
-    // 输出各单位内容
-    const lastIndent = '  '.repeat(path.length);
-    for (const item of items) {
-      lines.push(lastIndent + `【${item.unitName}】${item.content}`);
-    }
-
-    // 生成汇总行
-    if (items.length > 0) {
-      lines.push(lastIndent + '─────────────────────────────────');
-
-      // 简单汇总：统计项数，合并关键内容
-      const allContents = items.map(it => it.content).join('、');
-      const summary = `共 ${items.length} 个单位：${allContents}`;
-      lines.push(lastIndent + `【汇总】${summary}`);
-    }
-
-    lines.push(''); // 空行分隔
-  }
-
-  return lines.join('\n');
-}
-
-// ========== 从 rawText 重新解析 sections（修复 parseWordStructure 的 bug） ==========
-
-function parseSectionsFromRawText(rawText) {
-  const lines = rawText.split(/\r?\n/);
-  const sections = [];
-  let currentSection = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    let matchedLevel = 0;
-    let matchedTitle = '';
-
-    // 一级标题：一、二、三、
-    const m1 = trimmed.match(/^([一二三四五六七八九十]+)、(.*)$/);
-    if (m1) { matchedLevel = 1; matchedTitle = trimmed; }
-
-    // 二级标题：（一）（二）
-    const m2 = trimmed.match(/^（([一二三四五六七八九十]+)）(.*)$/);
-    if (m2) { matchedLevel = 2; matchedTitle = trimmed; }
-
-    // 三级标题：1. 2. 或 1、2、
-    const m3 = trimmed.match(/^(\d+)[\\.、．](.*)$/);
-    if (m3) { matchedLevel = 3; matchedTitle = trimmed; }
-
-    // 四级标题：（1）（2）
-    const m4 = trimmed.match(/^（(\d+)）(.*)$/);
-    if (m4) { matchedLevel = 4; matchedTitle = trimmed; }
-
-    if (matchedLevel > 0) {
-      // 只有非前言 section 才需要 push（前言在创建时已 push）
-      if (currentSection && currentSection.level > 0) sections.push(currentSection);
-      currentSection = { level: matchedLevel, title: matchedTitle, paragraphs: [] };
-    } else if (currentSection) {
-      currentSection.paragraphs.push(trimmed);
-    } else {
-      // 还没有标题，作为前言
-      let preface = sections.find(s => s.level === 0);
-      if (!preface) {
-        preface = { level: 0, title: '前言', paragraphs: [] };
-        sections.push(preface);
-      }
-      preface.paragraphs.push(trimmed);
-      currentSection = preface;
-    }
-  }
-
-  // 只有当 currentSection 不是前言时才 push（前言已在创建时 push 过）
-  if (currentSection && currentSection.level > 0) {
-    sections.push(currentSection);
-  }
-  return sections;
 }
 
 // ========== 改造后的 extractFromDocument ==========
@@ -442,11 +228,11 @@ async function extractFromDocument(file, config) {
     parsed = { title: '', sections: [], tables: [], rawText: '' };
   }
 
-  // 修复：如果 parseWordStructure 返回的 sections 不完整（只有前言），用 rawText 重新解析
+  // 修复：如果 parseWordStructure 返回的 sections 不完整（只有前言），用 gov.parseSectionsFromRawText 兜底
   const validSections = (parsed.sections || []).filter(s => s.level > 0);
   if (validSections.length === 0 && parsed.rawText && parsed.rawText.length > 50) {
-    gov.log('[FIX] parseWordStructure sections 无效，用 rawText 重新解析');
-    parsed.sections = parseSectionsFromRawText(parsed.rawText);
+    gov.log('[FIX] parseWordStructure sections 无效，用 gov.parseSectionsFromRawText 兜底');
+    parsed.sections = gov.parseSectionsFromRawText(parsed.rawText);
   }
 
   if (config.mode === 'parse') {
@@ -481,7 +267,7 @@ async function extractFromDocument(file, config) {
   let extraction;
   try {
     const aiResult = await gov.callAI(prompt);
-    const jsonStr = extractJsonObject(aiResult);
+    const jsonStr = gov.extractJsonObject(aiResult);
     if (!jsonStr) throw new Error('阶段1: 未从模型输出解析到 JSON, unit=' + meta.unitName);
     const raw = JSON.parse(jsonStr);
     extraction = normalizeUnitExtraction(raw, config.extraction.fields);
@@ -505,8 +291,8 @@ async function aggregateResults(extractions, config) {
       parsed: u.parsed || { sections: [], tables: [], rawText: '' }
     }));
 
-    // 按层级聚合
-    const aggregationMap = aggregateByHierarchy(unitParsedList);
+    // 按层级聚合（使用 gov API）
+    const aggregationMap = gov.aggregateByHierarchy(unitParsedList);
 
     // 从 aggregationMap 中按标题提取内容
     function extractByTitleKeyword(keyword) {
@@ -565,7 +351,7 @@ async function aggregateResults(extractions, config) {
     .replace('{unitsJson}', JSON.stringify(unitsContext, null, 2));
 
   const aiText = await gov.callAI(prompt);
-  const jsonStr = extractJsonObject(aiText);
+  const jsonStr = gov.extractJsonObject(aiText);
   if (!jsonStr) throw new Error('阶段2: 未从模型输出解析到 JSON');
   const data = JSON.parse(jsonStr);
   return normalizeTemplateData(data, config.aggregation.fields);
