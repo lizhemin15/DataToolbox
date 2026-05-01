@@ -14529,6 +14529,7 @@ func handleGovParseText(w http.ResponseWriter, r *http.Request) {
 // updateShareRun 更新分享执行记录
 func updateShareRun(runID string, status string, progress int, output string, resultFiles []string) {
 	needSave := false
+	var shareRun *GovernanceShareRun
 	governanceShareRunsMu.Lock()
 	if run, exists := governanceShareRuns[runID]; exists {
 		run.Status = status
@@ -14543,12 +14544,34 @@ func updateShareRun(runID string, status string, progress int, output string, re
 		// 只在任务完成或失败时持久化，避免频繁IO
 		if status == "completed" || status == "failed" {
 			needSave = true
+			shareRun = run
 		}
 	}
 	governanceShareRunsMu.Unlock()
 	
 	// 持久化到文件
 	if needSave {
+		// 同步更新主任务的历史记录
+		if shareRun != nil && shareRun.TaskID != "" {
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[shareRun.TaskID]; ok {
+				if status == "completed" {
+					t.Status = "success"
+					t.LastOutput = shareRun.Output
+				} else {
+					t.Status = "error"
+					t.LastError = shareRun.Output
+					if shareRun.Output != "" {
+						t.LastOutput = shareRun.Output
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = 0
+				t.Percent = 100
+				t.CurrentFile = ""
+			}
+			dataOntologyMu.Unlock()
+		}
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("[ShareRun] 保存分享执行记录失败: %v", err)
 		}
