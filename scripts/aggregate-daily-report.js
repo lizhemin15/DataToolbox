@@ -384,6 +384,8 @@ async function extractFromDocument(file, config) {
   let parsed;
   try {
     parsed = await gov.parseWordStructure(file);
+    gov.log('[DEBUG] parseWordStructure returned: title=' + parsed.title + ' sections=' + (parsed.sections?.length||0) + ' rawText_len=' + (parsed.rawText?.length||0));
+    if (parsed.rawText) gov.log('[DEBUG] rawText preview: ' + parsed.rawText.slice(0, 200));
   } catch (e) {
     gov.log('结构解析失败 ' + file.name + ': ' + (e.message || e));
     parsed = { title: '', sections: [], tables: [], rawText: '' };
