@@ -512,7 +512,8 @@ async function aggregateResults(extractions, config) {
     function extractByTitleKeyword(keyword) {
       const results = [];
       for (const [pathKey, data] of aggregationMap.entries()) {
-        const title = (data.path || []).pop() || '';
+        const path = data.path || [];
+        const title = path[path.length - 1] || ''; // 取最后一个标题，不修改原数组
         if (title.includes(keyword)) {
           const items = data.items || [];
           results.push(...items.map(it => it.content));
