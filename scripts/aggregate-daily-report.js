@@ -1,5 +1,5 @@
-// 综合日报生成器 v3：可配置模板框架 — 两阶段 LLM（先逐单位解析、再汇总整合）
-// 使用 gov.parseWordStructure 保留公文结构，分块调用 LLM 避免上下文溢出
+// 综合日报生成器 v4：按标题层级细分合并（parse 模式）
+// 核心改造：解析到最深层级，按最小节点聚合各单位内容
 
 const CONFIG = {
   mode: "parse", // "parse" 或 "ai"，默认 "parse"
@@ -9,7 +9,7 @@ const CONFIG = {
   },
   extraction: {
     fields: ["unit_name", "unit_report_date", "unit_summary", "unit_overview", "unit_key_projects", "unit_risks", "unit_risk", "unit_tomorrow", "metrics"],
-    promptTemplate: `你是政务数据治理助手。请从以下单位日报中提取关键信息，输出一个 JSON 对象（不要用 markdown 代码块包裹）。
+    promptTemplate: `你是政务数据治理助手。请从以下单位日报中提取关键信息,输出一个 JSON 对象（不要用 markdown 代码块包裹）。
 输出 JSON 结构：
 {
   "unit_name": "单位名称（从文件名或内容推断）",
@@ -94,53 +94,6 @@ function classifyFiles(files, rules) {
 function str(v) {
   if (v === undefined || v === null) return '';
   return String(v);
-}
-
-// 格式化单个单位解析结果（parse 模式专用）
-function formatUnitContent(parsed, meta, index) {
-  const lines = [];
-  lines.push("========================================");
-  lines.push("【" + meta.unitName + "日报】" + meta.dateDisplay);
-  lines.push("----------------------------------------");
-
-  if (parsed.title) {
-    lines.push("标题：" + parsed.title);
-  }
-
-  if (Array.isArray(parsed.sections)) {
-    for (const sec of parsed.sections) {
-      if (sec.title) {
-        lines.push("");
-        lines.push("■ " + sec.title);
-      }
-      if (Array.isArray(sec.paragraphs)) {
-        for (const p of sec.paragraphs) {
-          if (p && p.trim()) lines.push(p);
-        }
-      }
-    }
-  }
-
-  if (Array.isArray(parsed.tables) && parsed.tables.length > 0) {
-    for (let i = 0; i < parsed.tables.length; i++) {
-      const t = parsed.tables[i];
-      lines.push("");
-      lines.push("[表格" + (i + 1) + "]");
-      if (t.headers) lines.push("表头：" + t.headers.join(" | "));
-      if (t.rows) {
-        for (const row of t.rows) {
-          lines.push(row.join(" | "));
-        }
-      }
-    }
-  }
-
-  if (lines.length < 8 && parsed.rawText) {
-    lines.push("");
-    lines.push(parsed.rawText.slice(0, 3000));
-  }
-
-  return lines.join("\n");
 }
 
 // 从解析结果提取特定字段（parse 模式专用）
@@ -261,6 +214,166 @@ function normalizeTemplateData(raw, fields) {
   return result;
 }
 
+// ========== 新增：按标题层级细分合并的核心函数 ==========
+
+/**
+ * 找到所有最深层级节点（叶子节点）
+ * 规则：扁平数组中，一个 section 是叶子节点，当且仅当它后面没有更深层级的 section（直到遇到同级或更高级标题）
+ */
+function findLeafSections(sections) {
+  const leaves = [];
+
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    const currentLevel = Math.max(1, Number(sec.level || 1));
+
+    let hasDeeperChild = false;
+    for (let j = i + 1; j < sections.length; j++) {
+      const nextLevel = Math.max(1, Number(sections[j].level || 1));
+      if (nextLevel <= currentLevel) {
+        break;
+      }
+      if (nextLevel > currentLevel) {
+        hasDeeperChild = true;
+        break;
+      }
+    }
+
+    if (!hasDeeperChild) {
+      leaves.push({
+        index: i,
+        section: sec
+      });
+    }
+  }
+
+  return leaves;
+}
+
+/**
+ * 为每个 section 构建完整标题路径
+ */
+function buildSectionPaths(sections) {
+  const paths = [];
+  const currentPath = [];
+
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i] || {};
+    const level = Math.max(1, Number(sec.level || 1));
+    currentPath[level - 1] = sec.title || '无标题';
+    currentPath.length = level;
+    paths[i] = currentPath.slice();
+  }
+
+  return paths;
+}
+
+/**
+ * 提取节点的所有段落内容
+ */
+function extractSectionContent(section) {
+  const paras = section.paragraphs || [];
+  return paras.filter(p => p && p.trim()).join('；');
+}
+
+/**
+ * 按标题路径聚合各单位内容
+ * 返回：Map<path, Array<{unitName, content}>>
+ */
+function aggregateByHierarchy(unitParsedList) {
+  const aggregationMap = new Map();
+
+  for (const unitData of unitParsedList) {
+    const { unitName, parsed } = unitData;
+    const sections = parsed.sections || [];
+    const paths = buildSectionPaths(sections);
+    const leaves = findLeafSections(sections);
+
+    for (const leaf of leaves) {
+      const path = paths[leaf.index] || [];
+      const pathKey = path.join(' > ');
+      const content = extractSectionContent(leaf.section);
+
+      if (!content || content.trim() === '' || content === '暂无') {
+        continue;
+      }
+
+      if (!aggregationMap.has(pathKey)) {
+        aggregationMap.set(pathKey, {
+          path,
+          items: []
+        });
+      }
+
+      aggregationMap.get(pathKey).items.push({
+        unitName,
+        content
+      });
+    }
+  }
+
+  return aggregationMap;
+}
+
+/**
+ * 生成汇总文本
+ * 格式：
+ *   一、今日工作进展
+ *     （一）系统开发
+ *       【单位A】完成数据采集模块、修复登录 bug
+ *       【单位B】完成前端重构、优化查询性能
+ *       ─────────────────────────────────
+ *       【汇总】共完成 5 项：数据采集模块、登录 bug 修复...
+ */
+function generateAggregatedText(aggregationMap) {
+  const lines = [];
+  const emittedTitleKeys = new Set();
+
+  // 按路径排序（确保一级标题在前）
+  const sortedEntries = Array.from(aggregationMap.entries()).sort((a, b) => {
+    return a[0].localeCompare(b[0], 'zh-CN');
+  });
+
+  for (const [pathKey, data] of sortedEntries) {
+    const { path, items } = data;
+
+    // 输出标题层级（同一路径前缀标题只输出一次）
+    for (let i = 0; i < path.length; i++) {
+      const titleKey = path.slice(0, i + 1).join(' > ');
+      if (emittedTitleKeys.has(titleKey)) {
+        continue;
+      }
+
+      const indent = '  '.repeat(i);
+      const title = path[i];
+      lines.push(indent + title);
+      emittedTitleKeys.add(titleKey);
+    }
+
+    // 输出各单位内容
+    const lastIndent = '  '.repeat(path.length);
+    for (const item of items) {
+      lines.push(lastIndent + `【${item.unitName}】${item.content}`);
+    }
+
+    // 生成汇总行
+    if (items.length > 0) {
+      lines.push(lastIndent + '─────────────────────────────────');
+
+      // 简单汇总：统计项数，合并关键内容
+      const allContents = items.map(it => it.content).join('、');
+      const summary = `共 ${items.length} 个单位：${allContents}`;
+      lines.push(lastIndent + `【汇总】${summary}`);
+    }
+
+    lines.push(''); // 空行分隔
+  }
+
+  return lines.join('\n');
+}
+
+// ========== 改造后的 extractFromDocument ==========
+
 async function extractFromDocument(file, config) {
   const meta = parseFilenameWithPattern(file.name, config.fileClassification.dataFiles.pattern);
 
@@ -273,11 +386,15 @@ async function extractFromDocument(file, config) {
   }
 
   if (config.mode === 'parse') {
+    // parse 模式：返回完整的 parsed 结构，供后续按层级聚合
     return {
       unit_name: meta.unitName,
       unit_report_date: meta.dateStr || meta.dateDisplay,
       unit_summary: parsed.title || '暂无',
-      unit_overview: formatUnitContent(parsed, meta),
+      // 保留完整解析结构
+      parsed: parsed,
+      // 兼容字段（用于 AI 模式或兜底）
+      unit_overview: '已解析结构化内容',
       unit_key_projects: extractFieldFromParsed(parsed, ['重点项目', '项目进展', '重点工作']) || '暂无',
       unit_risks: extractFieldFromParsed(parsed, ['风险', '问题', '困难']) || '暂无',
       unit_risk: extractFieldFromParsed(parsed, ['风险', '问题', '困难']) || '暂无',
@@ -286,6 +403,7 @@ async function extractFromDocument(file, config) {
     };
   }
 
+  // AI 模式：保持原有逻辑
   const aiInput = summarizeStructureForAI(parsed);
   let aiText = aiInput;
   if (aiText.length < 50 && parsed.rawText) {
@@ -313,8 +431,23 @@ async function extractFromDocument(file, config) {
   return extraction;
 }
 
+// ========== 改造后的 aggregateResults ==========
+
 async function aggregateResults(extractions, config) {
   if (config.mode === 'parse') {
+    // parse 模式：按标题层级细分合并
+    const unitParsedList = extractions.map(u => ({
+      unitName: str(u.unit_name),
+      parsed: u.parsed || { sections: [], tables: [], rawText: '' }
+    }));
+
+    // 按层级聚合
+    const aggregationMap = aggregateByHierarchy(unitParsedList);
+
+    // 生成汇总文本
+    const aggregatedText = generateAggregatedText(aggregationMap);
+
+    // 构建返回数据（文本形式传给模板）
     const units = extractions.map((u) => ({
       unit_name: str(u.unit_name),
       unit_report_date: str(u.unit_report_date),
@@ -334,7 +467,7 @@ async function aggregateResults(extractions, config) {
     return normalizeTemplateData({
       report_title: CONFIG.output.defaultTitle,
       report_date: reportDate,
-      overview: '已基于解析结果汇总 ' + units.length + ' 个单位日报。',
+      overview: aggregatedText, // 将汇总文本放入 overview 字段
       key_projects: keyProjects || '暂无',
       risks: risks || '暂无',
       risk_detail: risks || '暂无',
@@ -344,6 +477,7 @@ async function aggregateResults(extractions, config) {
     }, config.aggregation.fields);
   }
 
+  // AI 模式：保持原有逻辑
   const unitsContext = extractions.map((u, i) => ({
     序号: i + 1,
     ...u,
@@ -375,7 +509,7 @@ async function main() {
   }
 
   gov.log('模板识别: ' + template.name);
-  gov.log('运行模式: ' + (CONFIG.mode === 'ai' ? 'AI 提取与汇总' : '纯解析模式'));
+  gov.log('运行模式: ' + (CONFIG.mode === 'ai' ? 'AI 提取与汇总' : '纯解析模式（按层级细分合并）'));
   gov.log('单位日报 ' + unitFiles.length + ' 份，开始逐份解析...');
 
   // ====== 阶段 1：逐份解析 ======
@@ -398,7 +532,7 @@ async function main() {
     return;
   }
 
-  gov.log('阶段2完成: ' + (CONFIG.mode === 'ai' ? 'AI 汇总成功' : '解析结果汇总成功'));
+  gov.log('阶段2完成: ' + (CONFIG.mode === 'ai' ? 'AI 汇总成功' : '按层级细分合并成功'));
 
   if (!data.units.length) {
     gov.log('汇总结果 units 为空，已中止');
