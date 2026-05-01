@@ -225,6 +225,7 @@ function findLeafSections(sections) {
 
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
+    if (sec.level === 0) continue;
     const currentLevel = Math.max(1, Number(sec.level || 1));
 
     let hasDeeperChild = false;
@@ -259,6 +260,7 @@ function buildSectionPaths(sections) {
 
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i] || {};
+    if (sec.level === 0) continue;
     const level = Math.max(1, Number(sec.level || 1));
     currentPath[level - 1] = sec.title || '无标题';
     currentPath.length = level;
@@ -281,14 +283,11 @@ function extractSectionContent(section) {
  * 返回：Map<path, Array<{unitName, content}>>
  */
 function aggregateByHierarchy(unitParsedList) {
-  gov.log('[DEBUG] aggregateByHierarchy called with ' + unitParsedList.length + ' units');
   const aggregationMap = new Map();
 
   for (const unitData of unitParsedList) {
     const { unitName, parsed } = unitData;
     const sections = parsed.sections || [];
-    gov.log('[DEBUG] unit=' + unitName + ' sections=' + sections.length);
-    sections.forEach((s, i) => gov.log('  section[' + i + '] level=' + s.level + ' title=' + s.title + ' paras=' + (s.paragraphs||[]).length));
     const paths = buildSectionPaths(sections);
     const leaves = findLeafSections(sections);
 
@@ -296,7 +295,6 @@ function aggregateByHierarchy(unitParsedList) {
       const path = paths[leaf.index] || [];
       const pathKey = path.join(' > ');
       const content = extractSectionContent(leaf.section);
-      gov.log('[DEBUG] leaf=' + leaf.section.title + ' content_len=' + content.length);
 
       if (!content || content.trim() === '' || content === '暂无') {
         continue;
@@ -407,7 +405,8 @@ function parseSectionsFromRawText(rawText) {
     if (m4) { matchedLevel = 4; matchedTitle = trimmed; }
 
     if (matchedLevel > 0) {
-      if (currentSection) sections.push(currentSection);
+      // 只有非前言 section 才需要 push（前言在创建时已 push）
+      if (currentSection && currentSection.level > 0) sections.push(currentSection);
       currentSection = { level: matchedLevel, title: matchedTitle, paragraphs: [] };
     } else if (currentSection) {
       currentSection.paragraphs.push(trimmed);
@@ -423,7 +422,10 @@ function parseSectionsFromRawText(rawText) {
     }
   }
 
-  if (currentSection) sections.push(currentSection);
+  // 只有当 currentSection 不是前言时才 push（前言已在创建时 push 过）
+  if (currentSection && currentSection.level > 0) {
+    sections.push(currentSection);
+  }
   return sections;
 }
 
