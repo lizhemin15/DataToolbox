@@ -281,11 +281,14 @@ function extractSectionContent(section) {
  * 返回：Map<path, Array<{unitName, content}>>
  */
 function aggregateByHierarchy(unitParsedList) {
+  gov.log('[DEBUG] aggregateByHierarchy called with ' + unitParsedList.length + ' units');
   const aggregationMap = new Map();
 
   for (const unitData of unitParsedList) {
     const { unitName, parsed } = unitData;
     const sections = parsed.sections || [];
+    gov.log('[DEBUG] unit=' + unitName + ' sections=' + sections.length);
+    sections.forEach((s, i) => gov.log('  section[' + i + '] level=' + s.level + ' title=' + s.title + ' paras=' + (s.paragraphs||[]).length));
     const paths = buildSectionPaths(sections);
     const leaves = findLeafSections(sections);
 
@@ -293,6 +296,7 @@ function aggregateByHierarchy(unitParsedList) {
       const path = paths[leaf.index] || [];
       const pathKey = path.join(' > ');
       const content = extractSectionContent(leaf.section);
+      gov.log('[DEBUG] leaf=' + leaf.section.title + ' content_len=' + content.length);
 
       if (!content || content.trim() === '' || content === '暂无') {
         continue;

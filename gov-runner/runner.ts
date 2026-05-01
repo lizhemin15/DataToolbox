@@ -112,6 +112,33 @@ export function createGovHelper(
 ): GovHelper {
   const { apiBase, token, databaseId, dbType, databases, shareToken } = ctx;
 
+  async function toArrayBuffer(file: any): Promise<ArrayBuffer> {
+    if (!file) {
+      throw new Error('缺少文件');
+    }
+    if (typeof file.arrayBuffer === 'function') {
+      return await file.arrayBuffer();
+    }
+    if (file instanceof ArrayBuffer) {
+      return file;
+    }
+    if (ArrayBuffer.isView(file)) {
+      return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+    }
+    if (file.buffer instanceof ArrayBuffer) {
+      const offset = typeof file.byteOffset === 'number' ? file.byteOffset : 0;
+      const length = typeof file.byteLength === 'number'
+        ? file.byteLength
+        : (typeof file.length === 'number' ? file.length : file.buffer.byteLength);
+      return file.buffer.slice(offset, offset + length) as ArrayBuffer;
+    }
+    if (typeof file.buffer === 'string') {
+      const buf = Buffer.from(file.buffer, 'base64');
+      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    }
+    throw new Error('文件对象不支持 arrayBuffer()');
+  }
+
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
     const resp = await fetch(`${apiBase}/api/data-ontology/governance/execute-sql`, {
       method: 'POST',
@@ -203,7 +230,7 @@ export function createGovHelper(
 
     async readExcel(file: FileLike): Promise<XLSX.WorkBook> {
       if (!file) throw new Error('未提供文件');
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = await toArrayBuffer(file);
       const data = new Uint8Array(arrayBuffer);
       const wb = XLSX.read(data, { type: 'array' });
       if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
@@ -219,7 +246,7 @@ export function createGovHelper(
 
     async readWord(file: FileLike): Promise<{ value: string }> {
       if (!file) throw new Error('未提供文件');
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = await toArrayBuffer(file);
       // 用 PizZip + XML 解析替代 mammoth（编译后 mammoth 异步调用会挂起）
       const buf = Buffer.from(arrayBuffer);
       const zip = new PizZip(buf);
@@ -244,7 +271,7 @@ export function createGovHelper(
       rawText: string;
     }> {
       if (!file) throw new Error('缺少文件');
-      const arrayBuffer = await file.arrayBuffer();
+      const arrayBuffer = await toArrayBuffer(file);
       // 复用 readWord 的文本提取逻辑
       const buf = Buffer.from(arrayBuffer);
       const zip = new PizZip(buf);
