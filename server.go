@@ -14553,6 +14553,7 @@ func updateShareRun(runID string, status string, progress int, output string, re
 	if needSave {
 		// 同步更新主任务的历史记录
 		if shareRun != nil && shareRun.TaskID != "" {
+			now := time.Now().Format(time.RFC3339)
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[shareRun.TaskID]; ok {
 				if status == "completed" {
@@ -14565,10 +14566,29 @@ func updateShareRun(runID string, status string, progress int, output string, re
 						t.LastOutput = shareRun.Output
 					}
 				}
-				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.LastRunAt = now
 				t.ProcessedFiles = 0
 				t.Percent = 100
 				t.CurrentFile = ""
+			}
+			// 创建任务执行日志
+			logStatus := "success"
+			if status == "failed" {
+				logStatus = "error"
+			}
+			logEntry := &GovernanceTaskLog{
+				ID:        uuid.New().String(),
+				TaskID:    shareRun.TaskID,
+				RunID:     runID,
+				StartTime: shareRun.CreatedAt.Format(time.RFC3339),
+				EndTime:   now,
+				Status:    logStatus,
+				Output:    shareRun.Output,
+				Input:     strings.Join(shareRun.InputFiles, ", "),
+			}
+			governanceTaskLogs[shareRun.TaskID] = append(governanceTaskLogs[shareRun.TaskID], logEntry)
+			if len(governanceTaskLogs[shareRun.TaskID]) > 50 {
+				governanceTaskLogs[shareRun.TaskID] = governanceTaskLogs[shareRun.TaskID][len(governanceTaskLogs[shareRun.TaskID])-50:]
 			}
 			dataOntologyMu.Unlock()
 		}
