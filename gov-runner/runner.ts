@@ -62,10 +62,10 @@ export interface GovHelper {
     extractions: Array<Record<string, any>>,
     config: { sections: string[]; labelWith: string; outputFields?: Record<string, string> }
   ): Record<string, any>;
-  
+
   // JSON 提取
   extractJsonObject(text: string): any | null;
-  
+
   // 层级解析与聚合
   parseSectionsFromRawText(rawText: string): Array<{ level: number; title: string; paragraphs: string[] }>;
   findLeafSections(sections: Array<{ level: number; title: string; paragraphs: string[] }>): Array<{ index: number; section: { level: number; title: string; paragraphs: string[] } }>;
@@ -74,6 +74,10 @@ export interface GovHelper {
     unitParsedList: Array<{ unitName: string; parsed: any }>,
     options?: { skipKeywords?: string[] }
   ): Map<string, { path: string[]; items: Array<{ unitName: string; content: string }> }>;
+  aggregateByMapping(
+    units: Array<{ unitName: string; parsed: any }>,
+    mapping: Record<string, string[]>
+  ): Record<string, string>;
   
   today(): string;
   renderTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
@@ -1011,6 +1015,33 @@ export function createGovHelper(
       }
 
       return aggregationMap;
+    },
+
+    aggregateByMapping(
+      units: Array<{ unitName: string; parsed: any }>,
+      mapping: Record<string, string[]>
+    ): Record<string, string> {
+      const aggregationMap = this.aggregateByHierarchy(units);
+      const result: Record<string, string> = {};
+
+      for (const [field, keywords] of Object.entries(mapping)) {
+        const contents: string[] = [];
+
+        for (const [pathKey, data] of aggregationMap.entries()) {
+          const path = data.path || [];
+          const title = path[path.length - 1] || '';
+
+          const matched = keywords.some(kw => title.includes(kw));
+          if (matched) {
+            const items = data.items || [];
+            contents.push(...items.map(it => it.content));
+          }
+        }
+
+        result[field] = contents.filter(Boolean).join('；') || '暂无';
+      }
+
+      return result;
     },
 
     today(): string {
