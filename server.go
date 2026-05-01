@@ -12806,9 +12806,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 					"file_base64": base64.StdEncoding.EncodeToString(data),
 				})
 			}
+// 分享任务保留输入文件供用户下载，普通任务读取后删除节省空间
+		if !isShare {
 			for _, filePath := range job.InputFiles {
 				os.Remove(filePath)
 			}
+		}
 			taskData["files"] = filePayloads
 
 			if isShare {
