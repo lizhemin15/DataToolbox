@@ -14620,7 +14620,7 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 
 	// GET /api/data-ontology/share/{token}/runs - 列出所有执行记录
 	if len(pathParts) >= 2 && pathParts[1] == "runs" {
-		handleGovernanceShareRuns(w, r, shareToken)
+		handleGovernanceShareRuns(w, r, task)
 		return
 	}
 
@@ -14855,7 +14855,7 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 }
 
 // handleGovernanceShareRuns 列出分享任务的所有执行记录
-func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, shareToken string) {
+func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *GovernanceTask) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
@@ -14865,10 +14865,10 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, shareToke
 	governanceShareRunsMu.RLock()
 	defer governanceShareRunsMu.RUnlock()
 
-	// 收集该 share_token 下的所有执行记录
+	// 收集该 task_id 下的所有执行记录（按 task_id 查询，而非 share_token）
 	var runs []*GovernanceShareRun
 	for _, run := range governanceShareRuns {
-		if run.ShareToken == shareToken {
+		if run.TaskID == task.ID {
 			runs = append(runs, run)
 		}
 	}
