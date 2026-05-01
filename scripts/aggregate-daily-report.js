@@ -508,10 +508,25 @@ async function aggregateResults(extractions, config) {
     // 按层级聚合
     const aggregationMap = aggregateByHierarchy(unitParsedList);
 
-    // 生成汇总文本
-    const aggregatedText = generateAggregatedText(aggregationMap);
+    // 从 aggregationMap 中按标题提取内容
+    function extractByTitleKeyword(keyword) {
+      const results = [];
+      for (const [pathKey, data] of aggregationMap.entries()) {
+        const title = (data.path || []).pop() || '';
+        if (title.includes(keyword)) {
+          const items = data.items || [];
+          results.push(...items.map(it => it.content));
+        }
+      }
+      return results.filter(Boolean).join('；');
+    }
 
-    // 构建返回数据（文本形式传给模板）
+    const overview = extractByTitleKeyword('今日工作进展') || '暂无';
+    const keyProjects = extractByTitleKeyword('项目进展') || '暂无';
+    const risks = extractByTitleKeyword('存在问题') || extractByTitleKeyword('风险') || '暂无';
+    const tomorrowPlan = extractByTitleKeyword('下一步计划') || extractByTitleKeyword('明日计划') || '暂无';
+
+    // 构建返回数据
     const units = extractions.map((u) => ({
       unit_name: str(u.unit_name),
       unit_report_date: str(u.unit_report_date),
@@ -524,19 +539,16 @@ async function aggregateResults(extractions, config) {
     }));
 
     const reportDate = units[0] ? units[0].unit_report_date : '';
-    const keyProjects = units.map((u) => u.unit_key_projects).filter(Boolean).filter((v) => v !== '暂无').join('；');
-    const risks = units.map((u) => u.unit_risks).filter(Boolean).filter((v) => v !== '暂无').join('；');
-    const tomorrowPlan = units.map((u) => u.unit_tomorrow).filter(Boolean).filter((v) => v !== '暂无').join('；');
 
     return normalizeTemplateData({
       report_title: CONFIG.output.defaultTitle,
       report_date: reportDate,
-      overview: aggregatedText, // 将汇总文本放入 overview 字段
-      key_projects: keyProjects || '暂无',
-      risks: risks || '暂无',
-      risk_detail: risks || '暂无',
-      risk_items: risks ? risks.split(/[；;\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 12) : [],
-      tomorrow_plan: tomorrowPlan || '暂无',
+      overview,
+      key_projects: keyProjects,
+      risks,
+      risk_detail: risks,
+      risk_items: risks !== '暂无' ? risks.split(/[；;\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 12) : [],
+      tomorrow_plan: tomorrowPlan,
       units,
     }, config.aggregation.fields);
   }
