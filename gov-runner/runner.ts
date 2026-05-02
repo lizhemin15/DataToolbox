@@ -78,7 +78,14 @@ export interface GovHelper {
     units: Array<{ unitName: string; parsed: any }>,
     mapping: Record<string, string[]>
   ): Record<string, string>;
-  
+
+  select(parsed: any, selector: string): any;
+  selectText(parsed: any, selector: string): string;
+  aggregateByFields(
+    units: Array<{ unitName: string; parsed: any }>,
+    fieldMap: Record<string, string>
+  ): { aggregated: Record<string, string>; perUnit: Array<Record<string, string>> };
+
   today(): string;
   renderTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -1042,6 +1049,177 @@ export function createGovHelper(
       }
 
       return result;
+    },
+
+    select(parsed: any, selector: string): any {
+      // Parse selector into path segments
+      // Supported: "sections[0]", "sections[level=1][0]", "sections[level=1][title~=风险][0]",
+      //             "sections[level=1][0].children[0]", "sections[level=1][0].paragraphs",
+      //             "sections[level=1][0].text", "rawText"
+      const segments = this._parseSelector(selector);
+      let current: any = parsed;
+
+      for (const seg of segments) {
+        if (current == null) return null;
+
+        if (seg.type === 'property') {
+          // .sections, .children, .paragraphs, .title, .rawText
+          current = current[seg.name];
+        } else if (seg.type === 'index') {
+          // [N]
+          if (!Array.isArray(current)) return null;
+          current = current[seg.index];
+        } else if (seg.type === 'filter') {
+          // [level=N], [title~=keyword], [title=exact]
+          if (!Array.isArray(current)) return null;
+          let filtered = current;
+          if (seg.level != null) {
+            filtered = filtered.filter((s: any) => s?.level === seg.level);
+          }
+          if (seg.titleExact != null) {
+            filtered = filtered.filter((s: any) => s?.title === seg.titleExact);
+          }
+          if (seg.titleFuzzy != null) {
+            filtered = filtered.filter((s: any) => s?.title?.includes(seg.titleFuzzy));
+          }
+          current = filtered;
+        } else if (seg.type === 'text') {
+          // .text → paragraphs.join("；")
+          if (current && Array.isArray(current.paragraphs)) {
+            current = current.paragraphs.join('；');
+          } else {
+            return null;
+          }
+        }
+      }
+
+      return current;
+    },
+
+    _parseSelector(selector: string): Array<{ type: string; name?: string; index?: number; level?: number; titleExact?: string; titleFuzzy?: string }> {
+      const segments: Array<{ type: string; name?: string; index?: number; level?: number; titleExact?: string; titleFuzzy?: string }> = [];
+      let i = 0;
+      const len = selector.length;
+
+      while (i < len) {
+        // Skip leading dot
+        if (selector[i] === '.') i++;
+
+        if (i >= len) break;
+
+        // Check for [N] or [filter] bracket expressions
+        if (selector[i] === '[') {
+          i++; // skip '['
+          // Collect content until ']'
+          let content = '';
+          let depth = 1;
+          while (i < len && depth > 0) {
+            if (selector[i] === '[') depth++;
+            else if (selector[i] === ']') {
+              depth--;
+              if (depth === 0) { i++; break; }
+            }
+            content += selector[i];
+            i++;
+          }
+
+          // Check if content is just a number → index
+          if (/^\d+$/.test(content)) {
+            segments.push({ type: 'index', index: parseInt(content, 10) });
+          } else {
+            // Parse filter: level=N, title=exact, title~=keyword
+            const filters = content.split('][');
+            let level: number | undefined;
+            let titleExact: string | undefined;
+            let titleFuzzy: string | undefined;
+
+            // Re-split at bracket boundaries that weren't caught
+            // Handle: "level=1][0" → needs to split into filter and index parts
+            // Actually [level=1][0] would produce two separate [ segments
+            // But the above parsing only grabs one [...] at a time, so this is fine
+
+            for (const f of filters) {
+              const levelMatch = f.match(/^level=(\d+)$/);
+              if (levelMatch) { level = parseInt(levelMatch[1], 10); continue; }
+              const titleFuzzyMatch = f.match(/^title~=(.+)$/);
+              if (titleFuzzyMatch) { titleFuzzy = titleFuzzyMatch[1]; continue; }
+              const titleExactMatch = f.match(/^title=(.+)$/);
+              if (titleExactMatch) { titleExact = titleExactMatch[1]; continue; }
+            }
+
+            segments.push({ type: 'filter', level, titleExact, titleFuzzy });
+          }
+          continue;
+        }
+
+        // Property name: read until next . or [
+        let name = '';
+        while (i < len && selector[i] !== '.' && selector[i] !== '[') {
+          name += selector[i];
+          i++;
+        }
+
+        if (name) {
+          // Special: "text" → merge paragraphs
+          if (name === 'text') {
+            segments.push({ type: 'text' });
+          } else {
+            segments.push({ type: 'property', name });
+          }
+        }
+      }
+
+      return segments;
+    },
+
+    selectText(parsed: any, selector: string): string {
+      const result = this.select(parsed, selector);
+
+      if (result == null) return '';
+      if (typeof result === 'string') return result;
+      if (Array.isArray(result)) {
+        // string[] → join
+        if (result.every((s: any) => typeof s === 'string')) {
+          return result.join('；');
+        }
+        // array of sections → join each section's text
+        return result
+          .map((s: any) => {
+            if (s?.paragraphs) return s.paragraphs.join('；');
+            return '';
+          })
+          .filter(Boolean)
+          .join('；');
+      }
+      if (result.paragraphs && Array.isArray(result.paragraphs)) {
+        return result.paragraphs.join('；');
+      }
+      return '';
+    },
+
+    aggregateByFields(
+      units: Array<{ unitName: string; parsed: any }>,
+      fieldMap: Record<string, string>
+    ): { aggregated: Record<string, string>; perUnit: Array<Record<string, string>> } {
+      const perUnit: Array<Record<string, string>> = [];
+
+      for (const unit of units) {
+        const row: Record<string, string> = {};
+        for (const [field, selector] of Object.entries(fieldMap)) {
+          row[field] = this.selectText(unit.parsed, selector);
+        }
+        perUnit.push(row);
+      }
+
+      const aggregated: Record<string, string> = {};
+      for (const field of Object.keys(fieldMap)) {
+        const values = perUnit
+          .map(row => row[field])
+          .filter(v => v && v.trim());
+        aggregated[field] = values.join('；') || '暂无';
+      }
+
+      return { aggregated, perUnit };
     },
 
     today(): string {
