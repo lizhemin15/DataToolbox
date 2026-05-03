@@ -4720,15 +4720,20 @@ async function loadBackupStats() {
     if (!container) return;
 
     try {
-        // 从现有数据获取统计
+        // 从现有全局变量获取统计（这些变量在页面加载时已初始化）
         const stats = {
-            databases: Object.keys(window.dataOntologyDatabases || {}).length,
-            apis: Object.keys(window.dataOntologyApis || {}).length,
-            tasks: Object.keys(window.governanceTasks || {}).length,
-            users: Object.keys(window.dataOntologyUsers || {}).length,
-            llmModels: Object.keys(window.llmModels || {}).length,
-            smallModels: Object.keys(window.smallModels || {}).length,
+            databases: (typeof databases !== 'undefined' && databases) ? databases.length : 0,
+            apis: (typeof apis !== 'undefined' && apis) ? apis.length : 0,
+            tasks: 0,
+            users: 0,
+            llmModels: 0,
+            smallModels: 0,
         };
+
+        // 尝试从全局变量获取任务数（如果存在）
+        if (typeof governanceTasks !== 'undefined' && governanceTasks) {
+            stats.tasks = Object.keys(governanceTasks).length;
+        }
 
         container.innerHTML = `
             <div class="backup-stats-grid">
