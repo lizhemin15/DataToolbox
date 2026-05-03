@@ -4919,19 +4919,14 @@ async function importBackup() {
             messageDiv.className = 'backup-message success';
             messageDiv.textContent = successMsg;
         } else if (fileName.endsWith('.json')) {
-            // JSON 格式：向后兼容
-            const text = await file.text();
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch (parseErr) {
-                throw new Error('文件不是有效的 JSON 格式');
-            }
+            // JSON 格式：使用 restore-upload 端点（multipart 上传）
+            const formData = new FormData();
+            formData.append('backup', file);
+            formData.append('mode', mode || 'merge');  // 默认 merge 模式
 
-            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore', {
+            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore-upload', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({mode, data})
+                body: formData
             });
 
             const result = await resp.json();

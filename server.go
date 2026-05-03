@@ -1611,6 +1611,9 @@ func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mode := r.FormValue("mode")
+	if mode == "" {
+		mode = "merge" // 默认使用合并模式
+	}
 	if mode != "overwrite" && mode != "merge" {
 		jsonError(w, "模式必须为 overwrite 或 merge", ErrCodeInvalidInput)
 		return
@@ -1733,6 +1736,14 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 
 	if mode == "overwrite" {
 		// 覆盖模式：完全替换
+		// 安全处理：确保密码是 bcrypt hash 格式
+		if newStore.Users != nil {
+			for k, v := range newStore.Users {
+				if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
+					v.Password = hashPassword(v.Password)
+				}
+			}
+		}
 		dataOntologyUsers = newStore.Users
 		dataOntologyDatabases = newStore.Databases
 		dataOntologyApis = newStore.Apis
@@ -1771,6 +1782,10 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 		if newStore.Users != nil {
 			for k, v := range newStore.Users {
 				if _, exists := dataOntologyUsers[k]; !exists {
+					// 安全处理：确保密码是 bcrypt hash 格式
+					if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
+						v.Password = hashPassword(v.Password)
+					}
 					dataOntologyUsers[k] = v
 					mergedStats["users_added"]++
 				}
@@ -1887,7 +1902,18 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 			continue
 		}
 
+		// 安全检查：防止路径遍历攻击
 		targetPath := filepath.Join(dataDir, relPath)
+		absTarget, err := filepath.Abs(targetPath)
+		if err != nil {
+			log.Printf("获取绝对路径失败 %s: %v", targetPath, err)
+			continue
+		}
+		absDataDir, _ := filepath.Abs(dataDir)
+		if !strings.HasPrefix(absTarget, absDataDir+string(filepath.Separator)) && absTarget != absDataDir {
+			log.Printf("安全警告：跳过路径遍历文件 %s (目标: %s)", f.Name, absTarget)
+			continue
+		}
 
 		if f.FileInfo().IsDir() {
 			os.MkdirAll(targetPath, 0755)
@@ -3152,6 +3178,10 @@ main().catch(e => {
 }
 
 // 密码哈希 - 使用 bcrypt
+func isBcryptHash(s string) bool {
+	return strings.HasPrefix(s, "$2a$") || strings.HasPrefix(s, "$2b$") || strings.HasPrefix(s, "$2y$")
+}
+
 func hashPassword(password string) string {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
