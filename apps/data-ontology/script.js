@@ -4747,16 +4747,35 @@ async function loadBackupStats() {
             stats.smallModels = smallModels.length;
         }
 
-        // 异步获取用户数（需要 admin 权限）
+        // 异步获取用户数和 API 数（需要 admin 权限，且这些数据可能未加载）
         if (typeof currentUser !== 'undefined' && currentUser === 'admin') {
             try {
-                const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
-                const data = await resp.json();
-                if (data.success && data.users) {
-                    stats.users = data.users.length;
+                // 获取用户数
+                const usersResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
+                const usersData = await usersResp.json();
+                if (usersData.success && usersData.users) {
+                    stats.users = usersData.users.length;
+                }
+                
+                // 获取 API 数（apis 全局变量可能未初始化）
+                if (stats.apis === 0) {
+                    const apisResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`);
+                    const apisData = await apisResp.json();
+                    if (apisData.success && apisData.apis) {
+                        stats.apis = apisData.apis.length;
+                    }
+                }
+                
+                // 获取任务数（govTasks 全局变量可能未初始化）
+                if (stats.tasks === 0) {
+                    const tasksResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`);
+                    const tasksData = await tasksResp.json();
+                    if (tasksData.success && tasksData.tasks) {
+                        stats.tasks = tasksData.tasks.length;
+                    }
                 }
             } catch (e) {
-                console.warn('获取用户数失败', e);
+                console.warn('获取统计数据失败', e);
             }
         }
 
