@@ -900,6 +900,51 @@ type AIConfig struct {
 	EnableStreaming       *bool  `json:"enable_streaming,omitempty"`        // 手动开关：是否启用流式输出（nil 表示自动检测）
 	EnableJSONMode        *bool  `json:"enable_json_mode,omitempty"`        // 手动开关：是否启用 JSON 模式（nil 表示自动检测）
 	ContextWindowOverride int    `json:"context_window_override,omitempty"` // 手动指定上下文窗口大小（0 表示自动检测）
+	// 表检索配置（用于 AI 创建接口时筛选相关表）
+	TableRetrieval *TableRetrievalConfig `json:"table_retrieval,omitempty"`
+}
+
+// TableRetrievalConfig 表检索配置
+type TableRetrievalConfig struct {
+	// 检索策略: "keyword" | "embedding" | "hybrid"
+	Strategy string `json:"strategy,omitempty"` // 默认 keyword
+	// 返回表数量上限
+	MaxTables int `json:"max_tables,omitempty"` // 默认 15
+	// 最小相关度阈值（0-1）
+	MinRelevanceScore float64 `json:"min_relevance_score,omitempty"` // 默认 0.3
+	// 关键词策略参数
+	KeywordConfig *KeywordRetrievalConfig `json:"keyword_config,omitempty"`
+	// Embedding 策略参数（预留）
+	EmbeddingConfig *EmbeddingRetrievalConfig `json:"embedding_config,omitempty"`
+	// 是否包含字段信息（字段多时可关闭以节省 token）
+	IncludeFields bool `json:"include_fields,omitempty"` // 默认 true
+	// 字段数量上限（每张表最多返回多少字段）
+	MaxFieldsPerTable int `json:"max_fields_per_table,omitempty"` // 默认 50
+}
+
+// KeywordRetrievalConfig 关键词检索配置
+type KeywordRetrievalConfig struct {
+	// 匹配字段: ["name", "comment", "column_names"]
+	MatchFields []string `json:"match_fields,omitempty"` // 默认 ["name", "comment", "column_names"]
+}
+
+// EmbeddingRetrievalConfig Embedding 检索配置（预留）
+type EmbeddingRetrievalConfig struct {
+	Model string `json:"model,omitempty"` // embedding 模型
+}
+
+// TableRelevanceResult 表检索结果
+type TableRelevanceResult struct {
+	TableName      string  `json:"table_name"`
+	RelevanceScore float64 `json:"relevance_score"`
+	MatchReason    string  `json:"match_reason,omitempty"` // 匹配原因说明
+}
+
+// TableInfo 表信息（用于检索）
+type TableInfo struct {
+	Name        string   `json:"name"`
+	Comment     string   `json:"comment,omitempty"`
+	ColumnNames []string `json:"column_names,omitempty"`
 }
 
 // AICapabilities AI模型能力检测结果
@@ -3529,6 +3574,272 @@ func extractSQLiteComment(sqlStr string) string {
 		}
 	}
 	return ""
+}
+
+// getTableInfoList 获取数据库所有表的信息（表名、注释、字段名列表），用于检索
+func getTableInfoList(dbConfig *DatabaseConfig) ([]TableInfo, error) {
+	// 获取表名列表
+	tableNames, err := getTablesList(dbConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tableNames) == 0 {
+		return []TableInfo{}, nil
+	}
+
+	// 获取数据库连接（用于获取表注释）
+	db, err := getDBFromPool(dbConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取表注释
+	tableComments := getTableComments(db, dbConfig, tableNames)
+
+	// 构建表信息列表
+	var tableInfos []TableInfo
+	for _, tableName := range tableNames {
+		info := TableInfo{
+			Name:    tableName,
+			Comment: tableComments[tableName],
+		}
+
+		// 获取字段名列表
+		columns, err := getTableColumns(dbConfig, tableName)
+		if err == nil {
+			var colNames []string
+			for _, col := range columns {
+				if colName, ok := col["name"].(string); ok {
+					colNames = append(colNames, colName)
+				}
+			}
+			info.ColumnNames = colNames
+		}
+
+		tableInfos = append(tableInfos, info)
+	}
+
+	return tableInfos, nil
+}
+
+// tokenizeQuery 对查询字符串进行简单分词（空格分隔 + 中文字符单独提取）
+func tokenizeQuery(query string) []string {
+	var tokens []string
+	var chineseBuf strings.Builder
+
+	// 先按空格分割
+	parts := strings.Fields(query)
+
+	for _, part := range parts {
+		// 对每个部分，提取中文字符
+		for _, r := range part {
+			if unicode.Is(unicode.Han, r) {
+				chineseBuf.WriteRune(r)
+			}
+		}
+		// 如果有中文字符，添加为单独的 token
+		if chineseBuf.Len() > 0 {
+			tokens = append(tokens, chineseBuf.String())
+			chineseBuf.Reset()
+		}
+		// 非中文部分也作为 token（转小写）
+		partLower := strings.ToLower(part)
+		if partLower != "" && !isAllChinese(partLower) {
+			tokens = append(tokens, partLower)
+		}
+	}
+
+	// 去重
+	seen := make(map[string]bool)
+	var result []string
+	for _, t := range tokens {
+		if !seen[t] {
+			seen[t] = true
+			result = append(result, t)
+		}
+	}
+
+	return result
+}
+
+// isAllChinese 检查字符串是否全是中文字符
+func isAllChinese(s string) bool {
+	for _, r := range s {
+		if !unicode.Is(unicode.Han, r) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// keywordRetrieveTables 关键词检索算法
+func keywordRetrieveTables(query string, tables []TableInfo, config *KeywordRetrievalConfig) []TableRelevanceResult {
+	// 分词
+	keywords := tokenizeQuery(query)
+	if len(keywords) == 0 {
+		return []TableRelevanceResult{}
+	}
+
+	// 默认匹配字段
+	matchFields := []string{"name", "comment", "column_names"}
+	if config != nil && len(config.MatchFields) > 0 {
+		matchFields = config.MatchFields
+	}
+
+	// 检查是否匹配各字段
+	matchName := false
+	matchComment := false
+	matchColumns := false
+	for _, f := range matchFields {
+		switch f {
+		case "name":
+			matchName = true
+		case "comment":
+			matchComment = true
+		case "column_names":
+			matchColumns = true
+		}
+	}
+
+	var results []TableRelevanceResult
+
+	for _, table := range tables {
+		tableNameLower := strings.ToLower(table.Name)
+		tableCommentLower := strings.ToLower(table.Comment)
+
+		// 记录每个关键词的最高分数
+		keywordScores := make([]float64, len(keywords))
+		matchReasons := make([]string, len(keywords))
+
+		for i, keyword := range keywords {
+			keywordLower := strings.ToLower(keyword)
+			var maxScore float64
+			var reason string
+
+			// 表名完全匹配
+			if matchName && tableNameLower == keywordLower {
+				maxScore = 1.0
+				reason = fmt.Sprintf("表名完全匹配 '%s'", keyword)
+			}
+
+			// 表名包含关键词
+			if matchName && maxScore < 0.8 && strings.Contains(tableNameLower, keywordLower) {
+				maxScore = 0.8
+				reason = fmt.Sprintf("表名包含 '%s'", keyword)
+			}
+
+			// 注释包含关键词
+			if matchComment && maxScore < 0.6 && tableCommentLower != "" && strings.Contains(tableCommentLower, keywordLower) {
+				maxScore = 0.6
+				reason = fmt.Sprintf("表注释包含 '%s'", keyword)
+			}
+
+			// 字段名包含关键词
+			if matchColumns && maxScore < 0.4 {
+				for _, colName := range table.ColumnNames {
+					if strings.Contains(strings.ToLower(colName), keywordLower) {
+						maxScore = 0.4
+						reason = fmt.Sprintf("字段名包含 '%s'", keyword)
+						break
+					}
+				}
+			}
+
+			keywordScores[i] = maxScore
+			matchReasons[i] = reason
+		}
+
+		// 计算最终分数：最大匹配分 * 关键词覆盖率
+		var maxScore float64
+		var matchedCount int
+		var bestReason string
+
+		for i, score := range keywordScores {
+			if score > 0 {
+				matchedCount++
+				if score > maxScore {
+					maxScore = score
+					bestReason = matchReasons[i]
+				}
+			}
+		}
+
+		if maxScore > 0 {
+			coverage := float64(matchedCount) / float64(len(keywords))
+			finalScore := maxScore * (0.5 + 0.5*coverage) // 基础分 + 覆盖率加成
+
+			results = append(results, TableRelevanceResult{
+				TableName:      table.Name,
+				RelevanceScore: finalScore,
+				MatchReason:    bestReason,
+			})
+		}
+	}
+
+	// 按分数降序排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	return results
+}
+
+// retrieveRelevantTables 主检索函数
+func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *TableRetrievalConfig) ([]TableRelevanceResult, error) {
+	// 默认配置
+	strategy := "keyword"
+	maxTables := 15
+	minRelevanceScore := 0.3
+	var keywordConfig *KeywordRetrievalConfig
+
+	if config != nil {
+		if config.Strategy != "" {
+			strategy = config.Strategy
+		}
+		if config.MaxTables > 0 {
+			maxTables = config.MaxTables
+		}
+		if config.MinRelevanceScore > 0 {
+			minRelevanceScore = config.MinRelevanceScore
+		}
+		keywordConfig = config.KeywordConfig
+	}
+
+	// 获取所有表信息
+	tableInfos, err := getTableInfoList(dbConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// 根据策略选择检索方法
+	var results []TableRelevanceResult
+
+	switch strategy {
+	case "embedding":
+		log.Printf("[表检索] embedding 策略暂未实现，降级为 keyword 策略")
+		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
+	case "hybrid":
+		log.Printf("[表检索] hybrid 策略暂未实现，降级为 keyword 策略")
+		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
+	default: // "keyword"
+		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
+	}
+
+	// 过滤低分结果
+	var filteredResults []TableRelevanceResult
+	for _, r := range results {
+		if r.RelevanceScore >= minRelevanceScore {
+			filteredResults = append(filteredResults, r)
+		}
+	}
+
+	// 限制返回数量
+	if len(filteredResults) > maxTables {
+		filteredResults = filteredResults[:maxTables]
+	}
+
+	return filteredResults, nil
 }
 
 // getColumnComments 获取字段备注
@@ -8018,26 +8329,52 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 获取每张表的字段信息
+		// 使用表检索逻辑筛选相关表
 		var tablesWithColumns []map[string]interface{}
-		maxTables := 15
-		if len(tables) > maxTables {
-			tables = tables[:maxTables]
-		}
-		for _, tableName := range tables {
-			columns, err := getTableColumns(dbConfig, tableName)
-			if err != nil {
-				log.Printf("获取表 %s 字段失败: %v", tableName, err)
+		defaultMaxTables := 15
+		
+		retrievalConfig := aiConfig.TableRetrieval
+		relevantTables, err := retrieveRelevantTables(queryReq.Message, dbConfig, retrievalConfig)
+		if err != nil {
+			log.Printf("表检索失败: %v, 使用前 %d 张表", err, defaultMaxTables)
+			// 降级：截取前 N 张表
+			if len(tables) > defaultMaxTables {
+				tables = tables[:defaultMaxTables]
+			}
+			for _, tableName := range tables {
+				columns, err := getTableColumns(dbConfig, tableName)
+				if err != nil {
+					log.Printf("获取表 %s 字段失败: %v", tableName, err)
+					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+						"name":    tableName,
+						"columns": []map[string]interface{}{},
+					})
+					continue
+				}
 				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
 					"name":    tableName,
-					"columns": []map[string]interface{}{},
+					"columns": columns,
 				})
-				continue
 			}
-			tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
-				"name":    tableName,
-				"columns": columns,
-			})
+		} else {
+			// 使用检索结果
+			log.Printf("[表检索] 检索到 %d 张相关表", len(relevantTables))
+			for _, result := range relevantTables {
+				tableName := result.TableName
+				columns, err := getTableColumns(dbConfig, tableName)
+				if err != nil {
+					log.Printf("获取表 %s 字段失败: %v", tableName, err)
+					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+						"name":    tableName,
+						"columns": []map[string]interface{}{},
+					})
+					continue
+				}
+				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+					"name":    tableName,
+					"columns": columns,
+				})
+			}
 		}
 
 		// 获取本体关系
@@ -10572,26 +10909,52 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			tables, _ := schema["tables"].([]string)
 			var tablesWithColumns []map[string]interface{}
 
-			maxTables := 10
-			if len(tables) > maxTables {
-				tables = tables[:maxTables]
-			}
+			// 使用表检索逻辑筛选相关表
+			defaultMaxTables := 10
+			retrievalConfig := aiConfig.TableRetrieval
+			relevantTables, err := retrieveRelevantTables(queryReq.Message, dbConfig, retrievalConfig)
+			if err != nil {
+				log.Printf("表检索失败: %v, 使用前 %d 张表", err, defaultMaxTables)
+				// 降级：截取前 N 张表
+				if len(tables) > defaultMaxTables {
+					tables = tables[:defaultMaxTables]
+				}
+				for _, tableName := range tables {
+					columns, err := getTableColumns(dbConfig, tableName)
+					if err != nil {
+						log.Printf("获取表 %s 字段失败: %v", tableName, err)
+						tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+							"name":    tableName,
+							"columns": []map[string]interface{}{},
+						})
+						continue
+					}
 
-			for _, tableName := range tables {
-				columns, err := getTableColumns(dbConfig, tableName)
-				if err != nil {
-					log.Printf("获取表 %s 字段失败: %v", tableName, err)
 					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
 						"name":    tableName,
-						"columns": []map[string]interface{}{},
+						"columns": columns,
 					})
-					continue
 				}
+			} else {
+				// 使用检索结果
+				log.Printf("[表检索] 检索到 %d 张相关表", len(relevantTables))
+				for _, result := range relevantTables {
+					tableName := result.TableName
+					columns, err := getTableColumns(dbConfig, tableName)
+					if err != nil {
+						log.Printf("获取表 %s 字段失败: %v", tableName, err)
+						tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+							"name":    tableName,
+							"columns": []map[string]interface{}{},
+						})
+						continue
+					}
 
-				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
-					"name":    tableName,
-					"columns": columns,
-				})
+					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+						"name":    tableName,
+						"columns": columns,
+					})
+				}
 			}
 
 			dbSchemas[i]["tables"] = tablesWithColumns

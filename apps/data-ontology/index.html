@@ -1364,6 +1364,61 @@
                     <button type="button" class="btn btn-sm btn-secondary" id="detectCapabilitiesBtn" style="margin-top: 8px;">自动检测模型能力</button>
                 </div>
                 
+                <!-- 表检索配置 -->
+                <div class="form-group">
+                    <label>表检索配置</label>
+                    <small>用于 AI 查询时从大量数据表中筛选相关表</small>
+                    <div class="table-retrieval-settings">
+                        <div class="form-row">
+                            <label for="aiRetrievalStrategy">检索策略</label>
+                            <select id="aiRetrievalStrategy">
+                                <option value="keyword">关键词匹配</option>
+                                <option value="embedding">向量相似度（预留）</option>
+                                <option value="hybrid">混合策略（预留）</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <label for="aiMaxTables">最大返回表数</label>
+                            <input type="number" id="aiMaxTables" min="1" max="100" value="15">
+                            <small>检索结果的最大表数量</small>
+                        </div>
+                        <div class="form-row">
+                            <label for="aiMinRelevance">最小相关度</label>
+                            <input type="range" id="aiMinRelevance" min="0" max="1" step="0.1" value="0.3">
+                            <span id="aiMinRelevanceValue">0.3</span>
+                            <small>低于此阈值的结果将被过滤</small>
+                        </div>
+                        <div class="form-row">
+                            <label>匹配字段</label>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="aiMatchName" checked>
+                                    <span>表名</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="aiMatchComment" checked>
+                                    <span>表注释</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="aiMatchColumns" checked>
+                                    <span>字段名</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="aiIncludeFields" checked>
+                                <span>包含字段信息</span>
+                            </label>
+                            <small>关闭可节省 token</small>
+                        </div>
+                        <div class="form-row">
+                            <label for="aiMaxFields">每表最大字段数</label>
+                            <input type="number" id="aiMaxFields" min="1" max="500" value="50">
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存配置</button>
                 </div>

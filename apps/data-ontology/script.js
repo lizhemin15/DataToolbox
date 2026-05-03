@@ -912,6 +912,9 @@ function initEventListeners() {
     });
     document.getElementById('aiSettingsForm').addEventListener('submit', handleSaveAiSettings);
     document.getElementById('detectCapabilitiesBtn').addEventListener('click', detectAiCapabilities);
+    document.getElementById('aiMinRelevance').addEventListener('input', function() {
+        document.getElementById('aiMinRelevanceValue').textContent = this.value;
+    });
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
@@ -4430,6 +4433,22 @@ function showAiSettingsModal() {
             document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
         }
         document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
+        
+        // 表检索配置
+        if (aiConfig.table_retrieval) {
+            const tr = aiConfig.table_retrieval;
+            document.getElementById('aiRetrievalStrategy').value = tr.strategy || 'keyword';
+            document.getElementById('aiMaxTables').value = tr.max_tables || 15;
+            document.getElementById('aiMinRelevance').value = tr.min_relevance_score || 0.3;
+            document.getElementById('aiMinRelevanceValue').textContent = tr.min_relevance_score || 0.3;
+            document.getElementById('aiIncludeFields').checked = tr.include_fields !== false;
+            document.getElementById('aiMaxFields').value = tr.max_fields_per_table || 50;
+            if (tr.keyword_config && tr.keyword_config.match_fields) {
+                document.getElementById('aiMatchName').checked = tr.keyword_config.match_fields.includes('name');
+                document.getElementById('aiMatchComment').checked = tr.keyword_config.match_fields.includes('comment');
+                document.getElementById('aiMatchColumns').checked = tr.keyword_config.match_fields.includes('column_names');
+            }
+        }
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
@@ -5281,7 +5300,22 @@ async function handleSaveAiSettings(e) {
         enable_thinking: document.getElementById('aiEnableThinking').checked,
         enable_streaming: document.getElementById('aiEnableStreaming').checked,
         enable_json_mode: document.getElementById('aiEnableJSONMode').checked,
-        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0
+        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0,
+        // 表检索配置
+        table_retrieval: {
+            strategy: document.getElementById('aiRetrievalStrategy').value,
+            max_tables: parseInt(document.getElementById('aiMaxTables').value, 10) || 15,
+            min_relevance_score: parseFloat(document.getElementById('aiMinRelevance').value) || 0.3,
+            keyword_config: {
+                match_fields: [
+                    document.getElementById('aiMatchName').checked ? 'name' : null,
+                    document.getElementById('aiMatchComment').checked ? 'comment' : null,
+                    document.getElementById('aiMatchColumns').checked ? 'column_names' : null
+                ].filter(Boolean)
+            },
+            include_fields: document.getElementById('aiIncludeFields').checked,
+            max_fields_per_table: parseInt(document.getElementById('aiMaxFields').value, 10) || 50
+        }
     };
 
     const errorEl = document.getElementById('aiSettingsError');
