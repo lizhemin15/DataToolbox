@@ -4840,7 +4840,12 @@ async function importBackup() {
     try {
         const file = fileInput.files[0];
         const text = await file.text();
-        const data = JSON.parse(text);
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseErr) {
+            throw new Error('文件不是有效的 JSON 格式');
+        }
 
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore', {
             method: 'POST',
