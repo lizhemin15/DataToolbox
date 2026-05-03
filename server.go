@@ -840,8 +840,9 @@ type DatabaseConfig struct {
 // DatabaseInfo 数据库信息（不包含敏感信息）
 // TableInfo 表信息（包含表名和备注）
 type TableInfo struct {
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
+	Name        string   `json:"name"`
+	Comment     string   `json:"comment,omitempty"`
+	ColumnNames []string `json:"column_names,omitempty"` // 用于表检索
 }
 
 type DatabaseInfo struct {
@@ -938,13 +939,6 @@ type TableRelevanceResult struct {
 	TableName      string  `json:"table_name"`
 	RelevanceScore float64 `json:"relevance_score"`
 	MatchReason    string  `json:"match_reason,omitempty"` // 匹配原因说明
-}
-
-// TableInfo 表信息（用于检索）
-type TableInfo struct {
-	Name        string   `json:"name"`
-	Comment     string   `json:"comment,omitempty"`
-	ColumnNames []string `json:"column_names,omitempty"`
 }
 
 // AICapabilities AI模型能力检测结果
