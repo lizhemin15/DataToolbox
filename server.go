@@ -1999,6 +1999,14 @@ func restoreFromJSON(jsonPath, mode string) (map[string]interface{}, error) {
 	var stats map[string]interface{}
 
 	if mode == "overwrite" {
+		// 安全处理：确保密码是 bcrypt hash 格式
+		if newStore.Users != nil {
+			for _, v := range newStore.Users {
+				if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
+					v.Password = hashPassword(v.Password)
+				}
+			}
+		}
 		dataOntologyUsers = newStore.Users
 		dataOntologyDatabases = newStore.Databases
 		dataOntologyApis = newStore.Apis
@@ -2036,6 +2044,10 @@ func restoreFromJSON(jsonPath, mode string) (map[string]interface{}, error) {
 		if newStore.Users != nil {
 			for k, v := range newStore.Users {
 				if _, exists := dataOntologyUsers[k]; !exists {
+					// 安全处理：确保密码是 bcrypt hash 格式
+					if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
+						v.Password = hashPassword(v.Password)
+					}
 					dataOntologyUsers[k] = v
 					mergedStats["users_added"]++
 				}
