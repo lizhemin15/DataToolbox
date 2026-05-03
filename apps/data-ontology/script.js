@@ -4735,6 +4735,25 @@ async function loadBackupStats() {
             stats.tasks = Object.keys(governanceTasks).length;
         }
 
+        // 从 API 获取完整统计（包括用户数、模型数等）
+        try {
+            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/backup');
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const text = await blob.text();
+                const backupData = JSON.parse(text);
+                if (backupData.data) {
+                    const data = backupData.data;
+                    stats.users = data.users ? Object.keys(data.users).length : 0;
+                    stats.tasks = data.governance_tasks ? Object.keys(data.governance_tasks).length : 0;
+                    stats.llmModels = data.llm_models ? Object.keys(data.llm_models).length : 0;
+                    stats.smallModels = data.small_models ? Object.keys(data.small_models).length : 0;
+                }
+            }
+        } catch (apiErr) {
+            console.warn('从 API 获取统计失败，使用本地数据', apiErr);
+        }
+
         container.innerHTML = `
             <div class="backup-stats-grid">
                 <div class="backup-stat-item">

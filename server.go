@@ -1580,10 +1580,10 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// 非字典类型：有值则替换（合并模式下只在为空时设置）
-		if newStore.AIConfig != nil {
+		if newStore.AIConfig != nil && dataOntologyAIConfig == nil {
 			dataOntologyAIConfig = newStore.AIConfig
 		}
-		if newStore.AICapabilities != nil {
+		if newStore.AICapabilities != nil && dataOntologyAICapabilities == nil {
 			dataOntologyAICapabilities = newStore.AICapabilities
 		}
 		if newStore.TaskLogs != nil {
@@ -1597,10 +1597,11 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if newStore.MCPEnabled != nil {
+		// 合并模式下，MCP 配置只在当前为空时才设置
+		if newStore.MCPEnabled != nil && dataOntologyMCPEnabled == nil {
 			dataOntologyMCPEnabled = newStore.MCPEnabled
 		}
-		if newStore.MCPSafeConfig != nil {
+		if newStore.MCPSafeConfig != nil && dataOntologyMCPSafeConfig == nil {
 			dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
 			dataOntologyMCPPort = newStore.MCPSafeConfig.Port
 		}
