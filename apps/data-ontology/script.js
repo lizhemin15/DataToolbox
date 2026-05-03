@@ -4735,23 +4735,19 @@ async function loadBackupStats() {
             stats.tasks = Object.keys(governanceTasks).length;
         }
 
-        // 从 API 获取完整统计（包括用户数、模型数等）
+        // 从全局变量获取完整统计
         try {
-            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/backup');
-            if (resp.ok) {
-                const blob = await resp.blob();
-                const text = await blob.text();
-                const backupData = JSON.parse(text);
-                if (backupData.data) {
-                    const data = backupData.data;
-                    stats.users = data.users ? Object.keys(data.users).length : 0;
-                    stats.tasks = data.governance_tasks ? Object.keys(data.governance_tasks).length : 0;
-                    stats.llmModels = data.llm_models ? Object.keys(data.llm_models).length : 0;
-                    stats.smallModels = data.small_models ? Object.keys(data.small_models).length : 0;
-                }
+            if (typeof dataOntologyUsers !== 'undefined' && dataOntologyUsers) {
+                stats.users = Object.keys(dataOntologyUsers).length;
+            }
+            if (typeof llmModels !== 'undefined' && llmModels) {
+                stats.llmModels = Object.keys(llmModels).length;
+            }
+            if (typeof smallModels !== 'undefined' && smallModels) {
+                stats.smallModels = Object.keys(smallModels).length;
             }
         } catch (apiErr) {
-            console.warn('从 API 获取统计失败，使用本地数据', apiErr);
+            console.warn('获取统计失败，使用本地数据', apiErr);
         }
 
         container.innerHTML = `
@@ -4788,11 +4784,11 @@ async function loadBackupStats() {
     }
 }
 
-// 导出备份
+// 导出备份（ZIP 格式，包含所有持久化数据）
 async function exportBackup() {
     const messageDiv = document.getElementById('backupMessage');
     messageDiv.className = 'backup-message info';
-    messageDiv.textContent = '正在导出备份...';
+    messageDiv.textContent = '正在导出备份（包含所有数据文件）...';
 
     try {
         const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/backup');
@@ -4803,7 +4799,7 @@ async function exportBackup() {
 
         // 获取文件名
         const contentDisp = resp.headers.get('Content-Disposition');
-        let filename = 'datatoolbox-backup.json';
+        let filename = 'datatoolbox-backup.zip';
         if (contentDisp) {
             const match = contentDisp.match(/filename="?(.+?)"?(;|$)/);
             if (match) filename = match[1];
@@ -4820,12 +4816,13 @@ async function exportBackup() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
+        const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
         messageDiv.className = 'backup-message success';
-        messageDiv.textContent = `备份已导出：${filename}`;
+        messageDiv.textContent = `备份已导出：${filename}（${sizeMB}MB）`;
         setTimeout(() => {
             messageDiv.className = 'backup-message';
             messageDiv.textContent = '';
-        }, 3000);
+        }, 5000);
     } catch (e) {
         console.error('导出备份失败', e);
         messageDiv.className = 'backup-message error';
@@ -4833,7 +4830,7 @@ async function exportBackup() {
     }
 }
 
-// 导入备份
+// 导入备份（支持 ZIP 和 JSON 格式）
 async function importBackup() {
     const fileInput = document.getElementById('importBackupFile');
     const modeSelect = document.getElementById('importMode');
@@ -4846,8 +4843,11 @@ async function importBackup() {
     }
 
     const mode = modeSelect.value;
+    const file = fileInput.files[0];
+    const fileName = file.name.toLowerCase();
+
     if (mode === 'overwrite') {
-        const confirmed = confirm('覆盖模式将完全替换所有现有数据，此操作不可撤销！\n\n确定要继续吗？');
+        const confirmed = confirm('覆盖模式将完全替换所有现有数据（包括文件和数据库），此操作不可撤销！\n\n确定要继续吗？');
         if (!confirmed) {
             return;
         }
@@ -4857,36 +4857,71 @@ async function importBackup() {
     messageDiv.textContent = '正在导入备份...';
 
     try {
-        const file = fileInput.files[0];
-        const text = await file.text();
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (parseErr) {
-            throw new Error('文件不是有效的 JSON 格式');
-        }
+        if (fileName.endsWith('.zip')) {
+            // ZIP 格式：使用 multipart/form-data 上传
+            const formData = new FormData();
+            formData.append('backup', file);
+            formData.append('mode', mode);
 
-        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({mode, data})
-        });
+            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore-upload', {
+                method: 'POST',
+                body: formData
+            });
 
-        const result = await resp.json();
-        if (!result.success) {
-            throw new Error(result.message || '导入失败');
-        }
+            const result = await resp.json();
+            if (!result.success) {
+                throw new Error(result.message || '导入失败');
+            }
 
-        // 显示成功信息
-        let successMsg = '导入成功！';
-        if (mode === 'overwrite') {
-            successMsg += ` 已导入 ${result.databases_count || 0} 个数据库，${result.apis_count || 0} 个API，${result.tasks_count || 0} 个任务`;
+            let successMsg = '导入成功！';
+            const data = result.data || result;
+            if (mode === 'overwrite') {
+                successMsg += ` 已导入 ${data.databases_count || 0} 个数据库，${data.apis_count || 0} 个API，${data.tasks_count || 0} 个任务`;
+                if (data.files_restored) {
+                    successMsg += `，${data.files_restored} 个文件`;
+                }
+            } else {
+                successMsg += ` 新增 ${data.users_added || 0} 个用户，${data.databases_added || 0} 个数据库，${data.apis_added || 0} 个API，${data.tasks_added || 0} 个任务`;
+                if (data.files_restored) {
+                    successMsg += `，${data.files_restored} 个文件`;
+                }
+            }
+
+            messageDiv.className = 'backup-message success';
+            messageDiv.textContent = successMsg;
+        } else if (fileName.endsWith('.json')) {
+            // JSON 格式：向后兼容
+            const text = await file.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (parseErr) {
+                throw new Error('文件不是有效的 JSON 格式');
+            }
+
+            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({mode, data})
+            });
+
+            const result = await resp.json();
+            if (!result.success) {
+                throw new Error(result.message || '导入失败');
+            }
+
+            let successMsg = '导入成功！';
+            if (mode === 'overwrite') {
+                successMsg += ` 已导入 ${result.databases_count || 0} 个数据库，${result.apis_count || 0} 个API，${result.tasks_count || 0} 个任务`;
+            } else {
+                successMsg += ` 新增 ${result.users_added || 0} 个用户，${result.databases_added || 0} 个数据库，${result.apis_added || 0} 个API，${result.tasks_added || 0} 个任务`;
+            }
+
+            messageDiv.className = 'backup-message success';
+            messageDiv.textContent = successMsg;
         } else {
-            successMsg += ` 新增 ${result.users_added || 0} 个用户，${result.databases_added || 0} 个数据库，${result.apis_added || 0} 个API，${result.tasks_added || 0} 个任务`;
+            throw new Error('不支持的文件格式，请选择 .zip 或 .json 文件');
         }
-
-        messageDiv.className = 'backup-message success';
-        messageDiv.textContent = successMsg;
 
         // 刷新页面以加载新数据
         setTimeout(() => {

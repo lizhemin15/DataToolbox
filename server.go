@@ -1065,9 +1065,9 @@ var (
 	dataOntologyAICapabilities *AICapabilities // AI模型能力检测结果
 	governanceTasks            = make(map[string]*GovernanceTask)
 	governanceTaskLogs         = make(map[string][]*GovernanceTaskLog)
-	dataOntologyMCPEnabled     *bool // MCP 总开关，nil 视为 true
-	dataOntologyMCPSafeConfig  *MCPSafeConfig // MCP 安全配置
-	dataOntologyMCPPort        int = 0 // MCP 服务端口，0 表示使用主服务器端口
+	dataOntologyMCPEnabled     *bool              // MCP 总开关，nil 视为 true
+	dataOntologyMCPSafeConfig  *MCPSafeConfig     // MCP 安全配置
+	dataOntologyMCPPort        int            = 0 // MCP 服务端口，0 表示使用主服务器端口
 	// 模型管理
 	llmModels      = make(map[string]*LLMModelConfig)
 	smallModels    = make(map[string]*SmallModelConfig)
@@ -1129,11 +1129,11 @@ type WebNavStore struct {
 
 // MCPSafeConfig MCP 安全配置
 type MCPSafeConfig struct {
-	ReadOnlyMode    bool     `json:"read_only_mode"`    // 只读模式，禁止所有写操作
-	BlockDangerous  bool     `json:"block_dangerous"`   // 阻止危险操作（DROP, DELETE, TRUNCATE 等）
-	BlockedKeywords []string `json:"blocked_keywords"`  // 自定义阻止的关键词列表
-	AllowedTables   []string `json:"allowed_tables"`    // 允许操作的表白名单（空则不限制）
-	Port            int      `json:"port"`              // MCP 服务端口，0 表示使用主服务器端口
+	ReadOnlyMode    bool     `json:"read_only_mode"`   // 只读模式，禁止所有写操作
+	BlockDangerous  bool     `json:"block_dangerous"`  // 阻止危险操作（DROP, DELETE, TRUNCATE 等）
+	BlockedKeywords []string `json:"blocked_keywords"` // 自定义阻止的关键词列表
+	AllowedTables   []string `json:"allowed_tables"`   // 允许操作的表白名单（空则不限制）
+	Port            int      `json:"port"`             // MCP 服务端口，0 表示使用主服务器端口
 }
 
 // DataOntologyStore 持久化存储结构
@@ -1145,7 +1145,7 @@ type DataOntologyStore struct {
 	AICapabilities *AICapabilities                 `json:"ai_capabilities,omitempty"`
 	Tasks          map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
 	TaskLogs       map[string][]*GovernanceTaskLog `json:"governance_task_logs,omitempty"`
-	MCPEnabled     *bool                           `json:"mcp_enabled,omitempty"` // MCP 总开关，nil 视为 true
+	MCPEnabled     *bool                           `json:"mcp_enabled,omitempty"`     // MCP 总开关，nil 视为 true
 	MCPSafeConfig  *MCPSafeConfig                  `json:"mcp_safe_config,omitempty"` // MCP 安全配置
 	// 模型管理
 	LLMModels   map[string]*LLMModelConfig   `json:"llm_models,omitempty"`
@@ -1353,10 +1353,8 @@ func saveDataOntologyStore() error {
 
 // ====== 数据备份与恢复 API ======
 
-// handleDataOntologyBackup 导出备份
+// handleDataOntologyBackup 导出备份（ZIP 格式，包含所有持久化数据）
 func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
 		apiUnauthorized(w, "未授权")
@@ -1403,28 +1401,99 @@ func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
 
 	backupData := map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"version":     1,
+			"version":     2,
 			"export_time": time.Now().Format("2006-01-02T15:04:05Z07:00"),
 			"source":      "DataToolbox",
 		},
 		"data": store,
 	}
 
-	// 设置下载文件名
-	now := time.Now()
-	filename := fmt.Sprintf("datatoolbox-backup-%s.json", now.Format("20060102"))
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-
+	// 序列化 JSON 数据
 	jsonData, err := json.MarshalIndent(backupData, "", "  ")
 	if err != nil {
 		apiInternalError(w, "序列化备份数据失败")
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	w.Write(jsonData)
+
+	// 创建 ZIP 压缩包
+	now := time.Now()
+	filename := fmt.Sprintf("datatoolbox-backup-%s.zip", now.Format("20060102"))
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	// 获取数据目录
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+	baseDir := "datatoolbox-backup"
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	// 1. 写入 data-store.json
+	jsonFile, err := zipWriter.Create(filepath.Join(baseDir, "data-store.json"))
+	if err != nil {
+		log.Printf("创建 ZIP 条目失败: %v", err)
+		apiInternalError(w, "创建ZIP条目失败")
+		return
+	}
+	if _, err := jsonFile.Write(jsonData); err != nil {
+		log.Printf("写入 data-store.json 到 ZIP 失败: %v", err)
+		apiInternalError(w, "写入ZIP失败")
+		return
+	}
+
+	// 2. 写入 quality-audit.db（如果存在）
+	qaDBPath := getQualityAuditDBPath()
+	if fi, err := os.Stat(qaDBPath); err == nil {
+		dbFile, err := zipWriter.Create(filepath.Join(baseDir, "quality-audit.db"))
+		if err == nil {
+			f, err := os.Open(qaDBPath)
+			if err == nil {
+				written, _ := io.Copy(dbFile, f)
+				log.Printf("备份 quality-audit.db: %d bytes", written)
+				f.Close()
+			}
+		}
+	}
+
+	// 3. 递归写入目录的辅助函数
+	addDirToZip := func(dirPath, zipSubDir string) {
+		if fi, err := os.Stat(dirPath); err != nil || !fi.IsDir() {
+			return
+		}
+		filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			relPath, _ := filepath.Rel(dataDir, path)
+			zipPath := filepath.Join(baseDir, relPath)
+			f, err := zipWriter.Create(zipPath)
+			if err != nil {
+				return nil
+			}
+			src, err := os.Open(path)
+			if err != nil {
+				return nil
+			}
+			defer src.Close()
+			written, _ := io.Copy(f, src)
+			log.Printf("备份 %s: %d bytes", relPath, written)
+			return nil
+		})
+	}
+
+	// 写入 share-outputs/ 目录（如果存在）
+	addDirToZip(filepath.Join(dataDir, "share-outputs"), "share-outputs")
+
+	// 写入 share-uploads/ 目录（如果存在）
+	addDirToZip(filepath.Join(dataDir, "share-uploads"), "share-uploads")
+
+	// 写入 example_files/ 目录（如果存在）
+	addDirToZip(filepath.Join(dataDir, "example_files"), "example_files")
+
+	log.Printf("备份 ZIP 已生成: %s", filename)
 }
 
-// handleDataOntologyRestore 导入恢复
+// handleDataOntologyRestore 导入恢复（支持 ZIP 和 JSON 两种格式）
 func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -1447,8 +1516,7 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 
 	// 解析请求体
 	var req struct {
-		Mode string          `json:"mode"` // "overwrite" 或 "merge"
-		Data json.RawMessage `json:"data"`
+		Mode string `json:"mode"` // "overwrite" 或 "merge"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "请求格式错误: "+err.Error(), ErrCodeBadRequest)
@@ -1460,56 +1528,159 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析外层结构（可能带 metadata，也可能是纯 store）
-	var rawBackup map[string]json.RawMessage
-	if err := json.Unmarshal(req.Data, &rawBackup); err != nil {
-		jsonError(w, "备份数据格式错误: "+err.Error(), ErrCodeInvalidInput)
+	jsonError(w, "新的恢复接口需要通过 multipart/form-data 上传 ZIP 文件", ErrCodeBadRequest)
+}
+
+// handleDataOntologyRestoreUpload 处理 ZIP 文件上传恢复
+func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
 		return
 	}
 
-	// 判断是否有 metadata 包装
+	if r.Method != http.MethodPost {
+		apiMethodNotAllowed(w, "只支持POST请求")
+		return
+	}
+
+	// 仅管理员可恢复
+	if username != "admin" {
+		apiForbidden(w, "仅管理员可执行恢复")
+		return
+	}
+
+	// 解析 multipart 表单（最大 1GB）
+	maxSize := int64(1 << 30)
+	if err := r.ParseMultipartForm(maxSize); err != nil {
+		jsonError(w, "解析表单失败: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+
+	mode := r.FormValue("mode")
+	if mode != "overwrite" && mode != "merge" {
+		jsonError(w, "模式必须为 overwrite 或 merge", ErrCodeInvalidInput)
+		return
+	}
+
+	// 获取上传的文件
+	file, header, err := r.FormFile("backup")
+	if err != nil {
+		jsonError(w, "获取上传文件失败: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 创建临时目录
+	tmpDir, err := ioutil.TempDir("", "datatoolbox-restore-")
+	if err != nil {
+		jsonError(w, "创建临时目录失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 保存上传的文件到临时目录
+	tmpFile := filepath.Join(tmpDir, header.Filename)
+	dst, err := os.Create(tmpFile)
+	if err != nil {
+		jsonError(w, "创建临时文件失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	if _, err := io.Copy(dst, file); err != nil {
+		dst.Close()
+		jsonError(w, "保存上传文件失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	dst.Close()
+
+	// 判断文件类型（ZIP 或 JSON）
+	var stats map[string]interface{}
+	if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		// ZIP 格式
+		stats, err = restoreFromZIP(tmpFile, mode)
+	} else if strings.HasSuffix(strings.ToLower(header.Filename), ".json") {
+		// JSON 格式（向后兼容）
+		stats, err = restoreFromJSON(tmpFile, mode)
+	} else {
+		jsonError(w, "不支持的文件格式，仅支持 .zip 或 .json", ErrCodeInvalidInput)
+		return
+	}
+
+	if err != nil {
+		jsonError(w, err.Error(), ErrCodeInternalError)
+		return
+	}
+
+	stats["mode"] = mode
+	jsonSuccess(w, stats)
+}
+
+// restoreFromZIP 从 ZIP 文件恢复
+func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+
+	// 打开 ZIP 文件
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开 ZIP 文件失败: %v", err)
+	}
+	defer r.Close()
+
+	// 查找 data-store.json
+	var dataStoreFile *zip.File
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, "data-store.json") {
+			dataStoreFile = f
+			break
+		}
+	}
+
+	if dataStoreFile == nil {
+		return nil, fmt.Errorf("ZIP 文件中未找到 data-store.json")
+	}
+
+	// 读取 data-store.json
+	rc, err := dataStoreFile.Open()
+	if err != nil {
+		return nil, fmt.Errorf("打开 data-store.json 失败: %v", err)
+	}
+	jsonData, err := ioutil.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		return nil, fmt.Errorf("读取 data-store.json 失败: %v", err)
+	}
+
+	// 解析 JSON
+	var rawBackup map[string]json.RawMessage
+	if err := json.Unmarshal(jsonData, &rawBackup); err != nil {
+		return nil, fmt.Errorf("解析备份数据失败: %v", err)
+	}
+
 	var storeData json.RawMessage
 	if md, ok := rawBackup["metadata"]; ok && md != nil {
-		// 带元数据包装的格式
 		if data, ok2 := rawBackup["data"]; ok2 {
 			storeData = data
 		} else {
-			jsonError(w, "备份数据缺少 data 字段", ErrCodeInvalidInput)
-			return
+			return nil, fmt.Errorf("备份数据缺少 data 字段")
 		}
 	} else {
-		// 纯 store 格式，整个内容就是 store
-		storeData = req.Data
+		storeData = jsonData
 	}
 
-	// 验证必要字段
-	var tempStore map[string]interface{}
-	if err := json.Unmarshal(storeData, &tempStore); err != nil {
-		jsonError(w, "备份数据解析失败: "+err.Error(), ErrCodeInvalidInput)
-		return
-	}
-
-	requiredFields := []string{"users", "databases", "apis"}
-	for _, field := range requiredFields {
-		if _, ok := tempStore[field]; !ok {
-			jsonError(w, fmt.Sprintf("备份数据缺少必要字段: %s", field), ErrCodeInvalidInput)
-			return
-		}
-	}
-
-	// 解析为 DataOntologyStore
 	var newStore DataOntologyStore
 	if err := json.Unmarshal(storeData, &newStore); err != nil {
-		jsonError(w, "备份数据解析失败: "+err.Error(), ErrCodeInvalidInput)
-		return
+		return nil, fmt.Errorf("解析备份数据失败: %v", err)
 	}
 
+	// 应用数据恢复
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
 
 	var stats map[string]interface{}
 
-	if req.Mode == "overwrite" {
+	if mode == "overwrite" {
 		// 覆盖模式：完全替换
 		dataOntologyUsers = newStore.Users
 		dataOntologyDatabases = newStore.Databases
@@ -1523,7 +1694,6 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 		llmModels = newStore.LLMModels
 		smallModels = newStore.SmallModels
 
-		// 分享记录
 		governanceShareRunsMu.Lock()
 		governanceShareRuns = make(map[string]*GovernanceShareRun)
 		if newStore.ShareRuns != nil {
@@ -1538,13 +1708,13 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 		stats = map[string]interface{}{
 			"users_count":        len(dataOntologyUsers),
 			"databases_count":    len(dataOntologyDatabases),
-			"apis_count":        len(dataOntologyApis),
-			"tasks_count":       len(governanceTasks),
-			"llm_models_count":  len(llmModels),
+			"apis_count":         len(dataOntologyApis),
+			"tasks_count":        len(governanceTasks),
+			"llm_models_count":   len(llmModels),
 			"small_models_count": len(smallModels),
 		}
 	} else {
-		// 合并模式：只添加不存在的项
+		// 合并模式
 		mergedStats := map[string]int{"users_added": 0, "databases_added": 0, "apis_added": 0, "tasks_added": 0}
 
 		if newStore.Users != nil {
@@ -1579,7 +1749,6 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// 非字典类型：有值则替换（合并模式下只在为空时设置）
 		if newStore.AIConfig != nil && dataOntologyAIConfig == nil {
 			dataOntologyAIConfig = newStore.AIConfig
 		}
@@ -1597,7 +1766,6 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// 合并模式下，MCP 配置只在当前为空时才设置
 		if newStore.MCPEnabled != nil && dataOntologyMCPEnabled == nil {
 			dataOntologyMCPEnabled = newStore.MCPEnabled
 		}
@@ -1619,7 +1787,6 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// 分享记录合并
 		if newStore.ShareRuns != nil {
 			governanceShareRunsMu.Lock()
 			for _, runs := range newStore.ShareRuns {
@@ -1633,31 +1800,264 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 		}
 
 		stats = map[string]interface{}{
-			"users_added":       mergedStats["users_added"],
-			"databases_added":   mergedStats["databases_added"],
-			"apis_added":        mergedStats["apis_added"],
-			"tasks_added":      mergedStats["tasks_added"],
-			"total_users":       len(dataOntologyUsers),
-			"total_databases":  len(dataOntologyDatabases),
-			"total_apis":       len(dataOntologyApis),
-			"total_tasks":      len(governanceTasks),
-			"total_llm_models": len(llmModels),
+			"users_added":        mergedStats["users_added"],
+			"databases_added":    mergedStats["databases_added"],
+			"apis_added":         mergedStats["apis_added"],
+			"tasks_added":        mergedStats["tasks_added"],
+			"total_users":        len(dataOntologyUsers),
+			"total_databases":    len(dataOntologyDatabases),
+			"total_apis":         len(dataOntologyApis),
+			"total_tasks":        len(governanceTasks),
+			"total_llm_models":   len(llmModels),
 			"total_small_models": len(smallModels),
 		}
 	}
 
-	// 保存到文件
-	dataOntologyMu.Unlock()
+	// 保存数据
 	if err := saveDataOntologyStore(); err != nil {
-		dataOntologyMu.Lock()
 		log.Printf("恢复数据保存失败: %v", err)
-		jsonError(w, "保存恢复数据失败: "+err.Error(), ErrCodeInternalError)
-		return
+		return nil, fmt.Errorf("保存恢复数据失败: %v", err)
 	}
-	dataOntologyMu.Lock()
 
-	stats["mode"] = req.Mode
-	jsonSuccess(w, stats)
+	// 恢复文件（ZIP 中的其他文件）
+	fileCount := 0
+	for _, f := range r.File {
+		// 跳过 data-store.json
+		if strings.HasSuffix(f.Name, "data-store.json") {
+			continue
+		}
+
+		// 提取相对路径（去掉 datatoolbox-backup/ 前缀）
+		relPath := f.Name
+		if idx := strings.Index(relPath, "/"); idx >= 0 {
+			relPath = relPath[idx+1:]
+		}
+		if relPath == "" {
+			continue
+		}
+
+		targetPath := filepath.Join(dataDir, relPath)
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(targetPath, 0755)
+			continue
+		}
+
+		// 创建目录
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			log.Printf("创建目录失败 %s: %v", filepath.Dir(targetPath), err)
+			continue
+		}
+
+		// 覆盖模式下直接覆盖，合并模式下跳过已存在的文件
+		if mode == "merge" {
+			if _, err := os.Stat(targetPath); err == nil {
+				continue // 文件已存在，跳过
+			}
+		}
+
+		// 解压文件
+		rc, err := f.Open()
+		if err != nil {
+			log.Printf("打开 ZIP 条目失败 %s: %v", f.Name, err)
+			continue
+		}
+
+		dst, err := os.Create(targetPath)
+		if err != nil {
+			rc.Close()
+			log.Printf("创建文件失败 %s: %v", targetPath, err)
+			continue
+		}
+
+		_, err = io.Copy(dst, rc)
+		dst.Close()
+		rc.Close()
+
+		if err != nil {
+			log.Printf("解压文件失败 %s: %v", targetPath, err)
+			continue
+		}
+
+		fileCount++
+	}
+
+	stats["files_restored"] = fileCount
+	log.Printf("恢复完成，共恢复 %d 个文件", fileCount)
+
+	return stats, nil
+}
+
+// restoreFromJSON 从 JSON 文件恢复（向后兼容）
+func restoreFromJSON(jsonPath, mode string) (map[string]interface{}, error) {
+	jsonData, err := ioutil.ReadFile(jsonPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取 JSON 文件失败: %v", err)
+	}
+
+	var rawBackup map[string]json.RawMessage
+	if err := json.Unmarshal(jsonData, &rawBackup); err != nil {
+		return nil, fmt.Errorf("解析备份数据失败: %v", err)
+	}
+
+	var storeData json.RawMessage
+	if md, ok := rawBackup["metadata"]; ok && md != nil {
+		if data, ok2 := rawBackup["data"]; ok2 {
+			storeData = data
+		} else {
+			return nil, fmt.Errorf("备份数据缺少 data 字段")
+		}
+	} else {
+		storeData = jsonData
+	}
+
+	var newStore DataOntologyStore
+	if err := json.Unmarshal(storeData, &newStore); err != nil {
+		return nil, fmt.Errorf("解析备份数据失败: %v", err)
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	var stats map[string]interface{}
+
+	if mode == "overwrite" {
+		dataOntologyUsers = newStore.Users
+		dataOntologyDatabases = newStore.Databases
+		dataOntologyApis = newStore.Apis
+		dataOntologyAIConfig = newStore.AIConfig
+		dataOntologyAICapabilities = newStore.AICapabilities
+		governanceTasks = newStore.Tasks
+		governanceTaskLogs = newStore.TaskLogs
+		dataOntologyMCPEnabled = newStore.MCPEnabled
+		dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
+		llmModels = newStore.LLMModels
+		smallModels = newStore.SmallModels
+
+		governanceShareRunsMu.Lock()
+		governanceShareRuns = make(map[string]*GovernanceShareRun)
+		if newStore.ShareRuns != nil {
+			for _, runs := range newStore.ShareRuns {
+				for runID, run := range runs {
+					governanceShareRuns[runID] = run
+				}
+			}
+		}
+		governanceShareRunsMu.Unlock()
+
+		stats = map[string]interface{}{
+			"users_count":        len(dataOntologyUsers),
+			"databases_count":    len(dataOntologyDatabases),
+			"apis_count":         len(dataOntologyApis),
+			"tasks_count":        len(governanceTasks),
+			"llm_models_count":   len(llmModels),
+			"small_models_count": len(smallModels),
+		}
+	} else {
+		mergedStats := map[string]int{"users_added": 0, "databases_added": 0, "apis_added": 0, "tasks_added": 0}
+
+		if newStore.Users != nil {
+			for k, v := range newStore.Users {
+				if _, exists := dataOntologyUsers[k]; !exists {
+					dataOntologyUsers[k] = v
+					mergedStats["users_added"]++
+				}
+			}
+		}
+		if newStore.Databases != nil {
+			for k, v := range newStore.Databases {
+				if _, exists := dataOntologyDatabases[k]; !exists {
+					dataOntologyDatabases[k] = v
+					mergedStats["databases_added"]++
+				}
+			}
+		}
+		if newStore.Apis != nil {
+			for k, v := range newStore.Apis {
+				if _, exists := dataOntologyApis[k]; !exists {
+					dataOntologyApis[k] = v
+					mergedStats["apis_added"]++
+				}
+			}
+		}
+		if newStore.Tasks != nil {
+			for k, v := range newStore.Tasks {
+				if _, exists := governanceTasks[k]; !exists {
+					governanceTasks[k] = v
+					mergedStats["tasks_added"]++
+				}
+			}
+		}
+		if newStore.AIConfig != nil && dataOntologyAIConfig == nil {
+			dataOntologyAIConfig = newStore.AIConfig
+		}
+		if newStore.AICapabilities != nil && dataOntologyAICapabilities == nil {
+			dataOntologyAICapabilities = newStore.AICapabilities
+		}
+		if newStore.TaskLogs != nil {
+			if governanceTaskLogs == nil {
+				governanceTaskLogs = newStore.TaskLogs
+			} else {
+				for k, v := range newStore.TaskLogs {
+					if _, exists := governanceTaskLogs[k]; !exists {
+						governanceTaskLogs[k] = v
+					}
+				}
+			}
+		}
+		if newStore.MCPEnabled != nil && dataOntologyMCPEnabled == nil {
+			dataOntologyMCPEnabled = newStore.MCPEnabled
+		}
+		if newStore.MCPSafeConfig != nil && dataOntologyMCPSafeConfig == nil {
+			dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
+			dataOntologyMCPPort = newStore.MCPSafeConfig.Port
+		}
+		if newStore.LLMModels != nil {
+			for k, v := range newStore.LLMModels {
+				if _, exists := llmModels[k]; !exists {
+					llmModels[k] = v
+				}
+			}
+		}
+		if newStore.SmallModels != nil {
+			for k, v := range newStore.SmallModels {
+				if _, exists := smallModels[k]; !exists {
+					smallModels[k] = v
+				}
+			}
+		}
+		if newStore.ShareRuns != nil {
+			governanceShareRunsMu.Lock()
+			for _, runs := range newStore.ShareRuns {
+				for runID, run := range runs {
+					if _, exists := governanceShareRuns[runID]; !exists {
+						governanceShareRuns[runID] = run
+					}
+				}
+			}
+			governanceShareRunsMu.Unlock()
+		}
+
+		stats = map[string]interface{}{
+			"users_added":        mergedStats["users_added"],
+			"databases_added":    mergedStats["databases_added"],
+			"apis_added":         mergedStats["apis_added"],
+			"tasks_added":        mergedStats["tasks_added"],
+			"total_users":        len(dataOntologyUsers),
+			"total_databases":    len(dataOntologyDatabases),
+			"total_apis":         len(dataOntologyApis),
+			"total_tasks":        len(governanceTasks),
+			"total_llm_models":   len(llmModels),
+			"total_small_models": len(smallModels),
+		}
+	}
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("恢复数据保存失败: %v", err)
+		return nil, fmt.Errorf("保存恢复数据失败: %v", err)
+	}
+
+	return stats, nil
 }
 
 // 获取网页导航持久化文件路径（存于 app 目录下）
@@ -6202,39 +6602,39 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-	// 标准化接口类型
-	if apiConfig.Type == "" {
-		apiConfig.Type = "query"
-	}
+		// 标准化接口类型
+		if apiConfig.Type == "" {
+			apiConfig.Type = "query"
+		}
 
-	// 标准化 path 和 method
-	apiConfig.Path = strings.ToLower(strings.TrimSpace(apiConfig.Path))
-	apiConfig.Method = strings.ToUpper(strings.TrimSpace(apiConfig.Method))
+		// 标准化 path 和 method
+		apiConfig.Path = strings.ToLower(strings.TrimSpace(apiConfig.Path))
+		apiConfig.Method = strings.ToUpper(strings.TrimSpace(apiConfig.Method))
 
-	// 验证必填字段
-	if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
-		apiInvalidInput(w, "缺少必填字段")
-		return
-	}
-
-	// 验证路径格式：必须是 /api/xxx/yyy（两级路径）
-	if !isValidApiPath(apiConfig.Path) {
-		apiInvalidInput(w, "接口路径格式错误，必须是 /api/xxx/yyy 格式（两级路径）")
-		return
-	}
-
-	// 验证 path+method 唯一性
-	dataOntologyMu.RLock()
-	for _, existingApi := range dataOntologyApis {
-		if existingApi.Path == apiConfig.Path && strings.EqualFold(existingApi.Method, apiConfig.Method) {
-			dataOntologyMu.RUnlock()
-			apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", apiConfig.Path, apiConfig.Method))
+		// 验证必填字段
+		if apiConfig.Name == "" || apiConfig.Path == "" || apiConfig.Method == "" {
+			apiInvalidInput(w, "缺少必填字段")
 			return
 		}
-	}
-	dataOntologyMu.RUnlock()
 
-	if apiConfig.Type == "forward" {
+		// 验证路径格式：必须是 /api/xxx/yyy（两级路径）
+		if !isValidApiPath(apiConfig.Path) {
+			apiInvalidInput(w, "接口路径格式错误，必须是 /api/xxx/yyy 格式（两级路径）")
+			return
+		}
+
+		// 验证 path+method 唯一性
+		dataOntologyMu.RLock()
+		for _, existingApi := range dataOntologyApis {
+			if existingApi.Path == apiConfig.Path && strings.EqualFold(existingApi.Method, apiConfig.Method) {
+				dataOntologyMu.RUnlock()
+				apiInvalidInput(w, fmt.Sprintf("接口路径 %s (%s) 已存在", apiConfig.Path, apiConfig.Method))
+				return
+			}
+		}
+		dataOntologyMu.RUnlock()
+
+		if apiConfig.Type == "forward" {
 			if apiConfig.ForwardURL == "" {
 				apiInvalidInput(w, "转发类型接口必须填写转发URL")
 				return
@@ -7576,12 +7976,12 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	for _, m := range queryReq.Modules {
 		moduleSet[m] = true
 	}
-	
+
 	// 如果没有明确指定模块，进行意图检测
 	if len(moduleSet) == 0 {
 		intent := detectUserIntent(queryReq.Message)
 		log.Printf("[AI Query] 关键词意图检测: module=%s, confidence=%.2f, reason=%s", intent.DetectedModule, intent.Confidence, intent.Reason)
-		
+
 		// 关键词置信度足够高，直接路由
 		if intent.Confidence >= 0.7 && intent.DetectedModule != "" {
 			moduleSet[intent.DetectedModule] = true
@@ -7595,16 +7995,16 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 				"message": "正在分析您的意图...",
 			})
 			flusher.Flush()
-			
+
 			aiIntent := detectIntentWithAI(aiConfig, aiCapabilities, queryReq.Message)
 			log.Printf("[AI Query] AI 意图分类: module=%s, confidence=%.2f, reason=%s", aiIntent.DetectedModule, aiIntent.Confidence, aiIntent.Reason)
-			
+
 			// 合并：取置信度更高的结果
 			finalIntent := intent
 			if aiIntent.Confidence > intent.Confidence && aiIntent.DetectedModule != "" {
 				finalIntent = aiIntent
 			}
-			
+
 			// 如果最终置信度 >= 0.7，自动路由
 			if finalIntent.Confidence >= 0.7 && finalIntent.DetectedModule != "" {
 				moduleSet[finalIntent.DetectedModule] = true
@@ -7621,7 +8021,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 					{"id": "quality-audit", "name": "质量审计", "description": "数据质量检查、校验规则", "icon": "✅"},
 					{"id": "ontology", "name": "本体查询", "description": "概念关系、语义分析", "icon": "🧠"},
 				}
-				
+
 				sendSSE(w, "intent_selection_required", map[string]interface{}{
 					"message":    "我不太确定您想要做什么，请选择一个操作类型：",
 					"intents":    intentOptions,
@@ -8543,7 +8943,7 @@ func cleanAIResponse(response string) string {
 	}
 
 	response = strings.TrimSpace(response)
-	
+
 	// 处理代码块标记
 	// 优先处理 ```json 和 ```sql，它们会包含结束的 ```
 	hasCodeBlock := false
@@ -8558,16 +8958,16 @@ func cleanAIResponse(response string) string {
 		response = response[idx+len("```"):]
 		hasCodeBlock = true
 	}
-	
+
 	response = strings.TrimSpace(response)
-	
+
 	// 如果有代码块开始标记，找结束标记
 	if hasCodeBlock {
 		if idx := strings.LastIndex(response, "```"); idx >= 0 {
 			response = response[:idx]
 		}
 	}
-	
+
 	return strings.TrimSpace(response)
 }
 
@@ -9624,7 +10024,7 @@ type IntentInfo struct {
 // detectUserIntent 检测用户意图，返回意图信息和置信度
 func detectUserIntent(message string) IntentInfo {
 	lowerMsg := strings.ToLower(message)
-	
+
 	// 接口创建关键词（高置信度）
 	apiKeywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "生成api", "创建api", "添加api"}
 	for _, kw := range apiKeywords {
@@ -9632,7 +10032,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "api-dispatch", Confidence: 0.95, Reason: "包含接口创建关键词: " + kw}
 		}
 	}
-	
+
 	// 数据治理关键词
 	governanceKeywords := []string{"创建任务", "新建任务", "生成任务", "定时任务", "交互任务", "数据治理", "定时执行", "文件导入"}
 	for _, kw := range governanceKeywords {
@@ -9640,7 +10040,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "data-governance", Confidence: 0.9, Reason: "包含数据治理关键词: " + kw}
 		}
 	}
-	
+
 	// 质量审计关键词
 	qualityKeywords := []string{"质量规则", "数据质量", "质量检查", "质量审计", "校验规则"}
 	for _, kw := range qualityKeywords {
@@ -9648,7 +10048,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "quality-audit", Confidence: 0.9, Reason: "包含质量审计关键词: " + kw}
 		}
 	}
-	
+
 	// 本体查询关键词
 	ontologyKeywords := []string{"本体", "概念", "实体关系", "语义"}
 	for _, kw := range ontologyKeywords {
@@ -9656,7 +10056,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "ontology", Confidence: 0.85, Reason: "包含本体相关关键词: " + kw}
 		}
 	}
-	
+
 	// 小模型关键词
 	smallModelKeywords := []string{"小模型", "本地模型", "离线模型"}
 	for _, kw := range smallModelKeywords {
@@ -9664,7 +10064,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "small-model", Confidence: 0.85, Reason: "包含小模型关键词: " + kw}
 		}
 	}
-	
+
 	// 询问数据库信息（中等置信度）
 	dbInfoKeywords := []string{"有哪些表", "什么表", "表结构", "字段有哪些", "数据库里有什么"}
 	for _, kw := range dbInfoKeywords {
@@ -9672,7 +10072,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "db-manage", Confidence: 0.8, Reason: "包含数据库查询关键词: " + kw}
 		}
 	}
-	
+
 	// 通用查询关键词（低置信度）
 	queryKeywords := []string{"查询", "统计", "有多少", "列出", "显示", "查找", "搜索"}
 	for _, kw := range queryKeywords {
@@ -9680,7 +10080,7 @@ func detectUserIntent(message string) IntentInfo {
 			return IntentInfo{DetectedModule: "db-manage", Confidence: 0.5, Reason: "包含通用查询关键词: " + kw}
 		}
 	}
-	
+
 	// 未检测到明确意图
 	return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "未检测到明确意图"}
 }
@@ -10167,12 +10567,12 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		// 校验 path 格式和 path+method 唯一性
 		pathStr, _ := apiConfig["path"].(string)
 		methodStr, _ := apiConfig["method"].(string)
-		
+
 		// 校验路径格式
 		if !isValidApiPath(pathStr) {
 			log.Printf("路径格式校验失败（第%d次尝试）: %s 不是有效的两级路径", attempt, pathStr)
 			if attempt < maxRetries {
-				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, 
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis,
 					fmt.Sprintf("接口路径格式错误: '%s' 不是有效的两级路径格式。必须是 /api/xxx/yyy 格式，例如 /api/users/list", pathStr), aiResponse)
 				continue
 			}
@@ -10184,7 +10584,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			flusher.Flush()
 			return
 		}
-		
+
 		// 校验 path+method 唯一性
 		pathConflict := false
 		var conflictApiName string
@@ -10200,7 +10600,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 		if pathConflict {
 			log.Printf("路径唯一性校验失败（第%d次尝试）: %s %s 与已有接口 '%s' 冲突", attempt, methodStr, pathStr, conflictApiName)
 			if attempt < maxRetries {
-				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, 
+				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis,
 					fmt.Sprintf("接口路径冲突: %s %s 已被接口 '%s' 使用，请使用不同的路径或方法", methodStr, pathStr, conflictApiName), aiResponse)
 				continue
 			}
@@ -10212,7 +10612,7 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 			flusher.Flush()
 			return
 		}
-		
+
 		log.Printf("路径校验成功（第%d次尝试）: %s %s", attempt, methodStr, pathStr)
 
 		// 校验SQL中的表名和字段名是否存在
@@ -13115,12 +13515,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 					"file_base64": base64.StdEncoding.EncodeToString(data),
 				})
 			}
-// 分享任务保留输入文件供用户下载，普通任务读取后删除节省空间
-		if !isShare {
-			for _, filePath := range job.InputFiles {
-				os.Remove(filePath)
+			// 分享任务保留输入文件供用户下载，普通任务读取后删除节省空间
+			if !isShare {
+				for _, filePath := range job.InputFiles {
+					os.Remove(filePath)
+				}
 			}
-		}
 			taskData["files"] = filePayloads
 
 			if isShare {
@@ -14657,11 +15057,11 @@ func parseOfficialDocument(text string, minLevel, maxLevel int, detectNumbering,
 		level   int
 		pattern *regexp.Regexp
 	}{
-		{1, regexp.MustCompile(`^[一二三四五六七八九十]+、`)},                           // 一、二、三、
-		{2, regexp.MustCompile(`^[（(][一二三四五六七八九十]+[)）]`)},                   // （一）（二）或 (一)(二)
-		{3, regexp.MustCompile(`^\d+[.、]`)},                                      // 1. 2. 或 1、2、
-		{4, regexp.MustCompile(`^[（(]\d+[)）]`)},                                  // （1）（2）或 (1)(2)
-		{5, regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩]|^\d+\)`)},                         // ①②③ 或 1) 2)
+		{1, regexp.MustCompile(`^[一二三四五六七八九十]+、`)},        // 一、二、三、
+		{2, regexp.MustCompile(`^[（(][一二三四五六七八九十]+[)）]`)}, // （一）（二）或 (一)(二)
+		{3, regexp.MustCompile(`^\d+[.、]`)},               // 1. 2. 或 1、2、
+		{4, regexp.MustCompile(`^[（(]\d+[)）]`)},           // （1）（2）或 (1)(2)
+		{5, regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩]|^\d+\)`)},   // ①②③ 或 1) 2)
 	}
 
 	lines := strings.Split(text, "\n")
@@ -14829,8 +15229,8 @@ func handleGovParseText(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"sections":  sections,
-			"metadata":  metadata,
+			"sections": sections,
+			"metadata": metadata,
 		},
 	})
 }
@@ -14857,7 +15257,7 @@ func updateShareRun(runID string, status string, progress int, output string, re
 		}
 	}
 	governanceShareRunsMu.Unlock()
-	
+
 	// 持久化到文件
 	if needSave {
 		// 同步更新主任务的历史记录
@@ -14998,11 +15398,11 @@ func handleGovernanceShareInfo(w http.ResponseWriter, r *http.Request, task *Gov
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"name":         task.Name,
-		"description":  task.Description,
-		"input_type":   task.InputType,
-		"accept_exts":  task.AcceptExts,
+		"success":       true,
+		"name":          task.Name,
+		"description":   task.Description,
+		"input_type":    task.InputType,
+		"accept_exts":   task.AcceptExts,
 		"example_files": task.ExampleFiles,
 	})
 }
@@ -15527,6 +15927,7 @@ func main() {
 	// 数据备份与恢复API路由
 	mux.HandleFunc("/api/data-ontology/backup", handleDataOntologyBackup)
 	mux.HandleFunc("/api/data-ontology/restore", handleDataOntologyRestore)
+	mux.HandleFunc("/api/data-ontology/restore-upload", handleDataOntologyRestoreUpload)
 
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
