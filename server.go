@@ -1351,6 +1351,57 @@ func saveDataOntologyStore() error {
 	return nil
 }
 
+// saveDataOntologyStoreNoLock 保存持久化数据（不加锁版本，供已持有锁的函数调用）
+func saveDataOntologyStoreNoLock() error {
+	storePath := getDataOntologyStorePathFn()
+
+	// 确保目录存在
+	storeDir := filepath.Dir(storePath)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+
+	// 构建分享执行记录索引（shareToken -> runID -> run）
+	governanceShareRunsMu.RLock()
+	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+	for runID, run := range governanceShareRuns {
+		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+		}
+		shareRunsByToken[run.ShareToken][runID] = run
+	}
+	governanceShareRunsMu.RUnlock()
+
+	store := DataOntologyStore{
+		Users:          dataOntologyUsers,
+		Databases:      dataOntologyDatabases,
+		Apis:           dataOntologyApis,
+		AIConfig:       dataOntologyAIConfig,
+		AICapabilities: dataOntologyAICapabilities,
+		Tasks:          governanceTasks,
+		TaskLogs:       governanceTaskLogs,
+		MCPEnabled:     dataOntologyMCPEnabled,
+		MCPSafeConfig:  dataOntologyMCPSafeConfig,
+		LLMModels:      llmModels,
+		SmallModels:    smallModels,
+		ShareRuns:      shareRunsByToken,
+	}
+
+	// 序列化为JSON
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化数据失败: %v", err)
+	}
+
+	// 写入文件
+	if err := os.WriteFile(storePath, data, 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+
+	log.Printf("数据已保存到: %s", storePath)
+	return nil
+}
+
 // ====== 数据备份与恢复 API ======
 
 // handleDataOntologyBackup 导出备份（ZIP 格式，包含所有持久化数据）
@@ -1813,8 +1864,8 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 		}
 	}
 
-	// 保存数据
-	if err := saveDataOntologyStore(); err != nil {
+	// 保存数据（已持有 dataOntologyMu.Lock，使用无锁版本避免死锁）
+	if err := saveDataOntologyStoreNoLock(); err != nil {
 		log.Printf("恢复数据保存失败: %v", err)
 		return nil, fmt.Errorf("保存恢复数据失败: %v", err)
 	}
@@ -2052,7 +2103,8 @@ func restoreFromJSON(jsonPath, mode string) (map[string]interface{}, error) {
 		}
 	}
 
-	if err := saveDataOntologyStore(); err != nil {
+	// 保存数据（已持有 dataOntologyMu.Lock，使用无锁版本避免死锁）
+	if err := saveDataOntologyStoreNoLock(); err != nil {
 		log.Printf("恢复数据保存失败: %v", err)
 		return nil, fmt.Errorf("保存恢复数据失败: %v", err)
 	}
