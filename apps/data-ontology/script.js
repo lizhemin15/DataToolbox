@@ -4720,34 +4720,44 @@ async function loadBackupStats() {
     if (!container) return;
 
     try {
-        // 从现有全局变量获取统计（这些变量在页面加载时已初始化）
+        // 从 API 获取准确统计
         const stats = {
-            databases: (typeof databases !== 'undefined' && databases) ? databases.length : 0,
-            apis: (typeof apis !== 'undefined' && apis) ? apis.length : 0,
+            databases: 0,
+            apis: 0,
             tasks: 0,
             users: 0,
             llmModels: 0,
             smallModels: 0,
         };
 
-        // 尝试从全局变量获取任务数（如果存在）
-        if (typeof governanceTasks !== 'undefined' && governanceTasks) {
-            stats.tasks = Object.keys(governanceTasks).length;
+        // 从全局变量获取基础统计（快速显示）
+        if (typeof databases !== 'undefined' && databases) {
+            stats.databases = databases.length;
+        }
+        if (typeof apis !== 'undefined' && apis) {
+            stats.apis = apis.length;
+        }
+        if (typeof govTasks !== 'undefined' && govTasks) {
+            stats.tasks = govTasks.length;
+        }
+        if (typeof llmModels !== 'undefined' && llmModels) {
+            stats.llmModels = llmModels.length;
+        }
+        if (typeof smallModels !== 'undefined' && smallModels) {
+            stats.smallModels = smallModels.length;
         }
 
-        // 从全局变量获取完整统计
-        try {
-            if (typeof dataOntologyUsers !== 'undefined' && dataOntologyUsers) {
-                stats.users = Object.keys(dataOntologyUsers).length;
+        // 异步获取用户数（需要 admin 权限）
+        if (typeof currentUser !== 'undefined' && currentUser === 'admin') {
+            try {
+                const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
+                const data = await resp.json();
+                if (data.success && data.users) {
+                    stats.users = data.users.length;
+                }
+            } catch (e) {
+                console.warn('获取用户数失败', e);
             }
-            if (typeof llmModels !== 'undefined' && llmModels) {
-                stats.llmModels = Object.keys(llmModels).length;
-            }
-            if (typeof smallModels !== 'undefined' && smallModels) {
-                stats.smallModels = Object.keys(smallModels).length;
-            }
-        } catch (apiErr) {
-            console.warn('获取统计失败，使用本地数据', apiErr);
         }
 
         container.innerHTML = `
