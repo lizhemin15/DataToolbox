@@ -1738,7 +1738,7 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 		// 覆盖模式：完全替换
 		// 安全处理：确保密码是 bcrypt hash 格式
 		if newStore.Users != nil {
-			for k, v := range newStore.Users {
+			for _, v := range newStore.Users {
 				if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
 					v.Password = hashPassword(v.Password)
 				}
