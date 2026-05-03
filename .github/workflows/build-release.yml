@@ -111,8 +111,10 @@ jobs:
           cp ${{ matrix.output }} package/
           cp server.config.json package/
           cp scripts/install.sh package/install.sh
+          cp scripts/update.sh package/update.sh
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
+          chmod +x package/update.sh
           # 复制静态文件到包根目录
           cp -r index.html apps css js lib package/
           # 注入版本号：替换静态资源 URL 中的 ?v=X.Y.Z
@@ -240,7 +242,8 @@ jobs:
             ├── lib/                  # 第三方库
             ├── gov-runner            # 治理任务运行器
             ├── server.config.json    # 服务器配置
-            └── install.sh            # 安装脚本
+            ├── install.sh            # 安装脚本
+            └── update.sh             # 更新脚本
             ```
             
             **注意**：静态文件和配置文件统一在 `apps/` 目录，更新前端只需修改一处。
@@ -273,9 +276,16 @@ jobs:
             之后关掉终端或重启服务器都会自动运行；查看状态：`sudo systemctl status datatoolbox`，日志：`journalctl -u datatoolbox -f`
             
             **Linux 更新版本：**
+            1. 下载新版本 tar.gz 包
+            2. 执行更新脚本：`sudo ./update.sh datatoolbox-linux-amd64.tar.gz`
+            
+            或手动更新：
             1. 停止服务：`sudo systemctl stop datatoolbox`
-            2. 备份后替换二进制：`sudo cp 新解压的/datatoolbox-server /opt/datatoolbox/`
-            3. 启动服务：`sudo systemctl start datatoolbox`
+            2. 解压新版本到临时目录
+            3. 备份后替换：二进制 + 前端文件（index.html, apps/, css/, js/, lib/）
+            4. 启动服务：`sudo systemctl start datatoolbox`
+            
+            **⚠️ 注意**：更新时必须同时替换前端文件，否则新功能不会生效！
             
             **Linux 停止服务 / 取消开机自启：**
             - 仅停止：`sudo systemctl stop datatoolbox`
