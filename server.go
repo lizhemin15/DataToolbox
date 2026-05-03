@@ -1443,7 +1443,7 @@ func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
 
 	// 2. 写入 quality-audit.db（如果存在）
 	qaDBPath := getQualityAuditDBPath()
-	if fi, err := os.Stat(qaDBPath); err == nil {
+	if _, err := os.Stat(qaDBPath); err == nil {
 		dbFile, err := zipWriter.Create(filepath.Join(baseDir, "quality-audit.db"))
 		if err == nil {
 			f, err := os.Open(qaDBPath)
