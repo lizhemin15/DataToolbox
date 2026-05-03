@@ -6615,3 +6615,126 @@ body.embed-mode .embed-settings-btn {
     background: #a0aec0;
     cursor: not-allowed;
 }
+
+/* 数据备份与恢复 */
+.backup-stats-container {
+    background: #f7fafc;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.backup-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.backup-stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+}
+
+.backup-stat-item .stat-label {
+    color: #718096;
+    font-size: 12px;
+}
+
+.backup-stat-item .stat-value {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 14px;
+}
+
+.backup-stats-loading {
+    color: #a0aec0;
+    text-align: center;
+    padding: 8px;
+}
+
+.backup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.backup-actions #exportBackupBtn {
+    flex-shrink: 0;
+}
+
+.restore-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#importBackupLabel {
+    cursor: pointer;
+    background: #4299e1;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+#importBackupLabel:hover {
+    background: #3182ce;
+}
+
+.import-file-name {
+    font-size: 12px;
+    color: #718096;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-mode-select {
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+    background: white;
+    cursor: pointer;
+}
+
+.backup-message {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    display: none;
+}
+
+.backup-message.success {
+    display: block;
+    background: #f0fff4;
+    color: #276749;
+    border: 1px solid #c6f6d5;
+}
+
+.backup-message.error {
+    display: block;
+    background: #fff5f5;
+    color: #c53030;
+    border: 1px solid #fed7d7;
+}
+
+.backup-message.info {
+    display: block;
+    background: #ebf8ff;
+    color: #2b6cb0;
+    border: 1px solid #bee3f8;
+}

@@ -926,7 +926,12 @@ function initEventListeners() {
     });
     document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
     document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
-    
+
+    // 数据备份与恢复按钮。
+    document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
+    document.getElementById('importBackupBtn').addEventListener('click', importBackup);
+    document.getElementById('importBackupFile').addEventListener('change', handleBackupFileSelect);
+
     // AI 设置入口的事件绑定。
 
     const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
@@ -4602,6 +4607,7 @@ let currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
 async function showSettingsModal() {
     document.getElementById('settingsModal').classList.add('show');
     await loadTabSettings();
+    await loadBackupStats();
 }
 
 // 关闭设置弹窗。
@@ -4693,16 +4699,192 @@ function resetTabSettings() {
     currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
     currentTabOrder = [...DEFAULT_TAB_ORDER];
     currentTabNames = {};
-    
+
     const container = document.getElementById('tabVisibilitySettings');
     if (container) {
         renderTabSettingsUI(container, currentTabVisibility);
     }
-    
+
     // 更新嵌入模式复选框
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = true; // 默认开启嵌入模式
+    }
+}
+
+// ====== 数据备份与恢复 ======
+
+// 加载备份统计信息
+async function loadBackupStats() {
+    const container = document.getElementById('backupStatsContainer');
+    if (!container) return;
+
+    try {
+        // 从现有数据获取统计
+        const stats = {
+            databases: Object.keys(window.dataOntologyDatabases || {}).length,
+            apis: Object.keys(window.dataOntologyApis || {}).length,
+            tasks: Object.keys(window.governanceTasks || {}).length,
+            users: Object.keys(window.dataOntologyUsers || {}).length,
+            llmModels: Object.keys(window.llmModels || {}).length,
+            smallModels: Object.keys(window.smallModels || {}).length,
+        };
+
+        container.innerHTML = `
+            <div class="backup-stats-grid">
+                <div class="backup-stat-item">
+                    <span class="stat-label">数据库</span>
+                    <span class="stat-value">${stats.databases}</span>
+                </div>
+                <div class="backup-stat-item">
+                    <span class="stat-label">API</span>
+                    <span class="stat-value">${stats.apis}</span>
+                </div>
+                <div class="backup-stat-item">
+                    <span class="stat-label">任务</span>
+                    <span class="stat-value">${stats.tasks}</span>
+                </div>
+                <div class="backup-stat-item">
+                    <span class="stat-label">用户</span>
+                    <span class="stat-value">${stats.users}</span>
+                </div>
+                <div class="backup-stat-item">
+                    <span class="stat-label">大模型</span>
+                    <span class="stat-value">${stats.llmModels}</span>
+                </div>
+                <div class="backup-stat-item">
+                    <span class="stat-label">小模型</span>
+                    <span class="stat-value">${stats.smallModels}</span>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.error('加载备份统计失败', e);
+        container.innerHTML = '<div class="backup-stats-loading">加载失败</div>';
+    }
+}
+
+// 导出备份
+async function exportBackup() {
+    const messageDiv = document.getElementById('backupMessage');
+    messageDiv.className = 'backup-message info';
+    messageDiv.textContent = '正在导出备份...';
+
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/backup');
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.message || '导出失败');
+        }
+
+        // 获取文件名
+        const contentDisp = resp.headers.get('Content-Disposition');
+        let filename = 'datatoolbox-backup.json';
+        if (contentDisp) {
+            const match = contentDisp.match(/filename="?(.+?)"?(;|$)/);
+            if (match) filename = match[1];
+        }
+
+        // 下载文件
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        messageDiv.className = 'backup-message success';
+        messageDiv.textContent = `备份已导出：${filename}`;
+        setTimeout(() => {
+            messageDiv.className = 'backup-message';
+            messageDiv.textContent = '';
+        }, 3000);
+    } catch (e) {
+        console.error('导出备份失败', e);
+        messageDiv.className = 'backup-message error';
+        messageDiv.textContent = '导出失败：' + e.message;
+    }
+}
+
+// 导入备份
+async function importBackup() {
+    const fileInput = document.getElementById('importBackupFile');
+    const modeSelect = document.getElementById('importMode');
+    const messageDiv = document.getElementById('backupMessage');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        messageDiv.className = 'backup-message error';
+        messageDiv.textContent = '请先选择备份文件';
+        return;
+    }
+
+    const mode = modeSelect.value;
+    if (mode === 'overwrite') {
+        const confirmed = confirm('覆盖模式将完全替换所有现有数据，此操作不可撤销！\n\n确定要继续吗？');
+        if (!confirmed) {
+            return;
+        }
+    }
+
+    messageDiv.className = 'backup-message info';
+    messageDiv.textContent = '正在导入备份...';
+
+    try {
+        const file = fileInput.files[0];
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode, data})
+        });
+
+        const result = await resp.json();
+        if (!result.success) {
+            throw new Error(result.message || '导入失败');
+        }
+
+        // 显示成功信息
+        let successMsg = '导入成功！';
+        if (mode === 'overwrite') {
+            successMsg += ` 已导入 ${result.databases_count || 0} 个数据库，${result.apis_count || 0} 个API，${result.tasks_count || 0} 个任务`;
+        } else {
+            successMsg += ` 新增 ${result.users_added || 0} 个用户，${result.databases_added || 0} 个数据库，${result.apis_added || 0} 个API，${result.tasks_added || 0} 个任务`;
+        }
+
+        messageDiv.className = 'backup-message success';
+        messageDiv.textContent = successMsg;
+
+        // 刷新页面以加载新数据
+        setTimeout(() => {
+            if (confirm('数据已成功导入，需要刷新页面以加载新数据。是否立即刷新？')) {
+                window.location.reload();
+            }
+        }, 1000);
+    } catch (e) {
+        console.error('导入备份失败', e);
+        messageDiv.className = 'backup-message error';
+        messageDiv.textContent = '导入失败：' + e.message;
+    }
+}
+
+// 处理文件选择
+function handleBackupFileSelect(event) {
+    const file = event.target.files[0];
+    const fileNameSpan = document.getElementById('importFileName');
+    const importBtn = document.getElementById('importBackupBtn');
+
+    if (file) {
+        fileNameSpan.textContent = file.name;
+        fileNameSpan.style.display = 'inline';
+        importBtn.style.display = 'inline-block';
+    } else {
+        fileNameSpan.style.display = 'none';
+        importBtn.style.display = 'none';
     }
 }
 

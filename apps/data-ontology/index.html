@@ -1398,6 +1398,27 @@
                         </label>
                     </div>
                 </div>
+                <div class="settings-section">
+                    <h3 class="settings-section-title">数据备份与恢复</h3>
+                    <p class="settings-section-desc">导出或导入全部配置和数据，方便迁移和备份</p>
+                    <div id="backupStatsContainer" class="backup-stats-container">
+                        <div class="backup-stats-loading">加载中...</div>
+                    </div>
+                    <div class="backup-actions">
+                        <button type="button" class="btn btn-sm btn-primary" id="exportBackupBtn">导出备份</button>
+                        <div class="restore-group">
+                            <label class="btn btn-sm" id="importBackupLabel" for="importBackupFile">选择备份文件</label>
+                            <input type="file" id="importBackupFile" accept=".json" style="display:none;">
+                            <span id="importFileName" class="import-file-name" style="display:none;"></span>
+                            <select id="importMode" class="import-mode-select">
+                                <option value="merge">合并模式（只添加不存在的项）</option>
+                                <option value="overwrite">覆盖模式（完全替换）</option>
+                            </select>
+                            <button type="button" class="btn btn-sm btn-primary" id="importBackupBtn" style="display:none;">导入</button>
+                        </div>
+                    </div>
+                    <div id="backupMessage" class="backup-message"></div>
+                </div>
                 <div class="modal-footer">
                     <button type="button" class="btn" id="resetTabSettingsBtn">恢复默认</button>
                     <button type="button" class="btn btn-primary" id="saveTabSettingsBtn">保存设置</button>

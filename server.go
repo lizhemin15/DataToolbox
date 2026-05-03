@@ -1351,6 +1351,314 @@ func saveDataOntologyStore() error {
 	return nil
 }
 
+// ====== 数据备份与恢复 API ======
+
+// handleDataOntologyBackup 导出备份
+func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		apiMethodNotAllowed(w, "只支持GET请求")
+		return
+	}
+
+	// 仅管理员可备份
+	if username != "admin" {
+		apiForbidden(w, "仅管理员可执行备份")
+		return
+	}
+
+	dataOntologyMu.RLock()
+	governanceShareRunsMu.RLock()
+	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+	for runID, run := range governanceShareRuns {
+		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+		}
+		shareRunsByToken[run.ShareToken][runID] = run
+	}
+	governanceShareRunsMu.RUnlock()
+
+	store := DataOntologyStore{
+		Users:          dataOntologyUsers,
+		Databases:      dataOntologyDatabases,
+		Apis:           dataOntologyApis,
+		AIConfig:       dataOntologyAIConfig,
+		AICapabilities: dataOntologyAICapabilities,
+		Tasks:          governanceTasks,
+		TaskLogs:       governanceTaskLogs,
+		MCPEnabled:     dataOntologyMCPEnabled,
+		MCPSafeConfig:  dataOntologyMCPSafeConfig,
+		LLMModels:      llmModels,
+		SmallModels:    smallModels,
+		ShareRuns:      shareRunsByToken,
+	}
+	dataOntologyMu.RUnlock()
+
+	backupData := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"version":     1,
+			"export_time": time.Now().Format("2006-01-02T15:04:05Z07:00"),
+			"source":      "DataToolbox",
+		},
+		"data": store,
+	}
+
+	// 设置下载文件名
+	now := time.Now()
+	filename := fmt.Sprintf("datatoolbox-backup-%s.json", now.Format("20060102"))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	jsonData, err := json.MarshalIndent(backupData, "", "  ")
+	if err != nil {
+		apiInternalError(w, "序列化备份数据失败")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
+}
+
+// handleDataOntologyRestore 导入恢复
+func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		apiMethodNotAllowed(w, "只支持POST请求")
+		return
+	}
+
+	// 仅管理员可恢复
+	if username != "admin" {
+		apiForbidden(w, "仅管理员可执行恢复")
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		Mode string          `json:"mode"` // "overwrite" 或 "merge"
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "请求格式错误: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+
+	if req.Mode != "overwrite" && req.Mode != "merge" {
+		jsonError(w, "模式必须为 overwrite 或 merge", ErrCodeInvalidInput)
+		return
+	}
+
+	// 解析外层结构（可能带 metadata，也可能是纯 store）
+	var rawBackup map[string]json.RawMessage
+	if err := json.Unmarshal(req.Data, &rawBackup); err != nil {
+		jsonError(w, "备份数据格式错误: "+err.Error(), ErrCodeInvalidInput)
+		return
+	}
+
+	// 判断是否有 metadata 包装
+	var storeData json.RawMessage
+	if md, ok := rawBackup["metadata"]; ok && md != nil {
+		// 带元数据包装的格式
+		if data, ok2 := rawBackup["data"]; ok2 {
+			storeData = data
+		} else {
+			jsonError(w, "备份数据缺少 data 字段", ErrCodeInvalidInput)
+			return
+		}
+	} else {
+		// 纯 store 格式，整个内容就是 store
+		storeData = req.Data
+	}
+
+	// 验证必要字段
+	var tempStore map[string]interface{}
+	if err := json.Unmarshal(storeData, &tempStore); err != nil {
+		jsonError(w, "备份数据解析失败: "+err.Error(), ErrCodeInvalidInput)
+		return
+	}
+
+	requiredFields := []string{"users", "databases", "apis"}
+	for _, field := range requiredFields {
+		if _, ok := tempStore[field]; !ok {
+			jsonError(w, fmt.Sprintf("备份数据缺少必要字段: %s", field), ErrCodeInvalidInput)
+			return
+		}
+	}
+
+	// 解析为 DataOntologyStore
+	var newStore DataOntologyStore
+	if err := json.Unmarshal(storeData, &newStore); err != nil {
+		jsonError(w, "备份数据解析失败: "+err.Error(), ErrCodeInvalidInput)
+		return
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	var stats map[string]interface{}
+
+	if req.Mode == "overwrite" {
+		// 覆盖模式：完全替换
+		dataOntologyUsers = newStore.Users
+		dataOntologyDatabases = newStore.Databases
+		dataOntologyApis = newStore.Apis
+		dataOntologyAIConfig = newStore.AIConfig
+		dataOntologyAICapabilities = newStore.AICapabilities
+		governanceTasks = newStore.Tasks
+		governanceTaskLogs = newStore.TaskLogs
+		dataOntologyMCPEnabled = newStore.MCPEnabled
+		dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
+		llmModels = newStore.LLMModels
+		smallModels = newStore.SmallModels
+
+		// 分享记录
+		governanceShareRunsMu.Lock()
+		governanceShareRuns = make(map[string]*GovernanceShareRun)
+		if newStore.ShareRuns != nil {
+			for _, runs := range newStore.ShareRuns {
+				for runID, run := range runs {
+					governanceShareRuns[runID] = run
+				}
+			}
+		}
+		governanceShareRunsMu.Unlock()
+
+		stats = map[string]interface{}{
+			"users_count":        len(dataOntologyUsers),
+			"databases_count":    len(dataOntologyDatabases),
+			"apis_count":        len(dataOntologyApis),
+			"tasks_count":       len(governanceTasks),
+			"llm_models_count":  len(llmModels),
+			"small_models_count": len(smallModels),
+		}
+	} else {
+		// 合并模式：只添加不存在的项
+		mergedStats := map[string]int{"users_added": 0, "databases_added": 0, "apis_added": 0, "tasks_added": 0}
+
+		if newStore.Users != nil {
+			for k, v := range newStore.Users {
+				if _, exists := dataOntologyUsers[k]; !exists {
+					dataOntologyUsers[k] = v
+					mergedStats["users_added"]++
+				}
+			}
+		}
+		if newStore.Databases != nil {
+			for k, v := range newStore.Databases {
+				if _, exists := dataOntologyDatabases[k]; !exists {
+					dataOntologyDatabases[k] = v
+					mergedStats["databases_added"]++
+				}
+			}
+		}
+		if newStore.Apis != nil {
+			for k, v := range newStore.Apis {
+				if _, exists := dataOntologyApis[k]; !exists {
+					dataOntologyApis[k] = v
+					mergedStats["apis_added"]++
+				}
+			}
+		}
+		if newStore.Tasks != nil {
+			for k, v := range newStore.Tasks {
+				if _, exists := governanceTasks[k]; !exists {
+					governanceTasks[k] = v
+					mergedStats["tasks_added"]++
+				}
+			}
+		}
+		// 非字典类型：有值则替换（合并模式下只在为空时设置）
+		if newStore.AIConfig != nil {
+			dataOntologyAIConfig = newStore.AIConfig
+		}
+		if newStore.AICapabilities != nil {
+			dataOntologyAICapabilities = newStore.AICapabilities
+		}
+		if newStore.TaskLogs != nil {
+			if governanceTaskLogs == nil {
+				governanceTaskLogs = newStore.TaskLogs
+			} else {
+				for k, v := range newStore.TaskLogs {
+					if _, exists := governanceTaskLogs[k]; !exists {
+						governanceTaskLogs[k] = v
+					}
+				}
+			}
+		}
+		if newStore.MCPEnabled != nil {
+			dataOntologyMCPEnabled = newStore.MCPEnabled
+		}
+		if newStore.MCPSafeConfig != nil {
+			dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
+			dataOntologyMCPPort = newStore.MCPSafeConfig.Port
+		}
+		if newStore.LLMModels != nil {
+			for k, v := range newStore.LLMModels {
+				if _, exists := llmModels[k]; !exists {
+					llmModels[k] = v
+				}
+			}
+		}
+		if newStore.SmallModels != nil {
+			for k, v := range newStore.SmallModels {
+				if _, exists := smallModels[k]; !exists {
+					smallModels[k] = v
+				}
+			}
+		}
+		// 分享记录合并
+		if newStore.ShareRuns != nil {
+			governanceShareRunsMu.Lock()
+			for _, runs := range newStore.ShareRuns {
+				for runID, run := range runs {
+					if _, exists := governanceShareRuns[runID]; !exists {
+						governanceShareRuns[runID] = run
+					}
+				}
+			}
+			governanceShareRunsMu.Unlock()
+		}
+
+		stats = map[string]interface{}{
+			"users_added":       mergedStats["users_added"],
+			"databases_added":   mergedStats["databases_added"],
+			"apis_added":        mergedStats["apis_added"],
+			"tasks_added":      mergedStats["tasks_added"],
+			"total_users":       len(dataOntologyUsers),
+			"total_databases":  len(dataOntologyDatabases),
+			"total_apis":       len(dataOntologyApis),
+			"total_tasks":      len(governanceTasks),
+			"total_llm_models": len(llmModels),
+			"total_small_models": len(smallModels),
+		}
+	}
+
+	// 保存到文件
+	dataOntologyMu.Unlock()
+	if err := saveDataOntologyStore(); err != nil {
+		dataOntologyMu.Lock()
+		log.Printf("恢复数据保存失败: %v", err)
+		jsonError(w, "保存恢复数据失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	dataOntologyMu.Lock()
+
+	stats["mode"] = req.Mode
+	jsonSuccess(w, stats)
+}
+
 // 获取网页导航持久化文件路径（存于 app 目录下）
 func getWebNavStorePath() string {
 	exePath, err := os.Executable()
@@ -15214,6 +15522,10 @@ func main() {
 
 	// 文本结构化解析API路由
 	mux.HandleFunc("/api/data-ontology/gov/parse-text", handleGovParseText)
+
+	// 数据备份与恢复API路由
+	mux.HandleFunc("/api/data-ontology/backup", handleDataOntologyBackup)
+	mux.HandleFunc("/api/data-ontology/restore", handleDataOntologyRestore)
 
 	// 网页导航 API
 	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
