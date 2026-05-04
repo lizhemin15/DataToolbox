@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
-    <link rel="stylesheet" href="style.css?v=4.2.31">
+    <link rel="stylesheet" href="style.css?v=4.1.8">
     <script src="/lib/d3.min.js"></script>
     <script src="lib/three.min.js"></script>
     <script src="lib/orbit-controls-wrapper.js"></script>
@@ -781,6 +781,7 @@
                     <div class="ai-chat-header">
                         <h3>🤖 AI助手</h3>
                         <button id="aiSettingsBtn" class="btn btn-sm" title="AI配置">⚙️</button>
+                        <button id="tableRetrievalBtn" class="btn btn-sm" title="表检索配置">🔍</button>
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-welcome-message">
@@ -1364,66 +1365,87 @@
                     <button type="button" class="btn btn-sm btn-secondary" id="detectCapabilitiesBtn" style="margin-top: 8px;">自动检测模型能力</button>
                 </div>
                 
-                <!-- 表检索配置 -->
-                <div class="form-group">
-                    <label>表检索配置</label>
-                    <small>用于 AI 查询时从大量数据表中筛选相关表</small>
-                    <div class="table-retrieval-settings">
-                        <div class="form-row">
-                            <label for="aiRetrievalStrategy">检索策略</label>
-                            <select id="aiRetrievalStrategy">
-                                <option value="keyword">关键词匹配</option>
-                                <option value="embedding">向量相似度（预留）</option>
-                                <option value="hybrid">混合策略（预留）</option>
-                            </select>
-                        </div>
-                        <div class="form-row">
-                            <label for="aiMaxTables">最大返回表数</label>
-                            <input type="number" id="aiMaxTables" min="1" max="100" value="15">
-                            <small>检索结果的最大表数量</small>
-                        </div>
-                        <div class="form-row">
-                            <label for="aiMinRelevance">最小相关度</label>
-                            <input type="range" id="aiMinRelevance" min="0" max="1" step="0.1" value="0.3">
-                            <span id="aiMinRelevanceValue">0.3</span>
-                            <small>低于此阈值的结果将被过滤</small>
-                        </div>
-                        <div class="form-row">
-                            <label>匹配字段</label>
-                            <div class="checkbox-group">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="aiMatchName" checked>
-                                    <span>表名</span>
-                                </label>
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="aiMatchComment" checked>
-                                    <span>表注释</span>
-                                </label>
-                                <label class="checkbox-label">
-                                    <input type="checkbox" id="aiMatchColumns" checked>
-                                    <span>字段名</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="aiIncludeFields" checked>
-                                <span>包含字段信息</span>
-                            </label>
-                            <small>关闭可节省 token</small>
-                        </div>
-                        <div class="form-row">
-                            <label for="aiMaxFields">每表最大字段数</label>
-                            <input type="number" id="aiMaxFields" min="1" max="500" value="50">
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存配置</button>
                 </div>
                 <div id="aiSettingsError" class="error-message"></div>
                 <div id="aiSettingsSuccess" class="success-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 表检索配置弹窗 -->
+    <div id="tableRetrievalModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>🔍 表检索配置</h2>
+                <button class="modal-close" id="closeTableRetrievalModal">&times;</button>
+            </div>
+            <form id="tableRetrievalForm" class="modal-body">
+                <div class="form-group">
+                    <label>检索策略</label>
+                    <select id="trStrategy" style="width:100%;padding:8px;border-radius:4px;border:1px solid #ddd;">
+                        <option value="keyword">关键词检索 (Keyword)</option>
+                        <option value="embedding">向量检索 (Embedding)</option>
+                        <option value="graph">关系检索 (Graph)</option>
+                        <option value="hybrid" selected>混合检索 (Hybrid)</option>
+                    </select>
+                    <small>混合检索同时使用多种策略，效果最佳</small>
+                </div>
+                <div class="form-group">
+                    <label>最大返回表数</label>
+                    <input type="number" id="trMaxTables" min="1" max="100" value="15" style="width:100%;padding:8px;">
+                    <small>AI 对话时最多获取的数据表数量</small>
+                </div>
+                <div id="trWeightsGroup">
+                    <div class="form-group">
+                        <label>检索权重配置</label>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                            <div>
+                                <label style="font-size:12px;">关键词权重</label>
+                                <input type="number" id="trKeywordWeight" min="0" max="1" step="0.1" value="0.4" style="width:100%;padding:6px;">
+                            </div>
+                            <div>
+                                <label style="font-size:12px;">向量权重</label>
+                                <input type="number" id="trVectorWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
+                            </div>
+                            <div>
+                                <label style="font-size:12px;">关系权重</label>
+                                <input type="number" id="trGraphWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
+                            </div>
+                        </div>
+                        <small>三种策略的权重，混合检索时按权重融合结果</small>
+                    </div>
+                    <div class="form-group">
+                        <label>关系扩展深度</label>
+                        <input type="number" id="trGraphDepth" min="1" max="5" value="2" style="width:100px;padding:6px;">
+                        <small>Graph 检索时沿关系图扩展的最大深度</small>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;">
+                    <label style="font-size:16px;font-weight:600;">🔤 Embedding 配置</label>
+                    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-top:8px;">
+                        <label class="checkbox-label" style="grid-column:1/3;">
+                            <input type="checkbox" id="embEnabled"> <span>启用 Embedding 向量化</span>
+                        </label>
+                        <label style="font-size:12px;">API URL</label>
+                        <input type="text" id="embUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" style="width:100%;padding:6px;">
+                        <label style="font-size:12px;">API Key</label>
+                        <input type="password" id="embApiKey" placeholder="sk-..." style="width:100%;padding:6px;">
+                        <label style="font-size:12px;">模型名称</label>
+                        <input type="text" id="embModel" placeholder="BAAI/bge-large-zh-v1.5" style="width:100%;padding:6px;">
+                        <label style="font-size:12px;">向量维度</label>
+                        <input type="number" id="embDimension" min="64" max="4096" value="1024" style="width:100%;padding:6px;">
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="margin-top:15px;">
+                    <button type="button" class="btn btn-secondary" id="syncTableRetrievalBtn" style="margin-right:auto;">🔄 同步数据</button>
+                    <button type="submit" class="btn btn-primary">保存配置</button>
+                </div>
+                <div id="trError" class="error-message"></div>
+                <div id="trSuccess" class="success-message"></div>
             </form>
         </div>
     </div>
@@ -1452,27 +1474,6 @@
                             <span>启用嵌入模式</span>
                         </label>
                     </div>
-                </div>
-                <div class="settings-section">
-                    <h3 class="settings-section-title">数据备份与恢复</h3>
-                    <p class="settings-section-desc">导出或导入全部配置和数据，方便迁移和备份</p>
-                    <div id="backupStatsContainer" class="backup-stats-container">
-                        <div class="backup-stats-loading">加载中...</div>
-                    </div>
-                    <div class="backup-actions">
-                        <button type="button" class="btn btn-sm btn-primary" id="exportBackupBtn">导出备份</button>
-                        <div class="restore-group">
-                            <label class="btn btn-sm" id="importBackupLabel" for="importBackupFile">选择备份文件</label>
-                            <input type="file" id="importBackupFile" accept=".zip,.json" style="display:none;">
-                            <span id="importFileName" class="import-file-name" style="display:none;"></span>
-                            <select id="importMode" class="import-mode-select">
-                                <option value="merge">合并模式（只添加不存在的项）</option>
-                                <option value="overwrite">覆盖模式（完全替换）</option>
-                            </select>
-                            <button type="button" class="btn btn-sm btn-primary" id="importBackupBtn" style="display:none;">导入</button>
-                        </div>
-                    </div>
-                    <div id="backupMessage" class="backup-message"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn" id="resetTabSettingsBtn">恢复默认</button>
@@ -1657,27 +1658,6 @@
                                 <option value="GET">GET</option>
                             </select>
                         </div>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>开启分享</label>
-                    <div class="gov-toggle-wrap">
-                        <label class="gov-switch">
-                            <input type="checkbox" id="govShareEnabledInput" onchange="onGovShareEnabledChange()">
-                            <span class="gov-slider"></span>
-                        </label>
-                        <span id="govShareEnabledLabel">未开启</span>
-                    </div>
-                    <small>开启后，生成免鉴权分享链接，让其他人也能使用该任务</small>
-                </div>
-                <div id="govShareFields" style="display:none;">
-                    <div class="form-group">
-                        <label>分享链接</label>
-                        <div class="share-link-container">
-                            <input type="text" id="govShareLinkInput" readonly>
-                            <button type="button" class="btn btn-secondary" onclick="copyShareLink()">复制链接</button>
-                        </div>
-                        <small>分享此链接，其他人无需登录即可使用该任务</small>
                     </div>
                 </div>
                 <div class="form-group">
@@ -2014,6 +1994,6 @@
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
-    <script src="script.js?v=4.2.31"></script>
+    <script src="script.js?v=4.1.8"></script>
 </body>
 </html>

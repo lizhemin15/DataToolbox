@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.2.31');
-    await loadLazyScript('gov-api.js?v=4.2.31');
-    await loadLazyScript('governance.js?v=4.2.31');
+    await loadLazyScript('gov-shared.js?v=4.1.8');
+    await loadLazyScript('gov-api.js?v=4.1.8');
+    await loadLazyScript('governance.js?v=4.1.8');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.2.31');
+    await loadLazyScript('quality-audit.js?v=4.1.8');
 }
 
 
@@ -912,12 +912,20 @@ function initEventListeners() {
     });
     document.getElementById('aiSettingsForm').addEventListener('submit', handleSaveAiSettings);
     document.getElementById('detectCapabilitiesBtn').addEventListener('click', detectAiCapabilities);
-    document.getElementById('aiMinRelevance').addEventListener('input', function() {
-        document.getElementById('aiMinRelevanceValue').textContent = this.value;
-    });
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
+    
+    // 表检索配置按钮。
+    document.getElementById('tableRetrievalBtn').addEventListener('click', showTableRetrievalModal);
+    document.getElementById('closeTableRetrievalModal').addEventListener('click', hideTableRetrievalModal);
+    document.getElementById('tableRetrievalModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideTableRetrievalModal();
+        }
+    });
+    document.getElementById('tableRetrievalForm').addEventListener('submit', handleSaveTableRetrieval);
+    document.getElementById('syncTableRetrievalBtn').addEventListener('click', handleSyncTableRetrieval);
     
     // 设置面板按钮。
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
@@ -929,12 +937,7 @@ function initEventListeners() {
     });
     document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
     document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
-
-    // 数据备份与恢复按钮。
-    document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
-    document.getElementById('importBackupBtn').addEventListener('click', importBackup);
-    document.getElementById('importBackupFile').addEventListener('change', handleBackupFileSelect);
-
+    
     // AI 设置入口的事件绑定。
 
     const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
@@ -4433,22 +4436,6 @@ function showAiSettingsModal() {
             document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
         }
         document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
-        
-        // 表检索配置
-        if (aiConfig.table_retrieval) {
-            const tr = aiConfig.table_retrieval;
-            document.getElementById('aiRetrievalStrategy').value = tr.strategy || 'keyword';
-            document.getElementById('aiMaxTables').value = tr.max_tables || 15;
-            document.getElementById('aiMinRelevance').value = tr.min_relevance_score || 0.3;
-            document.getElementById('aiMinRelevanceValue').textContent = tr.min_relevance_score || 0.3;
-            document.getElementById('aiIncludeFields').checked = tr.include_fields !== false;
-            document.getElementById('aiMaxFields').value = tr.max_fields_per_table || 50;
-            if (tr.keyword_config && tr.keyword_config.match_fields) {
-                document.getElementById('aiMatchName').checked = tr.keyword_config.match_fields.includes('name');
-                document.getElementById('aiMatchComment').checked = tr.keyword_config.match_fields.includes('comment');
-                document.getElementById('aiMatchColumns').checked = tr.keyword_config.match_fields.includes('column_names');
-            }
-        }
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
@@ -4626,7 +4613,6 @@ let currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
 async function showSettingsModal() {
     document.getElementById('settingsModal').classList.add('show');
     await loadTabSettings();
-    await loadBackupStats();
 }
 
 // 关闭设置弹窗。
@@ -4718,280 +4704,16 @@ function resetTabSettings() {
     currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
     currentTabOrder = [...DEFAULT_TAB_ORDER];
     currentTabNames = {};
-
+    
     const container = document.getElementById('tabVisibilitySettings');
     if (container) {
         renderTabSettingsUI(container, currentTabVisibility);
     }
-
+    
     // 更新嵌入模式复选框
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = true; // 默认开启嵌入模式
-    }
-}
-
-// ====== 数据备份与恢复 ======
-
-// 加载备份统计信息
-async function loadBackupStats() {
-    const container = document.getElementById('backupStatsContainer');
-    if (!container) return;
-
-    try {
-        // 从 API 获取准确统计
-        const stats = {
-            databases: 0,
-            apis: 0,
-            tasks: 0,
-            users: 0,
-            llmModels: 0,
-            smallModels: 0,
-        };
-
-        // 从全局变量获取基础统计（快速显示）
-        if (typeof databases !== 'undefined' && databases) {
-            stats.databases = databases.length;
-        }
-        if (typeof apis !== 'undefined' && apis) {
-            stats.apis = apis.length;
-        }
-        if (typeof govTasks !== 'undefined' && govTasks) {
-            stats.tasks = govTasks.length;
-        }
-        if (typeof llmModels !== 'undefined' && llmModels) {
-            stats.llmModels = llmModels.length;
-        }
-        if (typeof smallModels !== 'undefined' && smallModels) {
-            stats.smallModels = smallModels.length;
-        }
-
-        // 异步获取用户数和 API 数（需要 admin 权限，且这些数据可能未加载）
-        if (typeof currentUser !== 'undefined' && currentUser === 'admin') {
-            try {
-                // 获取用户数
-                const usersResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/users`);
-                const usersData = await usersResp.json();
-                if (usersData.success && usersData.users) {
-                    stats.users = usersData.users.length;
-                }
-                
-                // 获取 API 数（apis 全局变量可能未初始化）
-                if (stats.apis === 0) {
-                    const apisResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/apis`);
-                    const apisData = await apisResp.json();
-                    if (apisData.success && apisData.apis) {
-                        stats.apis = apisData.apis.length;
-                    }
-                }
-                
-                // 获取任务数（govTasks 全局变量可能未初始化）
-                if (stats.tasks === 0) {
-                    const tasksResp = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks`);
-                    const tasksData = await tasksResp.json();
-                    if (tasksData.success && tasksData.tasks) {
-                        stats.tasks = tasksData.tasks.length;
-                    }
-                }
-            } catch (e) {
-                console.warn('获取统计数据失败', e);
-            }
-        }
-
-        container.innerHTML = `
-            <div class="backup-stats-grid">
-                <div class="backup-stat-item">
-                    <span class="stat-label">数据库</span>
-                    <span class="stat-value">${stats.databases}</span>
-                </div>
-                <div class="backup-stat-item">
-                    <span class="stat-label">API</span>
-                    <span class="stat-value">${stats.apis}</span>
-                </div>
-                <div class="backup-stat-item">
-                    <span class="stat-label">任务</span>
-                    <span class="stat-value">${stats.tasks}</span>
-                </div>
-                <div class="backup-stat-item">
-                    <span class="stat-label">用户</span>
-                    <span class="stat-value">${stats.users}</span>
-                </div>
-                <div class="backup-stat-item">
-                    <span class="stat-label">大模型</span>
-                    <span class="stat-value">${stats.llmModels}</span>
-                </div>
-                <div class="backup-stat-item">
-                    <span class="stat-label">小模型</span>
-                    <span class="stat-value">${stats.smallModels}</span>
-                </div>
-            </div>
-        `;
-    } catch (e) {
-        console.error('加载备份统计失败', e);
-        container.innerHTML = '<div class="backup-stats-loading">加载失败</div>';
-    }
-}
-
-// 导出备份（ZIP 格式，包含所有持久化数据）
-async function exportBackup() {
-    const messageDiv = document.getElementById('backupMessage');
-    messageDiv.className = 'backup-message info';
-    messageDiv.textContent = '正在导出备份（包含所有数据文件）...';
-
-    try {
-        const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/backup');
-        if (!resp.ok) {
-            const errData = await resp.json();
-            throw new Error(errData.message || '导出失败');
-        }
-
-        // 获取文件名
-        const contentDisp = resp.headers.get('Content-Disposition');
-        let filename = 'datatoolbox-backup.zip';
-        if (contentDisp) {
-            const match = contentDisp.match(/filename="?(.+?)"?(;|$)/);
-            if (match) filename = match[1];
-        }
-
-        // 下载文件
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
-        messageDiv.className = 'backup-message success';
-        messageDiv.textContent = `备份已导出：${filename}（${sizeMB}MB）`;
-        setTimeout(() => {
-            messageDiv.className = 'backup-message';
-            messageDiv.textContent = '';
-        }, 5000);
-    } catch (e) {
-        console.error('导出备份失败', e);
-        messageDiv.className = 'backup-message error';
-        messageDiv.textContent = '导出失败：' + e.message;
-    }
-}
-
-// 导入备份（支持 ZIP 和 JSON 格式）
-async function importBackup() {
-    const fileInput = document.getElementById('importBackupFile');
-    const modeSelect = document.getElementById('importMode');
-    const messageDiv = document.getElementById('backupMessage');
-
-    if (!fileInput.files || fileInput.files.length === 0) {
-        messageDiv.className = 'backup-message error';
-        messageDiv.textContent = '请先选择备份文件';
-        return;
-    }
-
-    const mode = modeSelect.value;
-    const file = fileInput.files[0];
-    const fileName = file.name.toLowerCase();
-
-    if (mode === 'overwrite') {
-        const confirmed = confirm('覆盖模式将完全替换所有现有数据（包括文件和数据库），此操作不可撤销！\n\n确定要继续吗？');
-        if (!confirmed) {
-            return;
-        }
-    }
-
-    messageDiv.className = 'backup-message info';
-    messageDiv.textContent = '正在导入备份...';
-
-    try {
-        if (fileName.endsWith('.zip')) {
-            // ZIP 格式：使用 multipart/form-data 上传
-            const formData = new FormData();
-            formData.append('backup', file);
-            formData.append('mode', mode);
-
-            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore-upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await resp.json();
-            if (!result.success) {
-                throw new Error(result.message || '导入失败');
-            }
-
-            let successMsg = '导入成功！';
-            const data = result.data || result;
-            if (mode === 'overwrite') {
-                successMsg += ` 已导入 ${data.databases_count || 0} 个数据库，${data.apis_count || 0} 个API，${data.tasks_count || 0} 个任务`;
-                if (data.files_restored) {
-                    successMsg += `，${data.files_restored} 个文件`;
-                }
-            } else {
-                successMsg += ` 新增 ${data.users_added || 0} 个用户，${data.databases_added || 0} 个数据库，${data.apis_added || 0} 个API，${data.tasks_added || 0} 个任务`;
-                if (data.files_restored) {
-                    successMsg += `，${data.files_restored} 个文件`;
-                }
-            }
-
-            messageDiv.className = 'backup-message success';
-            messageDiv.textContent = successMsg;
-        } else if (fileName.endsWith('.json')) {
-            // JSON 格式：使用 restore-upload 端点（multipart 上传）
-            const formData = new FormData();
-            formData.append('backup', file);
-            formData.append('mode', mode || 'merge');  // 默认 merge 模式
-
-            const resp = await fetchWithAuth(API_BASE + '/api/data-ontology/restore-upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await resp.json();
-            if (!result.success) {
-                throw new Error(result.message || '导入失败');
-            }
-
-            let successMsg = '导入成功！';
-            if (mode === 'overwrite') {
-                successMsg += ` 已导入 ${result.databases_count || 0} 个数据库，${result.apis_count || 0} 个API，${result.tasks_count || 0} 个任务`;
-            } else {
-                successMsg += ` 新增 ${result.users_added || 0} 个用户，${result.databases_added || 0} 个数据库，${result.apis_added || 0} 个API，${result.tasks_added || 0} 个任务`;
-            }
-
-            messageDiv.className = 'backup-message success';
-            messageDiv.textContent = successMsg;
-        } else {
-            throw new Error('不支持的文件格式，请选择 .zip 或 .json 文件');
-        }
-
-        // 刷新页面以加载新数据
-        setTimeout(() => {
-            if (confirm('数据已成功导入，需要刷新页面以加载新数据。是否立即刷新？')) {
-                window.location.reload();
-            }
-        }, 1000);
-    } catch (e) {
-        console.error('导入备份失败', e);
-        messageDiv.className = 'backup-message error';
-        messageDiv.textContent = '导入失败：' + e.message;
-    }
-}
-
-// 处理文件选择
-function handleBackupFileSelect(event) {
-    const file = event.target.files[0];
-    const fileNameSpan = document.getElementById('importFileName');
-    const importBtn = document.getElementById('importBackupBtn');
-
-    if (file) {
-        fileNameSpan.textContent = file.name;
-        fileNameSpan.style.display = 'inline';
-        importBtn.style.display = 'inline-block';
-    } else {
-        fileNameSpan.style.display = 'none';
-        importBtn.style.display = 'none';
     }
 }
 
@@ -5300,22 +5022,7 @@ async function handleSaveAiSettings(e) {
         enable_thinking: document.getElementById('aiEnableThinking').checked,
         enable_streaming: document.getElementById('aiEnableStreaming').checked,
         enable_json_mode: document.getElementById('aiEnableJSONMode').checked,
-        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0,
-        // 表检索配置
-        table_retrieval: {
-            strategy: document.getElementById('aiRetrievalStrategy').value,
-            max_tables: parseInt(document.getElementById('aiMaxTables').value, 10) || 15,
-            min_relevance_score: parseFloat(document.getElementById('aiMinRelevance').value) || 0.3,
-            keyword_config: {
-                match_fields: [
-                    document.getElementById('aiMatchName').checked ? 'name' : null,
-                    document.getElementById('aiMatchComment').checked ? 'comment' : null,
-                    document.getElementById('aiMatchColumns').checked ? 'column_names' : null
-                ].filter(Boolean)
-            },
-            include_fields: document.getElementById('aiIncludeFields').checked,
-            max_fields_per_table: parseInt(document.getElementById('aiMaxFields').value, 10) || 50
-        }
+        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0
     };
 
     const errorEl = document.getElementById('aiSettingsError');
@@ -7587,13 +7294,6 @@ function editGovTask() {
     document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
     document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
     document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
-    // 分享设置
-    document.getElementById('govShareEnabledInput').checked = currentGovTask.share_enabled || false;
-    document.getElementById('govShareEnabledLabel').textContent = currentGovTask.share_enabled ? '已开启' : '未开启';
-    document.getElementById('govShareFields').style.display = currentGovTask.share_enabled ? '' : 'none';
-    if (currentGovTask.share_enabled && currentGovTask.share_token) {
-        updateShareLink(currentGovTask.share_token);
-    }
     const currentRunMode = currentGovTask.run_mode || currentGovTask.execution_mode || currentGovTask.exec_mode || 'backend';
     const runModeSelect = document.getElementById('govRunModeSelect');
     if (runModeSelect) runModeSelect.value = currentRunMode;
@@ -7667,7 +7367,7 @@ function onGovRegisterAPIChange() {
     const checked = document.getElementById('govRegisterAPIInput').checked;
     document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
     document.getElementById('govRegisterAPILabel').textContent = checked ? '启用' : '关闭';
-
+    
     // 若启用 API 注册，则自动生成路径。
     if (checked && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
@@ -7675,54 +7375,6 @@ function onGovRegisterAPIChange() {
             const initials = chineseToPinyinInitials(taskName);
             document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
         }
-    }
-}
-
-function onGovShareEnabledChange() {
-    const checked = document.getElementById('govShareEnabledInput').checked;
-    document.getElementById('govShareFields').style.display = checked ? '' : 'none';
-    document.getElementById('govShareEnabledLabel').textContent = checked ? '已开启' : '未开启';
-
-    if (checked && currentGovTask && currentGovTask.share_token) {
-        updateShareLink(currentGovTask.share_token);
-    }
-}
-
-function updateShareLink(shareToken) {
-    const baseUrl = window.location.origin;
-    const shareLink = `${baseUrl}/share/${shareToken}`;
-    document.getElementById('govShareLinkInput').value = shareLink;
-}
-
-function copyShareLink() {
-    const input = document.getElementById('govShareLinkInput');
-    input.select();
-    document.execCommand('copy');
-    alert('分享链接已复制到剪贴板');
-}
-
-async function toggleGovTaskShare(taskId, enable) {
-    try {
-        const url = `${API_BASE}/api/data-ontology/governance/tasks/${taskId}/share`;
-        const method = enable ? 'POST' : 'DELETE';
-        const response = await fetchWithAuth(url, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        const data = await response.json();
-        if (data.success) {
-            await loadGovernanceTasks();
-            return data;
-        } else {
-            alert('操作失败: ' + data.message);
-            return null;
-        }
-    } catch (error) {
-        console.error('切换分享状态失败:', error);
-        alert('操作失败');
-        return null;
     }
 }
 
@@ -7739,7 +7391,6 @@ async function handleGovTaskSubmit(e) {
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
     const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
-    const shareEnabled = document.getElementById('govShareEnabledInput').checked;
     const runMode = document.getElementById('govRunModeSelect') ? document.getElementById('govRunModeSelect').value : (currentGovTask?.run_mode || 'backend');
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
@@ -7755,7 +7406,6 @@ async function handleGovTaskSubmit(e) {
         register_as_api: registerAsAPI,
         api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
-        share_enabled: shareEnabled,
         run_mode: runMode,
         execution_mode: runMode
     };
@@ -11752,5 +11402,173 @@ async function saveMcpPort() {
     } catch (e) {
         console.error('保存 MCP 端口配置失败:', e);
         showToast('保存失败', 'error');
+    }
+}
+
+// ==================== 表检索配置 ====================
+
+let tableRetrievalConfig = null;
+let embeddingConfig = null;
+
+// 显示表检索配置弹窗
+async function showTableRetrievalModal() {
+    const modal = document.getElementById('tableRetrievalModal');
+    modal.style.display = 'flex';
+    await loadTableRetrievalConfig();
+    await loadEmbeddingConfig();
+}
+
+// 隐藏表检索配置弹窗
+function hideTableRetrievalModal() {
+    document.getElementById('tableRetrievalModal').style.display = 'none';
+}
+
+// 加载表检索配置
+async function loadTableRetrievalConfig() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/table-retrieval-config`);
+        const data = await response.json();
+        if (data.success && data.config) {
+            tableRetrievalConfig = data.config;
+            // 填充表单
+            document.getElementById('trStrategy').value = tableRetrievalConfig.strategy || 'hybrid';
+            document.getElementById('trMaxTables').value = tableRetrievalConfig.max_tables || 15;
+            document.getElementById('trKeywordWeight').value = tableRetrievalConfig.keyword_weight || 0.4;
+            document.getElementById('trVectorWeight').value = tableRetrievalConfig.vector_weight || 0.3;
+            document.getElementById('trGraphWeight').value = tableRetrievalConfig.graph_weight || 0.3;
+            if (tableRetrievalConfig.graph_config) {
+                document.getElementById('trGraphDepth').value = tableRetrievalConfig.graph_config.max_depth || 2;
+            }
+        }
+    } catch (error) {
+        console.error('加载表检索配置失败:', error);
+    }
+}
+
+// 加载 Embedding 配置
+async function loadEmbeddingConfig() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`);
+        const data = await response.json();
+        if (data.success && data.config) {
+            embeddingConfig = data.config;
+            // 填充表单
+            document.getElementById('embEnabled').checked = embeddingConfig.enabled || false;
+            document.getElementById('embUrl').value = embeddingConfig.url || '';
+            document.getElementById('embApiKey').value = embeddingConfig.api_key || '';
+            document.getElementById('embModel').value = embeddingConfig.model || '';
+            document.getElementById('embDimension').value = embeddingConfig.dimension || 1024;
+        }
+    } catch (error) {
+        console.error('加载 Embedding 配置失败:', error);
+    }
+}
+
+// 保存表检索配置
+async function handleSaveTableRetrieval(e) {
+    e.preventDefault();
+    
+    const errorEl = document.getElementById('trError');
+    const successEl = document.getElementById('trSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    // 收集表检索配置
+    const trConfig = {
+        strategy: document.getElementById('trStrategy').value,
+        max_tables: parseInt(document.getElementById('trMaxTables').value, 10) || 15,
+        keyword_weight: parseFloat(document.getElementById('trKeywordWeight').value) || 0.4,
+        vector_weight: parseFloat(document.getElementById('trVectorWeight').value) || 0.3,
+        graph_weight: parseFloat(document.getElementById('trGraphWeight').value) || 0.3,
+        graph_config: {
+            max_depth: parseInt(document.getElementById('trGraphDepth').value, 10) || 2
+        }
+    };
+    
+    // 收集 Embedding 配置
+    const embConfig = {
+        enabled: document.getElementById('embEnabled').checked,
+        url: document.getElementById('embUrl').value,
+        api_key: document.getElementById('embApiKey').value,
+        model: document.getElementById('embModel').value,
+        dimension: parseInt(document.getElementById('embDimension').value, 10) || 1024
+    };
+    
+    try {
+        // 保存表检索配置
+        const trResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/table-retrieval-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(trConfig)
+        });
+        const trData = await trResponse.json();
+        
+        // 保存 Embedding 配置
+        const embResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(embConfig)
+        });
+        const embData = await embResponse.json();
+        
+        if (trData.success && embData.success) {
+            tableRetrievalConfig = trConfig;
+            embeddingConfig = embConfig;
+            successEl.textContent = '配置已保存';
+            successEl.classList.add('show');
+            setTimeout(() => successEl.classList.remove('show'), 2000);
+        } else {
+            errorEl.textContent = (trData.message || '') + ' ' + (embData.message || '');
+            errorEl.classList.add('show');
+        }
+    } catch (error) {
+        errorEl.textContent = '保存失败: ' + error.message;
+        errorEl.classList.add('show');
+    }
+}
+
+// 同步表检索数据
+async function handleSyncTableRetrieval() {
+    const btn = document.getElementById('syncTableRetrievalBtn');
+    const originalText = btn.textContent;
+    btn.textContent = '同步中...';
+    btn.disabled = true;
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            btn.textContent = '同步已启动';
+            // 轮询检查状态
+            setTimeout(async () => {
+                const statusResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+                const statusData = await statusResponse.json();
+                if (statusData.success) {
+                    const total = statusData.total_vectors || 0;
+                    btn.textContent = `已完成 (${total} 向量)`;
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            }, 10000);
+        } else {
+            btn.textContent = '同步失败';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }, 2000);
+        }
+    } catch (error) {
+        btn.textContent = '同步失败';
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }, 2000);
     }
 }
