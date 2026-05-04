@@ -903,6 +903,8 @@ type AIConfig struct {
 	ContextWindowOverride int    `json:"context_window_override,omitempty"` // 手动指定上下文窗口大小（0 表示自动检测）
 	// 表检索配置（用于 AI 创建接口时筛选相关表）
 	TableRetrieval *TableRetrievalConfig `json:"table_retrieval,omitempty"`
+	// Embedding 配置（用于向量检索）
+	Embedding EmbeddingRetrievalConfig `json:"embedding"`
 }
 
 // TableRetrievalConfig 表检索配置
@@ -921,6 +923,10 @@ type TableRetrievalConfig struct {
 	IncludeFields bool `json:"include_fields,omitempty"` // 默认 true
 	// 字段数量上限（每张表最多返回多少字段）
 	MaxFieldsPerTable int `json:"max_fields_per_table,omitempty"` // 默认 50
+	// 向量检索权重（hybrid 策略时使用）
+	VectorWeight float64 `json:"vector_weight,omitempty"` // 默认 0.5
+	// 关键词检索权重（hybrid 策略时使用）
+	KeywordWeight float64 `json:"keyword_weight,omitempty"` // 默认 0.5
 }
 
 // KeywordRetrievalConfig 关键词检索配置
@@ -929,9 +935,13 @@ type KeywordRetrievalConfig struct {
 	MatchFields []string `json:"match_fields,omitempty"` // 默认 ["name", "comment", "column_names"]
 }
 
-// EmbeddingRetrievalConfig Embedding 检索配置（预留）
+// EmbeddingRetrievalConfig Embedding 检索配置
 type EmbeddingRetrievalConfig struct {
-	Model string `json:"model,omitempty"` // embedding 模型
+	URL       string `json:"url,omitempty"`        // embedding API 地址
+	APIKey    string `json:"api_key,omitempty"`    // API key
+	Model     string `json:"model,omitempty"`       // 模型名，如 "BAAI/bge-large-zh-v1.5"
+	Dimension int    `json:"dimension,omitempty"`   // 向量维度，默认 1024
+	Enabled   bool   `json:"enabled,omitempty"`     // 是否启用向量检索
 }
 
 // TableRelevanceResult 表检索结果
@@ -3779,6 +3789,39 @@ func keywordRetrieveTables(query string, tables []TableInfo, config *KeywordRetr
 	return results
 }
 
+// mergeRetrievalResults 合并关键词和向量检索结果（加权平均）
+func mergeRetrievalResults(keywordResults, vectorResults []TableRelevanceResult, keywordWeight, vectorWeight float64) []TableRelevanceResult {
+	// 用 map 存储每个表的加权分数
+	scoreMap := make(map[string]float64)
+
+	// 加权关键词结果
+	for _, r := range keywordResults {
+		scoreMap[r.TableName] += r.RelevanceScore * keywordWeight
+	}
+
+	// 加权向量结果
+	for _, r := range vectorResults {
+		scoreMap[r.TableName] += r.RelevanceScore * vectorWeight
+	}
+
+	// 转换为结果列表
+	results := make([]TableRelevanceResult, 0, len(scoreMap))
+	for tableName, score := range scoreMap {
+		results = append(results, TableRelevanceResult{
+			TableName:      tableName,
+			RelevanceScore: score,
+			MatchReason:    "混合检索",
+		})
+	}
+
+	// 按分数降序排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	return results
+}
+
 // retrieveRelevantTables 主检索函数
 func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *TableRetrievalConfig) ([]TableRelevanceResult, error) {
 	// 默认配置
@@ -3786,6 +3829,8 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 	maxTables := 15
 	minRelevanceScore := 0.3
 	var keywordConfig *KeywordRetrievalConfig
+	vectorWeight := 0.5
+	keywordWeight := 0.5
 
 	if config != nil {
 		if config.Strategy != "" {
@@ -3798,27 +3843,79 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 			minRelevanceScore = config.MinRelevanceScore
 		}
 		keywordConfig = config.KeywordConfig
+		if config.VectorWeight > 0 {
+			vectorWeight = config.VectorWeight
+		}
+		if config.KeywordWeight > 0 {
+			keywordWeight = config.KeywordWeight
+		}
 	}
 
+	// 获取 embedding 配置
+	var embeddingConfig EmbeddingRetrievalConfig
+	if dataOntologyAIConfig != nil {
+		embeddingConfig = dataOntologyAIConfig.Embedding
+	}
+
+	manager := getFTS5Manager()
+
 	// 尝试使用 FTS5 检索（优先使用 SQLite FTS5 索引，大幅提升 3 万+表检索性能）
-	if manager := getFTS5Manager(); manager != nil {
-		ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2) // 多取一些再做过滤
-		if err == nil && len(ftsResults) > 0 {
-			// 过滤低分结果
-			var filteredResults []TableRelevanceResult
-			for _, r := range ftsResults {
-				if r.RelevanceScore >= minRelevanceScore {
-					filteredResults = append(filteredResults, r)
+	if manager != nil {
+		// 根据策略选择检索方法
+		var results []TableRelevanceResult
+
+		switch strategy {
+		case "embedding":
+			// 纯向量检索
+			if embeddingConfig.Enabled && embeddingConfig.URL != "" {
+				vectorResults, err := manager.vectorRetrieveTables(query, dbConfig.ID, maxTables*2, embeddingConfig)
+				if err == nil && len(vectorResults) > 0 {
+					results = vectorResults
+				} else {
+					log.Printf("[表检索] 向量检索失败，降级为 FTS5 关键词检索: %v", err)
+					ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
+					if err == nil && len(ftsResults) > 0 {
+						results = ftsResults
+					}
+				}
+			} else {
+				log.Printf("[表检索] embedding 未配置，降级为 FTS5 关键词检索")
+				ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
+				if err == nil && len(ftsResults) > 0 {
+					results = ftsResults
 				}
 			}
-			// 限制返回数量
-			if len(filteredResults) > maxTables {
-				filteredResults = filteredResults[:maxTables]
+
+		case "hybrid":
+			// 混合检索：关键词 + 向量
+			ftsResults, _ := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
+			var vectorResults []TableRelevanceResult
+			if embeddingConfig.Enabled && embeddingConfig.URL != "" {
+				vectorResults, _ = manager.vectorRetrieveTables(query, dbConfig.ID, maxTables*2, embeddingConfig)
 			}
-			return filteredResults, nil
+
+			// 合并结果（加权平均）
+			results = mergeRetrievalResults(ftsResults, vectorResults, keywordWeight, vectorWeight)
+
+		default: // "keyword"
+			ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
+			if err == nil && len(ftsResults) > 0 {
+				results = ftsResults
+			}
 		}
-		// FTS5 无结果时降级到内存检索
-		log.Printf("[表检索] FTS5 无结果，降级为内存关键词检索")
+
+		// 过滤低分结果
+		var filteredResults []TableRelevanceResult
+		for _, r := range results {
+			if r.RelevanceScore >= minRelevanceScore {
+				filteredResults = append(filteredResults, r)
+			}
+		}
+		// 限制返回数量
+		if len(filteredResults) > maxTables {
+			filteredResults = filteredResults[:maxTables]
+		}
+		return filteredResults, nil
 	}
 
 	// 降级方案：从数据库实时获取所有表信息，使用内存检索
@@ -3832,10 +3929,10 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 
 	switch strategy {
 	case "embedding":
-		log.Printf("[表检索] embedding 策略暂未实现，降级为 keyword 策略")
+		log.Printf("[表检索] embedding 策略需要 FTS5Manager，降级为 keyword 策略")
 		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
 	case "hybrid":
-		log.Printf("[表检索] hybrid 策略暂未实现，降级为 keyword 策略")
+		log.Printf("[表检索] hybrid 策略需要 FTS5Manager，降级为 keyword 策略")
 		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
 	default: // "keyword"
 		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
@@ -16676,6 +16773,23 @@ func (m *FTS5Manager) initSchema() error {
 		return err
 	}
 
+	// 向量表：存储 embedding 向量
+	_, err = m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS vectors (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			database_id TEXT NOT NULL,
+			table_name TEXT NOT NULL,
+			embedding BLOB NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(database_id, table_name)
+		);
+		CREATE INDEX IF NOT EXISTS idx_vectors_database ON vectors(database_id);
+	`)
+	if err != nil {
+		return err
+	}
+
 	// 触发器：保持 FTS 索引同步
 	triggers := []string{
 		`CREATE TRIGGER IF NOT EXISTS tables_ai AFTER INSERT ON tables BEGIN
@@ -16827,11 +16941,21 @@ func (m *FTS5Manager) syncAllDatabases() error {
 	for _, db := range dataOntologyDatabases {
 		configs = append(configs, db)
 	}
+	embeddingConfig := EmbeddingRetrievalConfig{}
+	if dataOntologyAIConfig != nil {
+		embeddingConfig = dataOntologyAIConfig.Embedding
+	}
 	dataOntologyMu.RUnlock()
 
 	for _, dbConfig := range configs {
 		if err := m.syncTablesToSQLite(dbConfig); err != nil {
 			log.Printf("[表检索] 同步数据库 %s 失败: %v", dbConfig.Name, err)
+		}
+		// 如果 embedding 启用，同步向量
+		if embeddingConfig.Enabled && embeddingConfig.URL != "" {
+			if err := m.syncVectorsToSQLite(dbConfig, embeddingConfig); err != nil {
+				log.Printf("[表检索] 同步数据库 %s 向量失败: %v", dbConfig.Name, err)
+			}
 		}
 	}
 
@@ -16853,6 +16977,290 @@ func (m *FTS5Manager) getStats() (int, map[string]int, error) {
 	}
 
 	rows, err := m.db.Query("SELECT database_id, COUNT(*) as count FROM tables GROUP BY database_id")
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+
+	dbStats := make(map[string]int)
+	for rows.Next() {
+		var dbID string
+		var count int
+		if err := rows.Scan(&dbID, &count); err == nil {
+			dbStats[dbID] = count
+		}
+	}
+
+	return totalCount, dbStats, nil
+}
+
+// ============================================================
+// 向量检索（余弦相似度）- Phase 2
+// ============================================================
+
+// generateEmbedding 调用 embedding API 生成向量
+func generateEmbedding(text string, config EmbeddingRetrievalConfig) ([]float32, error) {
+	if !config.Enabled || config.URL == "" {
+		return nil, fmt.Errorf("embedding 未启用或未配置")
+	}
+
+	// 构建请求 payload（兼容 OpenAI/SiliconFlow 格式）
+	payload := map[string]interface{}{
+		"model": config.Model,
+		"input": text,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", config.URL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if config.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+config.APIKey)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求 embedding API 失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("embedding API 返回错误 %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("解析 embedding 响应失败: %w", err)
+	}
+
+	if result.Error.Message != "" {
+		return nil, fmt.Errorf("embedding API 错误: %s", result.Error.Message)
+	}
+
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("embedding API 返回空向量")
+	}
+
+	// 转换 float64 -> float32
+	embedding := make([]float32, len(result.Data[0].Embedding))
+	for i, v := range result.Data[0].Embedding {
+		embedding[i] = float32(v)
+	}
+
+	return embedding, nil
+}
+
+// float32SliceToBytes 将 float32 切片序列化为字节
+func float32SliceToBytes(vec []float32) []byte {
+	buf := new(bytes.Buffer)
+	for _, v := range vec {
+		binary.Write(buf, binary.LittleEndian, v)
+	}
+	return buf.Bytes()
+}
+
+// bytesToFloat32Slice 将字节反序列化为 float32 切片
+func bytesToFloat32Slice(data []byte) ([]float32, error) {
+	if len(data)%4 != 0 {
+		return nil, fmt.Errorf("无效的向量数据长度: %d", len(data))
+	}
+	vec := make([]float32, len(data)/4)
+	buf := bytes.NewReader(data)
+	for i := range vec {
+		if err := binary.Read(buf, binary.LittleEndian, &vec[i]); err != nil {
+			return nil, err
+		}
+	}
+	return vec, nil
+}
+
+// cosineSimilarity 计算余弦相似度
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dotProduct, normA, normB float64
+	for i := range a {
+		af := float64(a[i])
+		bf := float64(b[i])
+		dotProduct += af * bf
+		normA += af * af
+		normB += bf * bf
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// syncVectorsToSQLite 同步向量到 SQLite
+func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingConfig EmbeddingRetrievalConfig) error {
+	if m == nil || m.db == nil {
+		return nil
+	}
+	if !embeddingConfig.Enabled || embeddingConfig.URL == "" {
+		return nil
+	}
+
+	// 获取表列表
+	tableInfos, err := getTableInfoList(dbConfig)
+	if err != nil {
+		return fmt.Errorf("获取表列表失败: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 删除该数据库的旧向量
+	if _, err := tx.Exec("DELETE FROM vectors WHERE database_id = ?", dbConfig.ID); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO vectors (database_id, table_name, embedding, updated_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	successCount := 0
+	for _, ti := range tableInfos {
+		// 构建 embedding 文本：表名 + 注释
+		text := ti.Name
+		if ti.Comment != "" {
+			text = ti.Name + " " + ti.Comment
+		}
+
+		embedding, err := generateEmbedding(text, embeddingConfig)
+		if err != nil {
+			log.Printf("[表检索] 生成 embedding 失败 (%s): %v", ti.Name, err)
+			continue
+		}
+
+		embeddingBytes := float32SliceToBytes(embedding)
+		if _, err := stmt.Exec(dbConfig.ID, ti.Name, embeddingBytes); err != nil {
+			log.Printf("[表检索] 插入向量失败 (%s): %v", ti.Name, err)
+			continue
+		}
+		successCount++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	log.Printf("[表检索] 数据库 %s 同步向量完成: %d/%d", dbConfig.Name, successCount, len(tableInfos))
+	return nil
+}
+
+// vectorRetrieveTables 向量检索表
+func (m *FTS5Manager) vectorRetrieveTables(query string, databaseID string, limit int, embeddingConfig EmbeddingRetrievalConfig) ([]TableRelevanceResult, error) {
+	if m == nil || m.db == nil {
+		return nil, sql.ErrConnDone
+	}
+	if !embeddingConfig.Enabled || embeddingConfig.URL == "" {
+		return nil, fmt.Errorf("embedding 未启用或未配置")
+	}
+
+	// 1. 生成 query 的 embedding
+	queryEmbedding, err := generateEmbedding(query, embeddingConfig)
+	if err != nil {
+		return nil, fmt.Errorf("生成查询向量失败: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// 2. 从 vectors 表读取所有向量（按 dbID 过滤）
+	rows, err := m.db.Query("SELECT table_name, embedding FROM vectors WHERE database_id = ?", databaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// 3. 计算余弦相似度
+	type candidate struct {
+		tableName string
+		score     float64
+	}
+	var candidates []candidate
+
+	for rows.Next() {
+		var tableName string
+		var embeddingBytes []byte
+		if err := rows.Scan(&tableName, &embeddingBytes); err != nil {
+			continue
+		}
+
+		vec, err := bytesToFloat32Slice(embeddingBytes)
+		if err != nil {
+			log.Printf("[表检索] 反序列化向量失败 (%s): %v", tableName, err)
+			continue
+		}
+
+		similarity := cosineSimilarity(queryEmbedding, vec)
+		candidates = append(candidates, candidate{tableName: tableName, score: similarity})
+	}
+
+	// 4. 按相似度排序
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+
+	// 5. 返回 topK
+	if limit > len(candidates) {
+		limit = len(candidates)
+	}
+
+	results := make([]TableRelevanceResult, 0, limit)
+	for i := 0; i < limit; i++ {
+		results = append(results, TableRelevanceResult{
+			TableName:      candidates[i].tableName,
+			RelevanceScore: candidates[i].score,
+			MatchReason:    "向量相似度",
+		})
+	}
+
+	return results, nil
+}
+
+// getVectorStats 获取向量索引统计信息
+func (m *FTS5Manager) getVectorStats() (int, map[string]int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return 0, nil, sql.ErrConnDone
+	}
+
+	var totalCount int
+	if err := m.db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&totalCount); err != nil {
+		return 0, nil, err
+	}
+
+	rows, err := m.db.Query("SELECT database_id, COUNT(*) as count FROM vectors GROUP BY database_id")
 	if err != nil {
 		return 0, nil, err
 	}
