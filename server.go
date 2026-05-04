@@ -6215,7 +6215,8 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 同步整个数据库的向量（增量模式）
-	if err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding); err != nil {
+	added, deleted, err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding)
+	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "同步向量失败: " + err.Error(),
@@ -6233,10 +6234,8 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	synced := 0
-	if count, ok := dbVectorStats[req.DbID]; ok {
-		synced = count
-	}
+	synced := added
+	_ = dbVectorStats // 不再需要从统计中获取
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -18715,18 +18714,18 @@ func (m *FTS5Manager) getVectorList(databaseID string) ([]map[string]interface{}
 }
 
 // syncVectorsToSQLite 增量同步向量到 SQLite
-func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingConfig EmbeddingRetrievalConfig) error {
+func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingConfig EmbeddingRetrievalConfig) (added int, deleted int, err error) {
 	if m == nil || m.db == nil {
-		return nil
+		return 0, 0, nil
 	}
 	if !embeddingConfig.Enabled || embeddingConfig.URL == "" {
-		return nil
+		return 0, 0, nil
 	}
 
 	// 获取表列表
 	tableInfos, err := getTableInfoList(dbConfig)
 	if err != nil {
-		return fmt.Errorf("获取表列表失败: %w", err)
+		return 0, 0, fmt.Errorf("获取表列表失败: %w", err)
 	}
 
 	m.mu.Lock()
@@ -18736,7 +18735,7 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 	existingVectors := make(map[string]time.Time)
 	rows, err := m.db.Query("SELECT table_name, updated_at FROM vectors WHERE database_id = ?", dbConfig.ID)
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	for rows.Next() {
 		var tableName string
@@ -18777,14 +18776,14 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 
 	if len(toDelete) == 0 && len(toSync) == 0 {
 		log.Printf("[表检索] 数据库 %s 向量已是最新，无需同步", dbConfig.Name)
-		return nil
+		return 0, 0, nil
 	}
 
 	log.Printf("[表检索] 数据库 %s 增量同步: 删除 %d 个, 新增 %d 个", dbConfig.Name, len(toDelete), len(toSync))
 
 	tx, err := m.db.Begin()
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	defer tx.Rollback()
 
@@ -18792,7 +18791,7 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 	if len(toDelete) > 0 {
 		stmt, err := tx.Prepare("DELETE FROM vectors WHERE database_id = ? AND table_name = ?")
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		for _, tableName := range toDelete {
 			if _, err := stmt.Exec(dbConfig.ID, tableName); err != nil {
@@ -18800,6 +18799,7 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 			}
 		}
 		stmt.Close()
+		deleted = len(toDelete)
 	}
 
 	// 新增/更新向量
@@ -18810,7 +18810,7 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 		`)
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		defer stmt.Close()
 
@@ -18838,19 +18838,20 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 			successCount++
 		}
 		log.Printf("[表检索] 数据库 %s 新增向量: %d/%d", dbConfig.Name, successCount, len(toSync))
+		added = successCount
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return 0, 0, err
 	}
 
 	log.Printf("[表检索] 数据库 %s 增量同步完成", dbConfig.Name)
 
 	// 如果有错误，返回错误信息
 	if len(errors) > 0 {
-		return fmt.Errorf("部分表生成向量失败: %s", strings.Join(errors, "; "))
+		return added, deleted, fmt.Errorf("部分表生成向量失败: %s", strings.Join(errors, "; "))
 	}
-	return nil
+	return added, deleted, nil
 }
 
 // vectorRetrieveTables 向量检索表

@@ -11760,24 +11760,59 @@ async function handleVectorIndex() {
         return;
     }
 
-    // 创建进度弹窗
+    // 创建同步模式选择弹窗
     const modalHtml = `
         <div id="vectorIndexModal" class="modal" style="display:flex;">
-            <div class="modal-content" style="max-width:500px;">
+            <div class="modal-content" style="max-width:550px;">
                 <div class="modal-header">
                     <h2>🔤 建立向量索引</h2>
                 </div>
                 <div class="modal-body">
-                    <div style="padding:20px;text-align:center;">
-                        <div id="vectorIndexProgress" style="margin-bottom:16px;">
-                            <div style="font-size:14px;color:#666;">正在建立向量索引...</div>
-                            <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
+                    <div style="padding:20px;">
+                        <div style="margin-bottom:20px;font-size:14px;color:#666;">
+                            数据库: <strong>${currentDb.name}</strong>
                         </div>
-                        <div id="vectorIndexResult" style="display:none;"></div>
+
+                        <div style="margin-bottom:16px;">
+                            <label style="display:flex;align-items:flex-start;cursor:pointer;padding:12px;border:2px solid #e0e0e0;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4CAF50'" onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='#e0e0e0'" onclick="document.querySelectorAll('#vectorIndexModal input[name=syncMode]').forEach(r=>{r.parentElement.parentElement.style.borderColor='#e0e0e0'});this.style.borderColor='#4CAF50'">
+                                <input type="radio" name="syncMode" value="incremental" checked style="margin-top:3px;margin-right:12px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:15px;font-weight:500;color:#333;">增量同步</div>
+                                    <div style="font-size:12px;color:#888;margin-top:4px;">只处理新增、删除或修改的表，速度快，适合日常更新</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div style="margin-bottom:16px;">
+                            <label style="display:flex;align-items:flex-start;cursor:pointer;padding:12px;border:2px solid #e0e0e0;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4CAF50'" onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='#e0e0e0'" onclick="document.querySelectorAll('#vectorIndexModal input[name=syncMode]').forEach(r=>{r.parentElement.parentElement.style.borderColor='#e0e0e0'});this.style.borderColor='#4CAF50'">
+                                <input type="radio" name="syncMode" value="full" style="margin-top:3px;margin-right:12px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:15px;font-weight:500;color:#333;">全量同步</div>
+                                    <div style="font-size:12px;color:#888;margin-top:4px;">重新处理所有表，适合数据结构发生重大变化时使用</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div style="margin-bottom:16px;">
+                            <label style="display:flex;align-items:flex-start;cursor:pointer;padding:12px;border:2px solid #e0e0e0;border-radius:6px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4CAF50'" onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='#e0e0e0'" onclick="document.querySelectorAll('#vectorIndexModal input[name=syncMode]').forEach(r=>{r.parentElement.parentElement.style.borderColor='#e0e0e0'});this.style.borderColor='#4CAF50'">
+                                <input type="radio" name="syncMode" value="range" style="margin-top:3px;margin-right:12px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:15px;font-weight:500;color:#333;">选定范围</div>
+                                    <div style="font-size:12px;color:#888;margin-top:4px;">指定表范围同步，支持通配符（如 user_*）</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div id="tableFilterInput" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:4px;">
+                            <label style="display:block;font-size:13px;font-weight:500;color:#555;margin-bottom:6px;">表名模式：</label>
+                            <input type="text" id="tableFilter" placeholder="例如: user_* 或 table1,table2" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;" />
+                            <div style="font-size:11px;color:#999;margin-top:4px;">支持通配符 * 和 ?，多个表用逗号分隔</div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeVectorIndexModal()">关闭</button>
+                    <button type="button" class="btn btn-primary" onclick="executeVectorIndex()">开始同步</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeVectorIndexModal()">取消</button>
                 </div>
             </div>
         </div>
@@ -11785,11 +11820,71 @@ async function handleVectorIndex() {
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 
+    // 监听单选按钮变化，显示/隐藏表范围输入框
+    document.querySelectorAll('#vectorIndexModal input[name=syncMode]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const tableFilterInput = document.getElementById('tableFilterInput');
+            if (this.value === 'range') {
+                tableFilterInput.style.display = 'block';
+            } else {
+                tableFilterInput.style.display = 'none';
+            }
+        });
+    });
+
+    // 默认选中增量同步，设置边框颜色
+    document.querySelector('#vectorIndexModal input[name=syncMode][value=incremental]').parentElement.parentElement.style.borderColor = '#4CAF50';
+}
+
+// 执行向量索引同步
+async function executeVectorIndex() {
+    const modal = document.getElementById('vectorIndexModal');
+    const syncMode = document.querySelector('#vectorIndexModal input[name=syncMode]:checked').value;
+    const tableFilter = document.getElementById('tableFilter')?.value.trim() || '';
+
+    // 验证输入
+    if (syncMode === 'range' && !tableFilter) {
+        showToast('请输入表名模式', 'warning');
+        return;
+    }
+
+    // 更新弹窗内容为进度显示
+    const modalContent = modal.querySelector('.modal-content');
+    modalContent.innerHTML = `
+        <div class="modal-header">
+            <h2>🔤 建立向量索引</h2>
+        </div>
+        <div class="modal-body">
+            <div style="padding:20px;text-align:center;">
+                <div id="vectorIndexProgress" style="margin-bottom:16px;">
+                    <div style="font-size:14px;color:#666;">正在建立向量索引...</div>
+                    <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
+                    <div style="margin-top:8px;font-size:12px;color:#999;">同步模式: ${syncMode === 'incremental' ? '增量同步' : syncMode === 'full' ? '全量同步' : '选定范围'}</div>
+                </div>
+                <div id="vectorIndexResult" style="display:none;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeVectorIndexModal()">关闭</button>
+        </div>
+    `;
+
     try {
+        // 构建请求参数
+        const requestBody = { db_id: currentDb.id };
+
+        if (syncMode === 'full') {
+            requestBody.sync_mode = 'full';
+        } else if (syncMode === 'range') {
+            requestBody.sync_mode = 'filtered';
+            requestBody.table_filter = tableFilter;
+        }
+        // 增量同步不需要额外参数
+
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ db_id: currentDb.id })
+            body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
