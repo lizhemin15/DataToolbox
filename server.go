@@ -6232,33 +6232,33 @@ func handleTableRetrievalRelationConfirm(w http.ResponseWriter, r *http.Request)
 	for _, candidateID := range req.Relations {
 		if rel, ok := tempRelationCandidates[candidateID]; ok && rel.DatabaseID == req.DbID {
 			// 添加到数据库配置的关系列表
-			newRelation := RelationConfig{
-				ID:          uuid.New().String(),
-				Name:        rel.TableName1 + "." + rel.FieldName1 + " ↔ " + rel.TableName2 + "." + rel.FieldName2,
-				Description: rel.Reason,
-				Source: FieldRef{
-					DatabaseID: req.DbID,
-					TableName:  rel.TableName1,
-					FieldName:  rel.FieldName1,
-					FieldType:  rel.FieldType1,
-				},
-				Target: FieldRef{
-					DatabaseID: req.DbID,
-					TableName:  rel.TableName2,
-					FieldName:  rel.FieldName2,
-					FieldType:  rel.FieldType2,
-				},
-				MatchType: rel.MatchType,
-				Owner:     "admin",
-				CreatedAt: time.Now().Format(time.RFC3339),
-			}
+		newRelation := OntologyRelation{
+			ID:          uuid.New().String(),
+			Name:        rel.TableName1 + "." + rel.FieldName1 + " ↔ " + rel.TableName2 + "." + rel.FieldName2,
+			Description: rel.Reason,
+			Source: FieldRef{
+				DatabaseID: req.DbID,
+				TableName:  rel.TableName1,
+				FieldName:  rel.FieldName1,
+				FieldType:  rel.FieldType1,
+			},
+			Target: FieldRef{
+				DatabaseID: req.DbID,
+				TableName:  rel.TableName2,
+				FieldName:  rel.FieldName2,
+				FieldType:  rel.FieldType2,
+			},
+			MatchType: rel.MatchType,
+			Owner:     "admin",
+			CreatedAt: time.Now(),
+		}
 			dbConfig.Relations = append(dbConfig.Relations, newRelation)
 			confirmed++
 		}
 	}
 
 	// 保存配置
-	if err := saveDataOntologyConfig(); err != nil {
+	if err := saveDataOntologyStore(); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "保存配置失败: " + err.Error(),
@@ -18410,6 +18410,7 @@ func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry,
 	if err != nil {
 		return nil, fmt.Errorf("获取数据库连接失败: %w", err)
 	}
+	defer db.Close()
 
 	// 获取所有表和字段信息
 	tableColumnsMap := make(map[string][]map[string]interface{})
