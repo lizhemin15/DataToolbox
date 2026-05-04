@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.2.43');
-    await loadLazyScript('gov-api.js?v=4.2.43');
-    await loadLazyScript('governance.js?v=4.2.43');
+    await loadLazyScript('gov-shared.js?v=4.2.73');
+    await loadLazyScript('gov-api.js?v=4.2.73');
+    await loadLazyScript('governance.js?v=4.2.73');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.2.43');
+    await loadLazyScript('quality-audit.js?v=4.2.73');
 }
 
 
@@ -11986,11 +11986,11 @@ function showRelationScanRulesModal() {
     });
 }
 
-function closeRelationScanRulesModal() {
+function closeRelationScanRulesModal(result = null) {
     const modal = document.getElementById('relationScanRulesModal');
     if (modal) modal.remove();
     if (window._relationScanRulesResolve) {
-        window._relationScanRulesResolve(null);
+        window._relationScanRulesResolve(result);
         delete window._relationScanRulesResolve;
     }
 }
@@ -12016,12 +12016,8 @@ function confirmRelationScanRules() {
         return;
     }
 
-    closeRelationScanRulesModal();
-
-    if (window._relationScanRulesResolve) {
-        window._relationScanRulesResolve(rules);
-        delete window._relationScanRulesResolve;
-    }
+    // 直接传入 rules，不再分开调用
+    closeRelationScanRulesModal(rules);
 }
 
 // 扫描关系候选并确认
