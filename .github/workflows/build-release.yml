@@ -89,8 +89,12 @@ jobs:
         run: |
           go mod tidy
           # gov-runner 已预编译，直接使用
-          # 使用 release 标签构建，不嵌入静态文件
-          go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
+          # Windows 没有 gov-runner.exe，使用 nogov tag
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
+          else
+            go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
+          fi
 
       - name: Prepare package files
         run: |
