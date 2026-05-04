@@ -5720,6 +5720,12 @@ func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
 			if err := manager.syncTablesToSQLite(dbConfig); err != nil {
 				log.Printf("[表检索] 同步表数据失败: %v", err)
 			}
+			// 同步向量到 SQLite（如果 embedding 配置启用）
+			if dataOntologyAIConfig != nil && dataOntologyAIConfig.Embedding.Enabled && dataOntologyAIConfig.Embedding.URL != "" {
+				if err := manager.syncVectorsToSQLite(dbConfig, dataOntologyAIConfig.Embedding); err != nil {
+					log.Printf("[表检索] 同步向量数据失败: %v", err)
+				}
+			}
 			// 同步关系到 SQLite
 			if err := manager.syncRelationsToSQLite(dbConfig); err != nil {
 				log.Printf("[表检索] 同步关系数据失败: %v", err)
@@ -5728,6 +5734,20 @@ func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
 			// 同步所有数据库
 			if err := manager.syncAllDatabases(); err != nil {
 				log.Printf("[表检索] 同步表数据失败: %v", err)
+			}
+			// 同步所有数据库的向量
+			if dataOntologyAIConfig != nil && dataOntologyAIConfig.Embedding.Enabled && dataOntologyAIConfig.Embedding.URL != "" {
+				dataOntologyMu.RLock()
+				dbs := make(map[string]*DatabaseConfig)
+				for k, v := range dataOntologyDatabases {
+					dbs[k] = v
+				}
+				dataOntologyMu.RUnlock()
+				for _, dbConfig := range dbs {
+					if err := manager.syncVectorsToSQLite(dbConfig, dataOntologyAIConfig.Embedding); err != nil {
+						log.Printf("[表检索] 同步向量数据失败 (%s): %v", dbConfig.Name, err)
+					}
+				}
 			}
 			// 同步所有数据库的关系
 			dataOntologyMu.RLock()
