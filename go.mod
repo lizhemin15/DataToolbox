@@ -2,8 +2,6 @@ module github.com/YOUR_USERNAME/DataToolbox
 
 go 1.23
 
-
-
 require (
 	gitee.com/chunanyong/dm v1.8.14
 	github.com/denisenkom/go-mssqldb v0.12.3

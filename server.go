@@ -3800,7 +3800,28 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 		keywordConfig = config.KeywordConfig
 	}
 
-	// 获取所有表信息
+	// 尝试使用 FTS5 检索（优先使用 SQLite FTS5 索引，大幅提升 3 万+表检索性能）
+	if manager := getFTS5Manager(); manager != nil {
+		ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2) // 多取一些再做过滤
+		if err == nil && len(ftsResults) > 0 {
+			// 过滤低分结果
+			var filteredResults []TableRelevanceResult
+			for _, r := range ftsResults {
+				if r.RelevanceScore >= minRelevanceScore {
+					filteredResults = append(filteredResults, r)
+				}
+			}
+			// 限制返回数量
+			if len(filteredResults) > maxTables {
+				filteredResults = filteredResults[:maxTables]
+			}
+			return filteredResults, nil
+		}
+		// FTS5 无结果时降级到内存检索
+		log.Printf("[表检索] FTS5 无结果，降级为内存关键词检索")
+	}
+
+	// 降级方案：从数据库实时获取所有表信息，使用内存检索
 	tableInfos, err := getTableInfoList(dbConfig)
 	if err != nil {
 		return nil, err
@@ -5060,6 +5081,15 @@ func handleDatabases(w http.ResponseWriter, r *http.Request) {
 			log.Printf("保存数据库配置失败: %v", err)
 		}
 
+		// 异步同步表信息到 SQLite FTS5 索引
+		if manager := getFTS5Manager(); manager != nil {
+			go func() {
+				if err := manager.syncTablesToSQLite(&config); err != nil {
+					log.Printf("[表检索] 同步新数据库 %s 表信息失败: %v", config.Name, err)
+				}
+			}()
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
 			"id":      config.ID,
@@ -5401,6 +5431,126 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 		"edges":     edges,
 		"edgeCount": len(edges),
 		"message":   warn,
+	})
+}
+
+// handleTableRetrievalSync 同步表检索索引
+func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 解析请求
+	var req struct {
+		DatabaseID string `json:"database_id,omitempty"` // 可选：指定数据库ID，不指定则同步所有
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 异步执行同步
+	go func() {
+		var err error
+		if req.DatabaseID != "" {
+			// 同步指定数据库
+			dataOntologyConfigMu.RLock()
+			dbConfig, exists := dataOntologyDatabases[req.DatabaseID]
+			dataOntologyConfigMu.RUnlock()
+
+			if !exists {
+				log.Printf("[表检索] 数据库不存在: %s", req.DatabaseID)
+				return
+			}
+
+			err = manager.syncTablesToSQLite(dbConfig)
+		} else {
+			// 同步所有数据库
+			err = manager.syncAllDatabases()
+		}
+
+		if err != nil {
+			log.Printf("[表检索] 同步失败: %v", err)
+		}
+	}()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "同步任务已启动",
+	})
+}
+
+// handleTableRetrievalStatus 获取表检索索引状态
+func handleTableRetrievalStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 查询索引状态
+	totalCount, dbStats, err := manager.getStats()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询索引状态失败",
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":     true,
+		"total_tables": totalCount,
+		"database_stats": dbStats,
 	})
 }
 
@@ -16257,6 +16407,15 @@ func main() {
 	// 初始化网页导航
 	initWebNav()
 
+	// 初始化表检索 SQLite FTS5 索引并异步同步所有数据库
+	if manager := getFTS5Manager(); manager != nil {
+		go func() {
+			if err := manager.syncAllDatabases(); err != nil {
+				log.Printf("[表检索] 初始同步失败: %v", err)
+			}
+		}()
+	}
+
 	// 启动Hub
 	go hub.run()
 
@@ -16291,6 +16450,8 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/settings", handleUserSettings)
 	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/sync", handleTableRetrievalSync)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
@@ -16421,4 +16582,290 @@ func main() {
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
+}
+
+// ============================================================
+// FTS5 表检索管理器 - 支持 3 万+ 表的高效关键词检索
+// ============================================================
+
+// FTS5Manager SQLite FTS5 表检索管理器
+type FTS5Manager struct {
+	dbPath string
+	db     *sql.DB
+	mu     sync.RWMutex
+}
+
+var (
+	fts5Manager     *FTS5Manager
+	fts5ManagerOnce sync.Once
+)
+
+// getFTS5Manager 获取 FTS5 管理器单例
+func getFTS5Manager() *FTS5Manager {
+	fts5ManagerOnce.Do(func() {
+		// 数据库路径：服务工作目录下的 data-store.db
+		dbPath := filepath.Join(".", "apps", "data-ontology", "data-store.db")
+		
+		// 确保目录存在
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Printf("[表检索] 创建数据库目录失败: %v", err)
+			return
+		}
+
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			log.Printf("[表检索] 打开 SQLite 失败: %v", err)
+			return
+		}
+
+		// 设置连接池
+		db.SetMaxOpenConns(5)
+		db.SetMaxIdleConns(2)
+
+		manager := &FTS5Manager{
+			dbPath: dbPath,
+			db:     db,
+		}
+
+		// 初始化表结构
+		if err := manager.initSchema(); err != nil {
+			log.Printf("[表检索] 初始化表结构失败: %v", err)
+			return
+		}
+
+		fts5Manager = manager
+		log.Printf("[表检索] FTS5 管理器初始化成功: %s", dbPath)
+	})
+	return fts5Manager
+}
+
+// initSchema 初始化数据库表结构
+func (m *FTS5Manager) initSchema() error {
+	// 主表：存储表元信息
+	_, err := m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS tables (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			database_id TEXT NOT NULL,
+			table_name TEXT NOT NULL,
+			table_comment TEXT,
+			column_names TEXT,
+			column_comments TEXT,
+			row_count INTEGER DEFAULT 0,
+			updated_at INTEGER NOT NULL,
+			UNIQUE(database_id, table_name)
+		);
+		CREATE INDEX IF NOT EXISTS idx_tables_database ON tables(database_id);
+	`)
+	if err != nil {
+		return err
+	}
+
+	// FTS5 虚拟表：全文索引
+	_, err = m.db.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS tables_fts USING fts5(
+			table_name,
+			table_comment,
+			column_names,
+			content='tables',
+			content_rowid='id',
+			tokenize='unicode61'
+		);
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 触发器：保持 FTS 索引同步
+	triggers := []string{
+		`CREATE TRIGGER IF NOT EXISTS tables_ai AFTER INSERT ON tables BEGIN
+			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names)
+			VALUES (new.id, new.table_name, new.table_comment, new.column_names);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS tables_ad AFTER DELETE ON tables BEGIN
+			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names)
+			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS tables_au AFTER UPDATE ON tables BEGIN
+			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names)
+			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names);
+			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names)
+			VALUES (new.id, new.table_name, new.table_comment, new.column_names);
+		END;`,
+	}
+	for _, trigger := range triggers {
+		if _, err := m.db.Exec(trigger); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// fts5RetrieveTables 使用 FTS5 进行关键词检索
+func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit int) ([]TableRelevanceResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return nil, sql.ErrConnDone
+	}
+
+	// 构建搜索条件：表名、注释、字段名任一匹配，使用 BM25 排序
+	sqlStr := `
+		SELECT 
+			t.table_name,
+			t.table_comment,
+			bm25(tables_fts) as score
+		FROM tables_fts f
+		JOIN tables t ON f.rowid = t.id
+		WHERE tables_fts MATCH ? AND t.database_id = ?
+		ORDER BY score ASC
+		LIMIT ?
+	`
+
+	rows, err := m.db.Query(sqlStr, query, databaseID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []TableRelevanceResult
+	for rows.Next() {
+		var tableName, tableComment string
+		var score float64
+		if err := rows.Scan(&tableName, &tableComment, &score); err != nil {
+			continue
+		}
+
+		// 将 BM25 分数转换为 0-1 的相关度分数
+		relevance := 1.0 / (1.0 + (-score)/10.0)
+		if relevance > 1.0 {
+			relevance = 1.0
+		}
+
+		results = append(results, TableRelevanceResult{
+			TableName:      tableName,
+			RelevanceScore: relevance,
+			MatchReason:    "关键词匹配",
+		})
+	}
+
+	return results, nil
+}
+
+// syncTablesToSQLite 同步单个数据库的表信息到 SQLite
+func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
+	if m == nil || m.db == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 获取表列表
+	tableInfos, err := getTableInfoList(dbConfig)
+	if err != nil {
+		return err
+	}
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Unix()
+
+	// 删除该数据库的旧数据
+	if _, err := tx.Exec("DELETE FROM tables WHERE database_id = ?", dbConfig.ID); err != nil {
+		return err
+	}
+
+	// 插入新数据
+	stmt, err := tx.Prepare(`
+		INSERT INTO tables (database_id, table_name, table_comment, column_names, column_comments, row_count, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, ti := range tableInfos {
+		columnNamesJSON, _ := json.Marshal(ti.ColumnNames)
+		// TableInfo 只有 Name, Comment, ColumnNames
+		comment := ti.Comment
+		if comment == "" {
+			comment = ti.Name // 无注释时用表名兜底，保证 FTS5 可搜
+		}
+
+		if _, err := stmt.Exec(
+			dbConfig.ID,
+			ti.Name,
+			comment,
+			string(columnNamesJSON),
+			"{}", // column_comments 暂不存储，预留
+			0,    // row_count 暂不存储，预留
+			now,
+		); err != nil {
+			log.Printf("[表检索] 插入表 %s 失败: %v", ti.Name, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// syncAllDatabases 同步所有数据库的表信息
+func (m *FTS5Manager) syncAllDatabases() error {
+	if m == nil {
+		return nil
+	}
+
+	dataOntologyConfigMu.RLock()
+	configs := make([]*DatabaseConfig, 0, len(dataOntologyConfig.Databases))
+	for _, db := range dataOntologyConfig.Databases {
+		configs = append(configs, db)
+	}
+	dataOntologyConfigMu.RUnlock()
+
+	for _, dbConfig := range configs {
+		if err := m.syncTablesToSQLite(dbConfig); err != nil {
+			log.Printf("[表检索] 同步数据库 %s 失败: %v", dbConfig.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// getStats 获取索引统计信息
+func (m *FTS5Manager) getStats() (int, map[string]int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return 0, nil, sql.ErrConnDone
+	}
+
+	var totalCount int
+	if err := m.db.QueryRow("SELECT COUNT(*) FROM tables").Scan(&totalCount); err != nil {
+		return 0, nil, err
+	}
+
+	rows, err := m.db.Query("SELECT database_id, COUNT(*) as count FROM tables GROUP BY database_id")
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+
+	dbStats := make(map[string]int)
+	for rows.Next() {
+		var dbID string
+		var count int
+		if err := rows.Scan(&dbID, &count); err == nil {
+			dbStats[dbID] = count
+		}
+	}
+
+	return totalCount, dbStats, nil
 }
