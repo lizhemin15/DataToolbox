@@ -8445,6 +8445,18 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// 保留已有的 embedding 和 table_retrieval 配置（前端可能未传）
+		dataOntologyMu.RLock()
+		if dataOntologyAIConfig != nil {
+			if config.Embedding.URL == "" && dataOntologyAIConfig.Embedding.URL != "" {
+				config.Embedding = dataOntologyAIConfig.Embedding
+			}
+			if config.TableRetrieval == nil && dataOntologyAIConfig.TableRetrieval != nil {
+				config.TableRetrieval = dataOntologyAIConfig.TableRetrieval
+			}
+		}
+		dataOntologyMu.RUnlock()
+
 		// 检测AI模型能力
 		capabilities, err := detectAICapabilities(&config)
 		if err != nil {
@@ -8476,6 +8488,121 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAICapabilities 获取AI模型能力
+// handleAIEmbeddingConfig 处理 Embedding 配置的读写
+func handleAIEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// 获取 Embedding 配置
+		dataOntologyMu.RLock()
+		var embConfig EmbeddingRetrievalConfig
+		if dataOntologyAIConfig != nil {
+			embConfig = dataOntologyAIConfig.Embedding
+		}
+		dataOntologyMu.RUnlock()
+
+		jsonSuccess(w, map[string]interface{}{
+			"config": embConfig,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		// 保存 Embedding 配置
+		var embConfig EmbeddingRetrievalConfig
+		if err := json.NewDecoder(r.Body).Decode(&embConfig); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+
+		dataOntologyMu.Lock()
+		if dataOntologyAIConfig == nil {
+			dataOntologyAIConfig = &AIConfig{}
+		}
+		dataOntologyAIConfig.Embedding = embConfig
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存 Embedding 配置失败: %v", err)
+			apiInternalError(w, "保存失败")
+			return
+		}
+
+		log.Printf("[表检索] Embedding 配置已更新: enabled=%v, model=%s, dimension=%d", embConfig.Enabled, embConfig.Model, embConfig.Dimension)
+		jsonSuccess(w, map[string]interface{}{
+			"message": "Embedding 配置保存成功",
+			"config":  embConfig,
+		})
+		return
+	}
+
+	apiMethodNotAllowed(w, "不支持的请求方法")
+}
+
+// handleTableRetrievalConfig 处理表检索配置的读写
+func handleTableRetrievalConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// 获取表检索配置
+		dataOntologyMu.RLock()
+		var trConfig *TableRetrievalConfig
+		if dataOntologyAIConfig != nil {
+			trConfig = dataOntologyAIConfig.TableRetrieval
+		}
+		dataOntologyMu.RUnlock()
+
+		jsonSuccess(w, map[string]interface{}{
+			"config": trConfig,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		// 保存表检索配置
+		var trConfig TableRetrievalConfig
+		if err := json.NewDecoder(r.Body).Decode(&trConfig); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+
+		dataOntologyMu.Lock()
+		if dataOntologyAIConfig == nil {
+			dataOntologyAIConfig = &AIConfig{}
+		}
+		dataOntologyAIConfig.TableRetrieval = &trConfig
+		dataOntologyMu.Unlock()
+
+		// 持久化
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存表检索配置失败: %v", err)
+			apiInternalError(w, "保存失败")
+			return
+		}
+
+		log.Printf("[表检索] 表检索配置已更新: strategy=%s, keyword_weight=%.2f, vector_weight=%.2f, graph_weight=%.2f",
+			trConfig.Strategy, trConfig.KeywordWeight, trConfig.VectorWeight, trConfig.GraphWeight)
+		jsonSuccess(w, map[string]interface{}{
+			"message": "表检索配置保存成功",
+			"config":  trConfig,
+		})
+		return
+	}
+
+	apiMethodNotAllowed(w, "不支持的请求方法")
+}
+
 func handleAICapabilities(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -16971,6 +17098,8 @@ func main() {
 
 	// AI助手API路由
 	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
+	mux.HandleFunc("/api/data-ontology/ai/embedding-config", handleAIEmbeddingConfig)
+	mux.HandleFunc("/api/data-ontology/ai/table-retrieval-config", handleTableRetrievalConfig)
 	mux.HandleFunc("/api/data-ontology/ai/capabilities", handleAICapabilities)
 	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
@@ -17232,7 +17361,9 @@ func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit 
 
 	rows, err := m.db.Query(sqlStr, query, databaseID, limit)
 	if err != nil {
-		return nil, err
+		// FTS5 MATCH 失败（如中文分词问题），降级为 LIKE 模糊匹配
+		log.Printf("[表检索] FTS5 MATCH 失败，降级为 LIKE 匹配: %v", err)
+		return m.likeRetrieveTables(query, databaseID, limit)
 	}
 	defer rows.Close()
 
@@ -17254,6 +17385,53 @@ func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit 
 			TableName:      tableName,
 			RelevanceScore: relevance,
 			MatchReason:    "关键词匹配",
+		})
+	}
+
+	// 如果 FTS5 没有结果，降级为 LIKE 匹配
+	if len(results) == 0 {
+		log.Printf("[表检索] FTS5 无结果，降级为 LIKE 匹配")
+		return m.likeRetrieveTables(query, databaseID, limit)
+	}
+
+	return results, nil
+}
+
+// likeRetrieveTables LIKE 模糊匹配检索（FTS5 降级方案）
+func (m *FTS5Manager) likeRetrieveTables(query string, databaseID string, limit int) ([]TableRelevanceResult, error) {
+	// 使用 LIKE 模糊匹配表名、注释、字段名
+	sqlStr := `
+		SELECT 
+			table_name,
+			table_comment
+		FROM tables
+		WHERE database_id = ? AND (
+			table_name LIKE ? OR
+			table_comment LIKE ? OR
+			column_names LIKE ?
+		)
+		LIMIT ?
+	`
+
+	likePattern := "%" + query + "%"
+	rows, err := m.db.Query(sqlStr, databaseID, likePattern, likePattern, likePattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []TableRelevanceResult
+	for rows.Next() {
+		var tableName, tableComment string
+		if err := rows.Scan(&tableName, &tableComment); err != nil {
+			continue
+		}
+
+		// LIKE 匹配给固定相关度分数
+		results = append(results, TableRelevanceResult{
+			TableName:      tableName,
+			RelevanceScore: 0.5,
+			MatchReason:    "模糊匹配",
 		})
 	}
 
