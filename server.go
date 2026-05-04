@@ -911,7 +911,7 @@ type AIConfig struct {
 
 // TableRetrievalConfig 表检索配置
 type TableRetrievalConfig struct {
-	// 检索策略: "keyword" | "embedding" | "hybrid"
+	// 检索策略: "keyword" | "embedding" | "graph" | "hybrid"
 	Strategy string `json:"strategy,omitempty"` // 默认 keyword
 	// 返回表数量上限
 	MaxTables int `json:"max_tables,omitempty"` // 默认 15
@@ -919,8 +919,10 @@ type TableRetrievalConfig struct {
 	MinRelevanceScore float64 `json:"min_relevance_score,omitempty"` // 默认 0.3
 	// 关键词策略参数
 	KeywordConfig *KeywordRetrievalConfig `json:"keyword_config,omitempty"`
-	// Embedding 策略参数（预留）
+	// Embedding 策略参数
 	EmbeddingConfig *EmbeddingRetrievalConfig `json:"embedding_config,omitempty"`
+	// Graph 策略参数
+	GraphConfig *GraphRetrievalConfig `json:"graph_config,omitempty"`
 	// 是否包含字段信息（字段多时可关闭以节省 token）
 	IncludeFields bool `json:"include_fields,omitempty"` // 默认 true
 	// 字段数量上限（每张表最多返回多少字段）
@@ -929,6 +931,8 @@ type TableRetrievalConfig struct {
 	VectorWeight float64 `json:"vector_weight,omitempty"` // 默认 0.5
 	// 关键词检索权重（hybrid 策略时使用）
 	KeywordWeight float64 `json:"keyword_weight,omitempty"` // 默认 0.5
+	// Graph 关系检索权重（hybrid 策略时使用）
+	GraphWeight float64 `json:"graph_weight,omitempty"` // 默认 0.3
 }
 
 // KeywordRetrievalConfig 关键词检索配置
@@ -944,6 +948,11 @@ type EmbeddingRetrievalConfig struct {
 	Model     string `json:"model,omitempty"`       // 模型名，如 "BAAI/bge-large-zh-v1.5"
 	Dimension int    `json:"dimension,omitempty"`   // 向量维度，默认 1024
 	Enabled   bool   `json:"enabled,omitempty"`     // 是否启用向量检索
+}
+
+// GraphRetrievalConfig Graph 关系检索配置
+type GraphRetrievalConfig struct {
+	MaxDepth int `json:"max_depth,omitempty"` // 关系扩展最大深度，默认 2
 }
 
 // TableRelevanceResult 表检索结果
@@ -3824,6 +3833,74 @@ func mergeRetrievalResults(keywordResults, vectorResults []TableRelevanceResult,
 	return results
 }
 
+// mergeRetrievalResults3 三路合并检索结果（关键词 + 向量 + Graph，加权平均）
+func mergeRetrievalResults3(keywordResults, vectorResults, graphResults []TableRelevanceResult, keywordWeight, vectorWeight, graphWeight float64) []TableRelevanceResult {
+	// 用 map 存储每个表的加权分数和来源
+	type scoreEntry struct {
+		score   float64
+		sources []string
+	}
+	scoreMap := make(map[string]*scoreEntry)
+
+	ensure := func(tableName string) {
+		if _, ok := scoreMap[tableName]; !ok {
+			scoreMap[tableName] = &scoreEntry{sources: []string{}}
+		}
+	}
+
+	// 加权关键词结果
+	for _, r := range keywordResults {
+		ensure(r.TableName)
+		scoreMap[r.TableName].score += r.RelevanceScore * keywordWeight
+		scoreMap[r.TableName].sources = append(scoreMap[r.TableName].sources, "关键词")
+	}
+
+	// 加权向量结果
+	for _, r := range vectorResults {
+		ensure(r.TableName)
+		scoreMap[r.TableName].score += r.RelevanceScore * vectorWeight
+		scoreMap[r.TableName].sources = append(scoreMap[r.TableName].sources, "向量")
+	}
+
+	// 加权 Graph 结果
+	for _, r := range graphResults {
+		ensure(r.TableName)
+		scoreMap[r.TableName].score += r.RelevanceScore * graphWeight
+		scoreMap[r.TableName].sources = append(scoreMap[r.TableName].sources, "关系扩展")
+	}
+
+	// 转换为结果列表
+	results := make([]TableRelevanceResult, 0, len(scoreMap))
+	for tableName, entry := range scoreMap {
+		reason := strings.Join(uniqueStrings(entry.sources), "+")
+		results = append(results, TableRelevanceResult{
+			TableName:      tableName,
+			RelevanceScore: entry.score,
+			MatchReason:    reason,
+		})
+	}
+
+	// 按分数降序排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	return results
+}
+
+// uniqueStrings 去重字符串切片
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 // retrieveRelevantTables 主检索函数
 func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *TableRetrievalConfig) ([]TableRelevanceResult, error) {
 	// 默认配置
@@ -3888,16 +3965,65 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 				}
 			}
 
+		case "graph":
+			// 纯 Graph 关系扩展：先用关键词找种子表，再沿关系图扩展
+			graphMaxDepth := 2 // 默认深度
+			if config != nil && config.GraphConfig != nil && config.GraphConfig.MaxDepth > 0 {
+				graphMaxDepth = config.GraphConfig.MaxDepth
+			}
+			ftsResults, _ := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables)
+			seedTables := make([]string, 0, len(ftsResults))
+			for _, r := range ftsResults {
+				seedTables = append(seedTables, r.TableName)
+			}
+			if len(seedTables) > 0 {
+				graphResults, err := manager.graphRetrieveTables(seedTables, dbConfig.ID, graphMaxDepth, maxTables)
+				if err == nil && len(graphResults) > 0 {
+					results = graphResults
+				} else {
+					results = ftsResults
+				}
+			} else {
+				results = ftsResults
+			}
+
 		case "hybrid":
-			// 混合检索：关键词 + 向量
+			// 混合检索：关键词 + 向量 + Graph
 			ftsResults, _ := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
 			var vectorResults []TableRelevanceResult
 			if embeddingConfig.Enabled && embeddingConfig.URL != "" {
 				vectorResults, _ = manager.vectorRetrieveTables(query, dbConfig.ID, maxTables*2, embeddingConfig)
 			}
 
-			// 合并结果（加权平均）
-			results = mergeRetrievalResults(ftsResults, vectorResults, keywordWeight, vectorWeight)
+			// 从关键词和向量结果中取种子，用 Graph 扩展关联表
+			seedTables := make(map[string]bool)
+			graphWeight := 0.3 // Graph 默认权重
+			graphMaxDepth := 2 // Graph 默认深度
+			if config != nil {
+				if config.GraphWeight > 0 {
+					graphWeight = config.GraphWeight
+				}
+				if config.GraphConfig != nil && config.GraphConfig.MaxDepth > 0 {
+					graphMaxDepth = config.GraphConfig.MaxDepth
+				}
+			}
+			for _, r := range ftsResults {
+				seedTables[r.TableName] = true
+			}
+			for _, r := range vectorResults {
+				seedTables[r.TableName] = true
+			}
+			var graphResults []TableRelevanceResult
+			seedList := make([]string, 0, len(seedTables))
+			for t := range seedTables {
+				seedList = append(seedList, t)
+			}
+			if len(seedList) > 0 {
+				graphResults, _ = manager.graphRetrieveTables(seedList, dbConfig.ID, graphMaxDepth, maxTables*2)
+			}
+
+			// 三路合并（加权平均）
+			results = mergeRetrievalResults3(ftsResults, vectorResults, graphResults, keywordWeight, vectorWeight, graphWeight)
 
 		default: // "keyword"
 			ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
@@ -3932,6 +4058,9 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 	switch strategy {
 	case "embedding":
 		log.Printf("[表检索] embedding 策略需要 FTS5Manager，降级为 keyword 策略")
+		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
+	case "graph":
+		log.Printf("[表检索] graph 策略需要 FTS5Manager，降级为 keyword 策略")
 		results = keywordRetrieveTables(query, tableInfos, keywordConfig)
 	case "hybrid":
 		log.Printf("[表检索] hybrid 策略需要 FTS5Manager，降级为 keyword 策略")
@@ -5577,7 +5706,6 @@ func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
 
 	// 异步执行同步
 	go func() {
-		var err error
 		if req.DatabaseID != "" {
 			// 同步指定数据库
 			dataOntologyMu.RLock()
@@ -5589,14 +5717,30 @@ func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			err = manager.syncTablesToSQLite(dbConfig)
+			if err := manager.syncTablesToSQLite(dbConfig); err != nil {
+				log.Printf("[表检索] 同步表数据失败: %v", err)
+			}
+			// 同步关系到 SQLite
+			if err := manager.syncRelationsToSQLite(dbConfig); err != nil {
+				log.Printf("[表检索] 同步关系数据失败: %v", err)
+			}
 		} else {
 			// 同步所有数据库
-			err = manager.syncAllDatabases()
-		}
-
-		if err != nil {
-			log.Printf("[表检索] 同步失败: %v", err)
+			if err := manager.syncAllDatabases(); err != nil {
+				log.Printf("[表检索] 同步表数据失败: %v", err)
+			}
+			// 同步所有数据库的关系
+			dataOntologyMu.RLock()
+			dbs := make(map[string]*DatabaseConfig)
+			for k, v := range dataOntologyDatabases {
+				dbs[k] = v
+			}
+			dataOntologyMu.RUnlock()
+			for _, dbConfig := range dbs {
+				if err := manager.syncRelationsToSQLite(dbConfig); err != nil {
+					log.Printf("[表检索] 同步关系数据失败 (%s): %v", dbConfig.Name, err)
+				}
+			}
 		}
 	}()
 
@@ -5707,6 +5851,63 @@ func handleTableRetrievalEmbeddingStatus(w http.ResponseWriter, r *http.Request)
 			"model":     aiConfig.Embedding.Model,
 			"dimension": aiConfig.Embedding.Dimension,
 		},
+	})
+}
+
+// handleTableRetrievalRelationStatus 查询关系索引状态
+func handleTableRetrievalRelationStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 查询关系状态
+	totalRelations, dbRelationStats, err := manager.getRelationStats()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询关系状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 获取各数据库的关系数量
+	dataOntologyMu.RLock()
+	dbRelationCounts := make(map[string]int)
+	for id, count := range dbRelationStats {
+		if cfg, ok := dataOntologyDatabases[id]; ok {
+			dbRelationCounts[cfg.Name] = count
+		}
+	}
+	dataOntologyMu.RUnlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":         true,
+		"total_relations": totalRelations,
+		"database_stats":  dbRelationCounts,
 	})
 }
 
@@ -16609,6 +16810,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/table-retrieval/sync", handleTableRetrievalSync)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
@@ -16845,6 +17047,27 @@ func (m *FTS5Manager) initSchema() error {
 			UNIQUE(database_id, table_name)
 		);
 		CREATE INDEX IF NOT EXISTS idx_vectors_database ON vectors(database_id);
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 关系表：存储表间关系（用于 Graph 检索）
+	_, err = m.db.Exec(`
+		CREATE TABLE IF NOT EXISTS relations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			database_id TEXT NOT NULL,
+			source_table TEXT NOT NULL,
+			source_field TEXT NOT NULL,
+			target_table TEXT NOT NULL,
+			target_field TEXT NOT NULL,
+			match_type TEXT NOT NULL,
+			relation_name TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_relations_database ON relations(database_id);
+		CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(database_id, source_table);
+		CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(database_id, target_table);
 	`)
 	if err != nil {
 		return err
@@ -17321,6 +17544,199 @@ func (m *FTS5Manager) getVectorStats() (int, map[string]int, error) {
 	}
 
 	rows, err := m.db.Query("SELECT database_id, COUNT(*) as count FROM vectors GROUP BY database_id")
+	if err != nil {
+		return 0, nil, err
+	}
+	defer rows.Close()
+
+	dbStats := make(map[string]int)
+	for rows.Next() {
+		var dbID string
+		var count int
+		if err := rows.Scan(&dbID, &count); err == nil {
+			dbStats[dbID] = count
+		}
+	}
+
+	return totalCount, dbStats, nil
+}
+
+// syncRelationsToSQLite 同步关系到 SQLite
+func (m *FTS5Manager) syncRelationsToSQLite(dbConfig *DatabaseConfig) error {
+	if m == nil || m.db == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tx, err := m.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 删除该数据库的旧关系
+	if _, err := tx.Exec("DELETE FROM relations WHERE database_id = ?", dbConfig.ID); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO relations (database_id, source_table, source_field, target_table, target_field, match_type, relation_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	successCount := 0
+	for _, rel := range dbConfig.Relations {
+		if _, err := stmt.Exec(
+			dbConfig.ID,
+			rel.Source.TableName,
+			rel.Source.FieldName,
+			rel.Target.TableName,
+			rel.Target.FieldName,
+			rel.MatchType,
+			rel.Name,
+		); err != nil {
+			log.Printf("[表检索] 插入关系失败 (%s): %v", rel.Name, err)
+			continue
+		}
+		successCount++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	log.Printf("[表检索] 数据库 %s 同步关系完成: %d/%d", dbConfig.Name, successCount, len(dbConfig.Relations))
+	return nil
+}
+
+// graphRetrieveTables Graph 关系检索（基于已匹配表扩展关联表）
+func (m *FTS5Manager) graphRetrieveTables(seedTables []string, databaseID string, maxDepth int, limit int) ([]TableRelevanceResult, error) {
+	if m == nil || m.db == nil {
+		return nil, sql.ErrConnDone
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// 已访问表集合
+	visited := make(map[string]bool)
+	// 结果表及其关系分数
+	tableScores := make(map[string]float64)
+
+	// BFS 扩展
+	currentLevel := seedTables
+	depth := 0
+	baseScore := 1.0 // 种子表分数为 1.0
+
+	// 先把种子表加入结果
+	for _, t := range seedTables {
+		visited[t] = true
+		tableScores[t] = baseScore
+	}
+
+	for depth < maxDepth && len(currentLevel) > 0 {
+		nextLevel := make([]string, 0)
+		decay := 0.5 / float64(depth+1) // 每层衰减
+
+		for _, sourceTable := range currentLevel {
+			// 查找以该表为源的关系
+			rows, err := m.db.Query(`
+				SELECT target_table, relation_name 
+				FROM relations 
+				WHERE database_id = ? AND source_table = ?
+			`, databaseID, sourceTable)
+			if err != nil {
+				continue
+			}
+
+			for rows.Next() {
+				var targetTable, relationName string
+				if err := rows.Scan(&targetTable, &relationName); err != nil {
+					continue
+				}
+				_ = relationName
+
+				if !visited[targetTable] {
+					visited[targetTable] = true
+					tableScores[targetTable] = baseScore * decay
+					nextLevel = append(nextLevel, targetTable)
+				}
+			}
+			rows.Close()
+
+			// 查找以该表为目标的关系（反向关联）
+			rows2, err := m.db.Query(`
+				SELECT source_table, relation_name 
+				FROM relations 
+				WHERE database_id = ? AND target_table = ?
+			`, databaseID, sourceTable)
+			if err != nil {
+				continue
+			}
+
+			for rows2.Next() {
+				var srcTable, relationName string
+				if err := rows2.Scan(&srcTable, &relationName); err != nil {
+					continue
+				}
+				_ = relationName
+
+				if !visited[srcTable] {
+					visited[srcTable] = true
+					tableScores[srcTable] = baseScore * decay
+					nextLevel = append(nextLevel, srcTable)
+				}
+			}
+			rows2.Close()
+		}
+
+		currentLevel = nextLevel
+		depth++
+	}
+
+	// 按分数排序
+	results := make([]TableRelevanceResult, 0, len(tableScores))
+	for tableName, score := range tableScores {
+		results = append(results, TableRelevanceResult{
+			TableName:      tableName,
+			RelevanceScore: score,
+			MatchReason:    "Graph 关系扩展",
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	// 限制返回数量
+	if limit > len(results) {
+		limit = len(results)
+	}
+
+	return results[:limit], nil
+}
+
+// getRelationStats 获取关系索引统计信息
+func (m *FTS5Manager) getRelationStats() (int, map[string]int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return 0, nil, sql.ErrConnDone
+	}
+
+	var totalCount int
+	if err := m.db.QueryRow("SELECT COUNT(*) FROM relations").Scan(&totalCount); err != nil {
+		return 0, nil, err
+	}
+
+	rows, err := m.db.Query("SELECT database_id, COUNT(*) as count FROM relations GROUP BY database_id")
 	if err != nil {
 		return 0, nil, err
 	}
