@@ -4,5 +4,5 @@ package main
 
 import _ "embed"
 
-//go:embed gov-runner/gov-runner.exe
+//go:embed gov-runner.exe
 var govRunnerEmbedded []byte
