@@ -11721,151 +11721,424 @@ async function handleSyncIndex() {
     }
 }
 
-// 显示向量索引状态
+// 建立向量索引
 async function handleVectorIndex() {
     console.log('handleVectorIndex called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先在左侧列表中选择一个数据库');
+        showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
     }
-    
+
+    // 创建进度弹窗
+    const modalHtml = `
+        <div id="vectorIndexModal" class="modal" style="display:flex;">
+            <div class="modal-content" style="max-width:500px;">
+                <div class="modal-header">
+                    <h2>🔤 建立向量索引</h2>
+                </div>
+                <div class="modal-body">
+                    <div style="padding:20px;text-align:center;">
+                        <div id="vectorIndexProgress" style="margin-bottom:16px;">
+                            <div style="font-size:14px;color:#666;">正在建立向量索引...</div>
+                            <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
+                        </div>
+                        <div id="vectorIndexResult" style="display:none;"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeVectorIndexModal()">关闭</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ db_id: currentDb.id })
+        });
+
         const data = await response.json();
-        
+
+        const progressEl = document.getElementById('vectorIndexProgress');
+        const resultEl = document.getElementById('vectorIndexResult');
+
         if (data.success) {
-            const dbStats = data.database_stats || {};
-            const dbStat = dbStats[currentDb.id] || { tables: 0, vectors: 0 };
-            const embConfig = data.embedding_config || {};
-            
-            let msg = `向量索引状态\n\n`;
-            msg += `当前数据库: ${currentDb.name}\n`;
-            msg += `表数量: ${dbStat.tables || 0}\n`;
-            msg += `向量数量: ${dbStat.vectors || 0}\n\n`;
-            msg += `Embedding 配置:\n`;
-            msg += `  启用: ${embConfig.enabled ? '是' : '否'}\n`;
-            msg += `  模型: ${embConfig.model || '未配置'}\n`;
-            msg += `  维度: ${embConfig.dimension || 1024}`;
-            
-            alert(msg);
+            progressEl.style.display = 'none';
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = `
+                <div style="color:#28a745;font-size:16px;margin-bottom:12px;">✅ 向量索引建立成功</div>
+                <div style="font-size:13px;color:#666;line-height:1.8;">
+                    <div>处理表数: ${data.tables_processed || 0}</div>
+                    <div>新增向量: ${data.vectors_created || 0}</div>
+                    <div>更新向量: ${data.vectors_updated || 0}</div>
+                </div>
+            `;
         } else {
-            alert('获取向量索引状态失败: ' + (data.message || '未知错误'));
+            progressEl.style.display = 'none';
+            resultEl.style.display = 'block';
+            resultEl.innerHTML = `
+                <div style="color:#dc3545;font-size:16px;">❌ 建立失败</div>
+                <div style="font-size:13px;color:#666;margin-top:8px;">${data.message || '未知错误'}</div>
+            `;
         }
     } catch (error) {
-        alert('获取向量索引状态失败: ' + error.message);
+        const progressEl = document.getElementById('vectorIndexProgress');
+        const resultEl = document.getElementById('vectorIndexResult');
+        progressEl.style.display = 'none';
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = `
+            <div style="color:#dc3545;font-size:16px;">❌ 请求失败</div>
+            <div style="font-size:13px;color:#666;margin-top:8px;">${error.message}</div>
+        `;
     }
 }
 
-// 显示关系索引状态
+function closeVectorIndexModal() {
+    const modal = document.getElementById('vectorIndexModal');
+    if (modal) modal.remove();
+}
+
+// 扫描关系候选并确认
 async function handleRelationIndex() {
     console.log('handleRelationIndex called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先在左侧列表中选择一个数据库');
+        showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
     }
-    
+
+    // 显示扫描进度
+    const scanModalHtml = `
+        <div id="relationScanModal" class="modal" style="display:flex;">
+            <div class="modal-content" style="max-width:500px;">
+                <div class="modal-header">
+                    <h2>🔗 扫描关系候选</h2>
+                </div>
+                <div class="modal-body">
+                    <div style="padding:20px;text-align:center;">
+                        <div style="font-size:14px;color:#666;">正在扫描关系候选...</div>
+                        <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', scanModalHtml);
+
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-status`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ db_id: currentDb.id })
+        });
+
         const data = await response.json();
-        
-        if (data.success) {
-            const dbStats = data.database_stats || {};
-            const dbCount = dbStats[currentDb.name] || 0;
-            
-            let msg = `关系索引状态\n\n`;
-            msg += `当前数据库: ${currentDb.name}\n`;
-            msg += `关系数量: ${dbCount}\n\n`;
-            msg += `总关系数: ${data.total_relations || 0}`;
-            
-            alert(msg);
+
+        // 移除扫描进度弹窗
+        const scanModal = document.getElementById('relationScanModal');
+        if (scanModal) scanModal.remove();
+
+        if (data.success && data.candidates && data.candidates.length > 0) {
+            // 显示候选列表让用户确认
+            showRelationCandidates(data.candidates);
+        } else if (data.success && (!data.candidates || data.candidates.length === 0)) {
+            showToast('未发现新的关系候选', 'info');
         } else {
-            alert('获取关系索引状态失败: ' + (data.message || '未知错误'));
+            showToast('扫描失败: ' + (data.message || '未知错误'), 'error');
         }
     } catch (error) {
-        alert('获取关系索引状态失败: ' + error.message);
+        const scanModal = document.getElementById('relationScanModal');
+        if (scanModal) scanModal.remove();
+        showToast('扫描失败: ' + error.message, 'error');
     }
+}
+
+// 显示关系候选列表
+function showRelationCandidates(candidates) {
+    const candidatesHtml = candidates.map((c, idx) => `
+        <div style="padding:10px;border-bottom:1px solid #eee;">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+                <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" checked style="margin-top:3px;width:16px;height:16px;">
+                <div style="flex:1;">
+                    <div style="font-size:13px;font-weight:600;color:#333;">${c.source_table} → ${c.target_table}</div>
+                    <div style="font-size:12px;color:#666;margin-top:4px;">
+                        关联字段: ${c.source_column} = ${c.target_column}<br>
+                        置信度: ${(c.confidence * 100).toFixed(1)}%
+                    </div>
+                </div>
+            </label>
+        </div>
+    `).join('');
+
+    const modalHtml = `
+        <div id="relationCandidatesModal" class="modal" style="display:flex;">
+            <div class="modal-content" style="max-width:600px;max-height:80vh;">
+                <div class="modal-header">
+                    <h2>🔗 确认关系候选</h2>
+                    <button class="modal-close" onclick="closeRelationCandidatesModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="max-height:400px;overflow-y:auto;padding:0;">
+                    <div style="padding:12px;background:#f8f9fa;border-bottom:1px solid #e9ecef;font-size:13px;color:#666;">
+                        发现 ${candidates.length} 个关系候选，请勾选需要确认的关系
+                    </div>
+                    ${candidatesHtml}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeRelationCandidatesModal()">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmRelationCandidates()">确认选中</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+// 确认关系候选
+async function confirmRelationCandidates() {
+    const checkboxes = document.querySelectorAll('.relation-candidate-checkbox:checked');
+    const relationIds = Array.from(checkboxes).map(cb => cb.dataset.id);
+
+    if (relationIds.length === 0) {
+        showToast('请至少选择一个关系候选', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-confirm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ relations: relationIds })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            closeRelationCandidatesModal();
+            showToast(`成功确认 ${relationIds.length} 个关系`, 'success');
+        } else {
+            showToast('确认失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('确认失败: ' + error.message, 'error');
+    }
+}
+
+function closeRelationCandidatesModal() {
+    const modal = document.getElementById('relationCandidatesModal');
+    if (modal) modal.remove();
 }
 
 // 显示向量预览
 async function showVectorPreview() {
     console.log('showVectorPreview called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先在左侧列表中选择一个数据库');
+        showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
     }
-    
-    // 打开同步索引弹窗，并勾选向量预览
-    openSyncIndexModal();
-    
-    // 设置为只预览模式（不同步）
-    const syncTablesEl = document.getElementById('syncTables');
-    const syncVectorsEl = document.getElementById('syncVectors');
-    const syncRelationsEl = document.getElementById('syncRelations');
-    
-    if (syncTablesEl) syncTablesEl.checked = false;
-    if (syncVectorsEl) syncVectorsEl.checked = true;
-    if (syncRelationsEl) syncRelationsEl.checked = false;
-    
-    // 显示当前向量状态
-    const statusEl = document.getElementById('syncIndexStatus');
-    const progressEl = document.getElementById('syncIndexProgress');
-    statusEl.style.display = 'block';
-    progressEl.textContent = '加载向量状态...';
-    
+
+    // 加载第一页数据
+    await loadVectorPreviewPage(1);
+}
+
+// 加载向量预览分页数据
+async function loadVectorPreviewPage(page) {
+    const pageSize = 50;
+
+    // 创建或更新弹窗
+    let modal = document.getElementById('vectorPreviewModal');
+    if (!modal) {
+        const modalHtml = `
+            <div id="vectorPreviewModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:900px;max-height:85vh;">
+                    <div class="modal-header">
+                        <h2>👁️ 向量索引预览</h2>
+                        <button class="modal-close" onclick="closeVectorPreviewModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="max-height:500px;overflow-y:auto;">
+                        <div id="vectorPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
+                    </div>
+                    <div class="modal-footer" style="justify-content:space-between;">
+                        <div id="vectorPreviewInfo" style="font-size:13px;color:#666;"></div>
+                        <div style="display:flex;gap:8px;">
+                            <button type="button" class="btn btn-secondary" id="vectorPrevBtn" onclick="loadVectorPreviewPage(currentVectorPage - 1)">上一页</button>
+                            <button type="button" class="btn btn-secondary" id="vectorNextBtn" onclick="loadVectorPreviewPage(currentVectorPage + 1)">下一页</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    const contentEl = document.getElementById('vectorPreviewContent');
+    const infoEl = document.getElementById('vectorPreviewInfo');
+
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vector-list?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
-        
-        if (data.success) {
-            const dbStats = data.database_stats || {};
-            const dbStat = dbStats[currentDb.id] || { tables: 0, vectors: 0 };
-            progressEl.innerHTML = `✅ 向量索引状态<br>表: ${dbStat.tables || 0} | 向量: ${dbStat.vectors || 0}`;
+
+        if (data.success && data.vectors) {
+            const vectors = data.vectors;
+            const total = data.total || 0;
+            const totalPages = Math.ceil(total / pageSize);
+
+            window.currentVectorPage = page;
+
+            if (vectors.length === 0) {
+                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无向量索引数据</div>';
+                infoEl.textContent = '';
+            } else {
+                const tableHtml = `
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">表名</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">注释</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">向量维度</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">创建时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${vectors.map(v => `
+                                <tr>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${v.table_name || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${v.comment || ''}">${v.comment || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${v.dimension || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${v.created_at || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                contentEl.innerHTML = tableHtml;
+                infoEl.textContent = `共 ${total} 条，第 ${page}/${totalPages} 页`;
+
+                // 更新按钮状态
+                document.getElementById('vectorPrevBtn').disabled = page <= 1;
+                document.getElementById('vectorNextBtn').disabled = page >= totalPages;
+            }
         } else {
-            progressEl.textContent = '获取状态失败: ' + (data.message || '未知错误');
+            contentEl.innerHTML = `<div style="text-align:center;padding:40px;color:#dc3545;">加载失败: ${data.message || '未知错误'}</div>`;
         }
     } catch (error) {
-        progressEl.textContent = '获取状态失败: ' + error.message;
+        contentEl.innerHTML = `<div style="text-align:center;padding:40px;color:#dc3545;">加载失败: ${error.message}</div>`;
     }
+}
+
+function closeVectorPreviewModal() {
+    const modal = document.getElementById('vectorPreviewModal');
+    if (modal) modal.remove();
 }
 
 // 显示关系预览
 async function showRelationPreview() {
     console.log('showRelationPreview called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先在左侧列表中选择一个数据库');
+        showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
     }
-    
-    // 打开同步索引弹窗
-    openSyncIndexModal();
-    
-    // 设置为只看关系
-    const syncTablesEl = document.getElementById('syncTables');
-    const syncVectorsEl = document.getElementById('syncVectors');
-    const syncRelationsEl = document.getElementById('syncRelations');
-    
-    if (syncTablesEl) syncTablesEl.checked = false;
-    if (syncVectorsEl) syncVectorsEl.checked = false;
-    if (syncRelationsEl) syncRelationsEl.checked = true;
-    
-    // 显示当前关系状态
-    const statusEl = document.getElementById('syncIndexStatus');
-    const progressEl = document.getElementById('syncIndexProgress');
-    statusEl.style.display = 'block';
-    progressEl.textContent = '加载关系状态...';
-    
+
+    // 加载第一页数据
+    await loadRelationPreviewPage(1);
+}
+
+// 加载关系预览分页数据
+async function loadRelationPreviewPage(page) {
+    const pageSize = 50;
+
+    // 创建或更新弹窗
+    let modal = document.getElementById('relationPreviewModal');
+    if (!modal) {
+        const modalHtml = `
+            <div id="relationPreviewModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:1000px;max-height:85vh;">
+                    <div class="modal-header">
+                        <h2>👁️ 关系索引预览</h2>
+                        <button class="modal-close" onclick="closeRelationPreviewModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="max-height:500px;overflow-y:auto;">
+                        <div id="relationPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
+                    </div>
+                    <div class="modal-footer" style="justify-content:space-between;">
+                        <div id="relationPreviewInfo" style="font-size:13px;color:#666;"></div>
+                        <div style="display:flex;gap:8px;">
+                            <button type="button" class="btn btn-secondary" id="relationPrevBtn" onclick="loadRelationPreviewPage(currentRelationPage - 1)">上一页</button>
+                            <button type="button" class="btn btn-secondary" id="relationNextBtn" onclick="loadRelationPreviewPage(currentRelationPage + 1)">下一页</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    const contentEl = document.getElementById('relationPreviewContent');
+    const infoEl = document.getElementById('relationPreviewInfo');
+
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-status`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-list?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
-        
-        if (data.success) {
-            const dbStats = data.database_stats || {};
-            const dbCount = dbStats[currentDb.name] || 0;
-            progressEl.innerHTML = `✅ 关系索引状态<br>当前库关系数: ${dbCount} | 总关系数: ${data.total_relations || 0}`;
+
+        if (data.success && data.relations) {
+            const relations = data.relations;
+            const total = data.total || 0;
+            const totalPages = Math.ceil(total / pageSize);
+
+            window.currentRelationPage = page;
+
+            if (relations.length === 0) {
+                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无关系索引数据</div>';
+                infoEl.textContent = '';
+            } else {
+                const tableHtml = `
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">源表</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">源字段</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">→</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">目标表</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">目标字段</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">置信度</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">创建时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${relations.map(r => `
+                                <tr>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_table || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_column || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;color:#999;">→</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_table || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_column || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${r.confidence ? (r.confidence * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.created_at || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                contentEl.innerHTML = tableHtml;
+                infoEl.textContent = `共 ${total} 条，第 ${page}/${totalPages} 页`;
+
+                // 更新按钮状态
+                document.getElementById('relationPrevBtn').disabled = page <= 1;
+                document.getElementById('relationNextBtn').disabled = page >= totalPages;
+            }
         } else {
-            progressEl.textContent = '获取状态失败: ' + (data.message || '未知错误');
+            contentEl.innerHTML = `<div style="text-align:center;padding:40px;color:#dc3545;">加载失败: ${data.message || '未知错误'}</div>`;
         }
     } catch (error) {
-        progressEl.textContent = '获取状态失败: ' + error.message;
+        contentEl.innerHTML = `<div style="text-align:center;padding:40px;color:#dc3545;">加载失败: ${error.message}</div>`;
     }
+}
+
+function closeRelationPreviewModal() {
+    const modal = document.getElementById('relationPreviewModal');
+    if (modal) modal.remove();
 }
