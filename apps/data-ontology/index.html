@@ -130,10 +130,17 @@
                         <div class="detail-header">
                             <h2 id="dbName">数据库名称</h2>
                             <div class="detail-actions">
-                                <button id="vectorIndexBtn" class="btn btn-sm" onclick="handleVectorIndex()">🔤 向量索引</button>
-                                <button id="relationIndexBtn" class="btn btn-sm" onclick="handleRelationIndex()">🔗 关系索引</button>
-                                <button id="vectorPreviewBtn" class="btn btn-sm" onclick="showVectorPreview()">👁️ 向量预览</button>
-                                <button id="relationPreviewBtn" class="btn btn-sm" onclick="showRelationPreview()">👁️ 关系预览</button>
+                                <!-- 索引与预览下拉菜单 -->
+                                <div style="position:relative;display:inline-block;">
+                                    <button id="indexPreviewBtn" class="btn btn-sm" style="padding:4px 12px;">索引与预览 ▼</button>
+                                    <div id="indexPreviewMenu" style="display:none;position:absolute;top:100%;left:0;margin-top:2px;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);min-width:130px;z-index:1000;">
+                                        <button class="dropdown-item" onclick="handleVectorIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔤 向量索引</button>
+                                        <button class="dropdown-item" onclick="handleRelationIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔗 关系索引</button>
+                                        <div style="border-top:1px solid #eee;margin:4px 0;"></div>
+                                        <button class="dropdown-item" onclick="showVectorPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 向量预览</button>
+                                        <button class="dropdown-item" onclick="showRelationPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 关系预览</button>
+                                    </div>
+                                </div>
                                 <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
                                 <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>

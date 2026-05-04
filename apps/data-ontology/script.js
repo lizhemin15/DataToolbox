@@ -951,6 +951,24 @@ function initEventListeners() {
         }
     });
 
+    // 数据库操作下拉菜单
+    const indexPreviewBtn = document.getElementById('indexPreviewBtn');
+    if (indexPreviewBtn) {
+        indexPreviewBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('indexPreviewMenu');
+            if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+    }
+
+    // 点击其他地方关闭数据库操作菜单
+    document.addEventListener('click', function(e) {
+        const menu = document.getElementById('indexPreviewMenu');
+        if (menu && !e.target.closest('#indexPreviewBtn') && !e.target.closest('#indexPreviewMenu')) {
+            menu.style.display = 'none';
+        }
+    });
+
     // 设置面板按钮。
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
     document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);
@@ -11620,6 +11638,12 @@ async function showSyncIndexModal() {
 // 隐藏同步索引弹窗
 function hideSyncIndexModal() {
     document.getElementById('syncIndexModal').style.display = 'none';
+}
+
+// 关闭索引预览下拉菜单
+function closeIndexPreviewMenu() {
+    const menu = document.getElementById('indexPreviewMenu');
+    if (menu) menu.style.display = 'none';
 }
 
 // 执行同步索引
