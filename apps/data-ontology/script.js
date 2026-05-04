@@ -11895,10 +11895,11 @@ function showRelationCandidates(candidates) {
             <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
                 <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" checked style="margin-top:3px;width:16px;height:16px;">
                 <div style="flex:1;">
-                    <div style="font-size:13px;font-weight:600;color:#333;">${c.source_table} → ${c.target_table}</div>
+                    <div style="font-size:13px;font-weight:600;color:#333;">${c.table1} → ${c.table2}</div>
                     <div style="font-size:12px;color:#666;margin-top:4px;">
-                        关联字段: ${c.source_column} = ${c.target_column}<br>
-                        置信度: ${(c.confidence * 100).toFixed(1)}%
+                        关联字段: ${c.col1} = ${c.col2}<br>
+                        置信度: ${(c.confidence * 100).toFixed(1)}% · ${c.match_type}<br>
+                        <span style="color:#888;">${c.reason}</span>
                     </div>
                 </div>
             </label>
@@ -11932,7 +11933,7 @@ function showRelationCandidates(candidates) {
 // 确认关系候选
 async function confirmRelationCandidates() {
     const checkboxes = document.querySelectorAll('.relation-candidate-checkbox:checked');
-    const relationIds = Array.from(checkboxes).map(cb => cb.dataset.id);
+    const relationIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.id));
 
     if (relationIds.length === 0) {
         showToast('请至少选择一个关系候选', 'warning');
@@ -11943,7 +11944,7 @@ async function confirmRelationCandidates() {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ relations: relationIds })
+            body: JSON.stringify({ db_id: currentDb.id, relations: relationIds })
         });
 
         const data = await response.json();
@@ -12013,8 +12014,8 @@ async function loadVectorPreviewPage(page) {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
 
-        if (data.success && data.vectors) {
-            const vectors = data.vectors;
+        if (data.success) {
+            const vectors = data.vectors || [];
             const total = data.total || 0;
             const totalPages = Math.ceil(total / pageSize);
 
@@ -12115,8 +12116,8 @@ async function loadRelationPreviewPage(page) {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
 
-        if (data.success && data.relations) {
-            const relations = data.relations;
+        if (data.success) {
+            const relations = data.relations || [];
             const total = data.total || 0;
             const totalPages = Math.ceil(total / pageSize);
 
@@ -12135,7 +12136,7 @@ async function loadRelationPreviewPage(page) {
                                 <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">→</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">目标表</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">目标字段</th>
-                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">置信度</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">匹配类型</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">创建时间</th>
                             </tr>
                         </thead>
@@ -12143,11 +12144,11 @@ async function loadRelationPreviewPage(page) {
                             ${relations.map(r => `
                                 <tr>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_table || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_column || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_field || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;color:#999;">→</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_table || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_column || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${r.confidence ? (r.confidence * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_field || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${r.match_type || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.created_at || '-'}</td>
                                 </tr>
                             `).join('')}
