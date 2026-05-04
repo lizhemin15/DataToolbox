@@ -11640,10 +11640,7 @@ async function handleSyncIndex() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                database_id: currentDbOntologyDatabase?.id,
-                sync_tables: syncTables,
-                sync_vectors: syncVectors,
-                sync_relations: syncRelations
+                database_id: currentDb?.id
             })
         });
         const syncData = await syncResponse.json();
