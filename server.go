@@ -17453,6 +17453,60 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 		return err
 	}
 
+	// 1. 获取已有的表记录
+	existingTables := make(map[string]int64)
+	rows, err := m.db.Query("SELECT table_name, updated_at FROM tables WHERE database_id = ?", dbConfig.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var tableName string
+		var updatedAt int64
+		if err := rows.Scan(&tableName, &updatedAt); err != nil {
+			continue
+		}
+		existingTables[tableName] = updatedAt
+	}
+	rows.Close()
+
+	// 2. 构建当前表名集合
+	currentTables := make(map[string]bool)
+	for _, ti := range tableInfos {
+		currentTables[ti.Name] = true
+	}
+
+	// 3. 找出需要删除的表
+	var toDelete []string
+	for tableName := range existingTables {
+		if !currentTables[tableName] {
+			toDelete = append(toDelete, tableName)
+		}
+	}
+
+	// 4. 找出需要新增/更新的表
+	type tableToSync struct {
+		name        string
+		comment     string
+		columnNames []string
+	}
+	var toSync []tableToSync
+	for _, ti := range tableInfos {
+		if _, exists := existingTables[ti.Name]; !exists {
+			comment := ti.Comment
+			if comment == "" {
+				comment = ti.Name
+			}
+			toSync = append(toSync, tableToSync{name: ti.Name, comment: comment, columnNames: ti.ColumnNames})
+		}
+	}
+
+	if len(toDelete) == 0 && len(toSync) == 0 {
+		log.Printf("[表检索] 数据库 %s 表数据已是最新，无需同步", dbConfig.Name)
+		return nil
+	}
+
+	log.Printf("[表检索] 数据库 %s 增量同步表: 删除 %d 个, 新增 %d 个", dbConfig.Name, len(toDelete), len(toSync))
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		return err
@@ -17461,39 +17515,44 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 
 	now := time.Now().Unix()
 
-	// 删除该数据库的旧数据
-	if _, err := tx.Exec("DELETE FROM tables WHERE database_id = ?", dbConfig.ID); err != nil {
-		return err
-	}
-
-	// 插入新数据
-	stmt, err := tx.Prepare(`
-		INSERT INTO tables (database_id, table_name, table_comment, column_names, column_comments, row_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, ti := range tableInfos {
-		columnNamesJSON, _ := json.Marshal(ti.ColumnNames)
-		// TableInfo 只有 Name, Comment, ColumnNames
-		comment := ti.Comment
-		if comment == "" {
-			comment = ti.Name // 无注释时用表名兜底，保证 FTS5 可搜
+	// 删除已不存在的表
+	if len(toDelete) > 0 {
+		stmt, err := tx.Prepare("DELETE FROM tables WHERE database_id = ? AND table_name = ?")
+		if err != nil {
+			return err
 		}
+		for _, tableName := range toDelete {
+			if _, err := stmt.Exec(dbConfig.ID, tableName); err != nil {
+				log.Printf("[表检索] 删除表 %s 失败: %v", tableName, err)
+			}
+		}
+		stmt.Close()
+	}
 
-		if _, err := stmt.Exec(
-			dbConfig.ID,
-			ti.Name,
-			comment,
-			string(columnNamesJSON),
-			"{}", // column_comments 暂不存储，预留
-			0,    // row_count 暂不存储，预留
-			now,
-		); err != nil {
-			log.Printf("[表检索] 插入表 %s 失败: %v", ti.Name, err)
+	// 新增/更新表
+	if len(toSync) > 0 {
+		stmt, err := tx.Prepare(`
+			INSERT OR REPLACE INTO tables (database_id, table_name, table_comment, column_names, column_comments, row_count, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		for _, ts := range toSync {
+			columnNamesJSON, _ := json.Marshal(ts.columnNames)
+			if _, err := stmt.Exec(
+				dbConfig.ID,
+				ts.name,
+				ts.comment,
+				string(columnNamesJSON),
+				"{}",
+				0,
+				now,
+			); err != nil {
+				log.Printf("[表检索] 插入表 %s 失败: %v", ts.name, err)
+			}
 		}
 	}
 
@@ -17677,7 +17736,7 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// syncVectorsToSQLite 同步向量到 SQLite
+// syncVectorsToSQLite 增量同步向量到 SQLite
 func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingConfig EmbeddingRetrievalConfig) error {
 	if m == nil || m.db == nil {
 		return nil
@@ -17695,53 +17754,116 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// 1. 获取已有的向量记录
+	existingVectors := make(map[string]time.Time)
+	rows, err := m.db.Query("SELECT table_name, updated_at FROM vectors WHERE database_id = ?", dbConfig.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var tableName string
+		var updatedAt time.Time
+		if err := rows.Scan(&tableName, &updatedAt); err != nil {
+			continue
+		}
+		existingVectors[tableName] = updatedAt
+	}
+	rows.Close()
+
+	// 2. 构建当前表名集合
+	currentTables := make(map[string]bool)
+	for _, ti := range tableInfos {
+		currentTables[ti.Name] = true
+	}
+
+	// 3. 找出需要删除的表（存在于向量表但不在当前表中）
+	var toDelete []string
+	for tableName := range existingVectors {
+		if !currentTables[tableName] {
+			toDelete = append(toDelete, tableName)
+		}
+	}
+
+	// 4. 找出需要新增/更新的表
+	type tableToSync struct {
+		name    string
+		comment string
+	}
+	var toSync []tableToSync
+	for _, ti := range tableInfos {
+		// 检查是否需要同步：新表 或 表结构可能变化（这里简化为检查是否存在）
+		if _, exists := existingVectors[ti.Name]; !exists {
+			toSync = append(toSync, tableToSync{name: ti.Name, comment: ti.Comment})
+		}
+	}
+
+	if len(toDelete) == 0 && len(toSync) == 0 {
+		log.Printf("[表检索] 数据库 %s 向量已是最新，无需同步", dbConfig.Name)
+		return nil
+	}
+
+	log.Printf("[表检索] 数据库 %s 增量同步: 删除 %d 个, 新增 %d 个", dbConfig.Name, len(toDelete), len(toSync))
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// 删除该数据库的旧向量
-	if _, err := tx.Exec("DELETE FROM vectors WHERE database_id = ?", dbConfig.ID); err != nil {
-		return err
-	}
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO vectors (database_id, table_name, embedding, updated_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	successCount := 0
-	for _, ti := range tableInfos {
-		// 构建 embedding 文本：表名 + 注释
-		text := ti.Name
-		if ti.Comment != "" {
-			text = ti.Name + " " + ti.Comment
-		}
-
-		embedding, err := generateEmbedding(text, embeddingConfig)
+	// 删除已不存在的表
+	if len(toDelete) > 0 {
+		stmt, err := tx.Prepare("DELETE FROM vectors WHERE database_id = ? AND table_name = ?")
 		if err != nil {
-			log.Printf("[表检索] 生成 embedding 失败 (%s): %v", ti.Name, err)
-			continue
+			return err
 		}
+		for _, tableName := range toDelete {
+			if _, err := stmt.Exec(dbConfig.ID, tableName); err != nil {
+				log.Printf("[表检索] 删除向量失败 (%s): %v", tableName, err)
+			}
+		}
+		stmt.Close()
+	}
 
-		embeddingBytes := float32SliceToBytes(embedding)
-		if _, err := stmt.Exec(dbConfig.ID, ti.Name, embeddingBytes); err != nil {
-			log.Printf("[表检索] 插入向量失败 (%s): %v", ti.Name, err)
-			continue
+	// 新增/更新向量
+	if len(toSync) > 0 {
+		stmt, err := tx.Prepare(`
+			INSERT OR REPLACE INTO vectors (database_id, table_name, embedding, updated_at)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			return err
 		}
-		successCount++
+		defer stmt.Close()
+
+		successCount := 0
+		for _, ts := range toSync {
+			// 构建 embedding 文本：表名 + 注释
+			text := ts.name
+			if ts.comment != "" {
+				text = ts.name + " " + ts.comment
+			}
+
+			embedding, err := generateEmbedding(text, embeddingConfig)
+			if err != nil {
+				log.Printf("[表检索] 生成 embedding 失败 (%s): %v", ts.name, err)
+				continue
+			}
+
+			embeddingBytes := float32SliceToBytes(embedding)
+			if _, err := stmt.Exec(dbConfig.ID, ts.name, embeddingBytes); err != nil {
+				log.Printf("[表检索] 插入向量失败 (%s): %v", ts.name, err)
+				continue
+			}
+			successCount++
+		}
+		log.Printf("[表检索] 数据库 %s 新增向量: %d/%d", dbConfig.Name, successCount, len(toSync))
 	}
 
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 
-	log.Printf("[表检索] 数据库 %s 同步向量完成: %d/%d", dbConfig.Name, successCount, len(tableInfos))
+	log.Printf("[表检索] 数据库 %s 增量同步完成", dbConfig.Name)
 	return nil
 }
 
@@ -17848,7 +17970,7 @@ func (m *FTS5Manager) getVectorStats() (int, map[string]int, error) {
 	return totalCount, dbStats, nil
 }
 
-// syncRelationsToSQLite 同步关系到 SQLite
+// syncRelationsToSQLite 增量同步关系到 SQLite
 func (m *FTS5Manager) syncRelationsToSQLite(dbConfig *DatabaseConfig) error {
 	if m == nil || m.db == nil {
 		return nil
@@ -17857,48 +17979,136 @@ func (m *FTS5Manager) syncRelationsToSQLite(dbConfig *DatabaseConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// 1. 获取已有的关系记录
+	existingRels := make(map[string]bool)
+	rows, err := m.db.Query("SELECT source_table, source_field, target_table, target_field FROM relations WHERE database_id = ?", dbConfig.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var srcTable, srcField, tgtTable, tgtField string
+		if err := rows.Scan(&srcTable, &srcField, &tgtTable, &tgtField); err != nil {
+			continue
+		}
+		key := srcTable + "." + srcField + "->" + tgtTable + "." + tgtField
+		existingRels[key] = true
+	}
+	rows.Close()
+
+	// 2. 构建当前关系的 key 集合
+	currentRels := make(map[string]bool)
+	type relEntry struct {
+		key          string
+		sourceTable  string
+		sourceField  string
+		targetTable  string
+		targetField  string
+		matchType    string
+		relationName string
+	}
+	var toSync []relEntry
+	for _, rel := range dbConfig.Relations {
+		key := rel.Source.TableName + "." + rel.Source.FieldName + "->" + rel.Target.TableName + "." + rel.Target.FieldName
+		currentRels[key] = true
+		if !existingRels[key] {
+			toSync = append(toSync, relEntry{
+				key:          key,
+				sourceTable:  rel.Source.TableName,
+				sourceField:  rel.Source.FieldName,
+				targetTable:  rel.Target.TableName,
+				targetField:  rel.Target.FieldName,
+				matchType:    rel.MatchType,
+				relationName: rel.Name,
+			})
+		}
+	}
+
+	// 3. 找出需要删除的关系
+	var toDelete []string
+	for key := range existingRels {
+		if !currentRels[key] {
+			toDelete = append(toDelete, key)
+		}
+	}
+
+	if len(toDelete) == 0 && len(toSync) == 0 {
+		log.Printf("[表检索] 数据库 %s 关系已是最新，无需同步", dbConfig.Name)
+		return nil
+	}
+
+	log.Printf("[表检索] 数据库 %s 增量同步关系: 删除 %d 个, 新增 %d 个", dbConfig.Name, len(toDelete), len(toSync))
+
 	tx, err := m.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// 删除该数据库的旧关系
-	if _, err := tx.Exec("DELETE FROM relations WHERE database_id = ?", dbConfig.ID); err != nil {
-		return err
-	}
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO relations (database_id, source_table, source_field, target_table, target_field, match_type, relation_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	successCount := 0
-	for _, rel := range dbConfig.Relations {
-		if _, err := stmt.Exec(
-			dbConfig.ID,
-			rel.Source.TableName,
-			rel.Source.FieldName,
-			rel.Target.TableName,
-			rel.Target.FieldName,
-			rel.MatchType,
-			rel.Name,
-		); err != nil {
-			log.Printf("[表检索] 插入关系失败 (%s): %v", rel.Name, err)
-			continue
+	// 删除已不存在的关系
+	if len(toDelete) > 0 {
+		stmt, err := tx.Prepare("DELETE FROM relations WHERE database_id = ? AND source_table = ? AND source_field = ? AND target_table = ? AND target_field = ?")
+		if err != nil {
+			return err
 		}
-		successCount++
+		for _, key := range toDelete {
+			// key format: srcTable.srcField->tgtTable.tgtField
+			arrowIdx := strings.Index(key, "->")
+			if arrowIdx < 0 {
+				continue
+			}
+			left := key[:arrowIdx]
+			right := key[arrowIdx+2:]
+			dotLeft := strings.Index(left, ".")
+			dotRight := strings.Index(right, ".")
+			if dotLeft < 0 || dotRight < 0 {
+				continue
+			}
+			srcTable := left[:dotLeft]
+			srcField := left[dotLeft+1:]
+			tgtTable := right[:dotRight]
+			tgtField := right[dotRight+1:]
+			if _, err := stmt.Exec(dbConfig.ID, srcTable, srcField, tgtTable, tgtField); err != nil {
+				log.Printf("[表检索] 删除关系失败 (%s): %v", key, err)
+			}
+		}
+		stmt.Close()
+	}
+
+	// 新增关系
+	if len(toSync) > 0 {
+		stmt, err := tx.Prepare(`
+			INSERT INTO relations (database_id, source_table, source_field, target_table, target_field, match_type, relation_name)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		successCount := 0
+		for _, rel := range toSync {
+			if _, err := stmt.Exec(
+				dbConfig.ID,
+				rel.sourceTable,
+				rel.sourceField,
+				rel.targetTable,
+				rel.targetField,
+				rel.matchType,
+				rel.relationName,
+			); err != nil {
+				log.Printf("[表检索] 插入关系失败 (%s): %v", rel.key, err)
+				continue
+			}
+			successCount++
+		}
+		log.Printf("[表检索] 数据库 %s 新增关系: %d/%d", dbConfig.Name, successCount, len(toSync))
 	}
 
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 
-	log.Printf("[表检索] 数据库 %s 同步关系完成: %d/%d", dbConfig.Name, successCount, len(dbConfig.Relations))
+	log.Printf("[表检索] 数据库 %s 关系增量同步完成", dbConfig.Name)
 	return nil
 }
 
