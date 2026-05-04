@@ -1433,11 +1433,21 @@
                 </div>
             </div>
             <div class="modal-footer" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;">
-                <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="scanDbOntologyRelations()" title="扫描表之间的关系">🔍 扫描关系</button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="showDbOntologyRelations()" title="查看已发现的关系">📋 关系表</button>
-                <div style="flex:1"></div>
-                <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn">取消</button>
+                <div style="display:flex;gap:0;">
+                    <!-- 主按钮：开始同步 -->
+                    <button type="button" class="btn btn-primary" id="startSyncIndexBtn" style="border-top-right-radius:0;border-bottom-right-radius:0;">开始同步</button>
+                    <!-- 下拉触发按钮 -->
+                    <button type="button" class="btn btn-primary" id="syncDropdownToggle" style="border-top-left-radius:0;border-bottom-left-radius:0;padding:6px 8px;position:relative;">
+                        <span style="font-size:10px;">▼</span>
+                    </button>
+                    <!-- 下拉菜单 -->
+                    <div id="syncDropdownMenu" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);min-width:150px;z-index:1000;">
+                        <button type="button" class="dropdown-item" onclick="scanDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;color:#333;">🔍 扫描关系</button>
+                        <button type="button" class="dropdown-item" onclick="showDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;color:#333;border-top:1px solid #eee;">📋 查看关系表</button>
+                        <button type="button" class="dropdown-item" onclick="document.getElementById('cancelSyncIndexBtn').click();document.getElementById('syncDropdownMenu').style.display='none';" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;color:#333;border-top:1px solid #eee;">✕ 取消</button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn" style="display:none;">取消</button>
             </div>
         </div>
     </div>

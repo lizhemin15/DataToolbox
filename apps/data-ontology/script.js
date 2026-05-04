@@ -935,7 +935,22 @@ function initEventListeners() {
     });
     document.getElementById('cancelSyncIndexBtn').addEventListener('click', hideSyncIndexModal);
     document.getElementById('startSyncIndexBtn').addEventListener('click', handleSyncIndex);
-    
+
+    // 下拉菜单切换
+    document.getElementById('syncDropdownToggle').addEventListener('click', function(e) {
+        e.stopPropagation();
+        const menu = document.getElementById('syncDropdownMenu');
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // 点击其他地方关闭下拉菜单
+    document.addEventListener('click', function(e) {
+        const menu = document.getElementById('syncDropdownMenu');
+        if (menu && !e.target.closest('#syncDropdownToggle') && !e.target.closest('#syncDropdownMenu')) {
+            menu.style.display = 'none';
+        }
+    });
+
     // 设置面板按钮。
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
     document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);

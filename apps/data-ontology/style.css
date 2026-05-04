@@ -6738,3 +6738,12 @@ body.embed-mode .embed-settings-btn {
     color: #2b6cb0;
     border: 1px solid #bee3f8;
 }
+
+/* 下拉菜单项悬停效果 */
+.dropdown-item:hover {
+    background-color: #f5f5f5;
+}
+
+.dropdown-item:active {
+    background-color: #e0e0e0;
+}
