@@ -6268,7 +6268,8 @@ func handleTableRetrievalRelationScan(w http.ResponseWriter, r *http.Request) {
 
 	// 解析请求体
 	var req struct {
-		DbID string `json:"db_id"`
+		DbID  string   `json:"db_id"`
+		Rules []string `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6299,8 +6300,14 @@ func handleTableRetrievalRelationScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 如果未指定规则，使用所有规则
+	rules := req.Rules
+	if len(rules) == 0 {
+		rules = []string{"exact", "naming_style", "type_keyword", "prefix_consistency"}
+	}
+
 	// 扫描关系候选
-	candidates, err := scanRelationCandidates(dbConfig)
+	candidates, err := scanRelationCandidates(dbConfig, rules)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -18544,7 +18551,7 @@ func syncSpecificVectors(manager *FTS5Manager, dbConfig *DatabaseConfig, tableIn
 }
 
 // scanRelationCandidates 扫描关系候选
-func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry, error) {
+func scanRelationCandidates(dbConfig *DatabaseConfig, rules []string) ([]RelationCandidateEntry, error) {
 	// 获取数据库连接
 	db, err := getDBFromPool(dbConfig)
 	if err != nil {
@@ -18614,7 +18621,7 @@ func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry,
 					}
 
 					// 检测关联
-					confidence, reason, matchType := detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type)
+					confidence, reason, matchType := detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type, rules)
 					if confidence > 0.5 {
 						// 检查关系是否已存在（考虑双向性）
 						relationKey := fmt.Sprintf("%s:%s:%s:%s", table1, col1Name, table2, col2Name)
@@ -18657,41 +18664,146 @@ func isFieldTypeMatchable(fieldType string) bool {
 }
 
 // detectRelation 检测两个字段之间的关联关系
-func detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type string) (float64, string, string) {
+func detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type string, rules []string) (float64, string, string) {
+	// 辅助函数：检查规则是否启用
+	ruleEnabled := func(ruleName string) bool {
+		for _, r := range rules {
+			if r == ruleName {
+				return true
+			}
+		}
+		return false
+	}
+
 	// 1. 精确匹配：字段名完全相同
-	if col1Name == col2Name {
-		return 1.0, fmt.Sprintf("字段名完全匹配: %s", col1Name), "exact"
+	if ruleEnabled("exact") && col1Name == col2Name {
+		confidence := 1.0
+		reason := fmt.Sprintf("字段名完全匹配: %s", col1Name)
+
+		// 应用前缀一致性加成
+		if ruleEnabled("prefix_consistency") {
+			prefixBonus := calculatePrefixConsistency(table1, table2)
+			if prefixBonus > 0 {
+				confidence = confidence * (1 + prefixBonus*0.3)
+				if confidence > 1.0 {
+					confidence = 1.0
+				}
+			}
+		}
+
+		return confidence, reason, "exact"
 	}
 
 	// 2. 前缀/后缀匹配：A.id ↔ B.a_id / B.aid
-	col1Lower := strings.ToLower(col1Name)
-	col2Lower := strings.ToLower(col2Name)
-	table1Lower := strings.ToLower(table1)
+	if ruleEnabled("naming_style") {
+		col1Lower := strings.ToLower(col1Name)
+		col2Lower := strings.ToLower(col2Name)
+		table1Lower := strings.ToLower(table1)
 
-	// 检查 col2 是否是 col1 的前缀/后缀形式
-	if col1Lower == "id" {
-		// col1 是 id，检查 col2 是否是 table_id 或 tableid
-		if col2Lower == table1Lower+"_id" || col2Lower == table1Lower+"id" {
-			return 0.95, fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name), "naming_style"
+		// 检查 col2 是否是 col1 的前缀/后缀形式
+		if col1Lower == "id" {
+			// col1 是 id，检查 col2 是否是 table_id 或 tableid
+			if col2Lower == table1Lower+"_id" || col2Lower == table1Lower+"id" {
+				confidence := 0.95
+				reason := fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name)
+
+				// 应用前缀一致性加成
+				if ruleEnabled("prefix_consistency") {
+					prefixBonus := calculatePrefixConsistency(table1, table2)
+					if prefixBonus > 0 {
+						confidence = confidence * (1 + prefixBonus*0.3)
+						if confidence > 1.0 {
+							confidence = 1.0
+						}
+					}
+				}
+
+				return confidence, reason, "naming_style"
+			}
 		}
-	}
 
-	// 反向检查
-	if col2Lower == "id" {
-		if col1Lower == strings.ToLower(table2)+"_id" || col1Lower == strings.ToLower(table2)+"id" {
-			return 0.95, fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name), "naming_style"
+		// 反向检查
+		if col2Lower == "id" {
+			if col1Lower == strings.ToLower(table2)+"_id" || col1Lower == strings.ToLower(table2)+"id" {
+				confidence := 0.95
+				reason := fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name)
+
+				// 应用前缀一致性加成
+				if ruleEnabled("prefix_consistency") {
+					prefixBonus := calculatePrefixConsistency(table1, table2)
+					if prefixBonus > 0 {
+						confidence = confidence * (1 + prefixBonus*0.3)
+						if confidence > 1.0 {
+							confidence = 1.0
+						}
+					}
+				}
+
+				return confidence, reason, "naming_style"
+			}
 		}
 	}
 
 	// 3. 类型匹配：都是 INT/BIGINT
-	if strings.Contains(strings.ToUpper(col1Type), "INT") && strings.Contains(strings.ToUpper(col2Type), "INT") {
+	if ruleEnabled("type_keyword") && strings.Contains(strings.ToUpper(col1Type), "INT") && strings.Contains(strings.ToUpper(col2Type), "INT") {
 		// 检查是否有部分名称匹配
+		col1Lower := strings.ToLower(col1Name)
+		col2Lower := strings.ToLower(col2Name)
 		if strings.Contains(col2Lower, col1Lower) || strings.Contains(col1Lower, col2Lower) {
-			return 0.7, fmt.Sprintf("类型匹配 + 名称相似: %s(%s) ↔ %s(%s)", col1Name, col1Type, col2Name, col2Type), "type_keyword"
+			confidence := 0.7
+			reason := fmt.Sprintf("类型匹配 + 名称相似: %s(%s) ↔ %s(%s)", col1Name, col1Type, col2Name, col2Type)
+
+			// 应用前缀一致性加成
+			if ruleEnabled("prefix_consistency") {
+				prefixBonus := calculatePrefixConsistency(table1, table2)
+				if prefixBonus > 0 {
+					confidence = confidence * (1 + prefixBonus*0.3)
+					if confidence > 1.0 {
+						confidence = 1.0
+					}
+				}
+			}
+
+			return confidence, reason, "type_keyword"
 		}
 	}
 
 	return 0, "", ""
+}
+
+// calculatePrefixConsistency 计算两个表名的前缀一致性
+func calculatePrefixConsistency(table1, table2 string) float64 {
+	// 转换为小写
+	t1 := strings.ToLower(table1)
+	t2 := strings.ToLower(table2)
+
+	// 找到公共前缀长度
+	minLen := len(t1)
+	if len(t2) < minLen {
+		minLen = len(t2)
+	}
+
+	commonPrefixLen := 0
+	for i := 0; i < minLen; i++ {
+		if t1[i] == t2[i] {
+			commonPrefixLen++
+		} else {
+			break
+		}
+	}
+
+	// 如果没有公共前缀，返回 0
+	if commonPrefixLen == 0 {
+		return 0
+	}
+
+	// 计算前缀重合比例（占较长表名的比例）
+	maxLen := len(t1)
+	if len(t2) > maxLen {
+		maxLen = len(t2)
+	}
+
+	return float64(commonPrefixLen) / float64(maxLen)
 }
 
 // getVectorList 获取向量列表
