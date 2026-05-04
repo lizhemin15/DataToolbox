@@ -302,7 +302,9 @@ async function startSocket() {
           const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
           mkdirSync(DOCUMENT_CACHE_DIR, { recursive: true });
           const safeFileName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
-          const filePath = path.join(DOCUMENT_CACHE_DIR, `doc_${randomBytes(6).toString('hex')}_${safeFileName}`);
+          const fallbackName = `document${path.extname(safeFileName) || '.bin'}`;
+          const cacheFileName = safeFileName === 'template.docx' ? 'governance-example.docx' : safeFileName;
+          const filePath = path.join(DOCUMENT_CACHE_DIR, `doc_${randomBytes(6).toString('hex')}_${cacheFileName}`);
           writeFileSync(filePath, buf);
           mediaUrls.push(filePath);
         } catch (err) {
