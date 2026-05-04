@@ -11612,7 +11612,7 @@ async function handleSyncIndex() {
     const statusEl = document.getElementById('syncIndexStatus');
     const progressEl = document.getElementById('syncIndexProgress');
     const btn = document.getElementById('startSyncIndexBtn');
-    
+
     // 收集 Embedding 配置
     const embConfig = {
         enabled: document.getElementById('syncEmbEnabled').checked,
@@ -11621,16 +11621,22 @@ async function handleSyncIndex() {
         model: document.getElementById('syncEmbModel').value,
         dimension: parseInt(document.getElementById('syncEmbDimension').value, 10) || 1024
     };
-    
+
     const syncTables = document.getElementById('syncTables').checked;
     const syncVectors = document.getElementById('syncVectors').checked;
     const syncRelations = document.getElementById('syncRelations').checked;
-    
+
+    // 至少选择一项
+    if (!syncTables && !syncVectors && !syncRelations) {
+        alert('请至少选择一项同步内容');
+        return;
+    }
+
     // 显示状态
     statusEl.style.display = 'block';
     progressEl.textContent = '保存 Embedding 配置...';
     btn.disabled = true;
-    
+
     try {
         // 1. 保存 Embedding 配置
         const embResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`, {
@@ -11639,49 +11645,90 @@ async function handleSyncIndex() {
             body: JSON.stringify(embConfig)
         });
         const embData = await embResponse.json();
-        
+
         if (!embData.success) {
             progressEl.textContent = 'Embedding 配置保存失败: ' + (embData.message || '');
             btn.disabled = false;
             return;
         }
-        
+
         // 2. 触发同步
-        progressEl.textContent = '正在同步索引...';
-        
+        const syncTypes = [];
+        if (syncTables) syncTypes.push('表数据');
+        if (syncVectors) syncTypes.push('向量索引');
+        if (syncRelations) syncTypes.push('关系数据');
+        progressEl.textContent = `正在同步: ${syncTypes.join('、')}...`;
+
         const syncResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                database_id: currentDb?.id
+                database_id: currentDb?.id,
+                sync_tables: syncTables,
+                sync_vectors: syncVectors,
+                sync_relations: syncRelations
             })
         });
         const syncData = await syncResponse.json();
-        
+
         if (!syncData.success) {
             progressEl.textContent = '同步失败: ' + (syncData.message || '');
             btn.disabled = false;
             return;
         }
-        
-        // 3. 轮询检查状态
+
+        // 3. 轮询检查状态（最多等待 2 分钟）
         progressEl.textContent = '同步进行中，请稍候...';
-        
-        setTimeout(async () => {
-            const statusResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
-            const statusData = await statusResponse.json();
-            
-            if (statusData.success) {
-                const tables = statusData.total_tables || 0;
-                const vectors = statusData.total_vectors || 0;
-                const relations = statusData.total_relations || 0;
-                progressEl.innerHTML = `✅ 同步完成<br>表: ${tables} | 向量: ${vectors} | 关系: ${relations}`;
-            } else {
-                progressEl.textContent = '同步完成，但获取状态失败';
+        const maxAttempts = 24; // 24 * 5秒 = 2分钟
+        let attempts = 0;
+
+        const pollStatus = async () => {
+            attempts++;
+            try {
+                const statusResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+                const statusData = await statusResponse.json();
+
+                if (statusData.success) {
+                    const tables = statusData.total_tables || 0;
+                    const vectors = statusData.total_vectors || 0;
+                    const relations = statusData.total_relations || 0;
+
+                    // 显示详细进度
+                    let progressHtml = '✅ 同步完成<br>';
+                    const parts = [];
+                    if (syncTables) parts.push(`表: ${tables}`);
+                    if (syncVectors) parts.push(`向量: ${vectors}`);
+                    if (syncRelations) parts.push(`关系: ${relations}`);
+                    progressHtml += parts.join(' | ');
+
+                    progressEl.innerHTML = progressHtml;
+                    btn.disabled = false;
+                } else {
+                    if (attempts < maxAttempts) {
+                        // 继续轮询
+                        progressEl.textContent = `同步进行中... (${attempts}/${maxAttempts})`;
+                        setTimeout(pollStatus, 5000);
+                    } else {
+                        // 超时
+                        progressEl.textContent = '⚠️ 同步超时，请稍后刷新查看结果';
+                        btn.disabled = false;
+                    }
+                }
+            } catch (error) {
+                if (attempts < maxAttempts) {
+                    // 出错后继续尝试
+                    progressEl.textContent = `同步进行中... (${attempts}/${maxAttempts})`;
+                    setTimeout(pollStatus, 5000);
+                } else {
+                    progressEl.textContent = '⚠️ 获取状态失败: ' + error.message;
+                    btn.disabled = false;
+                }
             }
-            btn.disabled = false;
-        }, 5000);
-        
+        };
+
+        // 开始轮询
+        setTimeout(pollStatus, 3000);
+
     } catch (error) {
         progressEl.textContent = '同步失败: ' + error.message;
         btn.disabled = false;

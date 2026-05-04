@@ -130,7 +130,10 @@
                         <div class="detail-header">
                             <h2 id="dbName">数据库名称</h2>
                             <div class="detail-actions">
-                                <button id="syncIndexBtn" class="btn btn-sm" onclick="showSyncIndexModal()">🔄 数据同步</button>
+                                <button id="vectorIndexBtn" class="btn btn-sm" onclick="handleVectorIndex()">🔤 向量索引</button>
+                                <button id="relationIndexBtn" class="btn btn-sm" onclick="handleRelationIndex()">🔗 关系索引</button>
+                                <button id="vectorPreviewBtn" class="btn btn-sm" onclick="showVectorPreview()">👁️ 向量预览</button>
+                                <button id="relationPreviewBtn" class="btn btn-sm" onclick="showRelationPreview()">👁️ 关系预览</button>
                                 <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
                                 <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
