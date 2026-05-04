@@ -5949,6 +5949,59 @@ func handleTableRetrievalRelationStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// matchWildcardPattern 检查字符串是否匹配通配符模式
+// * 匹配任意字符，? 匹配单个字符
+func matchWildcardPattern(pattern, str string) bool {
+	// 如果模式为空，匹配所有
+	if pattern == "" {
+		return true
+	}
+
+	// 将通配符模式转换为正则表达式
+	regexPattern := "^"
+	for _, ch := range pattern {
+		switch ch {
+		case '*':
+			regexPattern += ".*"
+		case '?':
+			regexPattern += "."
+		case '.', '+', '(', ')', '[', ']', '{', '}', '^', '$', '|', '\\':
+			// 转义正则特殊字符
+			regexPattern += "\\" + string(ch)
+		default:
+			regexPattern += string(ch)
+		}
+	}
+	regexPattern += "$"
+
+	matched, err := regexp.MatchString(regexPattern, str)
+	if err != nil {
+		log.Printf("[通配符匹配] 正则表达式错误: %v", err)
+		return false
+	}
+	return matched
+}
+
+// deleteAllVectorsForDatabase 删除指定数据库的所有向量
+func deleteAllVectorsForDatabase(manager *FTS5Manager, dbID string) error {
+	if manager == nil || manager.db == nil {
+		return nil
+	}
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	result, err := manager.db.Exec("DELETE FROM vectors WHERE database_id = ?", dbID)
+	if err != nil {
+		return fmt.Errorf("删除向量失败: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("[向量同步] 删除数据库 %s 的所有向量，共 %d 条", dbID, rowsAffected)
+
+	return nil
+}
+
 // handleTableRetrievalEmbeddingSync 向量索引建立接口
 func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -5972,8 +6025,10 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 
 	// 解析请求体
 	var req struct {
-		DbID   string   `json:"db_id"`
-		Tables []string `json:"tables"`
+		DbID       string   `json:"db_id"`
+		Tables     []string `json:"tables"`      // 已有：指定表列表
+		SyncMode   string   `json:"sync_mode"`   // 新增：incremental 或 full
+		TableFilter string  `json:"table_filter"` // 新增：表名过滤模式
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6027,9 +6082,24 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 如果指定了表列表，只同步这些表
+	// 设置默认同步模式
+	syncMode := req.SyncMode
+	if syncMode == "" {
+		syncMode = "incremental"
+	}
+
+	// 验证同步模式
+	if syncMode != "incremental" && syncMode != "full" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "无效的 sync_mode，必须是 incremental 或 full",
+		})
+		return
+	}
+
+	// 如果指定了表列表，优先使用 tables 参数（忽略 table_filter）
 	if len(req.Tables) > 0 {
-		// 过滤出指定的表
+		// 获取表信息列表
 		tableInfos, err := getTableInfoList(dbConfig)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6067,11 +6137,84 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 			"success": true,
 			"synced":  synced,
 			"vectors": vectors,
+			"mode":    "tables",
 		})
 		return
 	}
 
-	// 同步整个数据库的向量
+	// 获取表信息列表
+	tableInfos, err := getTableInfoList(dbConfig)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取表信息失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 应用表名过滤（如果提供了 table_filter）
+	if req.TableFilter != "" {
+		var filteredInfos []TableInfo
+		for _, ti := range tableInfos {
+			if matchWildcardPattern(req.TableFilter, ti.Name) {
+				filteredInfos = append(filteredInfos, ti)
+			}
+		}
+		tableInfos = filteredInfos
+	}
+
+	// 根据同步模式处理
+	if syncMode == "full" {
+		// 全量重建：先删除该数据库的所有现有向量
+		if err := deleteAllVectorsForDatabase(manager, req.DbID); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "删除现有向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 重新同步所有表（或过滤后的表）
+		synced, vectors, err := syncSpecificVectors(manager, dbConfig, tableInfos, aiConfig.Embedding)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "同步向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"synced":  synced,
+			"vectors": vectors,
+			"mode":    "full",
+		})
+		return
+	}
+
+	// 增量同步模式（默认）
+	// 如果有 table_filter，只同步过滤后的表
+	if req.TableFilter != "" {
+		synced, vectors, err := syncSpecificVectors(manager, dbConfig, tableInfos, aiConfig.Embedding)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "同步向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"synced":  synced,
+			"vectors": vectors,
+			"mode":    "incremental",
+		})
+		return
+	}
+
+	// 同步整个数据库的向量（增量模式）
 	if err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -6099,6 +6242,7 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"synced":  synced,
 		"vectors": totalVectors,
+		"mode":    "incremental",
 	})
 }
 
