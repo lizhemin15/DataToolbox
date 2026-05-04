@@ -130,9 +130,7 @@
                         <div class="detail-header">
                             <h2 id="dbName">数据库名称</h2>
                             <div class="detail-actions">
-                                <button id="syncIndexBtn" class="btn btn-sm" onclick="showSyncIndexModal()">🔄 同步索引</button>
-                                <button id="scanRelationsBtn" class="btn btn-sm" onclick="scanDbOntologyRelations()">🔍 扫描关系</button>
-                                <button id="viewRelationsBtn" class="btn btn-sm" onclick="showDbOntologyRelations()">📋 关系表</button>
+                                <button id="syncDataBtn" class="btn btn-sm" onclick="showSyncIndexModal()">🔄 数据同步</button>
                                 <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
                                 <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
@@ -387,12 +385,6 @@
                             <span>🎯</span> 演示场景
                         </button>
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
-                        <button id="ontoRelationScanBtn" class="onto-btn onto-btn-scan" onclick="scanOntologyRelations()">
-                            <span>🔍</span> 扫描关系
-                        </button>
-                        <button id="ontoRelationTableBtn" class="onto-btn" onclick="showOntologyRelationTable()">
-                            <span>📋</span> 关系表
-                        </button>
                             <span>❌</span> 清空
                         </button>
                         <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
@@ -1414,6 +1406,8 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="modalScanRelationsBtn" onclick="scanDbOntologyRelations()">🔍 扫描关系</button>
+                <button type="button" class="btn btn-secondary" id="modalViewRelationsBtn" onclick="showDbOntologyRelations()">📋 查看关系表</button>
                 <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn">取消</button>
                 <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
             </div>
