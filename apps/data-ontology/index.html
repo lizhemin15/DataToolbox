@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
-    <link rel="stylesheet" href="style.css?v=4.1.8">
+    <link rel="stylesheet" href="style.css?v=4.2.43">
     <script src="/lib/d3.min.js"></script>
     <script src="lib/three.min.js"></script>
     <script src="lib/orbit-controls-wrapper.js"></script>
@@ -130,7 +130,9 @@
                         <div class="detail-header">
                             <h2 id="dbName">数据库名称</h2>
                             <div class="detail-actions">
-                                <button id="syncDataBtn" class="btn btn-sm" onclick="showSyncIndexModal()">🔄 数据同步</button>
+                                <button id="syncIndexBtn" class="btn btn-sm" onclick="showSyncIndexModal()">🔄 同步索引</button>
+                                <button id="scanRelationsBtn" class="btn btn-sm" onclick="scanDbOntologyRelations()">🔍 扫描关系</button>
+                                <button id="viewRelationsBtn" class="btn btn-sm" onclick="showDbOntologyRelations()">📋 关系表</button>
                                 <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
                                 <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
                                 <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
@@ -385,6 +387,12 @@
                             <span>🎯</span> 演示场景
                         </button>
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
+                        <button id="ontoRelationScanBtn" class="onto-btn onto-btn-scan" onclick="scanOntologyRelations()">
+                            <span>🔍</span> 扫描关系
+                        </button>
+                        <button id="ontoRelationTableBtn" class="onto-btn" onclick="showOntologyRelationTable()">
+                            <span>📋</span> 关系表
+                        </button>
                             <span>❌</span> 清空
                         </button>
                         <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
@@ -1369,47 +1377,61 @@
 
     <!-- 同步索引弹窗 -->
     <div id="syncIndexModal" class="modal">
-        <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-content" style="max-width: 520px;">
             <div class="modal-header">
-                <h2>🔄 同步索引</h2>
+                <h2>🔄 数据同步</h2>
                 <button class="modal-close" id="closeSyncIndexModal">&times;</button>
             </div>
             <div class="modal-body">
+                <!-- 同步范围 -->
                 <div class="form-group">
-                    <label style="font-size:16px;font-weight:600;">🔤 Embedding 配置</label>
-                    <small>向量检索需要配置 Embedding API，用于生成表名/注释的向量表示</small>
-                    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;margin-top:12px;">
-                        <label class="checkbox-label" style="grid-column:1/3;">
-                            <input type="checkbox" id="syncEmbEnabled"> <span>启用 Embedding 向量化</span>
-                        </label>
-                        <label style="font-size:12px;">API URL</label>
-                        <input type="text" id="syncEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" style="width:100%;padding:6px;">
-                        <label style="font-size:12px;">API Key</label>
-                        <input type="password" id="syncEmbApiKey" placeholder="sk-..." style="width:100%;padding:6px;">
-                        <label style="font-size:12px;">模型名称</label>
-                        <input type="text" id="syncEmbModel" placeholder="BAAI/bge-large-zh-v1.5" style="width:100%;padding:6px;">
-                        <label style="font-size:12px;">向量维度</label>
-                        <input type="number" id="syncEmbDimension" min="64" max="4096" value="1024" style="width:100%;padding:6px;">
-                    </div>
-                </div>
-                <div class="form-group" style="margin-top:15px;">
-                    <label>同步范围</label>
-                    <div style="display:flex;gap:15px;flex-wrap:wrap;">
+                    <label style="font-size:14px;font-weight:600;">同步范围</label>
+                    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px;">
                         <label class="checkbox-label"><input type="checkbox" id="syncTables" checked> 表数据 (FTS5)</label>
                         <label class="checkbox-label"><input type="checkbox" id="syncVectors" checked> 向量索引</label>
                         <label class="checkbox-label"><input type="checkbox" id="syncRelations" checked> 关系数据</label>
                     </div>
-                    <small>增量同步：只处理新增/删除的表，不重复处理已有数据</small>
+                    <small style="color:#666;">增量同步：只处理新增/删除的表</small>
                 </div>
-                <div id="syncIndexStatus" style="margin-top:15px;padding:10px;background:#f5f5f5;border-radius:4px;display:none;">
-                    <div id="syncIndexProgress">准备同步...</div>
+                
+                <!-- Embedding 配置（可折叠） -->
+                <div class="form-group" style="margin-top:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleEmbeddingConfig()">
+                        <label style="font-size:14px;font-weight:600;margin:0;">🔤 Embedding 配置</label>
+                        <span id="embeddingConfigToggle" style="font-size:12px;color:#999;">展开 ▼</span>
+                    </div>
+                    <div id="embeddingConfigPanel" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+                        <small style="color:#666;display:block;margin-bottom:10px;">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
+                        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;">
+                            <label class="checkbox-label" style="grid-column:1/3;">
+                                <input type="checkbox" id="syncEmbEnabled"> <span>启用 Embedding 向量化</span>
+                            </label>
+                            <label style="font-size:12px;color:#555;">API URL</label>
+                            <input type="text" id="syncEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            <label style="font-size:12px;color:#555;">API Key</label>
+                            <input type="password" id="syncEmbApiKey" placeholder="sk-..." style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            <label style="font-size:12px;color:#555;">模型名称</label>
+                            <input type="text" id="syncEmbModel" placeholder="BAAI/bge-large-zh-v1.5" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            <label style="font-size:12px;color:#555;">向量维度</label>
+                            <input type="number" id="syncEmbDimension" min="64" max="4096" value="1024" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 同步状态 -->
+                <div id="syncIndexStatus" style="margin-top:16px;padding:12px;background:#e8f4fd;border-radius:6px;border:1px solid #b8daff;display:none;">
+                    <div id="syncIndexProgress" style="color:#004085;">准备同步...</div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="modalScanRelationsBtn" onclick="scanDbOntologyRelations()">🔍 扫描关系</button>
-                <button type="button" class="btn btn-secondary" id="modalViewRelationsBtn" onclick="showDbOntologyRelations()">📋 查看关系表</button>
-                <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn">取消</button>
-                <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
+            <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="scanDbOntologyRelations()" title="扫描表之间的关系">🔍 扫描关系</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="showDbOntologyRelations()" title="查看已发现的关系">📋 关系表</button>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn">取消</button>
+                    <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
+                </div>
             </div>
         </div>
     </div>
@@ -2016,6 +2038,6 @@
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
-    <script src="script.js?v=4.1.8"></script>
+    <script src="script.js?v=4.2.43"></script>
 </body>
 </html>

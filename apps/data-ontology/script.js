@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.1.8');
-    await loadLazyScript('gov-api.js?v=4.1.8');
-    await loadLazyScript('governance.js?v=4.1.8');
+    await loadLazyScript('gov-shared.js?v=4.2.43');
+    await loadLazyScript('gov-api.js?v=4.2.43');
+    await loadLazyScript('governance.js?v=4.2.43');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.1.8');
+    await loadLazyScript('quality-audit.js?v=4.2.43');
 }
 
 
@@ -11564,6 +11564,19 @@ async function handleSyncTableRetrieval() {
 }
 
 // ========== 同步索引弹窗（数据库管理界面）==========
+
+// 折叠/展开 Embedding 配置
+function toggleEmbeddingConfig() {
+    const panel = document.getElementById('embeddingConfigPanel');
+    const toggle = document.getElementById('embeddingConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
 
 // 显示同步索引弹窗
 async function showSyncIndexModal() {
