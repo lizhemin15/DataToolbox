@@ -613,65 +613,6 @@ function setupGlobalErrorHandlers() {
 }
 
 // 初始化页面。
-document.addEventListener('DOMContentLoaded', async function() {
-    setupGlobalErrorHandlers();
-    initToastContainer();
-    
-    if (!checkServerAvailability()) {
-        return;
-    }
-
-    const token = localStorage.getItem('dataOntologyToken');
-    if (token) {
-        currentUser = localStorage.getItem('dataOntologyUser');
-        if (currentUser) {
-            showMainPage();
-            loadDatabases();
-            loadGovernanceTasks();
-        }
-    }
-
-    initEventListeners();
-});
-
-// 检查当前运行环境。
-function checkServerAvailability() {
-    if (window.location.protocol === 'file:') {
-        showServerError('请通过服务端访问，不要直接打开 file:// 页面。当前协议：' + window.location.protocol);
-        return false;
-    }
-
-    if (!window.location.origin || window.location.origin === 'null') {
-        showServerError('当前页面来源无效，请通过正式站点访问。');
-        return false;
-    }
-
-    return true;
-}
-
-// 显示服务端错误页面。
-function showServerError(detail) {
-    document.getElementById('loginPage').style.display = 'none';
-    document.getElementById('mainPage').style.display = 'none';
-    
-    const errorPage = document.getElementById('serverErrorPage');
-    errorPage.style.display = 'block';
-    
-    document.getElementById('serverErrorDetail').textContent = detail;
-    
-    const returnBtn = document.getElementById('returnToMainBtn');
-    if (returnBtn) {
-        returnBtn.onclick = function() {
-            window.location.href = '../../index.html';
-        };
-    }
-}
-
-// 绑定页面事件。
-function initEventListeners() {
-    document.getElementById('loginForm').addEventListener('submit', handleLogin);
-}
-
 // 全局错误处理。
 function setupGlobalErrorHandlers() {
     // 捕获 Promise 未处理拒绝。
@@ -953,12 +894,18 @@ function initEventListeners() {
 
     // 数据库操作下拉菜单
     const indexPreviewBtn = document.getElementById('indexPreviewBtn');
+    console.log('indexPreviewBtn element:', indexPreviewBtn);
     if (indexPreviewBtn) {
+        console.log('Adding click listener to indexPreviewBtn');
         indexPreviewBtn.addEventListener('click', function(e) {
+            console.log('indexPreviewBtn clicked!');
             e.stopPropagation();
             const menu = document.getElementById('indexPreviewMenu');
+            console.log('menu element:', menu);
             if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
         });
+    } else {
+        console.log('indexPreviewBtn not found!');
     }
 
     // 点击其他地方关闭数据库操作菜单
@@ -11776,8 +11723,9 @@ async function handleSyncIndex() {
 
 // 显示向量索引状态
 async function handleVectorIndex() {
+    console.log('handleVectorIndex called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先选择数据库');
+        alert('请先在左侧列表中选择一个数据库');
         return;
     }
     
@@ -11810,8 +11758,9 @@ async function handleVectorIndex() {
 
 // 显示关系索引状态
 async function handleRelationIndex() {
+    console.log('handleRelationIndex called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先选择数据库');
+        alert('请先在左侧列表中选择一个数据库');
         return;
     }
     
@@ -11839,8 +11788,9 @@ async function handleRelationIndex() {
 
 // 显示向量预览
 async function showVectorPreview() {
+    console.log('showVectorPreview called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先选择数据库');
+        alert('请先在左侧列表中选择一个数据库');
         return;
     }
     
@@ -11880,8 +11830,9 @@ async function showVectorPreview() {
 
 // 显示关系预览
 async function showRelationPreview() {
+    console.log('showRelationPreview called, currentDb:', currentDb);
     if (!currentDb) {
-        alert('请先选择数据库');
+        alert('请先在左侧列表中选择一个数据库');
         return;
     }
     
