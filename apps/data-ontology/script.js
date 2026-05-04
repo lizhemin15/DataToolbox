@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.2.73');
-    await loadLazyScript('gov-api.js?v=4.2.73');
-    await loadLazyScript('governance.js?v=4.2.73');
+    await loadLazyScript('gov-shared.js?v=4.2.74');
+    await loadLazyScript('gov-api.js?v=4.2.74');
+    await loadLazyScript('governance.js?v=4.2.74');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.2.73');
+    await loadLazyScript('quality-audit.js?v=4.2.74');
 }
 
 
@@ -10834,9 +10834,7 @@ async function refreshDbOntologyRelations() {
     loading.style.display = 'flex';
 
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`);
         const data = await res.json();
 
         if (data.success) {
@@ -10883,9 +10881,8 @@ async function deleteDbOntologyRelation(relId) {
     }
 
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations/${relId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations/${relId}`, {
+            method: 'DELETE'
         });
         const data = await res.json();
 
@@ -10913,9 +10910,7 @@ async function scanDbOntologyRelations() {
         showToast('正在获取表列表...', 'info');
 
         // 先获取表列表
-        const tablesRes = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}` }
-        });
+        const tablesRes = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`);
         const tablesData = await tablesRes.json();
 
         if (!tablesData.success) {
@@ -10941,10 +10936,9 @@ async function scanDbOntologyRelations() {
 
         showToast('正在扫描...', 'info');
 
-        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/scan`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/scan`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ tables: selectedTables })
@@ -11185,10 +11179,9 @@ async function addDbCandidateAsRelation(idx) {
     if (!cand || !currentDb) return;
     
     try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/ontology/relations`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${localStorage.getItem('dataOntologyToken')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
