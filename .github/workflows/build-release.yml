@@ -88,18 +88,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          cd gov-runner
-          bun install
-          case "${{ matrix.goos }}-${{ matrix.goarch }}" in
-            linux-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-x64 ;;
-            linux-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-linux-arm64 ;;
-            windows-amd64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-x64 ;;
-            windows-arm64) bun build --compile ./index.ts --outfile gov-runner.exe --target=bun-windows-arm64 ;;
-            darwin-amd64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-x64 ;;
-            darwin-arm64) bun build --compile ./index.ts --outfile gov-runner --target=bun-darwin-arm64 ;;
-            *) echo "Unknown matrix"; exit 1 ;;
-          esac
-          cd ..
+          # gov-runner 已预编译，直接使用
           # 使用 release 标签构建，不嵌入静态文件
           go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
 
@@ -127,12 +116,21 @@ jobs:
               fi
             done
           fi
-          # 复制 gov-runner
+          # 复制 gov-runner（已预编译）
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            cp gov-runner/gov-runner.exe package/
+            # Windows 版本需要单独的 gov-runner.exe
+            if [ -f "gov-runner.exe" ]; then
+              cp gov-runner.exe package/
+            else
+              echo "Warning: gov-runner.exe not found, skipping"
+            fi
           else
-            cp gov-runner/gov-runner package/
-            chmod +x package/gov-runner
+            if [ -f "gov-runner" ]; then
+              cp gov-runner package/
+              chmod +x package/gov-runner
+            else
+              echo "Warning: gov-runner not found, skipping"
+            fi
           fi
 
       - name: Create startup script for Windows
