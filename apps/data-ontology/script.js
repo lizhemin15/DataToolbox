@@ -925,7 +925,16 @@ function initEventListeners() {
         }
     });
     document.getElementById('tableRetrievalForm').addEventListener('submit', handleSaveTableRetrieval);
-    document.getElementById('syncTableRetrievalBtn').addEventListener('click', handleSyncTableRetrieval);
+    
+    // 同步索引弹窗
+    document.getElementById('closeSyncIndexModal').addEventListener('click', hideSyncIndexModal);
+    document.getElementById('syncIndexModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideSyncIndexModal();
+        }
+    });
+    document.getElementById('cancelSyncIndexBtn').addEventListener('click', hideSyncIndexModal);
+    document.getElementById('startSyncIndexBtn').addEventListener('click', handleSyncIndex);
     
     // 设置面板按钮。
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
@@ -11415,7 +11424,6 @@ async function showTableRetrievalModal() {
     const modal = document.getElementById('tableRetrievalModal');
     modal.style.display = 'flex';
     await loadTableRetrievalConfig();
-    await loadEmbeddingConfig();
 }
 
 // 隐藏表检索配置弹窗
@@ -11485,15 +11493,6 @@ async function handleSaveTableRetrieval(e) {
         }
     };
     
-    // 收集 Embedding 配置
-    const embConfig = {
-        enabled: document.getElementById('embEnabled').checked,
-        url: document.getElementById('embUrl').value,
-        api_key: document.getElementById('embApiKey').value,
-        model: document.getElementById('embModel').value,
-        dimension: parseInt(document.getElementById('embDimension').value, 10) || 1024
-    };
-    
     try {
         // 保存表检索配置
         const trResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/table-retrieval-config`, {
@@ -11503,22 +11502,13 @@ async function handleSaveTableRetrieval(e) {
         });
         const trData = await trResponse.json();
         
-        // 保存 Embedding 配置
-        const embResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(embConfig)
-        });
-        const embData = await embResponse.json();
-        
-        if (trData.success && embData.success) {
+        if (trData.success) {
             tableRetrievalConfig = trConfig;
-            embeddingConfig = embConfig;
             successEl.textContent = '配置已保存';
             successEl.classList.add('show');
             setTimeout(() => successEl.classList.remove('show'), 2000);
         } else {
-            errorEl.textContent = (trData.message || '') + ' ' + (embData.message || '');
+            errorEl.textContent = trData.message || '保存失败';
             errorEl.classList.add('show');
         }
     } catch (error) {
@@ -11570,5 +11560,120 @@ async function handleSyncTableRetrieval() {
             btn.textContent = originalText;
             btn.disabled = false;
         }, 2000);
+    }
+}
+
+// ========== 同步索引弹窗（数据库管理界面）==========
+
+// 显示同步索引弹窗
+async function showSyncIndexModal() {
+    const modal = document.getElementById('syncIndexModal');
+    modal.style.display = 'flex';
+    
+    // 加载当前 Embedding 配置
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`);
+        const data = await response.json();
+        if (data.success && data.config) {
+            document.getElementById('syncEmbEnabled').checked = data.config.enabled || false;
+            document.getElementById('syncEmbUrl').value = data.config.url || '';
+            document.getElementById('syncEmbApiKey').value = data.config.api_key || '';
+            document.getElementById('syncEmbModel').value = data.config.model || '';
+            document.getElementById('syncEmbDimension').value = data.config.dimension || 1024;
+        }
+    } catch (error) {
+        console.error('加载 Embedding 配置失败:', error);
+    }
+    
+    // 隐藏状态区域
+    document.getElementById('syncIndexStatus').style.display = 'none';
+}
+
+// 隐藏同步索引弹窗
+function hideSyncIndexModal() {
+    document.getElementById('syncIndexModal').style.display = 'none';
+}
+
+// 执行同步索引
+async function handleSyncIndex() {
+    const statusEl = document.getElementById('syncIndexStatus');
+    const progressEl = document.getElementById('syncIndexProgress');
+    const btn = document.getElementById('startSyncIndexBtn');
+    
+    // 收集 Embedding 配置
+    const embConfig = {
+        enabled: document.getElementById('syncEmbEnabled').checked,
+        url: document.getElementById('syncEmbUrl').value,
+        api_key: document.getElementById('syncEmbApiKey').value,
+        model: document.getElementById('syncEmbModel').value,
+        dimension: parseInt(document.getElementById('syncEmbDimension').value, 10) || 1024
+    };
+    
+    const syncTables = document.getElementById('syncTables').checked;
+    const syncVectors = document.getElementById('syncVectors').checked;
+    const syncRelations = document.getElementById('syncRelations').checked;
+    
+    // 显示状态
+    statusEl.style.display = 'block';
+    progressEl.textContent = '保存 Embedding 配置...';
+    btn.disabled = true;
+    
+    try {
+        // 1. 保存 Embedding 配置
+        const embResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/embedding-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(embConfig)
+        });
+        const embData = await embResponse.json();
+        
+        if (!embData.success) {
+            progressEl.textContent = 'Embedding 配置保存失败: ' + (embData.message || '');
+            btn.disabled = false;
+            return;
+        }
+        
+        // 2. 触发同步
+        progressEl.textContent = '正在同步索引...';
+        
+        const syncResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDbOntologyDatabase?.id,
+                sync_tables: syncTables,
+                sync_vectors: syncVectors,
+                sync_relations: syncRelations
+            })
+        });
+        const syncData = await syncResponse.json();
+        
+        if (!syncData.success) {
+            progressEl.textContent = '同步失败: ' + (syncData.message || '');
+            btn.disabled = false;
+            return;
+        }
+        
+        // 3. 轮询检查状态
+        progressEl.textContent = '同步进行中，请稍候...';
+        
+        setTimeout(async () => {
+            const statusResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+            const statusData = await statusResponse.json();
+            
+            if (statusData.success) {
+                const tables = statusData.total_tables || 0;
+                const vectors = statusData.total_vectors || 0;
+                const relations = statusData.total_relations || 0;
+                progressEl.innerHTML = `✅ 同步完成<br>表: ${tables} | 向量: ${vectors} | 关系: ${relations}`;
+            } else {
+                progressEl.textContent = '同步完成，但获取状态失败';
+            }
+            btn.disabled = false;
+        }, 5000);
+        
+    } catch (error) {
+        progressEl.textContent = '同步失败: ' + error.message;
+        btn.disabled = false;
     }
 }
