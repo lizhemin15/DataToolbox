@@ -943,11 +943,11 @@ type KeywordRetrievalConfig struct {
 
 // EmbeddingRetrievalConfig Embedding 检索配置
 type EmbeddingRetrievalConfig struct {
-	URL       string `json:"url,omitempty"`        // embedding API 地址
-	APIKey    string `json:"api_key,omitempty"`    // API key
-	Model     string `json:"model,omitempty"`       // 模型名，如 "BAAI/bge-large-zh-v1.5"
-	Dimension int    `json:"dimension,omitempty"`   // 向量维度，默认 1024
-	Enabled   bool   `json:"enabled,omitempty"`     // 是否启用向量检索
+	URL       string `json:"url,omitempty"`       // embedding API 地址
+	APIKey    string `json:"api_key,omitempty"`   // API key
+	Model     string `json:"model,omitempty"`     // 模型名，如 "BAAI/bge-large-zh-v1.5"
+	Dimension int    `json:"dimension,omitempty"` // 向量维度，默认 1024
+	Enabled   bool   `json:"enabled,omitempty"`   // 是否启用向量检索
 }
 
 // GraphRetrievalConfig Graph 关系检索配置
@@ -5829,8 +5829,8 @@ func handleTableRetrievalStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
-		"total_tables": totalCount,
+		"success":        true,
+		"total_tables":   totalCount,
 		"database_stats": dbStats,
 	})
 }
@@ -6025,10 +6025,10 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 
 	// 解析请求体
 	var req struct {
-		DbID       string   `json:"db_id"`
-		Tables     []string `json:"tables"`      // 已有：指定表列表
-		SyncMode   string   `json:"sync_mode"`   // 新增：incremental 或 full
-		TableFilter string  `json:"table_filter"` // 新增：表名过滤模式
+		DbID        string   `json:"db_id"`
+		Tables      []string `json:"tables"`       // 已有：指定表列表
+		SyncMode    string   `json:"sync_mode"`    // 新增：incremental 或 full
+		TableFilter string   `json:"table_filter"` // 新增：表名过滤模式
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6375,26 +6375,26 @@ func handleTableRetrievalRelationConfirm(w http.ResponseWriter, r *http.Request)
 	for _, candidateID := range req.Relations {
 		if rel, ok := tempRelationCandidates[candidateID]; ok && rel.DatabaseID == req.DbID {
 			// 添加到数据库配置的关系列表
-		newRelation := OntologyRelation{
-			ID:          uuid.New().String(),
-			Name:        rel.TableName1 + "." + rel.FieldName1 + " ↔ " + rel.TableName2 + "." + rel.FieldName2,
-			Description: rel.Reason,
-			Source: FieldRef{
-				DatabaseID: req.DbID,
-				TableName:  rel.TableName1,
-				FieldName:  rel.FieldName1,
-				FieldType:  rel.FieldType1,
-			},
-			Target: FieldRef{
-				DatabaseID: req.DbID,
-				TableName:  rel.TableName2,
-				FieldName:  rel.FieldName2,
-				FieldType:  rel.FieldType2,
-			},
-			MatchType: rel.MatchType,
-			Owner:     "admin",
-			CreatedAt: time.Now(),
-		}
+			newRelation := OntologyRelation{
+				ID:          uuid.New().String(),
+				Name:        rel.TableName1 + "." + rel.FieldName1 + " ↔ " + rel.TableName2 + "." + rel.FieldName2,
+				Description: rel.Reason,
+				Source: FieldRef{
+					DatabaseID: req.DbID,
+					TableName:  rel.TableName1,
+					FieldName:  rel.FieldName1,
+					FieldType:  rel.FieldType1,
+				},
+				Target: FieldRef{
+					DatabaseID: req.DbID,
+					TableName:  rel.TableName2,
+					FieldName:  rel.FieldName2,
+					FieldType:  rel.FieldType2,
+				},
+				MatchType: rel.MatchType,
+				Owner:     "admin",
+				CreatedAt: time.Now(),
+			}
 			dbConfig.Relations = append(dbConfig.Relations, newRelation)
 			confirmed++
 		}
@@ -6416,8 +6416,8 @@ func handleTableRetrievalRelationConfirm(w http.ResponseWriter, r *http.Request)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"confirmed":  confirmed,
+		"success":   true,
+		"confirmed": confirmed,
 	})
 }
 
@@ -6741,11 +6741,11 @@ func handleTableRetrievalRelationList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":    true,
-		"relations":  relations,
-		"total":      total,
-		"page":       page,
-		"page_size":  pageSize,
+		"success":   true,
+		"relations": relations,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 
@@ -9795,7 +9795,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		// 使用表检索逻辑筛选相关表
 		var tablesWithColumns []map[string]interface{}
 		defaultMaxTables := 15
-		
+
 		retrievalConfig := aiConfig.TableRetrieval
 		relevantTables, err := retrieveRelevantTables(queryReq.Message, dbConfig, retrievalConfig)
 		if err != nil {
@@ -17936,7 +17936,7 @@ func getFTS5Manager() *FTS5Manager {
 	fts5ManagerOnce.Do(func() {
 		// 数据库路径：服务工作目录下的 data-store.db
 		dbPath := filepath.Join(".", "apps", "data-ontology", "data-store.db")
-		
+
 		// 确保目录存在
 		dir := filepath.Dir(dbPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -18478,17 +18478,17 @@ var (
 
 // RelationCandidateEntry 关系候选条目（用于临时存储）
 type RelationCandidateEntry struct {
-	ID          int     `json:"id"`
-	DatabaseID  string  `json:"database_id"`
-	TableName1  string  `json:"table1"`
-	FieldName1  string  `json:"col1"`
-	FieldType1  string  `json:"field_type1"`
-	TableName2  string  `json:"table2"`
-	FieldName2  string  `json:"col2"`
-	FieldType2  string  `json:"field_type2"`
-	Confidence  float64 `json:"confidence"`
-	Reason      string  `json:"reason"`
-	MatchType   string  `json:"match_type"`
+	ID         int     `json:"id"`
+	DatabaseID string  `json:"database_id"`
+	TableName1 string  `json:"table1"`
+	FieldName1 string  `json:"col1"`
+	FieldType1 string  `json:"field_type1"`
+	TableName2 string  `json:"table2"`
+	FieldName2 string  `json:"col2"`
+	FieldType2 string  `json:"field_type2"`
+	Confidence float64 `json:"confidence"`
+	Reason     string  `json:"reason"`
+	MatchType  string  `json:"match_type"`
 }
 
 // syncSpecificVectors 同步指定表的向量
@@ -18599,24 +18599,48 @@ func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry,
 					// 检测关联
 					confidence, reason, matchType := detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type)
 					if confidence > 0.5 {
-						candidate := RelationCandidateEntry{
-							ID:         candidateID,
-							DatabaseID: dbConfig.ID,
-							TableName1: table1,
-							FieldName1: col1Name,
-							FieldType1: col1Type,
-							TableName2: table2,
-							FieldName2: col2Name,
-							FieldType2: col2Type,
-							Confidence: confidence,
-							Reason:     reason,
-							MatchType:  matchType,
+						// 检查关系是否已存在（考虑双向性）
+						relationExists := false
+						for _, existingRel := range dbConfig.Relations {
+							// 检查正向匹配：(table1.col1 → table2.col2)
+							if existingRel.Source.TableName == table1 &&
+								existingRel.Source.FieldName == col1Name &&
+								existingRel.Target.TableName == table2 &&
+								existingRel.Target.FieldName == col2Name {
+								relationExists = true
+								break
+							}
+							// 检查反向匹配：(table2.col2 → table1.col1)
+							if existingRel.Source.TableName == table2 &&
+								existingRel.Source.FieldName == col2Name &&
+								existingRel.Target.TableName == table1 &&
+								existingRel.Target.FieldName == col1Name {
+								relationExists = true
+								break
+							}
 						}
-						candidates = append(candidates, candidate)
 
-						// 临时存储候选关系
-						tempRelationCandidates[candidateID] = &candidate
-						candidateID++
+						// 只添加不存在的关系候选
+						if !relationExists {
+							candidate := RelationCandidateEntry{
+								ID:         candidateID,
+								DatabaseID: dbConfig.ID,
+								TableName1: table1,
+								FieldName1: col1Name,
+								FieldType1: col1Type,
+								TableName2: table2,
+								FieldName2: col2Name,
+								FieldType2: col2Type,
+								Confidence: confidence,
+								Reason:     reason,
+								MatchType:  matchType,
+							}
+							candidates = append(candidates, candidate)
+
+							// 临时存储候选关系
+							tempRelationCandidates[candidateID] = &candidate
+							candidateID++
+						}
 					}
 				}
 			}
@@ -18660,7 +18684,7 @@ func detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type strin
 	}
 
 	// 3. 类型匹配：都是 INT/BIGINT
-	if (strings.Contains(strings.ToUpper(col1Type), "INT") && strings.Contains(strings.ToUpper(col2Type), "INT")) {
+	if strings.Contains(strings.ToUpper(col1Type), "INT") && strings.Contains(strings.ToUpper(col2Type), "INT") {
 		// 检查是否有部分名称匹配
 		if strings.Contains(col2Lower, col1Lower) || strings.Contains(col1Lower, col2Lower) {
 			return 0.7, fmt.Sprintf("类型匹配 + 名称相似: %s(%s) ↔ %s(%s)", col1Name, col1Type, col2Name, col2Type), "type_keyword"
