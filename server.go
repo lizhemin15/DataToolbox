@@ -18552,6 +18552,23 @@ func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry,
 	}
 	defer db.Close()
 
+	// 从 FTS5Manager 获取已存在的关系列表
+	existingRelationsMap := make(map[string]bool)
+	manager := getFTS5Manager()
+	if manager != nil {
+		relations, _, err := manager.listRelations(dbConfig.ID, 1, 10000)
+		if err == nil {
+			for _, rel := range relations {
+				// 正向关系 key
+				key1 := fmt.Sprintf("%s:%s:%s:%s", rel.SourceTable, rel.SourceField, rel.TargetTable, rel.TargetField)
+				// 反向关系 key
+				key2 := fmt.Sprintf("%s:%s:%s:%s", rel.TargetTable, rel.TargetField, rel.SourceTable, rel.SourceField)
+				existingRelationsMap[key1] = true
+				existingRelationsMap[key2] = true
+			}
+		}
+	}
+
 	// 获取所有表和字段信息
 	tableColumnsMap := make(map[string][]map[string]interface{})
 	tableNames, err := getTablesList(dbConfig)
@@ -18600,25 +18617,8 @@ func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry,
 					confidence, reason, matchType := detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type)
 					if confidence > 0.5 {
 						// 检查关系是否已存在（考虑双向性）
-						relationExists := false
-						for _, existingRel := range dbConfig.Relations {
-							// 检查正向匹配：(table1.col1 → table2.col2)
-							if existingRel.Source.TableName == table1 &&
-								existingRel.Source.FieldName == col1Name &&
-								existingRel.Target.TableName == table2 &&
-								existingRel.Target.FieldName == col2Name {
-								relationExists = true
-								break
-							}
-							// 检查反向匹配：(table2.col2 → table1.col1)
-							if existingRel.Source.TableName == table2 &&
-								existingRel.Source.FieldName == col2Name &&
-								existingRel.Target.TableName == table1 &&
-								existingRel.Target.FieldName == col1Name {
-								relationExists = true
-								break
-							}
-						}
+						relationKey := fmt.Sprintf("%s:%s:%s:%s", table1, col1Name, table2, col2Name)
+						relationExists := existingRelationsMap[relationKey]
 
 						// 只添加不存在的关系候选
 						if !relationExists {
