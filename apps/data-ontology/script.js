@@ -11803,9 +11803,8 @@ async function handleVectorIndex() {
             resultEl.innerHTML = `
                 <div style="color:#28a745;font-size:16px;margin-bottom:12px;">✅ 向量索引建立成功</div>
                 <div style="font-size:13px;color:#666;line-height:1.8;">
-                    <div>处理表数: ${data.tables_processed || 0}</div>
-                    <div>新增向量: ${data.vectors_created || 0}</div>
-                    <div>更新向量: ${data.vectors_updated || 0}</div>
+                    <div>新增向量: ${data.synced || 0}</div>
+                    <div>总向量数: ${data.vectors || 0}</div>
                 </div>
             `;
         } else {

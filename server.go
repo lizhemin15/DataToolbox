@@ -18659,6 +18659,7 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 	}
 
 	// 新增/更新向量
+	var errors []string
 	if len(toSync) > 0 {
 		stmt, err := tx.Prepare(`
 			INSERT OR REPLACE INTO vectors (database_id, table_name, embedding, updated_at)
@@ -18679,6 +18680,8 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 
 			embedding, err := generateEmbedding(text, embeddingConfig)
 			if err != nil {
+				errMsg := fmt.Sprintf("%s: %v", ts.name, err)
+				errors = append(errors, errMsg)
 				log.Printf("[表检索] 生成 embedding 失败 (%s): %v", ts.name, err)
 				continue
 			}
@@ -18698,6 +18701,11 @@ func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingCon
 	}
 
 	log.Printf("[表检索] 数据库 %s 增量同步完成", dbConfig.Name)
+
+	// 如果有错误，返回错误信息
+	if len(errors) > 0 {
+		return fmt.Errorf("部分表生成向量失败: %s", strings.Join(errors, "; "))
+	}
 	return nil
 }
 
