@@ -11773,3 +11773,148 @@ async function handleSyncIndex() {
         btn.disabled = false;
     }
 }
+
+// 显示向量索引状态
+async function handleVectorIndex() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const dbStats = data.database_stats || {};
+            const dbStat = dbStats[currentDb.id] || { tables: 0, vectors: 0 };
+            const embConfig = data.embedding_config || {};
+            
+            let msg = `向量索引状态\n\n`;
+            msg += `当前数据库: ${currentDb.name}\n`;
+            msg += `表数量: ${dbStat.tables || 0}\n`;
+            msg += `向量数量: ${dbStat.vectors || 0}\n\n`;
+            msg += `Embedding 配置:\n`;
+            msg += `  启用: ${embConfig.enabled ? '是' : '否'}\n`;
+            msg += `  模型: ${embConfig.model || '未配置'}\n`;
+            msg += `  维度: ${embConfig.dimension || 1024}`;
+            
+            alert(msg);
+        } else {
+            alert('获取向量索引状态失败: ' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('获取向量索引状态失败: ' + error.message);
+    }
+}
+
+// 显示关系索引状态
+async function handleRelationIndex() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-status`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const dbStats = data.database_stats || {};
+            const dbCount = dbStats[currentDb.name] || 0;
+            
+            let msg = `关系索引状态\n\n`;
+            msg += `当前数据库: ${currentDb.name}\n`;
+            msg += `关系数量: ${dbCount}\n\n`;
+            msg += `总关系数: ${data.total_relations || 0}`;
+            
+            alert(msg);
+        } else {
+            alert('获取关系索引状态失败: ' + (data.message || '未知错误'));
+        }
+    } catch (error) {
+        alert('获取关系索引状态失败: ' + error.message);
+    }
+}
+
+// 显示向量预览
+async function showVectorPreview() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+    
+    // 打开同步索引弹窗，并勾选向量预览
+    openSyncIndexModal();
+    
+    // 设置为只预览模式（不同步）
+    const syncTablesEl = document.getElementById('syncTables');
+    const syncVectorsEl = document.getElementById('syncVectors');
+    const syncRelationsEl = document.getElementById('syncRelations');
+    
+    if (syncTablesEl) syncTablesEl.checked = false;
+    if (syncVectorsEl) syncVectorsEl.checked = true;
+    if (syncRelationsEl) syncRelationsEl.checked = false;
+    
+    // 显示当前向量状态
+    const statusEl = document.getElementById('syncIndexStatus');
+    const progressEl = document.getElementById('syncIndexProgress');
+    statusEl.style.display = 'block';
+    progressEl.textContent = '加载向量状态...';
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/embedding-status`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const dbStats = data.database_stats || {};
+            const dbStat = dbStats[currentDb.id] || { tables: 0, vectors: 0 };
+            progressEl.innerHTML = `✅ 向量索引状态<br>表: ${dbStat.tables || 0} | 向量: ${dbStat.vectors || 0}`;
+        } else {
+            progressEl.textContent = '获取状态失败: ' + (data.message || '未知错误');
+        }
+    } catch (error) {
+        progressEl.textContent = '获取状态失败: ' + error.message;
+    }
+}
+
+// 显示关系预览
+async function showRelationPreview() {
+    if (!currentDb) {
+        alert('请先选择数据库');
+        return;
+    }
+    
+    // 打开同步索引弹窗
+    openSyncIndexModal();
+    
+    // 设置为只看关系
+    const syncTablesEl = document.getElementById('syncTables');
+    const syncVectorsEl = document.getElementById('syncVectors');
+    const syncRelationsEl = document.getElementById('syncRelations');
+    
+    if (syncTablesEl) syncTablesEl.checked = false;
+    if (syncVectorsEl) syncVectorsEl.checked = false;
+    if (syncRelationsEl) syncRelationsEl.checked = true;
+    
+    // 显示当前关系状态
+    const statusEl = document.getElementById('syncIndexStatus');
+    const progressEl = document.getElementById('syncIndexProgress');
+    statusEl.style.display = 'block';
+    progressEl.textContent = '加载关系状态...';
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-status`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const dbStats = data.database_stats || {};
+            const dbCount = dbStats[currentDb.name] || 0;
+            progressEl.innerHTML = `✅ 关系索引状态<br>当前库关系数: ${dbCount} | 总关系数: ${data.total_relations || 0}`;
+        } else {
+            progressEl.textContent = '获取状态失败: ' + (data.message || '未知错误');
+        }
+    } catch (error) {
+        progressEl.textContent = '获取状态失败: ' + error.message;
+    }
+}
