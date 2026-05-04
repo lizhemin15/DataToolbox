@@ -5949,6 +5949,451 @@ func handleTableRetrievalRelationStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleTableRetrievalEmbeddingSync 向量索引建立接口
+func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		DbID   string   `json:"db_id"`
+		Tables []string `json:"tables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "解析请求失败: " + err.Error(),
+		})
+		return
+	}
+
+	if req.DbID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少 db_id 参数",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, ok := dataOntologyDatabases[req.DbID]
+	dataOntologyMu.RUnlock()
+
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 获取 embedding 配置
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	if !aiConfig.Embedding.Enabled || aiConfig.Embedding.URL == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Embedding 未启用或未配置",
+		})
+		return
+	}
+
+	// 获取 FTS5 管理器
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 如果指定了表列表，只同步这些表
+	if len(req.Tables) > 0 {
+		// 过滤出指定的表
+		tableInfos, err := getTableInfoList(dbConfig)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取表信息失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 构建表名集合
+		tableSet := make(map[string]bool)
+		for _, t := range req.Tables {
+			tableSet[t] = true
+		}
+
+		// 过滤表信息
+		var filteredInfos []TableInfo
+		for _, ti := range tableInfos {
+			if tableSet[ti.Name] {
+				filteredInfos = append(filteredInfos, ti)
+			}
+		}
+
+		// 同步指定表的向量
+		synced, vectors, err := syncSpecificVectors(manager, dbConfig, filteredInfos, aiConfig.Embedding)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "同步向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"synced":  synced,
+			"vectors": vectors,
+		})
+		return
+	}
+
+	// 同步整个数据库的向量
+	if err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "同步向量失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 统计结果
+	totalVectors, dbVectorStats, err := manager.getVectorStats()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "统计向量失败: " + err.Error(),
+		})
+		return
+	}
+
+	synced := 0
+	if count, ok := dbVectorStats[req.DbID]; ok {
+		synced = count
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"synced":  synced,
+		"vectors": totalVectors,
+	})
+}
+
+// handleTableRetrievalRelationScan 关系索引扫描接口
+func handleTableRetrievalRelationScan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		DbID string `json:"db_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "解析请求失败: " + err.Error(),
+		})
+		return
+	}
+
+	if req.DbID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少 db_id 参数",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, ok := dataOntologyDatabases[req.DbID]
+	dataOntologyMu.RUnlock()
+
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 扫描关系候选
+	candidates, err := scanRelationCandidates(dbConfig)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "扫描关系失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"candidates": candidates,
+	})
+}
+
+// handleTableRetrievalRelationConfirm 关系确认接口
+func handleTableRetrievalRelationConfirm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		DbID      string `json:"db_id"`
+		Relations []int  `json:"relations"` // candidate ids
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "解析请求失败: " + err.Error(),
+		})
+		return
+	}
+
+	if req.DbID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少 db_id 参数",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	dbConfig, ok := dataOntologyDatabases[req.DbID]
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 从临时存储中获取候选关系并确认
+	confirmed := 0
+	for _, candidateID := range req.Relations {
+		if rel, ok := tempRelationCandidates[candidateID]; ok && rel.DatabaseID == req.DbID {
+			// 添加到数据库配置的关系列表
+			newRelation := RelationConfig{
+				ID:          uuid.New().String(),
+				Name:        rel.TableName1 + "." + rel.FieldName1 + " ↔ " + rel.TableName2 + "." + rel.FieldName2,
+				Description: rel.Reason,
+				Source: FieldRef{
+					DatabaseID: req.DbID,
+					TableName:  rel.TableName1,
+					FieldName:  rel.FieldName1,
+					FieldType:  rel.FieldType1,
+				},
+				Target: FieldRef{
+					DatabaseID: req.DbID,
+					TableName:  rel.TableName2,
+					FieldName:  rel.FieldName2,
+					FieldType:  rel.FieldType2,
+				},
+				MatchType: rel.MatchType,
+				Owner:     "admin",
+				CreatedAt: time.Now().Format(time.RFC3339),
+			}
+			dbConfig.Relations = append(dbConfig.Relations, newRelation)
+			confirmed++
+		}
+	}
+
+	// 保存配置
+	if err := saveDataOntologyConfig(); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "保存配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 同步到 SQLite
+	manager := getFTS5Manager()
+	if manager != nil {
+		go manager.syncRelationsToSQLite(dbConfig)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"confirmed":  confirmed,
+	})
+}
+
+// handleTableRetrievalEmbeddingPreview 向量预览接口
+func handleTableRetrievalEmbeddingPreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	dbID := r.URL.Query().Get("db_id")
+	if dbID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少 db_id 参数",
+		})
+		return
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 查询向量列表
+	tables, err := manager.getVectorList(dbID)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询向量列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"tables":  tables,
+	})
+}
+
+// handleTableRetrievalRelationPreview 关系预览接口
+func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	dbID := r.URL.Query().Get("db_id")
+	if dbID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少 db_id 参数",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, ok := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !ok {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 构建关系列表
+	relations := make([]map[string]interface{}, 0)
+	for _, rel := range dbConfig.Relations {
+		relations = append(relations, map[string]interface{}{
+			"table1": rel.Source.TableName,
+			"col1":   rel.Source.FieldName,
+			"table2": rel.Target.TableName,
+			"col2":   rel.Target.FieldName,
+			"type":   rel.MatchType,
+		})
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"relations": relations,
+	})
+}
+
 // handleTableRetrievalSearch 表检索搜索接口
 func handleTableRetrievalSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -6034,6 +6479,130 @@ func handleTableRetrievalSearch(w http.ResponseWriter, r *http.Request) {
 		"strategy": strategy,
 		"results":  results,
 		"count":    len(results),
+	})
+}
+
+// handleTableRetrievalVectorList 获取向量索引列表（预览）
+func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	databaseID := r.URL.Query().Get("database_id")
+	page := 1
+	pageSize := 50
+	if p := r.URL.Query().Get("page"); p != "" {
+		if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
+			page = pv
+		}
+	}
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
+			pageSize = psv
+		}
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	vectors, total, err := manager.listVectors(databaseID, page, pageSize)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取向量列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"vectors":   vectors,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+// handleTableRetrievalRelationList 获取关系索引列表（预览）
+func handleTableRetrievalRelationList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	databaseID := r.URL.Query().Get("database_id")
+	page := 1
+	pageSize := 50
+	if p := r.URL.Query().Get("page"); p != "" {
+		if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
+			page = pv
+		}
+	}
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
+			pageSize = psv
+		}
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	relations, total, err := manager.listRelations(databaseID, page, pageSize)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "获取关系列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"relations":  relations,
+		"total":      total,
+		"page":       page,
+		"page_size":  pageSize,
 	})
 }
 
@@ -17064,7 +17633,14 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-sync", handleTableRetrievalEmbeddingSync)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-scan", handleTableRetrievalRelationScan)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-confirm", handleTableRetrievalRelationConfirm)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-preview", handleTableRetrievalEmbeddingPreview)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-preview", handleTableRetrievalRelationPreview)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/search", handleTableRetrievalSearch)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/vectors", handleTableRetrievalVectorList)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/relations", handleTableRetrievalRelationList)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
@@ -17754,6 +18330,248 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
+// 临时存储关系候选
+var (
+	tempRelationCandidates     = make(map[int]*RelationCandidateEntry)
+	tempRelationCandidateIDGen = 0
+)
+
+// RelationCandidateEntry 关系候选条目（用于临时存储）
+type RelationCandidateEntry struct {
+	ID          int     `json:"id"`
+	DatabaseID  string  `json:"database_id"`
+	TableName1  string  `json:"table1"`
+	FieldName1  string  `json:"col1"`
+	FieldType1  string  `json:"field_type1"`
+	TableName2  string  `json:"table2"`
+	FieldName2  string  `json:"col2"`
+	FieldType2  string  `json:"field_type2"`
+	Confidence  float64 `json:"confidence"`
+	Reason      string  `json:"reason"`
+	MatchType   string  `json:"match_type"`
+}
+
+// syncSpecificVectors 同步指定表的向量
+func syncSpecificVectors(manager *FTS5Manager, dbConfig *DatabaseConfig, tableInfos []TableInfo, embeddingConfig EmbeddingRetrievalConfig) (int, int, error) {
+	if manager == nil || manager.db == nil {
+		return 0, 0, nil
+	}
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	synced := 0
+	totalVectors := 0
+
+	for _, ti := range tableInfos {
+		// 构建文本：表名 + 表描述 + 字段名列表
+		text := ti.Name
+		if ti.Comment != "" {
+			text += " " + ti.Comment
+		}
+		if len(ti.ColumnNames) > 0 {
+			text += " " + strings.Join(ti.ColumnNames, " ")
+		}
+
+		// 生成向量
+		embedding, err := generateEmbedding(text, embeddingConfig)
+		if err != nil {
+			log.Printf("[向量同步] 表 %s 生成向量失败: %v", ti.Name, err)
+			continue
+		}
+
+		// 序列化向量
+		embeddingBytes := float32SliceToBytes(embedding)
+
+		// 插入或更新向量
+		_, err = manager.db.Exec(`
+			INSERT INTO vectors (database_id, table_name, embedding, updated_at)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(database_id, table_name) DO UPDATE SET
+				embedding = excluded.embedding,
+				updated_at = CURRENT_TIMESTAMP
+		`, dbConfig.ID, ti.Name, embeddingBytes)
+		if err != nil {
+			log.Printf("[向量同步] 表 %s 存储向量失败: %v", ti.Name, err)
+			continue
+		}
+
+		synced++
+		totalVectors += len(embedding)
+	}
+
+	return synced, totalVectors, nil
+}
+
+// scanRelationCandidates 扫描关系候选
+func scanRelationCandidates(dbConfig *DatabaseConfig) ([]RelationCandidateEntry, error) {
+	// 获取数据库连接
+	db, err := getDBFromPool(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("获取数据库连接失败: %w", err)
+	}
+
+	// 获取所有表和字段信息
+	tableColumnsMap := make(map[string][]map[string]interface{})
+	tableNames, err := getTablesList(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("获取表列表失败: %w", err)
+	}
+
+	for _, tableName := range tableNames {
+		columns, err := getTableColumns(dbConfig, tableName)
+		if err != nil {
+			continue
+		}
+		tableColumnsMap[tableName] = columns
+	}
+
+	// 扫描关系候选
+	candidates := make([]RelationCandidateEntry, 0)
+	candidateID := 1
+
+	// 遍历所有表的字段
+	for table1, cols1 := range tableColumnsMap {
+		for _, col1 := range cols1 {
+			col1Name, _ := col1["name"].(string)
+			col1Type, _ := col1["type"].(string)
+
+			// 只考虑 INT/BIGINT/VARCHAR 类型的字段
+			if !isFieldTypeMatchable(col1Type) {
+				continue
+			}
+
+			// 查找可能的关联字段
+			for table2, cols2 := range tableColumnsMap {
+				if table2 == table1 {
+					continue // 不考虑同一表内的关联
+				}
+
+				for _, col2 := range cols2 {
+					col2Name, _ := col2["name"].(string)
+					col2Type, _ := col2["type"].(string)
+
+					if !isFieldTypeMatchable(col2Type) {
+						continue
+					}
+
+					// 检测关联
+					confidence, reason, matchType := detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type)
+					if confidence > 0.5 {
+						candidate := RelationCandidateEntry{
+							ID:         candidateID,
+							DatabaseID: dbConfig.ID,
+							TableName1: table1,
+							FieldName1: col1Name,
+							FieldType1: col1Type,
+							TableName2: table2,
+							FieldName2: col2Name,
+							FieldType2: col2Type,
+							Confidence: confidence,
+							Reason:     reason,
+							MatchType:  matchType,
+						}
+						candidates = append(candidates, candidate)
+
+						// 临时存储候选关系
+						tempRelationCandidates[candidateID] = &candidate
+						candidateID++
+					}
+				}
+			}
+		}
+	}
+
+	return candidates, nil
+}
+
+// isFieldTypeMatchable 检查字段类型是否可关联
+func isFieldTypeMatchable(fieldType string) bool {
+	ft := strings.ToUpper(fieldType)
+	return strings.Contains(ft, "INT") || strings.Contains(ft, "BIGINT") || strings.Contains(ft, "VARCHAR") || strings.Contains(ft, "CHAR")
+}
+
+// detectRelation 检测两个字段之间的关联关系
+func detectRelation(table1, col1Name, col1Type, table2, col2Name, col2Type string) (float64, string, string) {
+	// 1. 精确匹配：字段名完全相同
+	if col1Name == col2Name {
+		return 1.0, fmt.Sprintf("字段名完全匹配: %s", col1Name), "exact"
+	}
+
+	// 2. 前缀/后缀匹配：A.id ↔ B.a_id / B.aid
+	col1Lower := strings.ToLower(col1Name)
+	col2Lower := strings.ToLower(col2Name)
+	table1Lower := strings.ToLower(table1)
+
+	// 检查 col2 是否是 col1 的前缀/后缀形式
+	if col1Lower == "id" {
+		// col1 是 id，检查 col2 是否是 table_id 或 tableid
+		if col2Lower == table1Lower+"_id" || col2Lower == table1Lower+"id" {
+			return 0.95, fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name), "naming_style"
+		}
+	}
+
+	// 反向检查
+	if col2Lower == "id" {
+		if col1Lower == strings.ToLower(table2)+"_id" || col1Lower == strings.ToLower(table2)+"id" {
+			return 0.95, fmt.Sprintf("字段名匹配: %s ↔ %s (命名风格)", col1Name, col2Name), "naming_style"
+		}
+	}
+
+	// 3. 类型匹配：都是 INT/BIGINT
+	if (strings.Contains(strings.ToUpper(col1Type), "INT") && strings.Contains(strings.ToUpper(col2Type), "INT")) {
+		// 检查是否有部分名称匹配
+		if strings.Contains(col2Lower, col1Lower) || strings.Contains(col1Lower, col2Lower) {
+			return 0.7, fmt.Sprintf("类型匹配 + 名称相似: %s(%s) ↔ %s(%s)", col1Name, col1Type, col2Name, col2Type), "type_keyword"
+		}
+	}
+
+	return 0, "", ""
+}
+
+// getVectorList 获取向量列表
+func (m *FTS5Manager) getVectorList(databaseID string) ([]map[string]interface{}, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return nil, sql.ErrConnDone
+	}
+
+	rows, err := m.db.Query(`
+		SELECT table_name, LENGTH(embedding) as vector_size, created_at, updated_at
+		FROM vectors
+		WHERE database_id = ?
+		ORDER BY table_name
+	`, databaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tables := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var tableName string
+		var vectorSize int
+		var createdAt, updatedAt string
+		if err := rows.Scan(&tableName, &vectorSize, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+
+		// 计算向量维度（每个 float32 占 4 字节）
+		dimension := vectorSize / 4
+
+		tables = append(tables, map[string]interface{}{
+			"name":       tableName,
+			"dimension":  dimension,
+			"created_at": createdAt,
+			"updated_at": updatedAt,
+		})
+	}
+
+	return tables, nil
+}
+
 // syncVectorsToSQLite 增量同步向量到 SQLite
 func (m *FTS5Manager) syncVectorsToSQLite(dbConfig *DatabaseConfig, embeddingConfig EmbeddingRetrievalConfig) error {
 	if m == nil || m.db == nil {
@@ -18267,4 +19085,125 @@ func (m *FTS5Manager) getRelationStats() (int, map[string]int, error) {
 	}
 
 	return totalCount, dbStats, nil
+}
+
+// VectorInfo 向量信息（用于预览）
+type VectorInfo struct {
+	DatabaseID string `json:"database_id"`
+	TableName  string `json:"table_name"`
+	Dimension  int    `json:"dimension"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// RelationInfo 关系信息（用于预览）
+type RelationInfo struct {
+	ID           int    `json:"id"`
+	DatabaseID   string `json:"database_id"`
+	SourceTable  string `json:"source_table"`
+	SourceField  string `json:"source_field"`
+	TargetTable  string `json:"target_table"`
+	TargetField  string `json:"target_field"`
+	MatchType    string `json:"match_type"`
+	RelationName string `json:"relation_name"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// listVectors 获取向量列表（分页）
+func (m *FTS5Manager) listVectors(databaseID string, page, pageSize int) ([]VectorInfo, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return nil, 0, sql.ErrConnDone
+	}
+
+	// 获取总数
+	var total int
+	countQuery := "SELECT COUNT(*) FROM vectors"
+	countArgs := []interface{}{}
+	if databaseID != "" {
+		countQuery += " WHERE database_id = ?"
+		countArgs = append(countArgs, databaseID)
+	}
+	if err := m.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
+	query := "SELECT database_id, table_name, LENGTH(embedding)/4 as dimension, created_at, updated_at FROM vectors"
+	args := []interface{}{}
+	if databaseID != "" {
+		query += " WHERE database_id = ?"
+		args = append(args, databaseID)
+	}
+	query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+	args = append(args, pageSize, offset)
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var vectors []VectorInfo
+	for rows.Next() {
+		var v VectorInfo
+		if err := rows.Scan(&v.DatabaseID, &v.TableName, &v.Dimension, &v.CreatedAt, &v.UpdatedAt); err == nil {
+			vectors = append(vectors, v)
+		}
+	}
+
+	return vectors, total, nil
+}
+
+// listRelations 获取关系列表（分页）
+func (m *FTS5Manager) listRelations(databaseID string, page, pageSize int) ([]RelationInfo, int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return nil, 0, sql.ErrConnDone
+	}
+
+	// 获取总数
+	var total int
+	countQuery := "SELECT COUNT(*) FROM relations"
+	countArgs := []interface{}{}
+	if databaseID != "" {
+		countQuery += " WHERE database_id = ?"
+		countArgs = append(countArgs, databaseID)
+	}
+	if err := m.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	offset := (page - 1) * pageSize
+	query := `SELECT id, database_id, source_table, source_field, target_table, target_field, match_type, relation_name, created_at 
+			  FROM relations`
+	args := []interface{}{}
+	if databaseID != "" {
+		query += " WHERE database_id = ?"
+		args = append(args, databaseID)
+	}
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, pageSize, offset)
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var relations []RelationInfo
+	for rows.Next() {
+		var r RelationInfo
+		if err := rows.Scan(&r.ID, &r.DatabaseID, &r.SourceTable, &r.SourceField, &r.TargetTable, &r.TargetField, &r.MatchType, &r.RelationName, &r.CreatedAt); err == nil {
+			relations = append(relations, r)
+		}
+	}
+
+	return relations, total, nil
 }
