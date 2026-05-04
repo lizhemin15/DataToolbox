@@ -5653,6 +5653,63 @@ func handleTableRetrievalStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleTableRetrievalEmbeddingStatus 查询向量同步状态
+func handleTableRetrievalEmbeddingStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	manager := getFTS5Manager()
+	if manager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "表检索系统未初始化",
+		})
+		return
+	}
+
+	// 查询向量状态
+	totalVectors, dbVectorStats, err := manager.getVectorStats()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "查询向量状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 获取 embedding 配置信息
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":        true,
+		"total_vectors":  totalVectors,
+		"database_stats": dbVectorStats,
+		"embedding_config": map[string]interface{}{
+			"enabled":   aiConfig.Embedding.Enabled,
+			"model":     aiConfig.Embedding.Model,
+			"dimension": aiConfig.Embedding.Dimension,
+		},
+	})
+}
+
 func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string) ([]LineageEdge, string) {
 	var edges []LineageEdge
 	var warn string
@@ -16551,6 +16608,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/sync", handleTableRetrievalSync)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
