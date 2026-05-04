@@ -6257,8 +6257,8 @@ func handleTableRetrievalRelationConfirm(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// 保存配置
-	if err := saveDataOntologyStore(); err != nil {
+	// 保存配置（已持有锁，使用 NoLock 版本）
+	if err := saveDataOntologyStoreNoLock(); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "保存配置失败: " + err.Error(),
