@@ -6215,7 +6215,7 @@ func handleTableRetrievalEmbeddingSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 同步整个数据库的向量（增量模式）
-	added, deleted, err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding)
+	added, _, err := manager.syncVectorsToSQLite(dbConfig, aiConfig.Embedding)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
