@@ -9032,12 +9032,9 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 保留已有的 embedding 和 table_retrieval 配置（前端可能未传）
+		// 保留已有的 table_retrieval 配置（前端可能未传）
 		dataOntologyMu.RLock()
 		if dataOntologyAIConfig != nil {
-			if config.Embedding.URL == "" && dataOntologyAIConfig.Embedding.URL != "" {
-				config.Embedding = dataOntologyAIConfig.Embedding
-			}
 			if config.TableRetrieval == nil && dataOntologyAIConfig.TableRetrieval != nil {
 				config.TableRetrieval = dataOntologyAIConfig.TableRetrieval
 			}

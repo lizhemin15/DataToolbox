@@ -4425,6 +4425,15 @@ function showAiSettingsModal() {
             document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
         }
         document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
+        
+        // 加载 Embedding 配置
+        if (aiConfig.embedding) {
+            document.getElementById('aiEmbEnabled').checked = aiConfig.embedding.enabled || false;
+            document.getElementById('aiEmbUrl').value = aiConfig.embedding.url || '';
+            document.getElementById('aiEmbApiKey').value = aiConfig.embedding.api_key || '';
+            document.getElementById('aiEmbModel').value = aiConfig.embedding.model || '';
+            document.getElementById('aiEmbDimension').value = aiConfig.embedding.dimension || 1024;
+        }
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
@@ -4434,6 +4443,19 @@ function showAiSettingsModal() {
     
     document.getElementById('aiSettingsError').classList.remove('show');
     document.getElementById('aiSettingsSuccess').classList.remove('show');
+}
+
+// 折叠/展开 AI Embedding 配置
+function toggleAiEmbeddingConfig() {
+    const panel = document.getElementById('aiEmbeddingConfigPanel');
+    const toggle = document.getElementById('aiEmbeddingConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
 }
 
 // 关闭 AI 设置弹窗。
@@ -5000,6 +5022,7 @@ async function handleSaveAiSettings(e) {
 
     const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
     const contextWindowValue = parseInt(document.getElementById('aiContextWindow').value, 10);
+    const embDimensionValue = parseInt(document.getElementById('aiEmbDimension').value, 10);
     
     const config = {
         url: document.getElementById('aiUrlInput').value,
@@ -5011,7 +5034,15 @@ async function handleSaveAiSettings(e) {
         enable_thinking: document.getElementById('aiEnableThinking').checked,
         enable_streaming: document.getElementById('aiEnableStreaming').checked,
         enable_json_mode: document.getElementById('aiEnableJSONMode').checked,
-        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0
+        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0,
+        // Embedding 配置
+        embedding: {
+            enabled: document.getElementById('aiEmbEnabled').checked,
+            url: document.getElementById('aiEmbUrl').value,
+            api_key: document.getElementById('aiEmbApiKey').value,
+            model: document.getElementById('aiEmbModel').value,
+            dimension: Number.isFinite(embDimensionValue) && embDimensionValue > 0 ? embDimensionValue : 1024
+        }
     };
 
     const errorEl = document.getElementById('aiSettingsError');

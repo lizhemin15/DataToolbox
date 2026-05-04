@@ -1374,6 +1374,38 @@
                     <button type="button" class="btn btn-sm btn-secondary" id="detectCapabilitiesBtn" style="margin-top: 8px;">自动检测模型能力</button>
                 </div>
                 
+                <!-- Embedding 配置（可折叠） -->
+                <div class="form-group" style="margin-top:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleAiEmbeddingConfig()">
+                        <label style="font-size:14px;font-weight:600;margin:0;">🔤 Embedding 配置</label>
+                        <span id="aiEmbeddingConfigToggle" style="font-size:12px;color:#999;">展开 ▼</span>
+                    </div>
+                    <div id="aiEmbeddingConfigPanel" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+                        <small style="color:#666;display:block;margin-bottom:10px;">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;">
+                                <input type="checkbox" id="aiEmbEnabled" style="margin:0;width:16px;height:16px;"> 启用 Embedding 向量化
+                            </label>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <label style="font-size:12px;color:#555;min-width:70px;">API URL</label>
+                                <input type="text" id="aiEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <label style="font-size:12px;color:#555;min-width:70px;">API Key</label>
+                                <input type="password" id="aiEmbApiKey" placeholder="sk-...（留空则使用上方 AI API Key）" style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <label style="font-size:12px;color:#555;min-width:70px;">模型名称</label>
+                                <input type="text" id="aiEmbModel" placeholder="BAAI/bge-large-zh-v1.5" style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <label style="font-size:12px;color:#555;min-width:70px;">向量维度</label>
+                                <input type="number" id="aiEmbDimension" min="64" max="4096" value="1024" style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #ddd;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存配置</button>
                 </div>
