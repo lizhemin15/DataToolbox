@@ -5481,9 +5481,9 @@ func handleTableRetrievalSync(w http.ResponseWriter, r *http.Request) {
 		var err error
 		if req.DatabaseID != "" {
 			// 同步指定数据库
-			dataOntologyConfigMu.RLock()
+			dataOntologyMu.RLock()
 			dbConfig, exists := dataOntologyDatabases[req.DatabaseID]
-			dataOntologyConfigMu.RUnlock()
+			dataOntologyMu.RUnlock()
 
 			if !exists {
 				log.Printf("[表检索] 数据库不存在: %s", req.DatabaseID)
@@ -16822,12 +16822,12 @@ func (m *FTS5Manager) syncAllDatabases() error {
 		return nil
 	}
 
-	dataOntologyConfigMu.RLock()
-	configs := make([]*DatabaseConfig, 0, len(dataOntologyConfig.Databases))
-	for _, db := range dataOntologyConfig.Databases {
+	dataOntologyMu.RLock()
+	configs := make([]*DatabaseConfig, 0, len(dataOntologyDatabases))
+	for _, db := range dataOntologyDatabases {
 		configs = append(configs, db)
 	}
-	dataOntologyConfigMu.RUnlock()
+	dataOntologyMu.RUnlock()
 
 	for _, dbConfig := range configs {
 		if err := m.syncTablesToSQLite(dbConfig); err != nil {
