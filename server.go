@@ -5931,6 +5931,94 @@ func handleTableRetrievalRelationStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleTableRetrievalSearch 表检索搜索接口
+func handleTableRetrievalSearch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+		return
+	}
+
+	// 解析参数
+	databaseID := r.URL.Query().Get("database_id")
+	query := r.URL.Query().Get("query")
+	strategy := r.URL.Query().Get("strategy")
+	if strategy == "" {
+		strategy = "hybrid"
+	}
+
+	if databaseID == "" || query == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "缺少必要参数: database_id 或 query",
+		})
+		return
+	}
+
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, exists := dataOntologyDatabases[databaseID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "数据库不存在",
+		})
+		return
+	}
+
+	// 构建检索配置
+	config := &TableRetrievalConfig{
+		Strategy:      strategy,
+		MaxTables:     15,
+		VectorWeight:  0.3,
+		KeywordWeight: 0.4,
+		GraphWeight:   0.3,
+	}
+
+	// 从全局 AI 配置获取权重
+	if dataOntologyAIConfig != nil && dataOntologyAIConfig.TableRetrieval != nil {
+		config.VectorWeight = dataOntologyAIConfig.TableRetrieval.VectorWeight
+		config.KeywordWeight = dataOntologyAIConfig.TableRetrieval.KeywordWeight
+		config.GraphWeight = dataOntologyAIConfig.TableRetrieval.GraphWeight
+		if dataOntologyAIConfig.TableRetrieval.GraphConfig != nil {
+			config.GraphConfig = dataOntologyAIConfig.TableRetrieval.GraphConfig
+		}
+	}
+
+	// 执行检索
+	results, err := retrieveRelevantTables(query, dbConfig, config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("检索失败: %v", err),
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"query":    query,
+		"strategy": strategy,
+		"results":  results,
+		"count":    len(results),
+	})
+}
+
 func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string) ([]LineageEdge, string) {
 	var edges []LineageEdge
 	var warn string
@@ -16831,6 +16919,7 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
 	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
+	mux.HandleFunc("/api/data-ontology/table-retrieval/search", handleTableRetrievalSearch)
 	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
