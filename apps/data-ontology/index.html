@@ -1421,12 +1421,12 @@
                     <div id="syncIndexProgress" style="color:#004085;">准备同步...</div>
                 </div>
             </div>
-            <div class="modal-footer" style="display:flex;justify-content:flex-end;align-items:center;gap:8px;">
+            <div class="modal-footer" style="display:flex;justify-content:flex-start;align-items:center;gap:8px;">
+                <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
                 <button type="button" class="btn btn-sm btn-secondary" onclick="scanDbOntologyRelations()" title="扫描表之间的关系">🔍 扫描关系</button>
                 <button type="button" class="btn btn-sm btn-secondary" onclick="showDbOntologyRelations()" title="查看已发现的关系">📋 关系表</button>
                 <div style="flex:1"></div>
                 <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn">取消</button>
-                <button type="button" class="btn btn-primary" id="startSyncIndexBtn">开始同步</button>
             </div>
         </div>
     </div>
