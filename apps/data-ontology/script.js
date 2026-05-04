@@ -11927,11 +11927,116 @@ function closeVectorIndexModal() {
     if (modal) modal.remove();
 }
 
+// 显示规则选择对话框
+function showRelationScanRulesModal() {
+    return new Promise((resolve) => {
+        const modalHtml = `
+            <div id="relationScanRulesModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:550px;">
+                    <div class="modal-header">
+                        <h2>🔗 选择扫描规则</h2>
+                    </div>
+                    <div class="modal-body" style="padding:20px;">
+                        <div style="font-size:13px;color:#666;margin-bottom:16px;">
+                            请选择用于扫描关系候选的规则，默认全部启用
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:12px;">
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f8f9fa;border-radius:4px;cursor:pointer;">
+                                <input type="checkbox" id="rule-exact-match" checked style="margin-top:2px;width:16px;height:16px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:14px;font-weight:600;color:#333;">精确匹配</div>
+                                    <div style="font-size:12px;color:#666;margin-top:4px;">字段名完全相同</div>
+                                </div>
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f8f9fa;border-radius:4px;cursor:pointer;">
+                                <input type="checkbox" id="rule-naming-style" checked style="margin-top:2px;width:16px;height:16px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:14px;font-weight:600;color:#333;">命名风格</div>
+                                    <div style="font-size:12px;color:#666;margin-top:4px;">id ↔ table_id 命名模式</div>
+                                </div>
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f8f9fa;border-radius:4px;cursor:pointer;">
+                                <input type="checkbox" id="rule-type-keyword" checked style="margin-top:2px;width:16px;height:16px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:14px;font-weight:600;color:#333;">类型+关键词</div>
+                                    <div style="font-size:12px;color:#666;margin-top:4px;">类型匹配 + 名称部分相似</div>
+                                </div>
+                            </label>
+                            <label style="display:flex;align-items:flex-start;gap:10px;padding:10px;background:#f8f9fa;border-radius:4px;cursor:pointer;">
+                                <input type="checkbox" id="rule-prefix-consistency" checked style="margin-top:2px;width:16px;height:16px;">
+                                <div style="flex:1;">
+                                    <div style="font-size:14px;font-weight:600;color:#333;">前缀一致性</div>
+                                    <div style="font-size:12px;color:#666;margin-top:4px;">表名前缀重合越多，置信度越高</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeRelationScanRulesModal()">取消</button>
+                        <button type="button" class="btn btn-primary" onclick="confirmRelationScanRules()">开始扫描</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // 保存 resolve 函数供后续使用
+        window._relationScanRulesResolve = resolve;
+    });
+}
+
+function closeRelationScanRulesModal() {
+    const modal = document.getElementById('relationScanRulesModal');
+    if (modal) modal.remove();
+    if (window._relationScanRulesResolve) {
+        window._relationScanRulesResolve(null);
+        delete window._relationScanRulesResolve;
+    }
+}
+
+function confirmRelationScanRules() {
+    const rules = [];
+
+    if (document.getElementById('rule-exact-match').checked) {
+        rules.push('exact_match');
+    }
+    if (document.getElementById('rule-naming-style').checked) {
+        rules.push('naming_style');
+    }
+    if (document.getElementById('rule-type-keyword').checked) {
+        rules.push('type_keyword');
+    }
+    if (document.getElementById('rule-prefix-consistency').checked) {
+        rules.push('prefix_consistency');
+    }
+
+    if (rules.length === 0) {
+        showToast('请至少选择一个扫描规则', 'warning');
+        return;
+    }
+
+    closeRelationScanRulesModal();
+
+    if (window._relationScanRulesResolve) {
+        window._relationScanRulesResolve(rules);
+        delete window._relationScanRulesResolve;
+    }
+}
+
 // 扫描关系候选并确认
 async function handleRelationIndex() {
     console.log('handleRelationIndex called, currentDb:', currentDb);
     if (!currentDb) {
         showToast('请先在左侧列表中选择一个数据库', 'warning');
+        return;
+    }
+
+    // 显示规则选择对话框
+    const selectedRules = await showRelationScanRulesModal();
+
+    // 用户取消选择
+    if (!selectedRules) {
         return;
     }
 
@@ -11958,7 +12063,7 @@ async function handleRelationIndex() {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-scan`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ db_id: currentDb.id })
+            body: JSON.stringify({ db_id: currentDb.id, rules: selectedRules })
         });
 
         const data = await response.json();
@@ -11987,7 +12092,7 @@ function showRelationCandidates(candidates) {
     const candidatesHtml = candidates.map((c, idx) => `
         <div style="padding:10px;border-bottom:1px solid #eee;">
             <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
-                <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" checked style="margin-top:3px;width:16px;height:16px;">
+                <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" style="margin-top:3px;width:16px;height:16px;">
                 <div style="flex:1;">
                     <div style="font-size:13px;font-weight:600;color:#333;">${c.table1} → ${c.table2}</div>
                     <div style="font-size:12px;color:#666;margin-top:4px;">
