@@ -1385,9 +1385,9 @@
                 <div class="form-group">
                     <label style="font-size:14px;font-weight:600;">同步范围</label>
                     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncTables" checked> 表数据 (FTS5)</label>
-                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncVectors" checked> 向量索引</label>
-                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncRelations" checked> 关系数据</label>
+                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncTables" checked style="margin:0;"> 表数据 (FTS5)</label>
+                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncVectors" checked style="margin:0;"> 向量索引</label>
+                        <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="syncRelations" checked style="margin:0;"> 关系数据</label>
                     </div>
                     <small style="color:#666;">增量同步：只处理新增/删除的表</small>
                 </div>
@@ -1402,7 +1402,7 @@
                         <small style="color:#666;display:block;margin-bottom:10px;">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
                         <div style="display:flex;flex-direction:column;gap:8px;">
                             <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="syncEmbEnabled"> 启用 Embedding 向量化
+                                <input type="checkbox" id="syncEmbEnabled" style="margin:0;"> 启用 Embedding 向量化
                             </label>
                             <div style="display:flex;align-items:center;gap:8px;">
                                 <label style="font-size:12px;color:#555;min-width:70px;">API URL</label>
