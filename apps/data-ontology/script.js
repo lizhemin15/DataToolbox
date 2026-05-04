@@ -11979,7 +11979,7 @@ async function loadVectorPreviewPage(page) {
     const infoEl = document.getElementById('vectorPreviewInfo');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vector-list?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
 
         if (data.success && data.vectors) {
@@ -12081,7 +12081,7 @@ async function loadRelationPreviewPage(page) {
     const infoEl = document.getElementById('relationPreviewInfo');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relation-list?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
 
         if (data.success && data.relations) {
