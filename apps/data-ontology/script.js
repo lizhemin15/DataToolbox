@@ -12841,7 +12841,7 @@ async function loadRelationPreviewPage(page) {
 
     try {
         // 构建查询参数
-        let url = `${API_BASE}/api/data-ontology/table-retrieval/relations?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`;
+        let url = `${API_BASE}/api/data-ontology/table-retrieval/relations?database_id=${currentDb.id}&page=${page}&page_size=${pageSize}`;
         if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
         if (matchType) url += `&match_type=${encodeURIComponent(matchType)}`;
         
