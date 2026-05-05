@@ -1260,6 +1260,15 @@ func loadDataOntologyStore() error {
 		return fmt.Errorf("解析持久化数据失败: %v", err)
 	}
 
+	// 调试：打印原始 JSON 中的 ai_config
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err == nil {
+		if aiConfigRaw, ok := rawMap["ai_config"]; ok {
+			aiBytes, _ := json.MarshalIndent(aiConfigRaw, "", "  ")
+			log.Printf("[DEBUG] Raw ai_config from JSON: %s", string(aiBytes)[:500])
+		}
+	}
+
 	// 加载数据到内存
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
