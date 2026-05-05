@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.2.74');
-    await loadLazyScript('gov-api.js?v=4.2.74');
-    await loadLazyScript('governance.js?v=4.2.74');
+    await loadLazyScript('gov-shared.js?v=4.2.78');
+    await loadLazyScript('gov-api.js?v=4.2.78');
+    await loadLazyScript('governance.js?v=4.2.78');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.2.74');
+    await loadLazyScript('quality-audit.js?v=4.2.78');
 }
 
 
@@ -121,7 +121,6 @@ function handleUnauthorizedFromApi() {
         window._qualityAuditDataLoaded = false;
         window._qualityAuditRulesLoaded = false;
     } catch (e) {}
-    saveReturnUrlForLogin();
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
