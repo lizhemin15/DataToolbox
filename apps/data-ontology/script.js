@@ -5115,7 +5115,7 @@ function showDbSuggestions(searchTerm) {
     let html = '';
 
     if (matchedModules.length > 0) {
-        html += '<div class="ai-suggestion-group-title">AI 模块</div>';
+        html += '<div class="ai-suggestion-group-title">智能助手</div>';
         html += matchedModules.map(m => {
             const safeMId = escapeHtml(m.id);
             const safeMName = escapeHtml(m.name);

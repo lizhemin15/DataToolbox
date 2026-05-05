@@ -1,4 +1,4 @@
-// MCP 模块：
+// Agent 服务：
 //   HTTP 模式（推荐）：MCP 服务内嵌在 HTTP 服务器中，客户端通过 URL 直接连接，无需本地二进制。
 //   Stdio 模式（备用）：DATA_ONTOLOGY_BASE_URL=http://... DATA_ONTOLOGY_API_KEY=dok_xxx ./datatoolbox-server mcp
 
@@ -390,7 +390,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 	if !enabled {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"MCP 已关闭，请在数据本体池中开启 MCP 模块"}`))
+		w.Write([]byte(`{"error":"Agent 服务已关闭，请开启后使用"}`))
 		return
 	}
 
@@ -552,7 +552,7 @@ func runMCPServer() {
 		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(data, &configResp); err != nil || !configResp.Success || !configResp.Enabled {
-		fmt.Fprintf(os.Stderr, "MCP 已在服务端关闭，请在数据本体池中开启 MCP 模块\n")
+		fmt.Fprintf(os.Stderr, "Agent 服务已在服务端关闭，请开启后使用\n")
 		os.Exit(1)
 	}
 
