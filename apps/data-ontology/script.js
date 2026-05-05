@@ -12203,6 +12203,12 @@ function quickFilterRelation(type, value) {
     applyRelationFilters();
 }
 
+// 全选/取消全选当前筛选结果
+function toggleSelectAllRelation(checked) {
+    const checkboxes = document.querySelectorAll('.relation-candidate-checkbox');
+    checkboxes.forEach(cb => cb.checked = checked);
+}
+
 // 渲染关系候选列表
 function renderRelationCandidates() {
     const filtered = relationCandidatesData.filter(c => {
@@ -12233,9 +12239,16 @@ function renderRelationCandidates() {
         return true;
     });
 
-    // 更新统计信息
+    // 更新统计信息和全选框
     const statsEl = document.getElementById('relationFilterStats');
-    statsEl.innerHTML = `显示 <strong style="color:#667eea;">${filtered.length}</strong> / ${relationCandidatesData.length} 个候选`;
+    statsEl.innerHTML = `
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" id="relationSelectAll" onchange="toggleSelectAllRelation(this.checked)" style="width:14px;height:14px;">
+            <span>全选</span>
+        </label>
+        <span style="margin:0 8px;color:#ddd;">|</span>
+        <span>显示 <strong style="color:#667eea;">${filtered.length}</strong> / ${relationCandidatesData.length} 个候选</span>
+    `;
 
     // 渲染列表
     const listEl = document.getElementById('relationCandidatesList');
