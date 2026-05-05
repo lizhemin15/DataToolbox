@@ -12911,19 +12911,27 @@ async function loadRelationPreviewPage(page) {
     const matchTypeSelectEl = document.getElementById('relationMatchTypeSelect');
 
     try {
-        // 构建查询参数
-        let url = `${API_BASE}/api/data-ontology/table-retrieval/relations?database_id=${currentDb.id}&page=${page}&page_size=${pageSize}`;
-        if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
-        if (matchType) url += `&match_type=${encodeURIComponent(matchType)}`;
+        // 调用 relation-preview API（从 data-store.json 读取）
+        let url = `${API_BASE}/api/data-ontology/table-retrieval/relation-preview?db_id=${currentDb.id}`;
         
         const response = await fetchWithAuth(url);
         const data = await response.json();
 
         if (data.success) {
-            const relations = data.relations || [];
-            const total = data.total || 0;
-            const totalPages = Math.ceil(total / pageSize);
-            const matchTypes = data.match_types || [];
+            // 转换字段名：table1/col1/table2/col2 → source_table/source_field/target_table/target_field
+            const rawRelations = data.relations || [];
+            const relations = rawRelations.map(r => ({
+                id: r.id,
+                source_table: r.table1,
+                source_field: r.col1,
+                target_table: r.table2,
+                target_field: r.col2,
+                match_type: r.type,
+                created_at: '-'
+            }));
+            const total = relations.length;
+            const totalPages = 1;
+            const matchTypes = [...new Set(relations.map(r => r.match_type))];
 
             window.currentRelationPage = page;
 
