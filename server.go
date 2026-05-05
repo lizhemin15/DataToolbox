@@ -15963,6 +15963,11 @@ func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[DEBUG] ReadDir returned %d entries", len(entries))
+	for i, e := range entries {
+		if i < 20 {
+			log.Printf("[DEBUG] entry[%d]: name=%s isDir=%v", i, e.Name(), e.IsDir())
+		}
+	}
 
 	type ExampleFile struct {
 		Name string `json:"name"`
