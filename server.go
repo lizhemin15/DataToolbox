@@ -1264,12 +1264,8 @@ func loadDataOntologyStore() error {
 	var rawMap map[string]interface{}
 	if err := json.Unmarshal(data, &rawMap); err == nil {
 		if aiConfigRaw, ok := rawMap["ai_config"]; ok {
-			aiBytes, _ := json.MarshalIndent(aiConfigRaw, "", "  ")
-			aiStr := string(aiBytes)
-			if len(aiStr) > 500 {
-				aiStr = aiStr[:500]
-			}
-			log.Printf("[DEBUG] Raw ai_config from JSON: %s", aiStr)
+			aiBytes, _ := json.Marshal(aiConfigRaw)
+			log.Printf("[DEBUG] Raw ai_config from JSON (full): %s", string(aiBytes))
 		}
 	}
 
