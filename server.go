@@ -6885,12 +6885,12 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		if len(invalidIDs) > 0 {
-			// 手动构建 ID 列表字符串，避免 JSON 编码问题
+			// 手动构建 ID 列表字符串
 			var idStrs []string
 			for _, id := range invalidIDs {
 				idStrs = append(idStrs, fmt.Sprintf("%d", id))
 			}
-			msg := "关系 ID 不存在: " + strings.Join(idStrs, ", ")
+			msg := "Relation ID not found: " + strings.Join(idStrs, ", ")
 			resp := map[string]interface{}{
 				"success": false,
 				"message": msg,
