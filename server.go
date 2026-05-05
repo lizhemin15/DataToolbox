@@ -5107,6 +5107,193 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSkillsExport 技能导出：根据类型生成不同 AI 平台的技能配置
+// generateDataToolboxSkill 生成 DataToolbox MCP 使用指南 skill
+func generateDataToolboxSkill(platform, mcpEndpoint string) string {
+	skillContent := `---
+name: datatoolbox
+description: DataToolbox 数据工具箱 - 数据库查询、数据治理、接口分发
+version: 1.0.0
+author: DataToolbox Team
+---
+
+# DataToolbox MCP Skill
+
+通过 MCP (Model Context Protocol) 使用 DataToolbox 进行数据库操作、数据治理和接口调用。
+
+## MCP 连接配置
+
+` + "```" + `json
+{
+  "mcpServers": {
+    "datatoolbox": {
+      "url": "` + mcpEndpoint + `"
+    }
+  }
+}
+` + "```" + `
+
+## 可用工具
+
+### 数据库操作
+
+#### list_databases
+列出所有已配置的数据库连接。
+
+**用途**: 查看当前有哪些数据库可用，获取数据库 ID 用于后续操作。
+
+**示例**:
+` + "```" + `
+用户: 我有哪些数据库？
+AI: [调用 list_databases] 您有以下数据库：
+- MySQL生产库 (id: db_001)
+- PostgreSQL测试库 (id: db_002)
+` + "```" + `
+
+#### get_tables
+获取指定数据库的表列表。
+
+**参数**:
+- database_id: 数据库 ID
+
+**用途**: 查看某个数据库中有哪些表。
+
+**示例**:
+` + "```" + `
+用户: 查看 MySQL生产库 有哪些表
+AI: [调用 get_tables(database_id="db_001")] 该数据库有以下表：
+- users (用户表)
+- orders (订单表)
+- products (商品表)
+` + "```" + `
+
+#### describe_table
+获取表的结构信息（字段名、类型、键信息等）。
+
+**参数**:
+- database_id: 数据库 ID
+- table_name: 表名
+
+**用途**: 了解表结构，为编写 SQL 做准备。
+
+**示例**:
+` + "```" + `
+用户: users 表有哪些字段？
+AI: [调用 describe_table] users 表结构：
+- id: INT, PRIMARY KEY
+- username: VARCHAR(50)
+- email: VARCHAR(100)
+- created_at: DATETIME
+` + "```" + `
+
+#### execute_sql
+在指定数据库上执行 SQL 语句。
+
+**参数**:
+- database_id: 数据库 ID
+- sql: SQL 语句
+- params: 参数（可选，用于参数化查询）
+
+**用途**: 执行查询或写操作。
+
+**示例**:
+` + "```" + `
+用户: 查询最近 10 条订单
+AI: [调用 execute_sql(database_id="db_001", sql="SELECT * FROM orders ORDER BY created_at DESC LIMIT 10")]
+
+用户: 统计每个用户的订单数量
+AI: [调用 execute_sql(database_id="db_001", sql="SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id")]
+` + "```" + `
+
+**注意事项**:
+- SELECT 语句返回数据
+- INSERT/UPDATE/DELETE 返回影响行数
+- DDL 语句（CREATE/ALTER/DROP）也可以执行，请谨慎使用
+
+### 接口调用
+
+#### list_apis
+列出所有已配置的接口。
+
+**用途**: 查看有哪些可调用的接口。
+
+#### get_api_detail
+获取接口的详细信息（SQL、参数定义、描述）。
+
+**参数**:
+- api_id: 接口 ID
+
+**用途**: 了解接口需要哪些参数。
+
+#### call_api
+调用已配置的接口。
+
+**参数**:
+- api_id: 接口 ID
+- params: 接口参数
+
+**用途**: 执行预定义的接口，获取数据。
+
+## 使用场景
+
+### 场景 1: 数据探索
+` + "```" + `
+用户: 帮我看看数据库里有什么数据
+AI: 
+1. [list_databases] 先看看有哪些数据库
+2. [get_tables] 选择一个数据库，查看表列表
+3. [describe_table] 查看感兴趣的表结构
+4. [execute_sql] 执行查询获取数据
+` + "```" + `
+
+### 场景 2: 数据分析
+` + "```" + `
+用户: 分析一下用户增长趋势
+AI:
+1. [execute_sql] 查询用户注册时间分布
+   SELECT DATE(created_at) as date, COUNT(*) as count 
+   FROM users 
+   GROUP BY DATE(created_at) 
+   ORDER BY date
+2. 根据数据生成分析报告
+` + "```" + `
+
+### 场景 3: 数据治理
+` + "```" + `
+用户: 帮我清理重复的用户记录
+AI:
+1. [execute_sql] 先查找重复记录
+   SELECT email, COUNT(*) as cnt FROM users GROUP BY email HAVING cnt > 1
+2. [execute_sql] 确认后删除重复记录（需用户确认）
+   DELETE FROM users WHERE id NOT IN (SELECT MIN(id) FROM users GROUP BY email)
+` + "```" + `
+
+## 最佳实践
+
+1. **先探索后操作**: 使用 list_databases → get_tables → describe_table 了解数据结构，再执行 SQL
+2. **参数化查询**: 对于用户输入的值，使用参数化查询防止 SQL 注入
+3. **确认写操作**: 执行 INSERT/UPDATE/DELETE 前先展示影响范围，让用户确认
+4. **分页查询**: 大数据量查询使用 LIMIT 分页，避免一次性返回过多数据
+
+## 错误处理
+
+- 数据库连接失败: 检查数据库配置和网络连接
+- SQL 语法错误: 检查 SQL 语句，注意不同数据库的语法差异
+- 权限不足: 检查数据库用户权限
+
+## 支持的数据库类型
+
+- MySQL
+- PostgreSQL
+- Oracle
+- SQL Server
+- 达梦 (DM)
+- MongoDB
+- SQLite
+`
+
+	return skillContent
+}
+
 func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if !verifyToken(r) {
@@ -5142,85 +5329,44 @@ func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
 
 	switch skillType {
 	case "claude-code":
-		title = "Claude Code"
-		description = "Anthropic Claude Code CLI 技能配置"
-		config = map[string]interface{}{
-			"mcpServers": map[string]interface{}{
-				"datatoolbox": map[string]interface{}{
-					"url": mcpEndpoint,
-				},
-			},
-		}
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("claude-code", mcpEndpoint)
 		steps = []string{
-			"打开 Claude Code 配置文件: ~/.claude/config.json",
-			"将上方配置粘贴到文件中",
-			"重启 Claude Code 即可使用",
+			"创建技能目录: mkdir -p ~/.claude/skills/datatoolbox",
+			"将上方 SKILL.md 内容保存到: ~/.claude/skills/datatoolbox/SKILL.md",
+			"在 Claude Code 中使用 /skills 命令加载技能",
+			"或重启 Claude Code 自动加载",
 		}
 	case "cursor":
-		title = "Cursor"
-		description = "Cursor IDE MCP 技能配置"
-		config = map[string]interface{}{
-			"mcpServers": map[string]interface{}{
-				"datatoolbox": map[string]interface{}{
-					"url": mcpEndpoint,
-				},
-			},
-		}
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("cursor", mcpEndpoint)
 		steps = []string{
-			"打开 Cursor 设置: Ctrl/Cmd + Shift + P → \"Open Settings (JSON)\"",
-			"将上方配置粘贴到 settings.json 中",
+			"创建技能目录: mkdir -p ~/.cursor/skills/datatoolbox",
+			"将上方 SKILL.md 内容保存到: ~/.cursor/skills/datatoolbox/SKILL.md",
+			"在 Cursor 设置中启用该技能",
 			"重启 Cursor 即可使用",
 		}
 	case "openai-gpts":
-		title = "OpenAI GPTs"
-		description = "OpenAI GPTs Actions 配置（需转为 OpenAPI schema）"
-		config = map[string]interface{}{
-			"openapi": "3.0.0",
-			"info": map[string]interface{}{
-				"title":       "DataToolbox MCP",
-				"description": "DataToolbox 数据工具箱 MCP 接口",
-				"version":     "1.0.0",
-			},
-			"servers": []map[string]interface{}{
-				{"url": mcpEndpoint, "description": "DataToolbox MCP Server"},
-			},
-			"paths": map[string]interface{}{
-				"/tools": map[string]interface{}{
-					"get": map[string]interface{}{
-						"summary": "获取可用工具列表",
-						"responses": map[string]interface{}{
-							"200": map[string]interface{}{
-								"description": "工具列表",
-							},
-						},
-					},
-				},
-			},
-		}
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("openai-gpts", mcpEndpoint)
 		steps = []string{
 			"进入 OpenAI GPT 编辑页面",
-			"在 Actions 区域点击 \"Import OpenAPI schema\"",
-			"将上方配置粘贴导入",
+			"在 Instructions 区域粘贴上方 SKILL.md 内容",
+			"在 Actions 区域配置 MCP 连接（见下方配置）",
 			"保存 GPT 即可使用",
 		}
 	case "doubao":
-		title = "字节豆包"
-		description = "字节豆包 MCP 技能配置"
-		config = map[string]interface{}{
-			"mcp": map[string]interface{}{
-				"servers": []map[string]interface{}{
-					{
-						"name": "datatoolbox",
-						"url":  mcpEndpoint,
-					},
-				},
-			},
-		}
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("doubao", mcpEndpoint)
 		steps = []string{
-			"打开豆包开发者设置",
-			"找到 MCP 服务配置区域",
-			"将上方配置粘贴到配置文件中",
-			"保存并重启即可使用",
+			"创建技能目录: mkdir -p ~/.doubao/skills/datatoolbox",
+			"将上方 SKILL.md 内容保存到: ~/.doubao/skills/datatoolbox/SKILL.md",
+			"在豆包设置中启用该技能",
+			"重启豆包即可使用",
 		}
 	default:
 		apiBadRequest(w, "不支持的技能类型: "+skillType)
