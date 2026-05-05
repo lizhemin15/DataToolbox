@@ -88,7 +88,7 @@ for item in index.html css js lib; do
     fi
 done
 
-# apps 目录特殊处理：保留运行时配置文件
+# apps 目录特殊处理：保留运行时配置文件和数据库
 if [[ -e "$TMP_DIR/apps" ]]; then
     # 备份运行时配置
     DATA_STORE_BACKUP=""
@@ -96,6 +96,14 @@ if [[ -e "$TMP_DIR/apps" ]]; then
         DATA_STORE_BACKUP=$(mktemp)
         cp "$INSTALL_DIR/apps/data-ontology/data-store.json" "$DATA_STORE_BACKUP"
         log "已备份运行时配置: data-store.json"
+    fi
+    
+    # 备份运行时数据库（关系索引、向量索引等）
+    DATA_DB_BACKUP=""
+    if [[ -f "$INSTALL_DIR/apps/data-ontology/data-store.db" ]]; then
+        DATA_DB_BACKUP=$(mktemp)
+        cp "$INSTALL_DIR/apps/data-ontology/data-store.db" "$DATA_DB_BACKUP"
+        log "已备份运行时数据库: data-store.db"
     fi
     
     # 更新 apps 目录（删除旧的，复制新的）
@@ -107,6 +115,13 @@ if [[ -e "$TMP_DIR/apps" ]]; then
         cp "$DATA_STORE_BACKUP" "$INSTALL_DIR/apps/data-ontology/data-store.json"
         rm -f "$DATA_STORE_BACKUP"
         ok "已恢复运行时配置: data-store.json"
+    fi
+    
+    # 恢复运行时数据库（如果备份存在）
+    if [[ -n "$DATA_DB_BACKUP" && -f "$DATA_DB_BACKUP" ]]; then
+        cp "$DATA_DB_BACKUP" "$INSTALL_DIR/apps/data-ontology/data-store.db"
+        rm -f "$DATA_DB_BACKUP"
+        ok "已恢复运行时数据库: data-store.db"
     fi
     
     ok "已更新: apps/"
