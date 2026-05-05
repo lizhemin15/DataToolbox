@@ -12395,20 +12395,32 @@ async function loadVectorPreviewPage(page) {
                         <thead>
                             <tr style="background:#f8f9fa;">
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">表名</th>
-                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">注释</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">索引摘要</th>
                                 <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">向量维度</th>
-                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">创建时间</th>
+                                <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">更新时间</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${vectors.map(v => `
+                            ${vectors.map(v => {
+                                const sourceParts = [];
+                                if (v.comment) sourceParts.push(`表注释：${v.comment}`);
+                                if (v.column_count) sourceParts.push(`字段数：${v.column_count}`);
+                                if (v.pk_fields) sourceParts.push(`PK：${v.pk_fields}`);
+                                if (v.fk_fields) sourceParts.push(`FK：${v.fk_fields}`);
+                                const summary = sourceParts.length > 0 ? sourceParts.join('；') : '未返回表元数据';
+                                const display = [];
+                                if (v.column_count) display.push(`${v.column_count} 字段`);
+                                if (v.pk_fields) display.push(`PK ${v.pk_fields}`);
+                                if (v.fk_fields) display.push(`FK ${v.fk_fields}`);
+                                if (display.length === 0) display.push('元数据缺失');
+                                return `
                                 <tr>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${v.table_name || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${v.comment || ''}">${v.comment || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${summary}">${display.join(' · ')}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${v.dimension || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;">${v.created_at || '-'}</td>
-                                </tr>
-                            `).join('')}
+                                    <td style="padding:10px;border-bottom:1px solid #eee;">${v.updated_at || v.created_at || '-'}</td>
+                                </tr>`;
+                            }).join('')}
                         </tbody>
                     </table>
                 `;

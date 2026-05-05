@@ -6798,6 +6798,77 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 补充元数据：按 database_id 分组，批量查询表信息
+	dataOntologyMu.RLock()
+	databasesCopy := make(map[string]DatabaseConfig)
+	for k, v := range dataOntologyDatabases {
+		databasesCopy[k] = *v
+	}
+	dataOntologyMu.RUnlock()
+
+	// 按 database_id 分组向量
+	vectorsByDB := make(map[string][]int) // database_id -> vector indices
+	for i, v := range vectors {
+		vectorsByDB[v.DatabaseID] = append(vectorsByDB[v.DatabaseID], i)
+	}
+
+	// 为每个数据库补充元数据
+	for dbID, indices := range vectorsByDB {
+		dbConfig, ok := databasesCopy[dbID]
+		if !ok {
+			continue // 数据库配置不存在，跳过
+		}
+
+		// 获取该数据库的表信息
+		tableInfos, err := getTableInfoList(&dbConfig)
+		if err != nil {
+			continue // 查询失败，跳过
+		}
+
+		// 构建表名 -> TableInfo 映射
+		tableMap := make(map[string]TableInfo)
+		for _, ti := range tableInfos {
+			tableMap[ti.Name] = ti
+		}
+
+		// 补充元数据到对应的向量
+		for _, idx := range indices {
+			ti, found := tableMap[vectors[idx].TableName]
+			if !found {
+				continue
+			}
+
+			// 填充字段
+			vectors[idx].Comment = ti.Comment
+			vectors[idx].ColumnCount = len(ti.Columns)
+			if vectors[idx].ColumnCount == 0 {
+				vectors[idx].ColumnCount = len(ti.ColumnNames)
+			}
+
+			// 提取主键字段
+			var pkFields []string
+			for _, col := range ti.Columns {
+				if col.IsPK {
+					pkFields = append(pkFields, col.Name)
+				}
+			}
+			if len(pkFields) > 0 {
+				vectors[idx].PKFields = strings.Join(pkFields, ",")
+			}
+
+			// 提取外键信息
+			var fkFields []string
+			for _, col := range ti.Columns {
+				if col.IsFK && col.FKTable != "" {
+					fkFields = append(fkFields, col.Name+"->"+col.FKTable)
+				}
+			}
+			if len(fkFields) > 0 {
+				vectors[idx].FKFields = strings.Join(fkFields, ",")
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":   true,
 		"vectors":   vectors,
@@ -19508,11 +19579,15 @@ func (m *FTS5Manager) getRelationStats() (int, map[string]int, error) {
 
 // VectorInfo 向量信息（用于预览）
 type VectorInfo struct {
-	DatabaseID string `json:"database_id"`
-	TableName  string `json:"table_name"`
-	Dimension  int    `json:"dimension"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	DatabaseID  string `json:"database_id"`
+	TableName   string `json:"table_name"`
+	Dimension   int    `json:"dimension"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	Comment     string `json:"comment,omitempty"`      // 表注释
+	ColumnCount int    `json:"column_count,omitempty"` // 字段数量
+	PKFields    string `json:"pk_fields,omitempty"`    // 主键字段（逗号分隔）
+	FKFields    string `json:"fk_fields,omitempty"`    // 外键信息（格式：字段->目标表）
 }
 
 // RelationInfo 关系信息（用于预览）
