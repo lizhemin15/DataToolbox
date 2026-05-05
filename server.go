@@ -1289,6 +1289,8 @@ func loadDataOntologyStore() error {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
 		// 调试：打印 Embedding 配置
+		emb, _ := json.Marshal(dataOntologyAIConfig.Embedding)
+		log.Printf("[DEBUG] Embedding config raw: %s", string(emb))
 		log.Printf("[DEBUG] Embedding config: URL=%s, Model=%s, Enabled=%v, Dimension=%d",
 			dataOntologyAIConfig.Embedding.URL,
 			dataOntologyAIConfig.Embedding.Model,
