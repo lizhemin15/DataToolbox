@@ -7666,13 +7666,37 @@ async function toggleShareGovTask() {
 }
 
 function copyGovShareLink() {
-    if (!currentGovTask || !currentGovTask.share_token) return;
-    const url = `${window.location.origin}/api/data-ontology/share/${currentGovTask.share_token}`;
-    navigator.clipboard.writeText(url).then(() => {
+    if (!currentGovTask || !currentGovTask.share_token) {
+        showToast('未开启分享', 'error');
+        return;
+    }
+    const url = `${window.location.origin}/share/${currentGovTask.share_token}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+            showToast('分享链接已复制', 'success');
+        }).catch(e => {
+            console.error('复制失败', e);
+            fallbackCopy(url);
+        });
+    } else {
+        fallbackCopy(url);
+    }
+}
+
+function fallbackCopy(text) {
+    const input = document.createElement('input');
+    input.value = text;
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    document.body.appendChild(input);
+    input.select();
+    try {
+        document.execCommand('copy');
         showToast('分享链接已复制', 'success');
-    }).catch(() => {
-        prompt('分享链接:', url);
-    });
+    } catch (e) {
+        showToast('复制失败，请手动复制: ' + text, 'error');
+    }
+    document.body.removeChild(input);
 }
 
 async function deleteGovTask() {

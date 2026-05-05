@@ -109,7 +109,7 @@ jobs:
           chmod +x package/install.sh
           chmod +x package/update.sh
           # 复制静态文件到包根目录
-          cp -r index.html apps css js lib package/
+          cp -r index.html apps css js lib examples package/
           # 注入版本号：替换静态资源 URL 中的 ?v=X.Y.Z
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
