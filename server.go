@@ -15957,10 +15957,12 @@ func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 	// 从 embed.FS 读取示例文件列表
 	entries, err := governanceExamplesFS.ReadDir("examples/governance")
 	if err != nil {
+		log.Printf("[DEBUG] ReadDir error: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取示例目录失败"})
 		return
 	}
+	log.Printf("[DEBUG] ReadDir returned %d entries", len(entries))
 
 	type ExampleFile struct {
 		Name string `json:"name"`
