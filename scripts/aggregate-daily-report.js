@@ -1,69 +1,76 @@
-// 综合日报生成器 v10 - 结构化路径选择器
-const FIELD_MAP = {
-  overview: "sections[level=1][0]",
-  key_projects: "sections[level=1][1]",
-  risks: "sections[level=1][2]",
-  tomorrow_plan: "sections[level=1][3]"
-};
+// 综合日报生成器 - 简洁版
+// 使用 gov.parseWordStructure 解析文档，合并后填充模板
 
-const files = INPUT_FILES?.length ? INPUT_FILES : (INPUT_FILE ? [INPUT_FILE] : []);
-if (files.length < 2) {
-  gov.log('请上传模板 + 至少 1 份单位日报');
-} else {
-  const { template, dataFiles } = gov.classifyFiles(files, {
-    template: { contains: '模板' },
-    data: { excludeContains: '模板' }
-  });
-
-  if (!dataFiles.length) {
-    gov.log('未识别到单位日报文件');
-  } else {
-    gov.log('模板: ' + template.name + '，单位日报 ' + dataFiles.length + ' 份');
-
-    const unitRegex = /^(\d{4})年(\d{1,2})月(\d{1,2})日(.+?)日报/;
-
-    const units = await Promise.all(dataFiles.map(async f => {
-      const m = f.name.replace(/\.\w+$/, '').match(unitRegex);
-      const parsed = await gov.parseWordStructure(f);
-
-      // 兜底解析
-      if (!parsed.sections.some(s => s.level > 0) && parsed.rawText?.length > 50) {
-        parsed.sections = gov.parseSectionsFromRawText(parsed.rawText);
-      }
-
-      const unitName = m?.[4]?.trim() || f.name.replace(/\.\w+$/, '');
-      const unitDate = m ? `${m[1]}年${m[2]}月${m[3]}日` : '';
-
-      return { unitName, unitDate, parsed };
-    }));
-
-    // 用选择器聚合
-    const { aggregated, perUnit } = gov.aggregateByFields(units, FIELD_MAP);
-
-    const reportDate = dataFiles[0].name.match(/(\d{4}年\d{1,2}月\d{1,2}日)/)?.[1] || '';
-
-    await gov.fillWordTemplate(template, {
-      report_title: '数据治理综合日报',
-      report_date: reportDate,
-      unit_count: units.length,
-      overview: aggregated.overview,
-      key_projects: aggregated.key_projects,
-      risks: aggregated.risks,
-      tomorrow_plan: aggregated.tomorrow_plan,
-      risk_detail: aggregated.risks,
-      risk_items: perUnit.filter((row, i) => row.risks).map((row, i) => units[i].unitName + '：' + row.risks),
-      units: units.map((u, i) => ({
-        unit_name: u.unitName,
-        unit_report_date: u.unitDate,
-        unit_summary: perUnit[i].overview || perUnit[i].key_projects,
-        unit_overview: perUnit[i].overview,
-        unit_key_projects: perUnit[i].key_projects,
-        unit_risks: perUnit[i].risks,
-        unit_tomorrow: perUnit[i].tomorrow_plan,
-        unit_risk: perUnit[i].risks
-      }))
-    }, '综合日报_' + reportDate + '.docx');
-
-    gov.log('完成：已生成综合日报_' + reportDate + '.docx');
-  }
+function parseFilename(name) {
+    const base = name.replace(/\.(docx?|DOCX?)$/i, '');
+    const m = base.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日(.+?)日报$/);
+    if (!m) return { unit: base, date: '' };
+    return {
+        unit: m[4].trim(),
+        date: `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`
+    };
 }
+
+// 从章节中提取内容（支持多种关键词）
+function getSectionContent(sections, keywords) {
+    for (const sec of sections) {
+        const title = sec.title || '';
+        for (const k of keywords) {
+            if (title.includes(k)) {
+                return sec.paragraphs.join('\n') || '暂无';
+            }
+        }
+    }
+    return '暂无';
+}
+
+async function main() {
+    const files = INPUT_FILES;
+    if (!files || files.length < 2) {
+        gov.log('请上传：1个模板 + 至少1份单位日报');
+        return;
+    }
+
+    // 找模板（文件名含"模板"或第一个文件）
+    const template = files.find(f => /模板|template/i.test(f.name)) || files[0];
+    const unitFiles = files.filter(f => f !== template);
+
+    gov.log(`模板: ${template.name}`);
+    gov.log(`单位日报: ${unitFiles.length} 份`);
+
+    // 解析每份单位日报
+    const units = [];
+    for (const f of unitFiles) {
+        const meta = parseFilename(f.name);
+        const doc = await gov.parseWordStructure(f);
+        
+        const unit = {
+            unit_name: meta.unit || doc.title || '未知单位',
+            unit_report_date: meta.date,
+            unit_overview: getSectionContent(doc.sections, ['工作进展', '今日工作', '工作概述', '进展']),
+            unit_key_projects: getSectionContent(doc.sections, ['重点项目', '项目进展', '项目', '四、']),
+            unit_risks: getSectionContent(doc.sections, ['问题', '风险', '存在', '二、存在']),
+            unit_tomorrow: getSectionContent(doc.sections, ['计划', '下一步', '明日', '三、下一步'])
+        };
+        units.push(unit);
+        gov.log(`解析: ${f.name} → ${unit.unit_name}`);
+    }
+
+    // 汇总数据
+    const data = {
+        report_title: '数据治理综合日报',
+        report_date: units[0]?.unit_report_date || '',
+        overview: units.map(u => `【${u.unit_name}】${u.unit_overview.slice(0, 80)}`).join('\n'),
+        key_projects: units.map(u => `【${u.unit_name}】${u.unit_key_projects}`).join('\n'),
+        risks: units.map(u => `【${u.unit_name}】${u.unit_risks}`).join('\n'),
+        tomorrow_plan: units.map(u => `【${u.unit_name}】${u.unit_tomorrow}`).join('\n'),
+        units: units
+    };
+
+    // 生成报告
+    const outName = `综合日报_${data.report_date || '输出'}.docx`;
+    await gov.fillWordTemplate(template, data, outName);
+    gov.log(`完成: ${outName}`);
+}
+
+await main();

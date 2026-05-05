@@ -282,6 +282,7 @@
                             <div class="detail-actions">
                                 <button id="editGovTaskBtn" class="btn btn-sm" onclick="editGovTask()">✏️ 编辑</button>
                                 <button id="runGovTaskBtn" class="btn btn-sm btn-primary" onclick="runGovTask()">▶️ 运行</button>
+                                <button id="shareGovTaskBtn" class="btn btn-sm" onclick="toggleShareGovTask()">🔗 分享</button>
                                 <button id="deleteGovTaskBtn" class="btn btn-sm btn-danger" onclick="deleteGovTask()">删除</button>
                             </div>
                         </div>
@@ -294,6 +295,11 @@
                             <div class="info-item">
                                 <span class="info-label">状态:</span>
                                 <span id="govTaskStatus" class="info-value status"></span>
+                            </div>
+                            <div class="info-item" id="govShareItem" style="display:none;">
+                                <span class="info-label">分享:</span>
+                                <span id="govTaskShareStatus" class="info-value"></span>
+                                <button id="govCopyShareLinkBtn" class="btn btn-sm" onclick="copyGovShareLink()" style="margin-left:8px;display:none;">📋 复制链接</button>
                             </div>
                             <div class="info-item" id="govCronItem" style="display:none;">
                                 <span class="info-label">Cron:</span>

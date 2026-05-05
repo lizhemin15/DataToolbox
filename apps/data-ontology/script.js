@@ -7235,6 +7235,23 @@ function showGovTaskDetail(task) {
     statusEl.textContent = statusMap[task.status] || task.status;
     statusEl.className = 'info-value status ' + task.status;
 
+    // 分享状态
+    const shareItem = document.getElementById('govShareItem');
+    const shareStatusEl = document.getElementById('govTaskShareStatus');
+    const copyLinkBtn = document.getElementById('govCopyShareLinkBtn');
+    const shareBtn = document.getElementById('shareGovTaskBtn');
+    if (task.share_enabled && task.share_token) {
+        shareItem.style.display = '';
+        shareStatusEl.textContent = '已开启';
+        shareStatusEl.style.color = '#28a745';
+        copyLinkBtn.style.display = '';
+        shareBtn.textContent = '🔗 关闭分享';
+    } else {
+        shareItem.style.display = 'none';
+        copyLinkBtn.style.display = 'none';
+        shareBtn.textContent = '🔗 分享';
+    }
+
     const cronItem = document.getElementById('govCronItem');
     const enabledItem = document.getElementById('govEnabledItem');
     if (task.type === 'scheduled') {
@@ -7615,6 +7632,47 @@ async function handleGovTaskSubmit(e) {
         document.getElementById('govFormError').textContent = '保存失败：' + error.message;
         document.getElementById('govFormError').classList.add('show');
     }
+}
+
+// 分享任务
+async function toggleShareGovTask() {
+    if (!currentGovTask) return;
+    const shareBtn = document.getElementById('shareGovTaskBtn');
+    const originalText = shareBtn.textContent;
+    shareBtn.disabled = true;
+    
+    try {
+        const isShared = currentGovTask.share_enabled && currentGovTask.share_token;
+        const method = isShared ? 'DELETE' : 'POST';
+        const response = await fetchWithAuth(
+            `${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/share`,
+            { method }
+        );
+        const data = await response.json();
+        if (data.success) {
+            currentGovTask.share_enabled = !isShared;
+            currentGovTask.share_token = data.share_token || '';
+            showGovTaskDetail(currentGovTask);
+            showToast(isShared ? '已关闭分享' : '已开启分享', 'success');
+        } else {
+            showToast(data.message || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('分享操作失败', error);
+        showToast('分享操作失败', 'error');
+    } finally {
+        shareBtn.disabled = false;
+    }
+}
+
+function copyGovShareLink() {
+    if (!currentGovTask || !currentGovTask.share_token) return;
+    const url = `${window.location.origin}/api/data-ontology/share/${currentGovTask.share_token}`;
+    navigator.clipboard.writeText(url).then(() => {
+        showToast('分享链接已复制', 'success');
+    }).catch(() => {
+        prompt('分享链接:', url);
+    });
 }
 
 async function deleteGovTask() {
@@ -8250,7 +8308,8 @@ function createGovHelper(logLines, uploadedFiles) {
                 /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/ // 混合括号
             ];
 
-            const lines = text.split(/\r?\n/);
+            // 更健壮的行分割：处理各种换行符和不可见字符
+            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
             const sections = [];
             const tables = [];
             let currentSection = null;
@@ -8258,7 +8317,7 @@ function createGovHelper(logLines, uploadedFiles) {
 
             // 尝试识别文档标题（第一个非空行，通常是大标题）
             for (let i = 0; i < Math.min(10, lines.length); i++) {
-                const line = lines[i].trim();
+                const line = lines[i];
                 if (line && line.length > 2 && line.length < 100) {
                     // 检查是否是章节标题
                     let isChapterTitle = false;
@@ -8277,7 +8336,7 @@ function createGovHelper(logLines, uploadedFiles) {
 
             // 解析章节和段落
             for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
+                const line = lines[i];
                 if (!line) continue;
 
                 let matchedLevel = 0;
