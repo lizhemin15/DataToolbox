@@ -12533,7 +12533,7 @@ async function loadVectorPreviewPage(page) {
                                 if (display.length === 0) display.push('元数据缺失');
                                 const encodedTableName = encodeURIComponent(v.table_name || '');
                                 return `
-                                <tr>
+                                <tr data-table="${v.table_name || ''}">
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
                                         <input type="checkbox" class="vector-checkbox" value="${v.table_name}">
                                     </td>
@@ -12615,6 +12615,13 @@ async function deleteVector(tableName) {
         return;
     }
 
+    // 前端先移除行，让用户感觉更快
+    const row = document.querySelector(`tr[data-table="${tableName}"]`);
+    if (row) {
+        row.style.opacity = '0.5';
+        row.innerHTML = `<td colspan="5" style="text-align:center;color:#888;"><span class="spinner"></span> 正在删除...</td>`;
+    }
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors`, {
             method: 'DELETE',
@@ -12631,9 +12638,11 @@ async function deleteVector(tableName) {
             loadVectorPreviewPage(currentVectorPage);
         } else {
             showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+            loadVectorPreviewPage(currentVectorPage); // 失败也刷新恢复
         }
     } catch (error) {
         showToast('删除失败: ' + error.message, 'error');
+        loadVectorPreviewPage(currentVectorPage); // 失败刷新恢复
     }
 }
 
@@ -13380,6 +13389,13 @@ async function deleteRelation(relationId) {
         return;
     }
 
+    // 前端先移除行，让用户感觉更快
+    const row = document.querySelector(`tr[data-id="${relationId}"]`);
+    if (row) {
+        row.style.opacity = '0.5';
+        row.innerHTML = `<td colspan="6" style="text-align:center;color:#888;"><span class="spinner"></span> 正在删除...</td>`;
+    }
+
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations`, {
             method: 'DELETE',
@@ -13396,8 +13412,10 @@ async function deleteRelation(relationId) {
             loadRelationPreviewPage(currentRelationPage);
         } else {
             showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+            loadRelationPreviewPage(currentRelationPage); // 失败也刷新恢复
         }
     } catch (error) {
         showToast('删除失败: ' + error.message, 'error');
+        loadRelationPreviewPage(currentRelationPage); // 失败刷新恢复
     }
 }
