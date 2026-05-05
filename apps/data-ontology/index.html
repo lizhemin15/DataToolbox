@@ -883,8 +883,7 @@
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
                         <h3>🤖 智能助手</h3>
-                        <button id="aiSettingsBtn" class="btn btn-sm" title="AI配置">⚙️</button>
-                        <button id="tableRetrievalBtn" class="btn btn-sm" title="表检索配置">🔍</button>
+                        <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-welcome-message">
@@ -1404,77 +1403,88 @@
     <div id="aiSettingsModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>AI配置</h2>
+                <h2>设置</h2>
                 <button class="modal-close" id="closeAiSettingsModal">&times;</button>
             </div>
             <form id="aiSettingsForm" class="modal-body">
+                <!-- LLM 配置（可折叠） -->
                 <div class="form-group">
-                    <label for="aiUrlInput">AI服务URL</label>
-                    <input type="text" id="aiUrlInput" placeholder="例如: https://api.openai.com/v1/chat/completions" required>
-                    <small>支持OpenAI兼容接口</small>
-                </div>
-                <div class="form-group">
-                    <label for="aiApiKeyInput">API Key</label>
-                    <input type="password" id="aiApiKeyInput" placeholder="请输入API Key" required>
-                </div>
-                <div class="form-group">
-                    <label for="aiModelInput">模型名称</label>
-                    <input type="text" id="aiModelInput" placeholder="例如: gpt-3.5-turbo" required>
-                </div>
-                <div class="form-group">
-                    <label for="aiTimeoutInput">请求超时（秒）</label>
-                    <input type="number" id="aiTimeoutInput" min="1" step="1" placeholder="例如: 120">
-                    <small>用于控制调用大模型时等待上游响应头的最长时间</small>
-                </div>
-                
-                <!-- 模型能力设置 -->
-                <div class="form-group">
-                    <label>模型能力设置</label>
-                    <div class="ai-capability-settings">
-                        <div class="ai-capability-row">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="aiEnableFunctionCall" checked>
-                                <span>启用 Function Call</span>
-                            </label>
-                            <small class="capability-hint" id="functionCallHint">自动检测中...</small>
-                        </div>
-                        <div class="ai-capability-row">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="aiEnableThinking">
-                                <span>启用 Thinking 模式</span>
-                            </label>
-                            <small class="capability-hint" id="thinkingHint">自动检测中...</small>
-                        </div>
-                        <div class="ai-capability-row">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="aiEnableStreaming" checked>
-                                <span>启用流式输出</span>
-                            </label>
-                            <small class="capability-hint" id="streamingHint">自动检测中...</small>
-                        </div>
-                        <div class="ai-capability-row">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="aiEnableJSONMode" checked>
-                                <span>启用 JSON 模式</span>
-                            </label>
-                            <small class="capability-hint" id="jsonModeHint">自动检测中...</small>
-                        </div>
-                        <div class="ai-capability-row">
-                            <label for="aiContextWindow">上下文窗口大小</label>
-                            <input type="number" id="aiContextWindow" min="0" step="1024" placeholder="0 = 自动检测">
-                            <small class="capability-hint" id="contextWindowHint">自动检测中...</small>
+                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleLlmConfig()">
+                        <label style="font-size:14px;font-weight:600;margin:0;">🤖 LLM 配置</label>
+                        <span id="llmConfigToggle" style="font-size:12px;color:#999;">收起 ▲</span>
+                    </div>
+                    <div id="llmConfigPanel" style="margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+                        <div style="display:flex;flex-direction:column;gap:12px;">
+                            <div>
+                                <label for="aiUrlInput">AI服务URL</label>
+                                <input type="text" id="aiUrlInput" placeholder="例如: https://api.openai.com/v1/chat/completions" required>
+                                <small>支持OpenAI兼容接口</small>
+                            </div>
+                            <div>
+                                <label for="aiApiKeyInput">API Key</label>
+                                <input type="password" id="aiApiKeyInput" placeholder="请输入API Key" required>
+                            </div>
+                            <div>
+                                <label for="aiModelInput">模型名称</label>
+                                <input type="text" id="aiModelInput" placeholder="例如: gpt-3.5-turbo" required>
+                            </div>
+                            <div>
+                                <label for="aiTimeoutInput">请求超时（秒）</label>
+                                <input type="number" id="aiTimeoutInput" min="1" step="1" placeholder="例如: 120">
+                                <small>用于控制调用大模型时等待上游响应头的最长时间</small>
+                            </div>
+
+                            <!-- 模型能力设置 -->
+                            <div>
+                                <label style="font-weight:600;">模型能力设置</label>
+                                <div class="ai-capability-settings">
+                                    <div class="ai-capability-row">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="aiEnableFunctionCall" checked>
+                                            <span>启用 Function Call</span>
+                                        </label>
+                                        <small class="capability-hint" id="functionCallHint">自动检测中...</small>
+                                    </div>
+                                    <div class="ai-capability-row">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="aiEnableThinking">
+                                            <span>启用 Thinking 模式</span>
+                                        </label>
+                                        <small class="capability-hint" id="thinkingHint">自动检测中...</small>
+                                    </div>
+                                    <div class="ai-capability-row">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="aiEnableStreaming" checked>
+                                            <span>启用流式输出</span>
+                                        </label>
+                                        <small class="capability-hint" id="streamingHint">自动检测中...</small>
+                                    </div>
+                                    <div class="ai-capability-row">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="aiEnableJSONMode" checked>
+                                            <span>启用 JSON 模式</span>
+                                        </label>
+                                        <small class="capability-hint" id="jsonModeHint">自动检测中...</small>
+                                    </div>
+                                    <div class="ai-capability-row">
+                                        <label for="aiContextWindow">上下文窗口大小</label>
+                                        <input type="number" id="aiContextWindow" min="0" step="1024" placeholder="0 = 自动检测">
+                                        <small class="capability-hint" id="contextWindowHint">自动检测中...</small>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-secondary" id="detectCapabilitiesBtn" style="margin-top: 8px;">自动检测模型能力</button>
+                            </div>
                         </div>
                     </div>
-                    <button type="button" class="btn btn-sm btn-secondary" id="detectCapabilitiesBtn" style="margin-top: 8px;">自动检测模型能力</button>
                 </div>
-                
+
                 <!-- Embedding 配置（可折叠） -->
                 <div class="form-group" style="margin-top:16px;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleAiEmbeddingConfig()">
+                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleEmbeddingConfig()">
                         <label style="font-size:14px;font-weight:600;margin:0;">🔤 Embedding 配置</label>
-                        <span id="aiEmbeddingConfigToggle" style="font-size:12px;color:#999;">展开 ▼</span>
+                        <span id="embeddingConfigToggle" style="font-size:12px;color:#999;">展开 ▼</span>
                     </div>
-                    <div id="aiEmbeddingConfigPanel" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+                    <div id="embeddingConfigPanel" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
                         <small style="color:#666;display:block;margin-bottom:10px;">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
                         <div style="display:flex;flex-direction:column;gap:8px;">
                             <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;">
@@ -1499,7 +1509,59 @@
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- RAG 配置（可折叠） -->
+                <div class="form-group" style="margin-top:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleRagConfig()">
+                        <label style="font-size:14px;font-weight:600;margin:0;">🔍 RAG 配置</label>
+                        <span id="ragConfigToggle" style="font-size:12px;color:#999;">展开 ▼</span>
+                    </div>
+                    <div id="ragConfigPanel" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+                        <div style="display:flex;flex-direction:column;gap:12px;">
+                            <div>
+                                <label>检索策略</label>
+                                <select id="trStrategy" style="width:100%;padding:8px;border-radius:4px;border:1px solid #ddd;">
+                                    <option value="keyword">关键词检索 (Keyword)</option>
+                                    <option value="embedding">向量检索 (Embedding)</option>
+                                    <option value="graph">关系检索 (Graph)</option>
+                                    <option value="hybrid" selected>混合检索 (Hybrid)</option>
+                                </select>
+                                <small>混合检索同时使用多种策略，效果最佳</small>
+                            </div>
+                            <div>
+                                <label>最大返回表数</label>
+                                <input type="number" id="trMaxTables" min="1" max="100" value="15" style="width:100%;padding:8px;">
+                                <small>AI 对话时最多获取的数据表数量</small>
+                            </div>
+                            <div id="trWeightsGroup">
+                                <div>
+                                    <label>检索权重配置</label>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                                        <div>
+                                            <label style="font-size:12px;">关键词权重</label>
+                                            <input type="number" id="trKeywordWeight" min="0" max="1" step="0.1" value="0.4" style="width:100%;padding:6px;">
+                                        </div>
+                                        <div>
+                                            <label style="font-size:12px;">向量权重</label>
+                                            <input type="number" id="trVectorWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
+                                        </div>
+                                        <div>
+                                            <label style="font-size:12px;">关系权重</label>
+                                            <input type="number" id="trGraphWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
+                                        </div>
+                                    </div>
+                                    <small>三种策略的权重，混合检索时按权重融合结果</small>
+                                </div>
+                                <div style="margin-top:12px;">
+                                    <label>关系扩展深度</label>
+                                    <input type="number" id="trGraphDepth" min="1" max="5" value="2" style="width:100px;padding:6px;">
+                                    <small>Graph 检索时沿关系图扩展的最大深度</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存配置</button>
                 </div>
@@ -1582,64 +1644,6 @@
                 </div>
                 <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn" style="display:none;">取消</button>
             </div>
-        </div>
-    </div>
-
-    <!-- 表检索配置弹窗 -->
-    <div id="tableRetrievalModal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
-            <div class="modal-header">
-                <h2>🔍 表检索配置</h2>
-                <button class="modal-close" id="closeTableRetrievalModal">&times;</button>
-            </div>
-            <form id="tableRetrievalForm" class="modal-body">
-                <div class="form-group">
-                    <label>检索策略</label>
-                    <select id="trStrategy" style="width:100%;padding:8px;border-radius:4px;border:1px solid #ddd;">
-                        <option value="keyword">关键词检索 (Keyword)</option>
-                        <option value="embedding">向量检索 (Embedding)</option>
-                        <option value="graph">关系检索 (Graph)</option>
-                        <option value="hybrid" selected>混合检索 (Hybrid)</option>
-                    </select>
-                    <small>混合检索同时使用多种策略，效果最佳</small>
-                </div>
-                <div class="form-group">
-                    <label>最大返回表数</label>
-                    <input type="number" id="trMaxTables" min="1" max="100" value="15" style="width:100%;padding:8px;">
-                    <small>AI 对话时最多获取的数据表数量</small>
-                </div>
-                <div id="trWeightsGroup">
-                    <div class="form-group">
-                        <label>检索权重配置</label>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-                            <div>
-                                <label style="font-size:12px;">关键词权重</label>
-                                <input type="number" id="trKeywordWeight" min="0" max="1" step="0.1" value="0.4" style="width:100%;padding:6px;">
-                            </div>
-                            <div>
-                                <label style="font-size:12px;">向量权重</label>
-                                <input type="number" id="trVectorWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
-                            </div>
-                            <div>
-                                <label style="font-size:12px;">关系权重</label>
-                                <input type="number" id="trGraphWeight" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px;">
-                            </div>
-                        </div>
-                        <small>三种策略的权重，混合检索时按权重融合结果</small>
-                    </div>
-                    <div class="form-group">
-                        <label>关系扩展深度</label>
-                        <input type="number" id="trGraphDepth" min="1" max="5" value="2" style="width:100px;padding:6px;">
-                        <small>Graph 检索时沿关系图扩展的最大深度</small>
-                    </div>
-                </div>
-
-                <div class="modal-footer" style="margin-top:15px;">
-                    <button type="submit" class="btn btn-primary">保存配置</button>
-                </div>
-                <div id="trError" class="error-message"></div>
-                <div id="trSuccess" class="success-message"></div>
-            </form>
         </div>
     </div>
 

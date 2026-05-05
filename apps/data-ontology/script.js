@@ -848,17 +848,7 @@ function initEventListeners() {
     document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
     document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
     document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
-    
-    // 表检索配置按钮。
-    document.getElementById('tableRetrievalBtn').addEventListener('click', showTableRetrievalModal);
-    document.getElementById('closeTableRetrievalModal').addEventListener('click', hideTableRetrievalModal);
-    document.getElementById('tableRetrievalModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideTableRetrievalModal();
-        }
-    });
-    document.getElementById('tableRetrievalForm').addEventListener('submit', handleSaveTableRetrieval);
-    
+
     // 同步索引弹窗
     document.getElementById('closeSyncIndexModal').addEventListener('click', hideSyncIndexModal);
     document.getElementById('syncIndexModal').addEventListener('click', function(e) {
@@ -4450,15 +4440,15 @@ async function loadAiConfig() {
 }
 
 // 打开 AI 设置弹窗。
-function showAiSettingsModal() {
+async function showAiSettingsModal() {
     document.getElementById('aiSettingsModal').classList.add('show');
-    
+
     if (aiConfig) {
         document.getElementById('aiUrlInput').value = aiConfig.url || '';
         document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
         document.getElementById('aiModelInput').value = aiConfig.model || '';
         document.getElementById('aiTimeoutInput').value = aiConfig.timeout || '';
-        
+
         // 加载能力设置
         if (aiConfig.enable_function_call !== undefined && aiConfig.enable_function_call !== null) {
             document.getElementById('aiEnableFunctionCall').checked = aiConfig.enable_function_call;
@@ -4473,7 +4463,7 @@ function showAiSettingsModal() {
             document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
         }
         document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
-        
+
         // 加载 Embedding 配置
         if (aiConfig.embedding) {
             document.getElementById('aiEmbEnabled').checked = aiConfig.embedding.enabled || false;
@@ -4485,18 +4475,47 @@ function showAiSettingsModal() {
     } else {
         document.getElementById('aiSettingsForm').reset();
     }
-    
+
+    // 加载 RAG 配置
+    await loadTableRetrievalConfig();
+
     // 显示能力检测结果
     updateCapabilityHints();
-    
+
     document.getElementById('aiSettingsError').classList.remove('show');
     document.getElementById('aiSettingsSuccess').classList.remove('show');
 }
 
-// 折叠/展开 AI Embedding 配置
-function toggleAiEmbeddingConfig() {
-    const panel = document.getElementById('aiEmbeddingConfigPanel');
-    const toggle = document.getElementById('aiEmbeddingConfigToggle');
+// 折叠/展开 LLM 配置
+function toggleLlmConfig() {
+    const panel = document.getElementById('llmConfigPanel');
+    const toggle = document.getElementById('llmConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
+
+// 折叠/展开 Embedding 配置
+function toggleEmbeddingConfig() {
+    const panel = document.getElementById('embeddingConfigPanel');
+    const toggle = document.getElementById('embeddingConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
+
+// 折叠/展开 RAG 配置
+function toggleRagConfig() {
+    const panel = document.getElementById('ragConfigPanel');
+    const toggle = document.getElementById('ragConfigToggle');
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
         toggle.textContent = '收起 ▲';
@@ -5071,7 +5090,7 @@ async function handleSaveAiSettings(e) {
     const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
     const contextWindowValue = parseInt(document.getElementById('aiContextWindow').value, 10);
     const embDimensionValue = parseInt(document.getElementById('aiEmbDimension').value, 10);
-    
+
     const config = {
         url: document.getElementById('aiUrlInput').value,
         api_key: document.getElementById('aiApiKeyInput').value,
@@ -5093,13 +5112,26 @@ async function handleSaveAiSettings(e) {
         }
     };
 
+    // 收集 RAG 配置
+    const trConfig = {
+        strategy: document.getElementById('trStrategy').value,
+        max_tables: parseInt(document.getElementById('trMaxTables').value, 10) || 15,
+        keyword_weight: parseFloat(document.getElementById('trKeywordWeight').value) || 0.4,
+        vector_weight: parseFloat(document.getElementById('trVectorWeight').value) || 0.3,
+        graph_weight: parseFloat(document.getElementById('trGraphWeight').value) || 0.3,
+        graph_config: {
+            max_depth: parseInt(document.getElementById('trGraphDepth').value, 10) || 2
+        }
+    };
+
     const errorEl = document.getElementById('aiSettingsError');
     const successEl = document.getElementById('aiSettingsSuccess');
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`, {
+        // 保存 AI 配置
+        const aiResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -5107,22 +5139,38 @@ async function handleSaveAiSettings(e) {
             body: JSON.stringify(config)
         });
 
-        const data = await response.json();
+        const aiData = await aiResponse.json();
 
-        if (data.success) {
+        if (!aiData.success) {
+            errorEl.textContent = aiData.message || 'AI 配置保存失败';
+            errorEl.classList.add('show');
+            return;
+        }
+
+        // 保存 RAG 配置
+        const trResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/table-retrieval-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(trConfig)
+        });
+
+        const trData = await trResponse.json();
+
+        if (trData.success) {
             aiConfig = config;
+            tableRetrievalConfig = trConfig;
             // 保存能力检测结果
-            if (data.capabilities) {
-                aiCapabilities = data.capabilities;
+            if (aiData.capabilities) {
+                aiCapabilities = aiData.capabilities;
                 console.log('AI模型能力检测完成:', aiCapabilities);
             }
-            successEl.textContent = 'AI 设置已保存';
+            successEl.textContent = '设置已保存';
             successEl.classList.add('show');
             setTimeout(() => {
                 hideAiSettingsModal();
             }, 1000);
         } else {
-            errorEl.textContent = data.message || '保存失败';
+            errorEl.textContent = trData.message || 'RAG 配置保存失败';
             errorEl.classList.add('show');
         }
     } catch (error) {
@@ -11472,16 +11520,6 @@ let tableRetrievalConfig = null;
 let embeddingConfig = null;
 
 // 显示表检索配置弹窗
-async function showTableRetrievalModal() {
-    const modal = document.getElementById('tableRetrievalModal');
-    modal.style.display = 'flex';
-    await loadTableRetrievalConfig();
-}
-
-// 隐藏表检索配置弹窗
-function hideTableRetrievalModal() {
-    document.getElementById('tableRetrievalModal').style.display = 'none';
-}
 
 // 加载表检索配置
 async function loadTableRetrievalConfig() {
@@ -11512,50 +11550,6 @@ async function loadEmbeddingConfig() {
         const data = await response.json();
         if (data.success && data.config) {
             embeddingConfig = data.config;
-            // 填充表单
-            document.getElementById('embEnabled').checked = embeddingConfig.enabled || false;
-            document.getElementById('embUrl').value = embeddingConfig.url || '';
-            document.getElementById('embApiKey').value = embeddingConfig.api_key || '';
-            document.getElementById('embModel').value = embeddingConfig.model || '';
-            document.getElementById('embDimension').value = embeddingConfig.dimension || 1024;
-        }
-    } catch (error) {
-        console.error('加载 Embedding 配置失败:', error);
-    }
-}
-
-// 保存表检索配置
-async function handleSaveTableRetrieval(e) {
-    e.preventDefault();
-    
-    const errorEl = document.getElementById('trError');
-    const successEl = document.getElementById('trSuccess');
-    errorEl.classList.remove('show');
-    successEl.classList.remove('show');
-    
-    // 收集表检索配置
-    const trConfig = {
-        strategy: document.getElementById('trStrategy').value,
-        max_tables: parseInt(document.getElementById('trMaxTables').value, 10) || 15,
-        keyword_weight: parseFloat(document.getElementById('trKeywordWeight').value) || 0.4,
-        vector_weight: parseFloat(document.getElementById('trVectorWeight').value) || 0.3,
-        graph_weight: parseFloat(document.getElementById('trGraphWeight').value) || 0.3,
-        graph_config: {
-            max_depth: parseInt(document.getElementById('trGraphDepth').value, 10) || 2
-        }
-    };
-    
-    try {
-        // 保存表检索配置
-        const trResponse = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/table-retrieval-config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(trConfig)
-        });
-        const trData = await trResponse.json();
-        
-        if (trData.success) {
-            tableRetrievalConfig = trConfig;
             successEl.textContent = '配置已保存';
             successEl.classList.add('show');
             setTimeout(() => successEl.classList.remove('show'), 2000);
