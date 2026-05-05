@@ -1288,6 +1288,12 @@ func loadDataOntologyStore() error {
 	if store.AIConfig != nil {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
+		// 调试：打印 Embedding 配置
+		log.Printf("[DEBUG] Embedding config: URL=%s, Model=%s, Enabled=%v, Dimension=%d",
+			dataOntologyAIConfig.Embedding.URL,
+			dataOntologyAIConfig.Embedding.Model,
+			dataOntologyAIConfig.Embedding.Enabled,
+			dataOntologyAIConfig.Embedding.Dimension)
 	}
 
 	if store.AICapabilities != nil {
