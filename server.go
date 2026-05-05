@@ -3601,32 +3601,7 @@ func extractSQLiteComment(sqlStr string) string {
 	return ""
 }
 
-// getColumnComments 获取字段注释（达梦数据库）
-func getColumnComments(db *sql.DB, config *DatabaseConfig, tableName string) map[string]string {
-	comments := make(map[string]string)
-	
-	if config.Type != "dm" && config.Type != "oracle" {
-		return comments // 目前只支持达梦和 Oracle
-	}
-	
-	query := "SELECT COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?"
-	rows, err := db.Query(query, tableName)
-	if err != nil {
-		log.Printf("查询字段注释失败: %v", err)
-		return comments
-	}
-	defer rows.Close()
-	
-	for rows.Next() {
-		var colName, colComment sql.NullString
-		if err := rows.Scan(&colName, &colComment); err == nil {
-			if colName.Valid && colComment.Valid && colComment.String != "" {
-				comments[colName.String] = colComment.String
-			}
-		}
-	}
-	return comments
-}
+
 
 // getTablePKs 获取表的主键字段
 func getTablePKs(db *sql.DB, config *DatabaseConfig, tableName string) []string {
