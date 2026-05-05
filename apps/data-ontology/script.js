@@ -12120,7 +12120,7 @@ function showRelationCandidates(candidates) {
                 <div style="padding:12px;background:#f8f9fa;border-bottom:1px solid #e9ecef;">
                     <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
                         <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px;">
-                            <input type="text" id="relationTableFilter" placeholder="筛选表名..."
+                            <input type="text" id="relationTableFilter" placeholder="筛选表名（逗号分隔多个）..."
                                 style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
                                 oninput="applyRelationFilters()">
                             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#666;white-space:nowrap;cursor:pointer;">
@@ -12133,7 +12133,7 @@ function showRelationCandidates(candidates) {
                             AND
                         </button>
                         <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px;">
-                            <input type="text" id="relationColumnFilter" placeholder="筛选字段名..."
+                            <input type="text" id="relationColumnFilter" placeholder="筛选字段名（逗号分隔多个）..."
                                 style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
                                 oninput="applyRelationFilters()">
                             <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#666;white-space:nowrap;cursor:pointer;">
@@ -12251,14 +12251,26 @@ function clearRelationFilters() {
     applyRelationFilters();
 }
 
-// 快速筛选 - 点击标签
+// 快速筛选 - 点击标签（追加模式，逗号分隔）
 function quickFilterRelation(type, value) {
-    if (type === 'table') {
-        document.getElementById('relationTableFilter').value = value;
-    } else if (type === 'column') {
-        document.getElementById('relationColumnFilter').value = value;
-    } else if (type === 'matchType') {
+    const inputId = type === 'table' ? 'relationTableFilter' :
+                    type === 'column' ? 'relationColumnFilter' : null;
+    if (!inputId) {
+        // matchType 保持替换模式
         document.getElementById('relationMatchTypeFilter').value = value;
+        applyRelationFilters();
+        return;
+    }
+    const input = document.getElementById(inputId);
+    const current = input.value.trim();
+    if (!current) {
+        input.value = value;
+    } else {
+        // 检查是否已存在
+        const parts = current.split(',').map(p => p.trim().toLowerCase());
+        if (!parts.includes(value.toLowerCase())) {
+            input.value = current + ',' + value;
+        }
     }
     applyRelationFilters();
 }
@@ -12269,22 +12281,31 @@ function toggleSelectAllRelation(checked) {
     checkboxes.forEach(cb => cb.checked = checked);
 }
 
+// 多值匹配辅助函数：支持逗号分隔的多个筛选词
+function matchMultiValue(text, filterValue) {
+    if (!filterValue) return true;
+    const parts = filterValue.split(',').map(p => p.trim()).filter(p => p);
+    if (parts.length === 0) return true;
+    const textLower = text.toLowerCase();
+    return parts.some(p => textLower.includes(p.toLowerCase()));
+}
+
 // 渲染关系候选列表
 function renderRelationCandidates() {
     const filtered = relationCandidatesData.filter(c => {
-        // 表名筛选（支持排除）
+        // 表名筛选（支持排除、多值逗号分隔）
         let tablePass = true;
         if (relationFilters.table) {
-            const tableMatch = c.table1.toLowerCase().includes(relationFilters.table) ||
-                              c.table2.toLowerCase().includes(relationFilters.table);
+            const tableMatch = matchMultiValue(c.table1, relationFilters.table) ||
+                              matchMultiValue(c.table2, relationFilters.table);
             tablePass = relationFilters.tableExclude ? !tableMatch : tableMatch;
             if (!tablePass && relationFilters.logicMode === 'AND') return false;
         }
 
-        // 字段名筛选（支持排除）
+        // 字段名筛选（支持排除、多值逗号分隔）
         if (relationFilters.column) {
-            const columnMatch = c.col1.toLowerCase().includes(relationFilters.column) ||
-                               c.col2.toLowerCase().includes(relationFilters.column);
+            const columnMatch = matchMultiValue(c.col1, relationFilters.column) ||
+                               matchMultiValue(c.col2, relationFilters.column);
             const columnPass = relationFilters.columnExclude ? !columnMatch : columnMatch;
             if (!columnPass && relationFilters.logicMode === 'AND') return false;
             // OR 模式下，只要表名或字段名有一个通过就通过
