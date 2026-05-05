@@ -5422,6 +5422,28 @@ func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
 			"将上方 SKILL.md 内容保存到 ~/.cline/skills/datatoolbox/SKILL.md",
 			"重启 VS Code 即可使用",
 		}
+	case "openclaw":
+		title = "DataToolbox MCP Skill"
+		description = "教 OpenClaw / DataToolbox 智能体如何使用 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("openclaw", mcpEndpoint)
+		steps = []string{
+			"打开 OpenClaw 智能体配置界面",
+			"新增技能或系统提示词",
+			"将上方 SKILL.md 内容粘贴到技能说明中",
+			"将 MCP 服务地址配置为: " + mcpEndpoint,
+			"保存后即可在 OpenClaw 智能体中使用",
+		}
+	case "hermes":
+		title = "DataToolbox MCP Skill"
+		description = "教 Hermes Agent 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("hermes", mcpEndpoint)
+		steps = []string{
+			"在 Hermes skills 目录中创建 datatoolbox 技能",
+			"将上方 SKILL.md 内容保存到 ~/.hermes/skills/datatoolbox/SKILL.md",
+			"在 Hermes 配置 MCP Server，地址填入: " + mcpEndpoint,
+			"重启 Hermes 或重新加载 skills",
+			"之后即可直接调用 DataToolbox MCP 工具",
+		}
 	default:
 		apiBadRequest(w, "不支持的技能类型: "+skillType)
 		return
