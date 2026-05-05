@@ -6890,10 +6890,13 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 			for _, id := range invalidIDs {
 				idStrs = append(idStrs, fmt.Sprintf("%d", id))
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			msg := "关系 ID 不存在: " + strings.Join(idStrs, ", ")
+			resp := map[string]interface{}{
 				"success": false,
-				"message": "关系 ID 不存在: " + strings.Join(idStrs, ", "),
-			})
+				"message": msg,
+			}
+			data, _ := json.Marshal(resp)
+			w.Write(data)
 			return
 		}
 
