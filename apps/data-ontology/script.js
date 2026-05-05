@@ -886,18 +886,12 @@ function initEventListeners() {
 
     // 数据库操作下拉菜单
     const indexPreviewBtn = document.getElementById('indexPreviewBtn');
-    console.log('indexPreviewBtn element:', indexPreviewBtn);
     if (indexPreviewBtn) {
-        console.log('Adding click listener to indexPreviewBtn');
         indexPreviewBtn.addEventListener('click', function(e) {
-            console.log('indexPreviewBtn clicked!');
             e.stopPropagation();
             const menu = document.getElementById('indexPreviewMenu');
-            console.log('menu element:', menu);
             if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
         });
-    } else {
-        console.log('indexPreviewBtn not found!');
     }
 
     // 点击其他地方关闭数据库操作菜单
@@ -12495,7 +12489,6 @@ function closeRelationCandidatesModal() {
 
 // 显示向量预览
 async function showVectorPreview() {
-    console.log('showVectorPreview called, currentDb:', currentDb);
     if (!currentDb) {
         showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
@@ -12842,7 +12835,6 @@ function closeVectorPreviewModal() {
 
 // 显示关系预览
 async function showRelationPreview() {
-    console.log('showRelationPreview called, currentDb:', currentDb);
     if (!currentDb) {
         showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
