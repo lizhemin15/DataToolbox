@@ -5368,6 +5368,60 @@ func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
 			"在豆包设置中启用该技能",
 			"重启豆包即可使用",
 		}
+	case "opencode":
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("opencode", mcpEndpoint)
+		steps = []string{
+			"创建技能目录: mkdir -p ~/.opencode/skills/datatoolbox",
+			"将上方 SKILL.md 内容保存到: ~/.opencode/skills/datatoolbox/SKILL.md",
+			"在 OpenCode 中使用 /skills 命令加载技能",
+			"或重启 OpenCode 自动加载",
+		}
+	case "windsurf":
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("windsurf", mcpEndpoint)
+		steps = []string{
+			"打开 Windsurf 设置 (Ctrl/Cmd + ,)",
+			"进入 Features > MCP Servers",
+			"添加新的 MCP Server，URL 填入: " + mcpEndpoint,
+			"将上方 SKILL.md 内容保存到 ~/.windsurf/skills/datatoolbox/SKILL.md",
+			"重启 Windsurf 即可使用",
+		}
+	case "zed":
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("zed", mcpEndpoint)
+		steps = []string{
+			"打开 Zed 设置 (Ctrl/Cmd + ,)",
+			"进入 MCP Servers 设置",
+			"添加新的 MCP Server，URL 填入: " + mcpEndpoint,
+			"将上方 SKILL.md 内容保存到 ~/.zed/skills/datatoolbox/SKILL.md",
+			"重启 Zed 即可使用",
+		}
+	case "copilot":
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("copilot", mcpEndpoint)
+		steps = []string{
+			"在 VS Code 中打开设置 (Ctrl/Cmd + ,)",
+			"搜索 'GitHub Copilot Chat'",
+			"在 MCP Servers 配置中添加: " + mcpEndpoint,
+			"将上方 SKILL.md 内容保存到 ~/.copilot/skills/datatoolbox/SKILL.md",
+			"重启 VS Code 即可使用",
+		}
+	case "cline":
+		title = "DataToolbox MCP Skill"
+		description = "教 AI 如何使用 DataToolbox 的 MCP 工具进行数据库查询、数据治理等操作"
+		config = generateDataToolboxSkill("cline", mcpEndpoint)
+		steps = []string{
+			"在 VS Code 中打开 Cline 扩展",
+			"进入 Cline 设置 > MCP Servers",
+			"添加新的 MCP Server，URL 填入: " + mcpEndpoint,
+			"将上方 SKILL.md 内容保存到 ~/.cline/skills/datatoolbox/SKILL.md",
+			"重启 VS Code 即可使用",
+		}
 	default:
 		apiBadRequest(w, "不支持的技能类型: "+skillType)
 		return
