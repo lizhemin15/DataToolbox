@@ -584,7 +584,8 @@ body {
 
 .tab-content-wrap > .mcp-container,
 .tab-content-wrap > .ai-assistant-container,
-.tab-content-wrap > .models-container {
+.tab-content-wrap > .models-container,
+.tab-content-wrap > .skills-container {
     flex: 1;
     min-height: 0;
 }
@@ -1152,6 +1153,7 @@ body {
 .mcp-sub-content {
     display: none;
     flex: 1;
+    width: 100%;
     overflow-y: auto;
     min-height: 0;
     /* 隐藏滚动条，滚动时显示 */
@@ -1189,8 +1191,8 @@ body {
 .skills-container {
     padding: 20px;
     width: 100%;
-    max-width: 800px;
-    margin: 0 auto;
+    height: 100%;
+    overflow-y: auto;
 }
 
 .skills-container h3 {
