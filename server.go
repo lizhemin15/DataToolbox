@@ -19202,7 +19202,11 @@ func scanRelationCandidates(dbConfig *DatabaseConfig, rules []string) ([]Relatio
 	existingRelationsMap := make(map[string]bool)
 	manager := getFTS5Manager()
 	if manager != nil {
-		relations, _, err := manager.listRelations(dbConfig.ID, 1, 10000)
+		relations, _, err := manager.listRelations(listRelationsParams{
+			DatabaseID: dbConfig.ID,
+			Page:       1,
+			PageSize:   10000,
+		})
 		if err == nil {
 			for _, rel := range relations {
 				// 正向关系 key
