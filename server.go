@@ -6885,9 +6885,14 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		if len(invalidIDs) > 0 {
+			// 手动构建 ID 列表字符串，避免 JSON 编码问题
+			var idStrs []string
+			for _, id := range invalidIDs {
+				idStrs = append(idStrs, fmt.Sprintf("%d", id))
+			}
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
-				"message": fmt.Sprintf("关系 ID 不存在: %v", invalidIDs),
+				"message": "关系 ID 不存在: " + strings.Join(idStrs, ", "),
 			})
 			return
 		}
