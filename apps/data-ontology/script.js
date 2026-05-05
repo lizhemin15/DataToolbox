@@ -12074,13 +12074,24 @@ let relationFilters = {
     table: '',
     column: '',
     matchType: '',
-    minConfidence: 0
+    minConfidence: 0,
+    tableExclude: false,
+    columnExclude: false,
+    logicMode: 'AND'  // 'AND' 或 'OR'
 };
 
 // 显示关系候选列表
 function showRelationCandidates(candidates) {
     relationCandidatesData = candidates;
-    relationFilters = { table: '', column: '', matchType: '', minConfidence: 0 };
+    relationFilters = {
+        table: '',
+        column: '',
+        matchType: '',
+        minConfidence: 0,
+        tableExclude: false,
+        columnExclude: false,
+        logicMode: 'AND'
+    };
 
     const modalHtml = `
         <style>
@@ -12107,18 +12118,38 @@ function showRelationCandidates(candidates) {
 
                 <!-- 筛选栏 -->
                 <div style="padding:12px;background:#f8f9fa;border-bottom:1px solid #e9ecef;">
-                    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-                        <input type="text" id="relationTableFilter" placeholder="筛选表名..."
-                            style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
-                            oninput="applyRelationFilters()">
-                        <input type="text" id="relationColumnFilter" placeholder="筛选字段名..."
-                            style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
-                            oninput="applyRelationFilters()">
+                    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+                        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px;">
+                            <input type="text" id="relationTableFilter" placeholder="筛选表名..."
+                                style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
+                                oninput="applyRelationFilters()">
+                            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#666;white-space:nowrap;cursor:pointer;">
+                                <input type="checkbox" id="relationTableExclude" onchange="applyRelationFilters()" style="width:14px;height:14px;">
+                                <span>排除</span>
+                            </label>
+                        </div>
+                        <button type="button" id="relationLogicModeBtn" onclick="toggleRelationLogicMode()"
+                            style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+                            AND
+                        </button>
+                        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:220px;">
+                            <input type="text" id="relationColumnFilter" placeholder="筛选字段名..."
+                                style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
+                                oninput="applyRelationFilters()">
+                            <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#666;white-space:nowrap;cursor:pointer;">
+                                <input type="checkbox" id="relationColumnExclude" onchange="applyRelationFilters()" style="width:14px;height:14px;">
+                                <span>排除</span>
+                            </label>
+                        </div>
                         <select id="relationMatchTypeFilter"
                             style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff;"
                             onchange="applyRelationFilters()">
                             <option value="">全部类型</option>
                         </select>
+                        <button type="button" onclick="clearRelationFilters()"
+                            style="padding:6px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#475569;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+                            清空
+                        </button>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
                         <label style="font-size:13px;color:#666;white-space:nowrap;">最低置信度:</label>
@@ -12172,15 +12203,52 @@ function applyRelationFilters() {
     const columnFilter = document.getElementById('relationColumnFilter').value.trim().toLowerCase();
     const matchTypeFilter = document.getElementById('relationMatchTypeFilter').value;
     const confidenceFilter = parseInt(document.getElementById('relationConfidenceSlider').value) / 100;
+    const tableExclude = document.getElementById('relationTableExclude').checked;
+    const columnExclude = document.getElementById('relationColumnExclude').checked;
+    const logicMode = document.getElementById('relationLogicModeBtn').textContent.trim();
 
     relationFilters = {
         table: tableFilter,
         column: columnFilter,
         matchType: matchTypeFilter,
-        minConfidence: confidenceFilter
+        minConfidence: confidenceFilter,
+        tableExclude: tableExclude,
+        columnExclude: columnExclude,
+        logicMode: logicMode
     };
 
+    // 排除模式视觉反馈
+    const tableInput = document.getElementById('relationTableFilter');
+    const columnInput = document.getElementById('relationColumnFilter');
+    tableInput.style.borderColor = tableExclude ? '#ef4444' : '#e2e8f0';
+    columnInput.style.borderColor = columnExclude ? '#ef4444' : '#e2e8f0';
+
     renderRelationCandidates();
+}
+
+// 切换 AND/OR 逻辑
+function toggleRelationLogicMode() {
+    const btn = document.getElementById('relationLogicModeBtn');
+    const current = btn.textContent.trim();
+    btn.textContent = current === 'AND' ? 'OR' : 'AND';
+    btn.style.background = current === 'AND' ? '#e0e7ff' : '#fff';
+    applyRelationFilters();
+}
+
+// 清空所有筛选条件
+function clearRelationFilters() {
+    document.getElementById('relationTableFilter').value = '';
+    document.getElementById('relationColumnFilter').value = '';
+    document.getElementById('relationMatchTypeFilter').value = '';
+    document.getElementById('relationConfidenceSlider').value = 0;
+    document.getElementById('relationConfidenceValue').textContent = '0%';
+    document.getElementById('relationTableExclude').checked = false;
+    document.getElementById('relationColumnExclude').checked = false;
+    document.getElementById('relationLogicModeBtn').textContent = 'AND';
+    document.getElementById('relationLogicModeBtn').style.background = '#fff';
+    document.getElementById('relationTableFilter').style.borderColor = '#e2e8f0';
+    document.getElementById('relationColumnFilter').style.borderColor = '#e2e8f0';
+    applyRelationFilters();
 }
 
 // 快速筛选 - 点击标签
@@ -12204,18 +12272,30 @@ function toggleSelectAllRelation(checked) {
 // 渲染关系候选列表
 function renderRelationCandidates() {
     const filtered = relationCandidatesData.filter(c => {
-        // 表名筛选
+        // 表名筛选（支持排除）
+        let tablePass = true;
         if (relationFilters.table) {
             const tableMatch = c.table1.toLowerCase().includes(relationFilters.table) ||
                               c.table2.toLowerCase().includes(relationFilters.table);
-            if (!tableMatch) return false;
+            tablePass = relationFilters.tableExclude ? !tableMatch : tableMatch;
+            if (!tablePass && relationFilters.logicMode === 'AND') return false;
         }
 
-        // 字段名筛选
+        // 字段名筛选（支持排除）
         if (relationFilters.column) {
             const columnMatch = c.col1.toLowerCase().includes(relationFilters.column) ||
                                c.col2.toLowerCase().includes(relationFilters.column);
-            if (!columnMatch) return false;
+            const columnPass = relationFilters.columnExclude ? !columnMatch : columnMatch;
+            if (!columnPass && relationFilters.logicMode === 'AND') return false;
+            // OR 模式下，只要表名或字段名有一个通过就通过
+            if (relationFilters.logicMode === 'OR' && relationFilters.table) {
+                if (tablePass || columnPass) return true;
+                return false;
+            }
+            if (!columnPass) return false;
+        } else if (relationFilters.logicMode === 'OR' && relationFilters.table) {
+            // 只有表名筛选，OR 模式下表名通过就行
+            if (tablePass) return true;
         }
 
         // 匹配类型筛选
