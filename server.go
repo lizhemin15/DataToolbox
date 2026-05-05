@@ -1241,7 +1241,6 @@ func getDataOntologyStorePath() string {
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePathFn()
-	log.Printf("[DEBUG] Loading data from: %s", storePath)
 
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
@@ -1259,15 +1258,6 @@ func loadDataOntologyStore() error {
 	var store DataOntologyStore
 	if err := json.Unmarshal(data, &store); err != nil {
 		return fmt.Errorf("解析持久化数据失败: %v", err)
-	}
-
-	// 调试：打印原始 JSON 中的 ai_config
-	var rawMap map[string]interface{}
-	if err := json.Unmarshal(data, &rawMap); err == nil {
-		if aiConfigRaw, ok := rawMap["ai_config"]; ok {
-			aiBytes, _ := json.Marshal(aiConfigRaw)
-			log.Printf("[DEBUG] Raw ai_config from JSON (full): %s", string(aiBytes))
-		}
 	}
 
 	// 加载数据到内存
@@ -1298,14 +1288,6 @@ func loadDataOntologyStore() error {
 	if store.AIConfig != nil {
 		dataOntologyAIConfig = store.AIConfig
 		log.Printf("已加载AI配置")
-		// 调试：打印 Embedding 配置
-		emb, _ := json.Marshal(dataOntologyAIConfig.Embedding)
-		log.Printf("[DEBUG] Embedding config raw: %s", string(emb))
-		log.Printf("[DEBUG] Embedding config: URL=%s, Model=%s, Enabled=%v, Dimension=%d",
-			dataOntologyAIConfig.Embedding.URL,
-			dataOntologyAIConfig.Embedding.Model,
-			dataOntologyAIConfig.Embedding.Enabled,
-			dataOntologyAIConfig.Embedding.Dimension)
 	}
 
 	if store.AICapabilities != nil {
