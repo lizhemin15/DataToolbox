@@ -6758,39 +6758,34 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodGet {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "不支持的请求方法",
-		})
-		return
-	}
-
-	databaseID := r.URL.Query().Get("database_id")
-	page := 1
-	pageSize := 50
-	if p := r.URL.Query().Get("page"); p != "" {
-		if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
-			page = pv
+	switch r.Method {
+	case http.MethodGet:
+		// 获取向量列表
+		databaseID := r.URL.Query().Get("database_id")
+		page := 1
+		pageSize := 50
+		if p := r.URL.Query().Get("page"); p != "" {
+			if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
+				page = pv
+			}
 		}
-	}
-	if ps := r.URL.Query().Get("page_size"); ps != "" {
-		if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
-			pageSize = psv
+		if ps := r.URL.Query().Get("page_size"); ps != "" {
+			if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
+				pageSize = psv
+			}
 		}
-	}
 
-	manager := getFTS5Manager()
-	if manager == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "表检索系统未初始化",
-		})
-		return
-	}
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
 
-	vectors, total, err := manager.listVectors(databaseID, page, pageSize)
-	if err != nil {
+		vectors, total, err := manager.listVectors(databaseID, page, pageSize)
+		if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "获取向量列表失败: " + err.Error(),
@@ -6876,6 +6871,250 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 		"page":      page,
 		"page_size": pageSize,
 	})
+
+	case http.MethodDelete:
+		// 删除向量（支持批量）
+		var req struct {
+			DatabaseID string   `json:"database_id"`
+			TableNames []string `json:"table_names"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || len(req.TableNames) == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id 和 table_names 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		if err := manager.deleteVectors(req.DatabaseID, req.TableNames); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "删除向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":       true,
+			"deleted_count": len(req.TableNames),
+		})
+
+	case http.MethodPost:
+		// 创建向量（同步指定表的向量）
+		var req struct {
+			DatabaseID string   `json:"database_id"`
+			Tables     []string `json:"tables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || len(req.Tables) == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id 和 tables 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		dataOntologyMu.RLock()
+		dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+		aiConfig := dataOntologyAIConfig
+		dataOntologyMu.RUnlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		if !aiConfig.Embedding.Enabled || aiConfig.Embedding.URL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "Embedding 未启用或未配置",
+			})
+			return
+		}
+
+		// 获取表信息列表
+		tableInfos, err := getTableInfoList(dbConfig)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取表信息失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 构建表名集合过滤
+		tableSet := make(map[string]bool)
+		for _, t := range req.Tables {
+			tableSet[t] = true
+		}
+
+		var filteredInfos []TableInfo
+		for _, ti := range tableInfos {
+			if tableSet[ti.Name] {
+				filteredInfos = append(filteredInfos, ti)
+			}
+		}
+
+		// 同步指定表的向量
+		synced, vectors, err := syncSpecificVectors(manager, dbConfig, filteredInfos, aiConfig.Embedding)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "创建向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"synced":   synced,
+			"vectors":  vectors,
+			"tables":   req.Tables,
+		})
+
+	case http.MethodPut:
+		// 更新向量（删除旧向量并重新生成）
+		var req struct {
+			DatabaseID string   `json:"database_id"`
+			Tables     []string `json:"tables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || len(req.Tables) == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id 和 tables 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		dataOntologyMu.RLock()
+		dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+		aiConfig := dataOntologyAIConfig
+		dataOntologyMu.RUnlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		if !aiConfig.Embedding.Enabled || aiConfig.Embedding.URL == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "Embedding 未启用或未配置",
+			})
+			return
+		}
+
+		// 先删除旧向量
+		if err := manager.deleteVectors(req.DatabaseID, req.Tables); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "删除旧向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 获取表信息列表
+		tableInfos, err := getTableInfoList(dbConfig)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取表信息失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 构建表名集合过滤
+		tableSet := make(map[string]bool)
+		for _, t := range req.Tables {
+			tableSet[t] = true
+		}
+
+		var filteredInfos []TableInfo
+		for _, ti := range tableInfos {
+			if tableSet[ti.Name] {
+				filteredInfos = append(filteredInfos, ti)
+			}
+		}
+
+		// 重新同步向量
+		synced, vectors, err := syncSpecificVectors(manager, dbConfig, filteredInfos, aiConfig.Embedding)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "更新向量失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"synced":   synced,
+			"vectors":  vectors,
+			"tables":   req.Tables,
+		})
+
+	default:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "不支持的请求方法",
+		})
+	}
 }
 
 // handleTableRetrievalRelationList 获取关系索引列表（预览）
@@ -6891,53 +7130,211 @@ func handleTableRetrievalRelationList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		// 解析查询参数
+		params := listRelationsParams{
+			DatabaseID: r.URL.Query().Get("database_id"),
+			Keyword:    r.URL.Query().Get("keyword"),
+			MatchType:  r.URL.Query().Get("match_type"),
+		}
+
+		// 分页参数
+		if p := r.URL.Query().Get("page"); p != "" {
+			if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
+				params.Page = pv
+			}
+		}
+		if ps := r.URL.Query().Get("page_size"); ps != "" {
+			if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
+				params.PageSize = psv
+			}
+		}
+
+		// 只看源表
+		if r.URL.Query().Get("source_only") == "true" {
+			params.SourceOnly = true
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		relations, total, err := manager.listRelations(params)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取关系列表失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 获取所有匹配类型（用于筛选下拉）
+		matchTypes, _ := manager.getMatchTypes(params.DatabaseID)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"relations":   relations,
+			"total":       total,
+			"page":        params.Page,
+			"page_size":   params.PageSize,
+			"match_types": matchTypes,
+		})
+
+	case http.MethodDelete:
+		// 删除关系（支持批量）
+		var req struct {
+			DatabaseID   string `json:"database_id"`
+			RelationIDs  []int  `json:"relation_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || len(req.RelationIDs) == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id 和 relation_ids 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		if err := manager.deleteRelations(req.DatabaseID, req.RelationIDs); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "删除关系失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":       true,
+			"deleted_count": len(req.RelationIDs),
+		})
+
+	case http.MethodPost:
+		// 添加关系
+		var req struct {
+			DatabaseID   string `json:"database_id"`
+			SourceTable  string `json:"source_table"`
+			SourceField  string `json:"source_field"`
+			TargetTable  string `json:"target_table"`
+			TargetField  string `json:"target_field"`
+			MatchType    string `json:"match_type"`
+			RelationName string `json:"relation_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || req.SourceTable == "" || req.TargetTable == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id、source_table、target_table 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		id, err := manager.addRelation(req.DatabaseID, req.SourceTable, req.SourceField, req.TargetTable, req.TargetField, req.MatchType, req.RelationName)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "添加关系失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":    true,
+			"relation_id": id,
+		})
+
+	case http.MethodPut:
+		// 更新关系
+		var req struct {
+			DatabaseID   string `json:"database_id"`
+			RelationID   int    `json:"relation_id"`
+			SourceTable  string `json:"source_table"`
+			SourceField  string `json:"source_field"`
+			TargetTable  string `json:"target_table"`
+			TargetField  string `json:"target_field"`
+			MatchType    string `json:"match_type"`
+			RelationName string `json:"relation_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || req.RelationID == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "database_id 和 relation_id 不能为空",
+			})
+			return
+		}
+
+		manager := getFTS5Manager()
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "表检索系统未初始化",
+			})
+			return
+		}
+
+		if err := manager.updateRelation(req.DatabaseID, req.RelationID, req.SourceTable, req.SourceField, req.TargetTable, req.TargetField, req.MatchType, req.RelationName); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "更新关系失败: " + err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+
+	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "不支持的请求方法",
 		})
-		return
 	}
-
-	databaseID := r.URL.Query().Get("database_id")
-	page := 1
-	pageSize := 50
-	if p := r.URL.Query().Get("page"); p != "" {
-		if pv, err := strconv.Atoi(p); err == nil && pv > 0 {
-			page = pv
-		}
-	}
-	if ps := r.URL.Query().Get("page_size"); ps != "" {
-		if psv, err := strconv.Atoi(ps); err == nil && psv > 0 && psv <= 200 {
-			pageSize = psv
-		}
-	}
-
-	manager := getFTS5Manager()
-	if manager == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "表检索系统未初始化",
-		})
-		return
-	}
-
-	relations, total, err := manager.listRelations(databaseID, page, pageSize)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "获取关系列表失败: " + err.Error(),
-		})
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"relations": relations,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	})
 }
 
 func queryForeignKeyLineage(db *sql.DB, config *DatabaseConfig, tables []string) ([]LineageEdge, string) {
@@ -17137,6 +17534,45 @@ func handleDatabaseOntologyRelationDetail(w http.ResponseWriter, r *http.Request
 			"success": true,
 		})
 
+	case http.MethodPut:
+		// 更新关系
+		var updateReq OntologyRelation
+		if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		// 验证必填字段
+		if updateReq.Source.FieldName == "" || updateReq.Target.FieldName == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "源字段和目标字段不能为空",
+			})
+			return
+		}
+
+		// 更新关系字段（保留 ID、Owner、CreatedAt）
+		dataOntologyMu.Lock()
+		rel.Name = updateReq.Name
+		rel.Description = updateReq.Description
+		rel.Source = updateReq.Source
+		rel.Target = updateReq.Target
+		rel.MatchType = updateReq.MatchType
+		dataOntologyMu.Unlock()
+
+		// 持久化保存
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("更新本体关系失败: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"relation": rel,
+		})
+
 	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -19653,7 +20089,18 @@ func (m *FTS5Manager) listVectors(databaseID string, page, pageSize int) ([]Vect
 }
 
 // listRelations 获取关系列表（分页）
-func (m *FTS5Manager) listRelations(databaseID string, page, pageSize int) ([]RelationInfo, int, error) {
+// listRelationsParams 关系列表查询参数
+type listRelationsParams struct {
+	DatabaseID string // 数据库ID（必填）
+	Page       int    // 页码（默认1）
+	PageSize   int    // 每页数量（默认50）
+	Keyword    string // 关键词（搜索源表名、目标表名、源字段、目标字段）
+	MatchType  string // 匹配类型过滤
+	SourceOnly bool   // 只看源表
+}
+
+// listRelations 获取关系列表（支持筛选）
+func (m *FTS5Manager) listRelations(params listRelationsParams) ([]RelationInfo, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -19661,31 +20108,48 @@ func (m *FTS5Manager) listRelations(databaseID string, page, pageSize int) ([]Re
 		return nil, 0, sql.ErrConnDone
 	}
 
+	// 默认值
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 || params.PageSize > 200 {
+		params.PageSize = 50
+	}
+
+	// 构建 WHERE 条件
+	whereClause := "WHERE database_id = ?"
+	countArgs := []interface{}{params.DatabaseID}
+	queryArgs := []interface{}{params.DatabaseID}
+
+	if params.Keyword != "" {
+		keyword := "%" + params.Keyword + "%"
+		whereClause += " AND (source_table LIKE ? OR source_field LIKE ? OR target_table LIKE ? OR target_field LIKE ?)"
+		countArgs = append(countArgs, keyword, keyword, keyword, keyword)
+		queryArgs = append(queryArgs, keyword, keyword, keyword, keyword)
+	}
+	if params.MatchType != "" {
+		whereClause += " AND match_type = ?"
+		countArgs = append(countArgs, params.MatchType)
+		queryArgs = append(queryArgs, params.MatchType)
+	}
+	if params.SourceOnly {
+		whereClause += " AND source_table = target_table"
+	}
+
 	// 获取总数
 	var total int
-	countQuery := "SELECT COUNT(*) FROM relations"
-	countArgs := []interface{}{}
-	if databaseID != "" {
-		countQuery += " WHERE database_id = ?"
-		countArgs = append(countArgs, databaseID)
-	}
+	countQuery := "SELECT COUNT(*) FROM relations " + whereClause
 	if err := m.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	// 分页查询
-	offset := (page - 1) * pageSize
-	query := `SELECT id, database_id, source_table, source_field, target_table, target_field, match_type, relation_name, created_at 
-			  FROM relations`
-	args := []interface{}{}
-	if databaseID != "" {
-		query += " WHERE database_id = ?"
-		args = append(args, databaseID)
-	}
-	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, pageSize, offset)
+	offset := (params.Page - 1) * params.PageSize
+	query := fmt.Sprintf(`SELECT id, database_id, source_table, source_field, target_table, target_field, match_type, relation_name, created_at 
+		FROM relations %s ORDER BY created_at DESC LIMIT ? OFFSET ?`, whereClause)
+	queryArgs = append(queryArgs, params.PageSize, offset)
 
-	rows, err := m.db.Query(query, args...)
+	rows, err := m.db.Query(query, queryArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -19700,4 +20164,119 @@ func (m *FTS5Manager) listRelations(databaseID string, page, pageSize int) ([]Re
 	}
 
 	return relations, total, nil
+}
+
+// getMatchTypes 获取所有匹配类型（用于筛选下拉）
+func (m *FTS5Manager) getMatchTypes(databaseID string) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.db == nil {
+		return nil, sql.ErrConnDone
+	}
+
+	query := "SELECT DISTINCT match_type FROM relations WHERE database_id = ? ORDER BY match_type"
+	rows, err := m.db.Query(query, databaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var types []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err == nil && t != "" {
+			types = append(types, t)
+		}
+	}
+	return types, nil
+}
+
+// deleteVectors 删除向量（支持批量）
+func (m *FTS5Manager) deleteVectors(databaseID string, tableNames []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.db == nil {
+		return sql.ErrConnDone
+	}
+
+	if len(tableNames) == 0 {
+		return nil
+	}
+
+	// 构建批量删除 SQL
+	placeholders := make([]string, len(tableNames))
+	args := []interface{}{databaseID}
+	for i, tn := range tableNames {
+		placeholders[i] = "?"
+		args = append(args, tn)
+	}
+
+	query := fmt.Sprintf("DELETE FROM vectors WHERE database_id = ? AND table_name IN (%s)", strings.Join(placeholders, ","))
+	_, err := m.db.Exec(query, args...)
+	return err
+}
+
+// deleteRelations 删除关系（支持批量）
+func (m *FTS5Manager) deleteRelations(databaseID string, relationIDs []int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.db == nil {
+		return sql.ErrConnDone
+	}
+
+	if len(relationIDs) == 0 {
+		return nil
+	}
+
+	// 构建批量删除 SQL
+	placeholders := make([]string, len(relationIDs))
+	args := []interface{}{databaseID}
+	for i, id := range relationIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf("DELETE FROM relations WHERE database_id = ? AND id IN (%s)", strings.Join(placeholders, ","))
+	_, err := m.db.Exec(query, args...)
+	return err
+}
+
+// addRelation 添加关系
+func (m *FTS5Manager) addRelation(databaseID, sourceTable, sourceField, targetTable, targetField, matchType, relationName string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.db == nil {
+		return 0, sql.ErrConnDone
+	}
+
+	result, err := m.db.Exec(`
+		INSERT INTO relations (database_id, source_table, source_field, target_table, target_field, match_type, relation_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, databaseID, sourceTable, sourceField, targetTable, targetField, matchType, relationName)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.LastInsertId()
+}
+
+// updateRelation 更新关系
+func (m *FTS5Manager) updateRelation(databaseID string, relationID int, sourceTable, sourceField, targetTable, targetField, matchType, relationName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.db == nil {
+		return sql.ErrConnDone
+	}
+
+	_, err := m.db.Exec(`
+		UPDATE relations 
+		SET source_table = ?, source_field = ?, target_table = ?, target_field = ?, match_type = ?, relation_name = ?
+		WHERE database_id = ? AND id = ?
+	`, sourceTable, sourceField, targetTable, targetField, matchType, relationName, databaseID, relationID)
+	return err
 }

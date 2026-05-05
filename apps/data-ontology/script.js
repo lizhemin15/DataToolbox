@@ -12452,15 +12452,25 @@ async function loadVectorPreviewPage(page) {
     if (!modal) {
         const modalHtml = `
             <div id="vectorPreviewModal" class="modal" style="display:flex;">
-                <div class="modal-content" style="max-width:900px;max-height:85vh;">
+                <div class="modal-content" style="max-width:1100px;max-height:85vh;">
                     <div class="modal-header">
                         <h2>👁️ 向量索引预览</h2>
                         <button class="modal-close" onclick="closeVectorPreviewModal()">&times;</button>
                     </div>
-                    <div class="modal-body" style="max-height:500px;overflow-y:auto;">
+                    <div class="modal-body" style="max-height:500px;overflow-y:auto;padding:15px;">
+                        <!-- 工具栏 -->
+                        <div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center;">
+                            <button type="button" class="btn btn-primary" onclick="showAddVectorModal()">➕ 新增向量</button>
+                            <div style="flex:1;"></div>
+                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedVectors()">🗑️ 删除选中</button>
+                        </div>
                         <div id="vectorPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
                     </div>
                     <div class="modal-footer" style="justify-content:space-between;">
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="checkbox" id="vectorSelectAll" onchange="toggleVectorSelectAll()" style="margin-right:8px;">
+                            <label for="vectorSelectAll" style="font-size:13px;margin-right:8px;">全选</label>
+                        </div>
                         <div id="vectorPreviewInfo" style="font-size:13px;color:#666;"></div>
                         <div style="display:flex;gap:8px;">
                             <button type="button" class="btn btn-secondary" id="vectorPrevBtn" onclick="loadVectorPreviewPage(currentVectorPage - 1)">上一页</button>
@@ -12486,6 +12496,11 @@ async function loadVectorPreviewPage(page) {
             const totalPages = Math.ceil(total / pageSize);
 
             window.currentVectorPage = page;
+            window.currentVectorData = vectors;
+
+            // 清除全选
+            const selectAllEl = document.getElementById('vectorSelectAll');
+            if (selectAllEl) selectAllEl.checked = false;
 
             if (vectors.length === 0) {
                 contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无向量索引数据</div>';
@@ -12495,10 +12510,12 @@ async function loadVectorPreviewPage(page) {
                     <table style="width:100%;border-collapse:collapse;font-size:13px;">
                         <thead>
                             <tr style="background:#f8f9fa;">
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;width:40px;">✓</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">表名</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">索引摘要</th>
                                 <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">向量维度</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">更新时间</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;width:120px;">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -12514,19 +12531,27 @@ async function loadVectorPreviewPage(page) {
                                 if (v.pk_fields) display.push(`PK ${v.pk_fields}`);
                                 if (v.fk_fields) display.push(`FK ${v.fk_fields}`);
                                 if (display.length === 0) display.push('元数据缺失');
+                                const encodedTableName = encodeURIComponent(v.table_name || '');
                                 return `
                                 <tr>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                                        <input type="checkbox" class="vector-checkbox" value="${v.table_name}">
+                                    </td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${v.table_name || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${summary}">${display.join(' · ')}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${v.dimension || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${v.updated_at || v.created_at || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                                        <button type="button" class="btn btn-secondary" style="padding:4px 8px;font-size:12px;margin-right:4px;" onclick="showEditVectorModal('${encodedTableName}')">编辑</button>
+                                        <button type="button" class="btn" style="padding:4px 8px;font-size:12px;background:#dc3545;color:#fff;" onclick="deleteVector('${encodedTableName}')">删除</button>
+                                    </td>
                                 </tr>`;
                             }).join('')}
                         </tbody>
                     </table>
                 `;
                 contentEl.innerHTML = tableHtml;
-                infoEl.textContent = `共 ${total} 条，第 ${page}/${totalPages} 页`;
+                infoEl.textContent = `共 ${total} 条， 第 ${page}/${totalPages} 页`;
 
                 // 更新按钮状态
                 document.getElementById('vectorPrevBtn').disabled = page <= 1;
@@ -12537,6 +12562,205 @@ async function loadVectorPreviewPage(page) {
         }
     } catch (error) {
         contentEl.innerHTML = `<div style="text-align:center;padding:40px;color:#dc3545;">加载失败: ${error.message}</div>`;
+    }
+}
+
+// 全选/取消全选 向量
+function toggleVectorSelectAll() {
+    const selectAll = document.getElementById('vectorSelectAll').checked;
+    document.querySelectorAll('.vector-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+}
+
+// 删除选中的向量
+async function deleteSelectedVectors() {
+    const checked = document.querySelectorAll('.vector-checkbox:checked');
+    if (checked.length === 0) {
+        showToast('请先选择要删除的向量', 'warning');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${checked.length} 条向量吗？此操作不可恢复。`)) {
+        return;
+    }
+
+    const tableNames = Array.from(checked).map(cb => cb.value);
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                table_names: tableNames
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(`成功删除 ${data.deleted_count} 条向量`, 'success');
+            loadVectorPreviewPage(currentVectorPage);
+        } else {
+            showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
+}
+
+// 删除单个向量
+async function deleteVector(tableName) {
+    if (!confirm(`确定要删除表 "${tableName}" 的向量吗？此操作不可恢复。`)) {
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                table_names: [tableName]
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            loadVectorPreviewPage(currentVectorPage);
+        } else {
+            showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
+}
+
+// 显示新增向量弹窗
+async function showAddVectorModal() {
+    // 先获取该数据库的表列表
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/tables?db_id=${currentDb.id}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            showToast('获取表列表失败: ' + data.message, 'error');
+            return;
+        }
+
+        const tables = data.tables || [];
+        const existingVectors = window.currentVectorData || [];
+        const existingTableNames = new Set(existingVectors.map(v => v.table_name));
+
+        // 过滤掉已有向量的表
+        const availableTables = tables.filter(t => !existingTableNames.has(t.name));
+
+        if (availableTables.length === 0) {
+            showToast('所有表都已有向量索引', 'warning');
+            return;
+        }
+
+        const tableOptions = availableTables.map(t => `<option value="${t.name}">${t.name}${t.comment ? ' (' + t.comment + ')' : ''}</option>`).join('');
+
+        const modalHtml = `
+            <div id="addVectorModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:500px;">
+                    <div class="modal-header">
+                        <h2>➕ 新增向量</h2>
+                        <button class="modal-close" onclick="closeAddVectorModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">选择表（可多选）:</label>
+                            <select id="addVectorTables" multiple style="width:100%;height:200px;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                ${tableOptions}
+                            </select>
+                            <div style="font-size:12px;color:#666;margin-top:5px;">按住 Ctrl 或 Cmd 可多选</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeAddVectorModal()">取消</button>
+                        <button type="button" class="btn btn-primary" onclick="createVectors()">创建向量</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch (error) {
+        showToast('获取表列表失败: ' + error.message, 'error');
+    }
+}
+
+function closeAddVectorModal() {
+    const modal = document.getElementById('addVectorModal');
+    if (modal) modal.remove();
+}
+
+// 创建向量
+async function createVectors() {
+    const select = document.getElementById('addVectorTables');
+    const selectedTables = Array.from(select.selectedOptions).map(opt => opt.value);
+
+    if (selectedTables.length === 0) {
+        showToast('请至少选择一个表', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                tables: selectedTables
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(`成功创建 ${data.synced} 个向量`, 'success');
+            closeAddVectorModal();
+            loadVectorPreviewPage(currentVectorPage);
+        } else {
+            showToast('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('创建失败: ' + error.message, 'error');
+    }
+}
+
+// 显示编辑向量弹窗（重新生成向量）
+function showEditVectorModal(tableName) {
+    tableName = decodeURIComponent(tableName);
+    if (!confirm(`确定要重新生成表 "${tableName}" 的向量吗？\n这将删除旧向量并重新生成。`)) {
+        return;
+    }
+
+    updateVector(tableName);
+}
+
+// 更新向量
+async function updateVector(tableName) {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/vectors`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                tables: [tableName]
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast(`向量更新成功`, 'success');
+            loadVectorPreviewPage(currentVectorPage);
+        } else {
+            showToast('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('更新失败: ' + error.message, 'error');
     }
 }
 
@@ -12561,22 +12785,46 @@ async function showRelationPreview() {
 async function loadRelationPreviewPage(page) {
     const pageSize = 50;
 
+    // 从页面获取筛选条件
+    const searchInput = document.getElementById('relationSearchInput');
+    const matchTypeSelect = document.getElementById('relationMatchTypeSelect');
+    const keyword = searchInput ? searchInput.value.trim() : '';
+    const matchType = matchTypeSelect ? matchTypeSelect.value : '';
+
     // 创建或更新弹窗
     let modal = document.getElementById('relationPreviewModal');
     if (!modal) {
         const modalHtml = `
             <div id="relationPreviewModal" class="modal" style="display:flex;">
-                <div class="modal-content" style="max-width:1000px;max-height:85vh;">
+                <div class="modal-content" style="max-width:1200px;max-height:85vh;">
                     <div class="modal-header">
                         <h2>👁️ 关系索引预览</h2>
                         <button class="modal-close" onclick="closeRelationPreviewModal()">&times;</button>
                     </div>
-                    <div class="modal-body" style="max-height:500px;overflow-y:auto;">
+                    <div class="modal-body" style="max-height:500px;overflow-y:auto;padding:15px;">
+                        <!-- 工具栏 -->
+                        <div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center;">
+                            <input type="text" id="relationSearchInput" placeholder="搜索表名/字段名..." 
+                                style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;flex:1;min-width:200px;max-width:300px;"
+                                onkeyup="if(event.key==='Enter')loadRelationPreviewPage(1)">
+                            <select id="relationMatchTypeSelect" 
+                                style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;min-width:150px;"
+                                onchange="loadRelationPreviewPage(1)">
+                                <option value="">全部匹配类型</option>
+                            </select>
+                            <button type="button" class="btn btn-primary" onclick="loadRelationPreviewPage(1)">🔍 搜索</button>
+                            <button type="button" class="btn btn-secondary" onclick="clearRelationFilters()">清空</button>
+                            <div style="flex:1;"></div>
+                            <button type="button" class="btn btn-primary" onclick="showAddRelationModal()">➕ 新增关系</button>
+                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedRelations()">🗑️ 删除选中</button>
+                        </div>
                         <div id="relationPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
                     </div>
                     <div class="modal-footer" style="justify-content:space-between;">
                         <div id="relationPreviewInfo" style="font-size:13px;color:#666;"></div>
-                        <div style="display:flex;gap:8px;">
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="checkbox" id="relationSelectAll" onchange="toggleRelationSelectAll()" style="margin-right:8px;">
+                            <label for="relationSelectAll" style="font-size:13px;margin-right:8px;">全选</label>
                             <button type="button" class="btn btn-secondary" id="relationPrevBtn" onclick="loadRelationPreviewPage(currentRelationPage - 1)">上一页</button>
                             <button type="button" class="btn btn-secondary" id="relationNextBtn" onclick="loadRelationPreviewPage(currentRelationPage + 1)">下一页</button>
                         </div>
@@ -12589,26 +12837,55 @@ async function loadRelationPreviewPage(page) {
 
     const contentEl = document.getElementById('relationPreviewContent');
     const infoEl = document.getElementById('relationPreviewInfo');
+    const matchTypeSelectEl = document.getElementById('relationMatchTypeSelect');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
+        // 构建查询参数
+        let url = `${API_BASE}/api/data-ontology/table-retrieval/relations?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`;
+        if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+        if (matchType) url += `&match_type=${encodeURIComponent(matchType)}`;
+        
+        const response = await fetchWithAuth(url);
         const data = await response.json();
 
         if (data.success) {
             const relations = data.relations || [];
             const total = data.total || 0;
             const totalPages = Math.ceil(total / pageSize);
+            const matchTypes = data.match_types || [];
 
             window.currentRelationPage = page;
 
+            // 初始化匹配类型下拉（只在第一次加载时）
+            if (matchTypes.length > 0 && matchTypeSelectEl.options.length <= 1) {
+                matchTypes.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t;
+                    opt.textContent = t;
+                    if (t === matchType) opt.selected = true;
+                    matchTypeSelectEl.appendChild(opt);
+                });
+            }
+
+            // 恢复筛选条件
+            const searchInputEl = document.getElementById('relationSearchInput');
+            if (searchInputEl) searchInputEl.value = keyword;
+
+            // 清除选中状态
+            document.getElementById('relationSelectAll').checked = false;
+
             if (relations.length === 0) {
                 contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无关系索引数据</div>';
-                infoEl.textContent = '';
+                infoEl.textContent = keyword ? `共 ${total} 条（筛选结果）` : '共 0 条';
             } else {
+                // 保存当前页数据用于删除
+                window.currentRelationData = relations;
+                
                 const tableHtml = `
                     <table style="width:100%;border-collapse:collapse;font-size:13px;">
                         <thead>
                             <tr style="background:#f8f9fa;">
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;width:40px;">✓</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">源表</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">源字段</th>
                                 <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">→</th>
@@ -12616,25 +12893,37 @@ async function loadRelationPreviewPage(page) {
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">目标字段</th>
                                 <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;">匹配类型</th>
                                 <th style="padding:10px;text-align:left;border-bottom:2px solid #dee2e6;">创建时间</th>
+                                <th style="padding:10px;text-align:center;border-bottom:2px solid #dee2e6;width:120px;">操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${relations.map(r => `
-                                <tr>
+                                <tr data-id="${r.id}">
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                                        <input type="checkbox" class="relation-checkbox" value="${r.id}">
+                                    </td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_table || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_field || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;color:#999;">→</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_table || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_field || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${r.match_type || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                                        <span style="background:#e9ecef;padding:2px 8px;border-radius:3px;font-size:12px;">${r.match_type || '-'}</span>
+                                    </td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.created_at || '-'}</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">
+                                        <button type="button" class="btn btn-secondary" style="padding:4px 8px;font-size:12px;margin-right:4px;" onclick="showEditRelationModal(${r.id})">编辑</button>
+                                        <button type="button" class="btn" style="padding:4px 8px;font-size:12px;background:#dc3545;color:#fff;" onclick="deleteRelation(${r.id})">删除</button>
+                                    </td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
                 `;
                 contentEl.innerHTML = tableHtml;
-                infoEl.textContent = `共 ${total} 条，第 ${page}/${totalPages} 页`;
+                
+                const filterInfo = keyword || matchType ? '（筛选结果）' : '';
+                infoEl.textContent = `共 ${total} 条${filterInfo}，第 ${page}/${totalPages} 页`;
 
                 // 更新按钮状态
                 document.getElementById('relationPrevBtn').disabled = page <= 1;
@@ -12648,7 +12937,467 @@ async function loadRelationPreviewPage(page) {
     }
 }
 
+// 清空关系筛选条件
+function clearRelationFilters() {
+    const searchInput = document.getElementById('relationSearchInput');
+    const matchTypeSelect = document.getElementById('relationMatchTypeSelect');
+    if (searchInput) searchInput.value = '';
+    if (matchTypeSelect) matchTypeSelect.value = '';
+    loadRelationPreviewPage(1);
+}
+
+// 全选/取消全选
+function toggleRelationSelectAll() {
+    const selectAll = document.getElementById('relationSelectAll').checked;
+    document.querySelectorAll('.relation-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+}
+
+// 删除选中的关系
+async function deleteSelectedRelations() {
+    const checked = document.querySelectorAll('.relation-checkbox:checked');
+    if (checked.length === 0) {
+        showToast('请先选择要删除的关系', 'warning');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${checked.length} 条关系吗？此操作不可恢复。`)) {
+        return;
+    }
+
+    const relationIDs = Array.from(checked).map(cb => parseInt(cb.value));
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                relation_ids: relationIDs
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast(`成功删除 ${data.deleted_count} 条关系`, 'success');
+            loadRelationPreviewPage(currentRelationPage);
+        } else {
+            showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
+}
+
 function closeRelationPreviewModal() {
     const modal = document.getElementById('relationPreviewModal');
     if (modal) modal.remove();
+}
+
+// 显示新增关系弹窗
+async function showAddRelationModal() {
+    try {
+        // 获取表列表
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`);
+        const data = await response.json();
+
+        if (!data.success) {
+            showToast('获取表列表失败: ' + data.message, 'error');
+            return;
+        }
+
+        const tables = data.tables || [];
+        const tableOptions = tables.map(t => `<option value="${t.name}">${t.name}${t.comment ? ' (' + t.comment + ')' : ''}</option>`).join('');
+
+        const modalHtml = `
+            <div id="addRelationModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:600px;">
+                    <div class="modal-header">
+                        <h2>➕ 新增关系</h2>
+                        <button class="modal-close" onclick="closeAddRelationModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">源表:</label>
+                            <select id="addRelationSourceTable" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" onchange="loadSourceFields()">
+                                <option value="">请选择源表</option>
+                                ${tableOptions}
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">源字段:</label>
+                            <select id="addRelationSourceField" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="">请先选择源表</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">目标表:</label>
+                            <select id="addRelationTargetTable" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" onchange="loadTargetFields()">
+                                <option value="">请选择目标表</option>
+                                ${tableOptions}
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">目标字段:</label>
+                            <select id="addRelationTargetField" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="">请先选择目标表</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">匹配类型:</label>
+                            <select id="addRelationMatchType" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="exact">精确匹配</option>
+                                <option value="case_insensitive">大小写不敏感</option>
+                                <option value="naming_style">命名风格相似</option>
+                                <option value="type_keyword">类型+关键词</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">关系名称（可选）:</label>
+                            <input type="text" id="addRelationName" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" placeholder="输入关系名称（可选）">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeAddRelationModal()">取消</button>
+                        <button type="button" class="btn btn-primary" onclick="createRelation()">创建关系</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch (error) {
+        showToast('获取表列表失败: ' + error.message, 'error');
+    }
+}
+
+function closeAddRelationModal() {
+    const modal = document.getElementById('addRelationModal');
+    if (modal) modal.remove();
+}
+
+// 加载源表字段
+async function loadSourceFields() {
+    const tableName = document.getElementById('addRelationSourceTable').value;
+    const fieldSelect = document.getElementById('addRelationSourceField');
+
+    if (!tableName) {
+        fieldSelect.innerHTML = '<option value="">请先选择源表</option>';
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const data = await response.json();
+
+        if (data.success) {
+            const fields = data.columns || [];
+            fieldSelect.innerHTML = '<option value="">请选择字段</option>' +
+                fields.map(f => `<option value="${f.name}">${f.name}${f.comment ? ' (' + f.comment + ')' : ''}</option>`).join('');
+        } else {
+            showToast('获取字段列表失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        showToast('获取字段列表失败: ' + error.message, 'error');
+    }
+}
+
+// 加载目标表字段
+async function loadTargetFields() {
+    const tableName = document.getElementById('addRelationTargetTable').value;
+    const fieldSelect = document.getElementById('addRelationTargetField');
+
+    if (!tableName) {
+        fieldSelect.innerHTML = '<option value="">请先选择目标表</option>';
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const data = await response.json();
+
+        if (data.success) {
+            const fields = data.columns || [];
+            fieldSelect.innerHTML = '<option value="">请选择字段</option>' +
+                fields.map(f => `<option value="${f.name}">${f.name}${f.comment ? ' (' + f.comment + ')' : ''}</option>`).join('');
+        } else {
+            showToast('获取字段列表失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        showToast('获取字段列表失败: ' + error.message, 'error');
+    }
+}
+
+// 创建关系
+async function createRelation() {
+    const sourceTable = document.getElementById('addRelationSourceTable').value;
+    const sourceField = document.getElementById('addRelationSourceField').value;
+    const targetTable = document.getElementById('addRelationTargetTable').value;
+    const targetField = document.getElementById('addRelationTargetField').value;
+    const matchType = document.getElementById('addRelationMatchType').value;
+    const relationName = document.getElementById('addRelationName').value.trim();
+
+    if (!sourceTable || !sourceField || !targetTable || !targetField || !matchType) {
+        showToast('请填写所有必填字段', 'warning');
+        return;
+    }
+
+    try {
+        const body = {
+            database_id: currentDb.id,
+            source_table: sourceTable,
+            source_field: sourceField,
+            target_table: targetTable,
+            target_field: targetField,
+            match_type: matchType
+        };
+        if (relationName) {
+            body.relation_name = relationName;
+        }
+
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('关系创建成功', 'success');
+            closeAddRelationModal();
+            loadRelationPreviewPage(currentRelationPage);
+        } else {
+            showToast('创建失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('创建失败: ' + error.message, 'error');
+    }
+}
+
+// 显示编辑关系弹窗
+async function showEditRelationModal(relationId) {
+    const relation = (window.currentRelationData || []).find(r => r.id === relationId);
+    if (!relation) {
+        showToast('未找到关系数据', 'error');
+        return;
+    }
+
+    try {
+        // 获取表列表
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables`);
+        const data = await response.json();
+
+        if (!data.success) {
+            showToast('获取表列表失败: ' + data.message, 'error');
+            return;
+        }
+
+        const tables = data.tables || [];
+        const tableOptions = tables.map(t => `<option value="${t.name}">${t.name}${t.comment ? ' (' + t.comment + ')' : ''}</option>`).join('');
+
+        const modalHtml = `
+            <div id="editRelationModal" class="modal" style="display:flex;">
+                <div class="modal-content" style="max-width:600px;">
+                    <div class="modal-header">
+                        <h2>✏️ 编辑关系</h2>
+                        <button class="modal-close" onclick="closeEditRelationModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">源表:</label>
+                            <select id="editRelationSourceTable" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" onchange="loadEditSourceFields()">
+                                <option value="">请选择源表</option>
+                                ${tableOptions}
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">源字段:</label>
+                            <select id="editRelationSourceField" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="">请先选择源表</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">目标表:</label>
+                            <select id="editRelationTargetTable" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" onchange="loadEditTargetFields()">
+                                <option value="">请选择目标表</option>
+                                ${tableOptions}
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">目标字段:</label>
+                            <select id="editRelationTargetField" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="">请先选择目标表</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">匹配类型:</label>
+                            <select id="editRelationMatchType" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                                <option value="exact">精确匹配</option>
+                                <option value="case_insensitive">大小写不敏感</option>
+                                <option value="naming_style">命名风格相似</option>
+                                <option value="type_keyword">类型+关键词</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:5px;font-weight:bold;">关系名称（可选）:</label>
+                            <input type="text" id="editRelationName" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;" placeholder="输入关系名称（可选）">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="closeEditRelationModal()">取消</button>
+                        <button type="button" class="btn btn-primary" onclick="updateRelation(${relationId})">保存修改</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // 设置当前值
+        document.getElementById('editRelationSourceTable').value = relation.source_table;
+        document.getElementById('editRelationTargetTable').value = relation.target_table;
+        document.getElementById('editRelationMatchType').value = relation.match_type || 'exact';
+        document.getElementById('editRelationName').value = relation.relation_name || '';
+
+        // 加载字段并设置当前值
+        await loadEditSourceFields();
+        document.getElementById('editRelationSourceField').value = relation.source_field;
+
+        await loadEditTargetFields();
+        document.getElementById('editRelationTargetField').value = relation.target_field;
+
+    } catch (error) {
+        showToast('获取表列表失败: ' + error.message, 'error');
+    }
+}
+
+function closeEditRelationModal() {
+    const modal = document.getElementById('editRelationModal');
+    if (modal) modal.remove();
+}
+
+// 加载编辑弹窗的源表字段
+async function loadEditSourceFields() {
+    const tableName = document.getElementById('editRelationSourceTable').value;
+    const fieldSelect = document.getElementById('editRelationSourceField');
+
+    if (!tableName) {
+        fieldSelect.innerHTML = '<option value="">请先选择源表</option>';
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const data = await response.json();
+
+        if (data.success) {
+            const fields = data.columns || [];
+            fieldSelect.innerHTML = '<option value="">请选择字段</option>' +
+                fields.map(f => `<option value="${f.name}">${f.name}${f.comment ? ' (' + f.comment + ')' : ''}</option>`).join('');
+        } else {
+            showToast('获取字段列表失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        showToast('获取字段列表失败: ' + error.message, 'error');
+    }
+}
+
+// 加载编辑弹窗的目标表字段
+async function loadEditTargetFields() {
+    const tableName = document.getElementById('editRelationTargetTable').value;
+    const fieldSelect = document.getElementById('editRelationTargetField');
+
+    if (!tableName) {
+        fieldSelect.innerHTML = '<option value="">请先选择目标表</option>';
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const data = await response.json();
+
+        if (data.success) {
+            const fields = data.columns || [];
+            fieldSelect.innerHTML = '<option value="">请选择字段</option>' +
+                fields.map(f => `<option value="${f.name}">${f.name}${f.comment ? ' (' + f.comment + ')' : ''}</option>`).join('');
+        } else {
+            showToast('获取字段列表失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        showToast('获取字段列表失败: ' + error.message, 'error');
+    }
+}
+
+// 更新关系
+async function updateRelation(relationId) {
+    const sourceTable = document.getElementById('editRelationSourceTable').value;
+    const sourceField = document.getElementById('editRelationSourceField').value;
+    const targetTable = document.getElementById('editRelationTargetTable').value;
+    const targetField = document.getElementById('editRelationTargetField').value;
+    const matchType = document.getElementById('editRelationMatchType').value;
+    const relationName = document.getElementById('editRelationName').value.trim();
+
+    if (!sourceTable || !sourceField || !targetTable || !targetField || !matchType) {
+        showToast('请填写所有必填字段', 'warning');
+        return;
+    }
+
+    try {
+        const body = {
+            database_id: currentDb.id,
+            relation_id: relationId,
+            source_table: sourceTable,
+            source_field: sourceField,
+            target_table: targetTable,
+            target_field: targetField,
+            match_type: matchType
+        };
+        if (relationName) {
+            body.relation_name = relationName;
+        }
+
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('关系更新成功', 'success');
+            closeEditRelationModal();
+            loadRelationPreviewPage(currentRelationPage);
+        } else {
+            showToast('更新失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('更新失败: ' + error.message, 'error');
+    }
+}
+
+// 删除单个关系
+async function deleteRelation(relationId) {
+    if (!confirm('确定要删除该关系吗？此操作不可恢复。')) {
+        return;
+    }
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/table-retrieval/relations`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                database_id: currentDb.id,
+                relation_ids: [relationId]
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            loadRelationPreviewPage(currentRelationPage);
+        } else {
+            showToast('删除失败: ' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
 }
