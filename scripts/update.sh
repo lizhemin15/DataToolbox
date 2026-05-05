@@ -79,13 +79,38 @@ if [[ -f "$TMP_DIR/gov-runner" ]]; then
 fi
 
 # 3. 更新前端文件（关键！）
-for item in index.html apps css js lib; do
+# 注意：apps/data-ontology/data-store.json 是运行时配置，必须保留！
+for item in index.html css js lib; do
     if [[ -e "$TMP_DIR/$item" ]]; then
         rm -rf "$INSTALL_DIR/$item"
         cp -r "$TMP_DIR/$item" "$INSTALL_DIR/"
         ok "已更新: $item/"
     fi
 done
+
+# apps 目录特殊处理：保留运行时配置文件
+if [[ -e "$TMP_DIR/apps" ]]; then
+    # 备份运行时配置
+    DATA_STORE_BACKUP=""
+    if [[ -f "$INSTALL_DIR/apps/data-ontology/data-store.json" ]]; then
+        DATA_STORE_BACKUP=$(mktemp)
+        cp "$INSTALL_DIR/apps/data-ontology/data-store.json" "$DATA_STORE_BACKUP"
+        log "已备份运行时配置: data-store.json"
+    fi
+    
+    # 更新 apps 目录（删除旧的，复制新的）
+    rm -rf "$INSTALL_DIR/apps"
+    cp -r "$TMP_DIR/apps" "$INSTALL_DIR/"
+    
+    # 恢复运行时配置（如果备份存在）
+    if [[ -n "$DATA_STORE_BACKUP" && -f "$DATA_STORE_BACKUP" ]]; then
+        cp "$DATA_STORE_BACKUP" "$INSTALL_DIR/apps/data-ontology/data-store.json"
+        rm -f "$DATA_STORE_BACKUP"
+        ok "已恢复运行时配置: data-store.json"
+    fi
+    
+    ok "已更新: apps/"
+fi
 
 # 4. 更新启动脚本（可选）
 if [[ -f "$TMP_DIR/start.sh" ]]; then
