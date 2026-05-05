@@ -12076,36 +12076,68 @@ async function handleRelationIndex() {
     }
 }
 
+// 关系候选筛选状态
+let relationCandidatesData = [];
+let relationFilters = {
+    table: '',
+    column: '',
+    matchType: '',
+    minConfidence: 0
+};
+
 // 显示关系候选列表
 function showRelationCandidates(candidates) {
-    const candidatesHtml = candidates.map((c, idx) => `
-        <div style="padding:10px;border-bottom:1px solid #eee;">
-            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
-                <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" style="margin-top:3px;width:16px;height:16px;">
-                <div style="flex:1;">
-                    <div style="font-size:13px;font-weight:600;color:#333;">${c.table1} → ${c.table2}</div>
-                    <div style="font-size:12px;color:#666;margin-top:4px;">
-                        关联字段: ${c.col1} = ${c.col2}<br>
-                        置信度: ${(c.confidence * 100).toFixed(1)}% · ${c.match_type}<br>
-                        <span style="color:#888;">${c.reason}</span>
-                    </div>
-                </div>
-            </label>
-        </div>
-    `).join('');
+    relationCandidatesData = candidates;
+    relationFilters = { table: '', column: '', matchType: '', minConfidence: 0 };
 
     const modalHtml = `
+        <style>
+            .relation-filterable:hover {
+                color: #764ba2 !important;
+                text-decoration-style: solid !important;
+            }
+            #relationCandidatesModal input[type="text"]:focus,
+            #relationCandidatesModal select:focus {
+                border-color: #667eea;
+                outline: none;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            #relationCandidatesModal input[type="range"] {
+                cursor: pointer;
+            }
+        </style>
         <div id="relationCandidatesModal" class="modal" style="display:flex;">
-            <div class="modal-content" style="max-width:600px;max-height:80vh;">
+            <div class="modal-content" style="max-width:700px;max-height:85vh;">
                 <div class="modal-header">
                     <h2>🔗 确认关系候选</h2>
                     <button class="modal-close" onclick="closeRelationCandidatesModal()">&times;</button>
                 </div>
-                <div class="modal-body" style="max-height:400px;overflow-y:auto;padding:0;">
-                    <div style="padding:12px;background:#f8f9fa;border-bottom:1px solid #e9ecef;font-size:13px;color:#666;">
-                        发现 ${candidates.length} 个关系候选，请勾选需要确认的关系
+
+                <!-- 筛选栏 -->
+                <div style="padding:12px;background:#f8f9fa;border-bottom:1px solid #e9ecef;">
+                    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                        <input type="text" id="relationTableFilter" placeholder="筛选表名..."
+                            style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
+                            oninput="applyRelationFilters()">
+                        <input type="text" id="relationColumnFilter" placeholder="筛选字段名..."
+                            style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"
+                            oninput="applyRelationFilters()">
+                        <select id="relationMatchTypeFilter"
+                            style="flex:1;min-width:120px;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;background:#fff;"
+                            onchange="applyRelationFilters()">
+                            <option value="">全部类型</option>
+                        </select>
                     </div>
-                    ${candidatesHtml}
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <label style="font-size:13px;color:#666;white-space:nowrap;">最低置信度:</label>
+                        <input type="range" id="relationConfidenceSlider" min="0" max="100" value="0"
+                            style="flex:1;" oninput="updateConfidenceFilter(this.value)">
+                        <span id="relationConfidenceValue" style="font-size:13px;color:#666;min-width:45px;">0%</span>
+                    </div>
+                    <div id="relationFilterStats" style="margin-top:8px;font-size:13px;color:#666;"></div>
+                </div>
+
+                <div class="modal-body" style="max-height:400px;overflow-y:auto;padding:0;" id="relationCandidatesList">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeRelationCandidatesModal()">取消</button>
@@ -12116,6 +12148,146 @@ function showRelationCandidates(candidates) {
     `;
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 初始化匹配类型下拉框
+    initMatchTypeFilter();
+    // 渲染候选列表
+    renderRelationCandidates();
+}
+
+// 初始化匹配类型筛选下拉框
+function initMatchTypeFilter() {
+    const matchTypes = [...new Set(relationCandidatesData.map(c => c.match_type))].sort();
+    const select = document.getElementById('relationMatchTypeFilter');
+
+    matchTypes.forEach(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type;
+        select.appendChild(option);
+    });
+}
+
+// 更新置信度筛选
+function updateConfidenceFilter(value) {
+    document.getElementById('relationConfidenceValue').textContent = value + '%';
+    applyRelationFilters();
+}
+
+// 应用筛选条件
+function applyRelationFilters() {
+    const tableFilter = document.getElementById('relationTableFilter').value.trim().toLowerCase();
+    const columnFilter = document.getElementById('relationColumnFilter').value.trim().toLowerCase();
+    const matchTypeFilter = document.getElementById('relationMatchTypeFilter').value;
+    const confidenceFilter = parseInt(document.getElementById('relationConfidenceSlider').value) / 100;
+
+    relationFilters = {
+        table: tableFilter,
+        column: columnFilter,
+        matchType: matchTypeFilter,
+        minConfidence: confidenceFilter
+    };
+
+    renderRelationCandidates();
+}
+
+// 快速筛选 - 点击标签
+function quickFilterRelation(type, value) {
+    if (type === 'table') {
+        document.getElementById('relationTableFilter').value = value;
+    } else if (type === 'column') {
+        document.getElementById('relationColumnFilter').value = value;
+    } else if (type === 'matchType') {
+        document.getElementById('relationMatchTypeFilter').value = value;
+    }
+    applyRelationFilters();
+}
+
+// 渲染关系候选列表
+function renderRelationCandidates() {
+    const filtered = relationCandidatesData.filter(c => {
+        // 表名筛选
+        if (relationFilters.table) {
+            const tableMatch = c.table1.toLowerCase().includes(relationFilters.table) ||
+                              c.table2.toLowerCase().includes(relationFilters.table);
+            if (!tableMatch) return false;
+        }
+
+        // 字段名筛选
+        if (relationFilters.column) {
+            const columnMatch = c.col1.toLowerCase().includes(relationFilters.column) ||
+                               c.col2.toLowerCase().includes(relationFilters.column);
+            if (!columnMatch) return false;
+        }
+
+        // 匹配类型筛选
+        if (relationFilters.matchType && c.match_type !== relationFilters.matchType) {
+            return false;
+        }
+
+        // 置信度筛选
+        if (c.confidence < relationFilters.minConfidence) {
+            return false;
+        }
+
+        return true;
+    });
+
+    // 更新统计信息
+    const statsEl = document.getElementById('relationFilterStats');
+    statsEl.innerHTML = `显示 <strong style="color:#667eea;">${filtered.length}</strong> / ${relationCandidatesData.length} 个候选`;
+
+    // 渲染列表
+    const listEl = document.getElementById('relationCandidatesList');
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align:center;color:#718096;padding:40px 20px;">
+                <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+                <div>未找到匹配的关系候选</div>
+            </div>
+        `;
+        return;
+    }
+
+    const candidatesHtml = filtered.map(c => `
+        <div style="padding:10px;border-bottom:1px solid #eee;">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+                <input type="checkbox" class="relation-candidate-checkbox" data-id="${c.id}" style="margin-top:3px;width:16px;height:16px;">
+                <div style="flex:1;">
+                    <div style="font-size:13px;font-weight:600;color:#333;">
+                        <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table1)}'); event.stopPropagation();"
+                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              title="点击筛选此表">${escapeHtml(c.table1)}</span>
+                        <span style="color:#999;">→</span>
+                        <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table2)}'); event.stopPropagation();"
+                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              title="点击筛选此表">${escapeHtml(c.table2)}</span>
+                    </div>
+                    <div style="font-size:12px;color:#666;margin-top:4px;">
+                        关联字段:
+                        <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col1)}'); event.stopPropagation();"
+                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              title="点击筛选此字段">${escapeHtml(c.col1)}</span>
+                        <span style="color:#999;">=</span>
+                        <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col2)}'); event.stopPropagation();"
+                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              title="点击筛选此字段">${escapeHtml(c.col2)}</span>
+                        <br>
+                        置信度: <strong style="color:${c.confidence >= 0.8 ? '#48bb78' : c.confidence >= 0.5 ? '#ed8936' : '#718096'};">${(c.confidence * 100).toFixed(1)}%</strong>
+                        ·
+                        <span class="relation-filterable" onclick="quickFilterRelation('matchType', '${escapeHtml(c.match_type)}'); event.stopPropagation();"
+                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              title="点击筛选此类型">${escapeHtml(c.match_type)}</span>
+                        <br>
+                        <span style="color:#888;">${escapeHtml(c.reason)}</span>
+                    </div>
+                </div>
+            </label>
+        </div>
+    `).join('');
+
+    listEl.innerHTML = candidatesHtml;
 }
 
 // 确认关系候选
