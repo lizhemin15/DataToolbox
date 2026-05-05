@@ -13860,6 +13860,22 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 			// 兼容旧格式（只有表名）
 			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
 		}
+
+		// 添加关系信息
+		if relations, ok := schema["relations"].([]OntologyRelation); ok && len(relations) > 0 {
+			prompt += "\n表间关系（可用于JOIN参考）:\n"
+			prompt += strings.Repeat("-", 40) + "\n"
+			for _, rel := range relations {
+				prompt += fmt.Sprintf("  • %s\n", rel.Name)
+				prompt += fmt.Sprintf("    %s.%s ↔ %s.%s\n",
+					rel.Source.TableName, rel.Source.FieldName,
+					rel.Target.TableName, rel.Target.FieldName)
+				if rel.Description != "" {
+					prompt += fmt.Sprintf("    说明: %s\n", rel.Description)
+				}
+			}
+			prompt += "提示：上述关系表示不同表之间字段的关联关系，可在生成JOIN SQL时参考。\n"
+		}
 		prompt += "\n"
 	}
 
@@ -13956,6 +13972,22 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 		} else if tables, ok := schema["tables"].([]string); ok {
 			// 兼容旧格式（只有表名）
 			prompt += "表列表: " + strings.Join(tables, ", ") + "\n"
+		}
+
+		// 添加关系信息
+		if relations, ok := schema["relations"].([]OntologyRelation); ok && len(relations) > 0 {
+			prompt += "\n表间关系（可用于JOIN参考）:\n"
+			prompt += strings.Repeat("-", 40) + "\n"
+			for _, rel := range relations {
+				prompt += fmt.Sprintf("  • %s\n", rel.Name)
+				prompt += fmt.Sprintf("    %s.%s ↔ %s.%s\n",
+					rel.Source.TableName, rel.Source.FieldName,
+					rel.Target.TableName, rel.Target.FieldName)
+				if rel.Description != "" {
+					prompt += fmt.Sprintf("    说明: %s\n", rel.Description)
+				}
+			}
+			prompt += "提示：上述关系表示不同表之间字段的关联关系，可在生成JOIN SQL时参考。\n"
 		}
 		prompt += "\n"
 	}
