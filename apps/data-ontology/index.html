@@ -669,6 +669,14 @@
         <div id="mcpTab" class="tab-content">
             <div class="tab-content-wrap">
             <div class="mcp-container">
+                <!-- Agent服务子Tab导航 -->
+                <div class="mcp-sub-tabs">
+                    <button class="mcp-sub-tab active" data-sub-tab="mcp">MCP</button>
+                    <button class="mcp-sub-tab" data-sub-tab="skills">Skills</button>
+                </div>
+                
+                <!-- MCP 子Tab内容 -->
+                <div class="mcp-sub-content active" id="mcpSubTab">
                 <div class="mcp-header">
                     <h2>🔌 Agent 服务</h2>
                     <p class="mcp-desc">在 Cursor、Claude Desktop 等客户端中通过 Model Context Protocol 使用数据本体池：查询数据库、调用接口。</p>
@@ -779,6 +787,72 @@
                         <li><code>call_api</code> — 调用已配置的接口，传入接口 ID 和参数执行并返回数据</li>
                     </ul>
                 </div>
+                </div><!-- mcpSubTab 结束 -->
+                
+                <!-- Skills 子Tab内容 -->
+                <div class="mcp-sub-content" id="skillsSubTab">
+                    <div class="mcp-header">
+                        <h2>🧩 Skills 安装</h2>
+                        <p class="mcp-desc">为各种智能体应用一键安装数据本体池的 Skill，让 AI 助手能够查询数据库、调用接口。</p>
+                    </div>
+                    <div class="skills-section">
+                        <h3>支持的智能体</h3>
+                        <div class="skills-grid">
+                            <div class="skill-card" data-skill-type="claude-code">
+                                <div class="skill-icon">🤖</div>
+                                <div class="skill-info">
+                                    <h4>Claude Code</h4>
+                                    <p>Anthropic 官方 CLI 编程助手</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('claude-code')">一键安装</button>
+                            </div>
+                            <div class="skill-card" data-skill-type="cursor">
+                                <div class="skill-icon">✨</div>
+                                <div class="skill-info">
+                                    <h4>Cursor</h4>
+                                    <p>AI 驱动的代码编辑器</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('cursor')">一键安装</button>
+                            </div>
+                            <div class="skill-card" data-skill-type="openai-gpts">
+                                <div class="skill-icon">🟢</div>
+                                <div class="skill-info">
+                                    <h4>OpenAI GPTs</h4>
+                                    <p>ChatGPT 自定义 GPT</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('openai-gpts')">一键安装</button>
+                            </div>
+                            <div class="skill-card" data-skill-type="coze">
+                                <div class="skill-icon">🎯</div>
+                                <div class="skill-info">
+                                    <h4>字节豆包/Coze</h4>
+                                    <p>字节跳动 AI 助手平台</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('coze')">一键安装</button>
+                            </div>
+                            <div class="skill-card" data-skill-type="dify">
+                                <div class="skill-icon">🔧</div>
+                                <div class="skill-info">
+                                    <h4>Dify</h4>
+                                    <p>开源 LLM 应用开发平台</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('dify')">一键安装</button>
+                            </div>
+                            <div class="skill-card" data-skill-type="generic">
+                                <div class="skill-icon">📦</div>
+                                <div class="skill-info">
+                                    <h4>通用 JSON</h4>
+                                    <p>导出 OpenAPI 格式配置</p>
+                                </div>
+                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('generic')">一键安装</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="skills-section" id="skillInstallGuide" style="display:none;">
+                        <h3>安装指南</h3>
+                        <div class="skill-guide-content"></div>
+                    </div>
+                </div><!-- skillsSubTab 结束 -->
             </div>
             </div>
         </div>

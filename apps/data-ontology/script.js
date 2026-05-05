@@ -2919,6 +2919,65 @@ async function loadMcpInfo() {
     updateMcpDisplay();
     // 加载安全配置
     await loadMcpSafeConfig();
+    // 初始化子Tab切换
+    initMcpSubTabs();
+}
+
+// Agent服务子Tab切换
+function initMcpSubTabs() {
+    const subTabs = document.querySelectorAll('.mcp-sub-tab');
+    subTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const subTabName = tab.dataset.subTab;
+            // 更新tab按钮状态
+            subTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            // 更新内容显示
+            document.querySelectorAll('.mcp-sub-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(subTabName + 'SubTab').classList.add('active');
+        });
+    });
+}
+
+// Skills 一键安装
+async function installSkill(type) {
+    const guideDiv = document.getElementById('skillInstallGuide');
+    const guideContent = guideDiv.querySelector('.skill-guide-content');
+    guideDiv.style.display = 'block';
+    
+    const baseUrl = window.location.origin;
+    const apiKey = localStorage.getItem('apiKey') || '';
+    
+    try {
+        const r = await fetchWithAuth(`${API_BASE}/api/data-ontology/skills/export?type=${type}`);
+        const data = await r.json();
+        
+        if (data.success && data.config) {
+            // 复制到剪贴板
+            const configStr = typeof data.config === 'object' ? JSON.stringify(data.config, null, 2) : data.config;
+            await navigator.clipboard.writeText(configStr);
+            
+            // 显示安装指南
+            guideContent.innerHTML = `<p style="color:#38a169;font-weight:600;margin-bottom:8px;">✅ ${data.title} 配置已复制到剪贴板！</p>
+<p>${data.description}</p>
+<pre>${escapeHtml(configStr.slice(0, 2000))}${configStr.length > 2000 ? '...' : ''}</pre>
+<p style="margin-top:12px;"><strong>下一步：</strong></p>
+<div style="margin-top:8px;">${data.steps || ''}</div>`;
+            
+            // 滚动到指南
+            guideDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            guideContent.innerHTML = `<p style="color:#e53e3e;">❌ 生成失败: ${data.error || '未知错误'}</p>`;
+        }
+    } catch (e) {
+        guideContent.innerHTML = `<p style="color:#e53e3e;">❌ 请求失败: ${e.message}</p>`;
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 async function toggleMcpEnabled() {

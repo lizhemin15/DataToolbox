@@ -1411,6 +1411,122 @@ body {
     margin-right: 8px;
 }
 
+/* Agent服务子Tab */
+.mcp-sub-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 0;
+}
+
+.mcp-sub-tab {
+    padding: 10px 20px;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    font-weight: 500;
+    color: #718096;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+}
+
+.mcp-sub-tab:hover {
+    color: #4a5568;
+}
+
+.mcp-sub-tab.active {
+    color: #553c9a;
+    border-bottom-color: #553c9a;
+}
+
+.mcp-sub-content {
+    display: none;
+}
+
+.mcp-sub-content.active {
+    display: block;
+}
+
+/* Skills样式 */
+.skills-section {
+    margin-bottom: 24px;
+}
+
+.skills-section h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 16px;
+}
+
+.skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.skill-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    transition: all 0.2s;
+}
+
+.skill-card:hover {
+    border-color: #553c9a;
+    box-shadow: 0 4px 12px rgba(85, 60, 154, 0.1);
+}
+
+.skill-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.skill-info {
+    flex-grow: 1;
+}
+
+.skill-info h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 4px;
+}
+
+.skill-info p {
+    font-size: 13px;
+    color: #718096;
+}
+
+.skill-install-btn {
+    flex-shrink: 0;
+}
+
+.skill-guide-content {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 14px;
+}
+
+.skill-guide-content pre {
+    background: #2d3748;
+    color: #e2e8f0;
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 12px 0;
+    font-size: 13px;
+}
+
 /* MCP 安全配置 */
 .mcp-safety-config {
     background: #f8fafc;

@@ -5106,6 +5106,143 @@ func handleMCPConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSkillsExport 技能导出：根据类型生成不同 AI 平台的技能配置
+func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+	if r.Method != http.MethodGet {
+		apiMethodNotAllowed(w)
+		return
+	}
+
+	skillType := r.URL.Query().Get("type")
+	if skillType == "" {
+		apiBadRequest(w, "缺少 type 参数")
+		return
+	}
+
+	// 获取当前服务地址作为 MCP endpoint
+	host := r.Host
+	if host == "" {
+		host = "localhost:8080"
+	}
+	scheme := "http"
+	if r.TLS != nil || strings.HasPrefix(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	mcpEndpoint := fmt.Sprintf("%s://%s/mcp", scheme, host)
+
+	// 根据类型生成配置
+	var title, description string
+	var config interface{}
+	var steps []string
+
+	switch skillType {
+	case "claude-code":
+		title = "Claude Code"
+		description = "Anthropic Claude Code CLI 技能配置"
+		config = map[string]interface{}{
+			"mcpServers": map[string]interface{}{
+				"datatoolbox": map[string]interface{}{
+					"url": mcpEndpoint,
+				},
+			},
+		}
+		steps = []string{
+			"打开 Claude Code 配置文件: ~/.claude/config.json",
+			"将上方配置粘贴到文件中",
+			"重启 Claude Code 即可使用",
+		}
+	case "cursor":
+		title = "Cursor"
+		description = "Cursor IDE MCP 技能配置"
+		config = map[string]interface{}{
+			"mcpServers": map[string]interface{}{
+				"datatoolbox": map[string]interface{}{
+					"url": mcpEndpoint,
+				},
+			},
+		}
+		steps = []string{
+			"打开 Cursor 设置: Ctrl/Cmd + Shift + P → \"Open Settings (JSON)\"",
+			"将上方配置粘贴到 settings.json 中",
+			"重启 Cursor 即可使用",
+		}
+	case "openai-gpts":
+		title = "OpenAI GPTs"
+		description = "OpenAI GPTs Actions 配置（需转为 OpenAPI schema）"
+		config = map[string]interface{}{
+			"openapi": "3.0.0",
+			"info": map[string]interface{}{
+				"title":       "DataToolbox MCP",
+				"description": "DataToolbox 数据工具箱 MCP 接口",
+				"version":     "1.0.0",
+			},
+			"servers": []map[string]interface{}{
+				{"url": mcpEndpoint, "description": "DataToolbox MCP Server"},
+			},
+			"paths": map[string]interface{}{
+				"/tools": map[string]interface{}{
+					"get": map[string]interface{}{
+						"summary": "获取可用工具列表",
+						"responses": map[string]interface{}{
+							"200": map[string]interface{}{
+								"description": "工具列表",
+							},
+						},
+					},
+				},
+			},
+		}
+		steps = []string{
+			"进入 OpenAI GPT 编辑页面",
+			"在 Actions 区域点击 \"Import OpenAPI schema\"",
+			"将上方配置粘贴导入",
+			"保存 GPT 即可使用",
+		}
+	case "doubao":
+		title = "字节豆包"
+		description = "字节豆包 MCP 技能配置"
+		config = map[string]interface{}{
+			"mcp": map[string]interface{}{
+				"servers": []map[string]interface{}{
+					{
+						"name": "datatoolbox",
+						"url":  mcpEndpoint,
+					},
+				},
+			},
+		}
+		steps = []string{
+			"打开豆包开发者设置",
+			"找到 MCP 服务配置区域",
+			"将上方配置粘贴到配置文件中",
+			"保存并重启即可使用",
+		}
+	default:
+		apiBadRequest(w, "不支持的技能类型: "+skillType)
+		return
+	}
+
+	// 将 config 转为格式化的 JSON 字符串
+	configJSON, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		apiError(w, "配置序列化失败")
+		return
+	}
+
+	jsonSuccess(w, map[string]interface{}{
+		"success":     true,
+		"title":       title,
+		"description": description,
+		"config":      string(configJSON),
+		"steps":       steps,
+	})
+}
+
 // handleMCPSafeConfig MCP 安全配置：GET 返回当前配置，PUT 更新（需授权）
 func handleMCPSafeConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -18721,6 +18858,8 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/mcp/port", handleMCPPort)
 	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
 	mux.Handle("/mcp/", http.HandlerFunc(handleMCPHTTP))
+	// Skills 技能导出
+	mux.HandleFunc("/api/data-ontology/skills/export", handleSkillsExport)
 	// 接口管理API路由
 	mux.HandleFunc("/api/data-ontology/apis", handleApis)
 	mux.HandleFunc("/api/data-ontology/apis/", func(w http.ResponseWriter, r *http.Request) {
