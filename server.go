@@ -10050,6 +10050,10 @@ func handleAIConfig(w http.ResponseWriter, r *http.Request) {
 			if config.TableRetrieval == nil && dataOntologyAIConfig.TableRetrieval != nil {
 				config.TableRetrieval = dataOntologyAIConfig.TableRetrieval
 			}
+			// 保留已有的 Embedding 配置（前端可能未传）
+			if config.Embedding.URL == "" && dataOntologyAIConfig.Embedding.URL != "" {
+				config.Embedding = dataOntologyAIConfig.Embedding
+			}
 		}
 		dataOntologyMu.RUnlock()
 
