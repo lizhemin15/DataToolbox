@@ -13558,3 +13558,30 @@ async function deleteRelation(relationId) {
         loadRelationPreviewPage(currentRelationPage); // 失败刷新恢复
     }
 }
+
+async function govDownloadExamplesForTask(taskId) {
+    const task = window.govTasks?.find(t => t.id === taskId);
+    if (!task?.example_files?.length) {
+        showToast('没有可下载的样例文件', 'error');
+        return;
+    }
+    const token = localStorage.getItem('dataOntologyToken') || '';
+    for (const file of task.example_files) {
+        const url = `/api/data-ontology/governance/examples/${encodeURIComponent(file.path)}`;
+        try {
+            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+            if (!res.ok) throw new Error(res.statusText);
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = file.name || file.path;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        } catch (e) {
+            console.error('下载失败:', file.name, e);
+            showToast('下载失败: ' + file.name, 'error');
+        }
+    }
+}
