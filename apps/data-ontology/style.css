@@ -1109,6 +1109,183 @@ body {
     height: 100%;
 }
 
+/* MCP 子标签导航 */
+.mcp-sub-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 20px;
+    padding: 0 20px;
+}
+
+.mcp-sub-tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: #6b7280;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s;
+}
+
+.mcp-sub-tab:hover {
+    color: #4f46e5;
+}
+
+.mcp-sub-tab.active {
+    color: #4f46e5;
+    font-weight: 600;
+}
+
+.mcp-sub-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #4f46e5;
+}
+
+/* MCP 子标签内容 */
+.mcp-sub-content {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    /* 隐藏滚动条，滚动时显示 */
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.mcp-sub-content:hover {
+    scrollbar-color: #c1c1c1 transparent;
+}
+
+.mcp-sub-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.mcp-sub-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.mcp-sub-content::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 3px;
+}
+
+.mcp-sub-content:hover::-webkit-scrollbar-thumb {
+    background-color: #c1c1c1;
+}
+
+.mcp-sub-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Skills 技能安装 */
+.skills-container {
+    padding: 20px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.skills-container h3 {
+    font-size: 20px;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.skills-desc {
+    color: #718096;
+    margin-bottom: 24px;
+}
+
+.skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.skill-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-card:hover {
+    border-color: #4f46e5;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+    transform: translateY(-2px);
+}
+
+.skill-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.skill-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 4px;
+}
+
+.skill-desc {
+    font-size: 13px;
+    color: #718096;
+    margin-bottom: 12px;
+}
+
+.skill-install-guide {
+    background: #f7fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.skill-install-guide h4 {
+    font-size: 16px;
+    color: #2d3748;
+    margin-bottom: 12px;
+}
+
+.skill-config-pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    margin-bottom: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.skill-steps {
+    margin-top: 16px;
+}
+
+.skill-steps h5 {
+    font-size: 14px;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.skill-steps ol {
+    padding-left: 20px;
+    color: #4a5568;
+    line-height: 1.8;
+}
+
 .mcp-header {
     margin-bottom: 28px;
 }
@@ -1409,122 +1586,6 @@ body {
     font-weight: 600;
     color: #553c9a;
     margin-right: 8px;
-}
-
-/* Agent服务子Tab */
-.mcp-sub-tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 20px;
-    border-bottom: 2px solid #e2e8f0;
-    padding-bottom: 0;
-}
-
-.mcp-sub-tab {
-    padding: 10px 20px;
-    border: none;
-    background: transparent;
-    font-size: 14px;
-    font-weight: 500;
-    color: #718096;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    transition: all 0.2s;
-}
-
-.mcp-sub-tab:hover {
-    color: #4a5568;
-}
-
-.mcp-sub-tab.active {
-    color: #553c9a;
-    border-bottom-color: #553c9a;
-}
-
-.mcp-sub-content {
-    display: none;
-}
-
-.mcp-sub-content.active {
-    display: block;
-}
-
-/* Skills样式 */
-.skills-section {
-    margin-bottom: 24px;
-}
-
-.skills-section h3 {
-    font-size: 16px;
-    font-weight: 600;
-    color: #2d3748;
-    margin-bottom: 16px;
-}
-
-.skills-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
-}
-
-.skill-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 16px;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    transition: all 0.2s;
-}
-
-.skill-card:hover {
-    border-color: #553c9a;
-    box-shadow: 0 4px 12px rgba(85, 60, 154, 0.1);
-}
-
-.skill-icon {
-    font-size: 32px;
-    flex-shrink: 0;
-}
-
-.skill-info {
-    flex-grow: 1;
-}
-
-.skill-info h4 {
-    font-size: 15px;
-    font-weight: 600;
-    color: #2d3748;
-    margin-bottom: 4px;
-}
-
-.skill-info p {
-    font-size: 13px;
-    color: #718096;
-}
-
-.skill-install-btn {
-    flex-shrink: 0;
-}
-
-.skill-guide-content {
-    background: #f7fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px;
-    font-size: 14px;
-}
-
-.skill-guide-content pre {
-    background: #2d3748;
-    color: #e2e8f0;
-    padding: 12px;
-    border-radius: 6px;
-    overflow-x: auto;
-    margin: 12px 0;
-    font-size: 13px;
 }
 
 /* MCP 安全配置 */

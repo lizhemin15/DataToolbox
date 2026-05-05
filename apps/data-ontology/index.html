@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
-    <link rel="stylesheet" href="style.css?v=4.2.79">
+    <link rel="stylesheet" href="style.css?v=4.2.97">
     <script src="/lib/d3.min.js"></script>
     <script src="lib/three.min.js"></script>
     <script src="lib/orbit-controls-wrapper.js"></script>
@@ -667,16 +667,14 @@
         </div>
 
         <div id="mcpTab" class="tab-content">
+            <div class="mcp-sub-tabs">
+                <button type="button" class="mcp-sub-tab active" data-subtab="mcp">MCP</button>
+                <button type="button" class="mcp-sub-tab" data-subtab="skills">Skills</button>
+            </div>
+            
+            <div class="mcp-sub-content active" id="mcpSubTab">
             <div class="tab-content-wrap">
             <div class="mcp-container">
-                <!-- Agent服务子Tab导航 -->
-                <div class="mcp-sub-tabs">
-                    <button class="mcp-sub-tab active" data-sub-tab="mcp">MCP</button>
-                    <button class="mcp-sub-tab" data-sub-tab="skills">Skills</button>
-                </div>
-                
-                <!-- MCP 子Tab内容 -->
-                <div class="mcp-sub-content active" id="mcpSubTab">
                 <div class="mcp-header">
                     <h2>🔌 Agent 服务</h2>
                     <p class="mcp-desc">在 Cursor、Claude Desktop 等客户端中通过 Model Context Protocol 使用数据本体池：查询数据库、调用接口。</p>
@@ -787,73 +785,52 @@
                         <li><code>call_api</code> — 调用已配置的接口，传入接口 ID 和参数执行并返回数据</li>
                     </ul>
                 </div>
-                </div><!-- mcpSubTab 结束 -->
-                
-                <!-- Skills 子Tab内容 -->
-                <div class="mcp-sub-content" id="skillsSubTab">
-                    <div class="mcp-header">
-                        <h2>🧩 Skills 安装</h2>
-                        <p class="mcp-desc">为各种智能体应用一键安装数据本体池的 Skill，让 AI 助手能够查询数据库、调用接口。</p>
-                    </div>
-                    <div class="skills-section">
-                        <h3>支持的智能体</h3>
+            </div>
+            </div>
+            
+            <!-- Skills 子标签 -->
+            <div class="mcp-sub-content" id="skillsSubTab">
+                <div class="tab-content-wrap">
+                    <div class="skills-container">
+                        <h3>🎯 一键安装技能</h3>
+                        <p class="skills-desc">选择您的 AI 助手平台，一键复制配置并按照指引安装。</p>
                         <div class="skills-grid">
-                            <div class="skill-card" data-skill-type="claude-code">
+                            <div class="skill-card" onclick="installSkill('claude-code')">
                                 <div class="skill-icon">🤖</div>
-                                <div class="skill-info">
-                                    <h4>Claude Code</h4>
-                                    <p>Anthropic 官方 CLI 编程助手</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('claude-code')">一键安装</button>
+                                <div class="skill-name">Claude Code</div>
+                                <div class="skill-desc">Anthropic Claude Code CLI</div>
+                                <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
-                            <div class="skill-card" data-skill-type="cursor">
+                            <div class="skill-card" onclick="installSkill('cursor')">
                                 <div class="skill-icon">✨</div>
-                                <div class="skill-info">
-                                    <h4>Cursor</h4>
-                                    <p>AI 驱动的代码编辑器</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('cursor')">一键安装</button>
+                                <div class="skill-name">Cursor</div>
+                                <div class="skill-desc">Cursor IDE</div>
+                                <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
-                            <div class="skill-card" data-skill-type="openai-gpts">
-                                <div class="skill-icon">🟢</div>
-                                <div class="skill-info">
-                                    <h4>OpenAI GPTs</h4>
-                                    <p>ChatGPT 自定义 GPT</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('openai-gpts')">一键安装</button>
+                            <div class="skill-card" onclick="installSkill('openai-gpts')">
+                                <div class="skill-icon">🧠</div>
+                                <div class="skill-name">OpenAI GPTs</div>
+                                <div class="skill-desc">OpenAI GPT Actions</div>
+                                <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
-                            <div class="skill-card" data-skill-type="coze">
-                                <div class="skill-icon">🎯</div>
-                                <div class="skill-info">
-                                    <h4>字节豆包/Coze</h4>
-                                    <p>字节跳动 AI 助手平台</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('coze')">一键安装</button>
+                            <div class="skill-card" onclick="installSkill('doubao')">
+                                <div class="skill-icon">🫛</div>
+                                <div class="skill-name">字节豆包</div>
+                                <div class="skill-desc">字节跳动豆包 AI</div>
+                                <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
-                            <div class="skill-card" data-skill-type="dify">
-                                <div class="skill-icon">🔧</div>
-                                <div class="skill-info">
-                                    <h4>Dify</h4>
-                                    <p>开源 LLM 应用开发平台</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('dify')">一键安装</button>
-                            </div>
-                            <div class="skill-card" data-skill-type="generic">
-                                <div class="skill-icon">📦</div>
-                                <div class="skill-info">
-                                    <h4>通用 JSON</h4>
-                                    <p>导出 OpenAPI 格式配置</p>
-                                </div>
-                                <button class="btn btn-sm btn-primary skill-install-btn" onclick="installSkill('generic')">一键安装</button>
+                        </div>
+                        <div class="skill-install-guide" id="skillInstallGuide" style="display:none;">
+                            <h4 id="skillGuideTitle"></h4>
+                            <pre id="skillConfigPre" class="skill-config-pre"></pre>
+                            <button type="button" class="btn btn-sm" id="skillCopyConfigBtn">复制配置</button>
+                            <div class="skill-steps">
+                                <h5>安装步骤</h5>
+                                <ol id="skillStepsList"></ol>
                             </div>
                         </div>
                     </div>
-                    <div class="skills-section" id="skillInstallGuide" style="display:none;">
-                        <h3>安装指南</h3>
-                        <div class="skill-guide-content"></div>
-                    </div>
-                </div><!-- skillsSubTab 结束 -->
-            </div>
+                </div>
             </div>
         </div>
 
@@ -2167,6 +2144,6 @@
     <script src="lib/pizzip.js"></script>
     <script src="lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
-    <script src="script.js?v=4.2.79"></script>
+    <script src="script.js?v=4.2.97"></script>
 </body>
 </html>
