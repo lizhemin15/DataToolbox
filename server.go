@@ -845,6 +845,16 @@ type TableInfo struct {
 	Name        string   `json:"name"`
 	Comment     string   `json:"comment,omitempty"`
 	ColumnNames []string `json:"column_names,omitempty"` // 用于表检索
+	Columns     []ColumnInfo `json:"columns,omitempty"` // 增强的字段信息（包含类型、注释、主键、外键）
+}
+
+type ColumnInfo struct {
+	Name     string `json:"name"`
+	Type     string `json:"type,omitempty"`
+	Comment  string `json:"comment,omitempty"`
+	IsPK     bool   `json:"is_pk,omitempty"`
+	IsFK     bool   `json:"is_fk,omitempty"`
+	FKTable  string `json:"fk_table,omitempty"` // 外键关联的表名
 }
 
 type DatabaseInfo struct {
@@ -3591,6 +3601,109 @@ func extractSQLiteComment(sqlStr string) string {
 	return ""
 }
 
+// getColumnComments 获取字段注释（达梦数据库）
+func getColumnComments(db *sql.DB, config *DatabaseConfig, tableName string) map[string]string {
+	comments := make(map[string]string)
+	
+	if config.Type != "dm" && config.Type != "oracle" {
+		return comments // 目前只支持达梦和 Oracle
+	}
+	
+	query := "SELECT COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = ?"
+	rows, err := db.Query(query, tableName)
+	if err != nil {
+		log.Printf("查询字段注释失败: %v", err)
+		return comments
+	}
+	defer rows.Close()
+	
+	for rows.Next() {
+		var colName, colComment sql.NullString
+		if err := rows.Scan(&colName, &colComment); err == nil {
+			if colName.Valid && colComment.Valid && colComment.String != "" {
+				comments[colName.String] = colComment.String
+			}
+		}
+	}
+	return comments
+}
+
+// getTablePKs 获取表的主键字段
+func getTablePKs(db *sql.DB, config *DatabaseConfig, tableName string) []string {
+	var pkColumns []string
+	
+	switch config.Type {
+	case "dm", "oracle":
+		// 达梦/Oracle: 从 USER_CONSTRAINTS + USER_CONS_COLUMNS 获取主键
+		query := `
+			SELECT cc.COLUMN_NAME
+			FROM USER_CONSTRAINTS c
+			JOIN USER_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+			WHERE c.TABLE_NAME = ? AND c.CONSTRAINT_TYPE = 'P'
+			ORDER BY cc.POSITION`
+		rows, err := db.Query(query, tableName)
+		if err != nil {
+			log.Printf("查询主键失败: %v", err)
+			return pkColumns
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName string
+			if err := rows.Scan(&colName); err == nil {
+				pkColumns = append(pkColumns, colName)
+			}
+		}
+	case "mysql", "mariadb", "tidb":
+		// MySQL: SHOW COLUMNS 的 Key 列包含 PRI
+		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
+		query := fmt.Sprintf("SHOW COLUMNS FROM %s", quotedTable)
+		rows, err := db.Query(query)
+		if err != nil {
+			return pkColumns
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var field, typeStr, null, key, defaultVal, extra sql.NullString
+			if err := rows.Scan(&field, &typeStr, &null, &key, &defaultVal, &extra); err == nil {
+				if key.Valid && key.String == "PRI" && field.Valid {
+					pkColumns = append(pkColumns, field.String)
+				}
+			}
+		}
+	}
+	return pkColumns
+}
+
+// getTableFKs 获取表的外键信息
+func getTableFKs(db *sql.DB, config *DatabaseConfig, tableName string) map[string]string {
+	fkMap := make(map[string]string) // column_name -> referenced_table
+	
+	switch config.Type {
+	case "dm", "oracle":
+		// 达梦/Oracle: 从 USER_CONSTRAINTS + USER_CONS_COLUMNS 获取外键
+		query := `
+			SELECT cc.COLUMN_NAME, c.R_TABLE_NAME
+			FROM USER_CONSTRAINTS c
+			JOIN USER_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+			WHERE c.TABLE_NAME = ? AND c.CONSTRAINT_TYPE = 'R'`
+		rows, err := db.Query(query, tableName)
+		if err != nil {
+			log.Printf("查询外键失败: %v", err)
+			return fkMap
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var colName, refTable sql.NullString
+			if err := rows.Scan(&colName, &refTable); err == nil {
+				if colName.Valid && refTable.Valid {
+					fkMap[colName.String] = refTable.String
+				}
+			}
+		}
+	}
+	return fkMap
+}
+
 // getTableInfoList 获取数据库所有表的信息（表名、注释、字段名列表），用于检索
 func getTableInfoList(dbConfig *DatabaseConfig) ([]TableInfo, error) {
 	// 获取表名列表
@@ -3620,16 +3733,41 @@ func getTableInfoList(dbConfig *DatabaseConfig) ([]TableInfo, error) {
 			Comment: tableComments[tableName],
 		}
 
-		// 获取字段名列表
+		// 获取字段完整信息
 		columns, err := getTableColumns(dbConfig, tableName)
 		if err == nil {
 			var colNames []string
+			var colInfos []ColumnInfo
+			
+			// 获取字段注释、主键、外键信息
+			colComments := getColumnComments(db, dbConfig, tableName)
+			pkColumns := getTablePKs(db, dbConfig, tableName)
+			fkMap := getTableFKs(db, dbConfig, tableName)
+			pkSet := make(map[string]bool)
+			for _, pk := range pkColumns {
+				pkSet[pk] = true
+			}
+			
 			for _, col := range columns {
 				if colName, ok := col["name"].(string); ok {
 					colNames = append(colNames, colName)
+					colInfo := ColumnInfo{
+						Name:    colName,
+						Comment: colComments[colName],
+						IsPK:    pkSet[colName],
+					}
+					if colType, ok := col["type"].(string); ok {
+						colInfo.Type = colType
+					}
+					if fkTable, exists := fkMap[colName]; exists {
+						colInfo.IsFK = true
+						colInfo.FKTable = fkTable
+					}
+					colInfos = append(colInfos, colInfo)
 				}
 			}
 			info.ColumnNames = colNames
+			info.Columns = colInfos
 		}
 
 		tableInfos = append(tableInfos, info)
@@ -18511,12 +18649,31 @@ func syncSpecificVectors(manager *FTS5Manager, dbConfig *DatabaseConfig, tableIn
 	totalVectors := 0
 
 	for _, ti := range tableInfos {
-		// 构建文本：表名 + 表描述 + 字段名列表
+		// 构建增强文本：表名 + 表描述 + 字段详情（类型、注释、主键、外键）
 		text := ti.Name
 		if ti.Comment != "" {
 			text += " " + ti.Comment
 		}
-		if len(ti.ColumnNames) > 0 {
+		
+		// 如果有增强的字段信息，使用详细信息生成向量
+		if len(ti.Columns) > 0 {
+			for _, col := range ti.Columns {
+				text += " " + col.Name
+				if col.Type != "" {
+					text += " " + col.Type
+				}
+				if col.Comment != "" {
+					text += " " + col.Comment
+				}
+				if col.IsPK {
+					text += " PK 主键"
+				}
+				if col.IsFK && col.FKTable != "" {
+					text += " FK " + col.FKTable
+				}
+			}
+		} else if len(ti.ColumnNames) > 0 {
+			// 兼容旧数据：只有字段名列表
 			text += " " + strings.Join(ti.ColumnNames, " ")
 		}
 
