@@ -6878,14 +6878,18 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 		}
 
 		// 检查所有 ID 是否有效
+		var invalidIDs []int
 		for _, id := range req.IDs {
 			if id < 0 || id >= len(dbConfig.Relations) {
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"success": false,
-					"message": "关系 ID 不存在: " + string(rune(id)),
-				})
-				return
+				invalidIDs = append(invalidIDs, id)
 			}
+		}
+		if len(invalidIDs) > 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": fmt.Sprintf("关系 ID 不存在: %v", invalidIDs),
+			})
+			return
 		}
 
 		// 删除关系（从后往前删除，避免索引变化）
@@ -12312,17 +12316,7 @@ func handleAICodegen(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.TableName == "" || len(req.Columns) == 0 {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "请选择目标表并配置列映射",
-		})
-		return
-	}
-
-	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
-	dataOntologyMu.RUnlock()
 	if aiConfig == nil || aiConfig.URL == "" || aiConfig.APIKey == "" || aiConfig.Model == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
