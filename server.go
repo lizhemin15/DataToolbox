@@ -1241,6 +1241,7 @@ func getDataOntologyStorePath() string {
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePathFn()
+	log.Printf("[DEBUG] Loading data from: %s", storePath)
 
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
