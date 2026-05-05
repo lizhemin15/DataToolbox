@@ -4586,8 +4586,8 @@ const ALL_TABS = [
     { id: 'ontology', name: '本体论抽象' },
     { id: 'lineage', name: '数据血缘' },
     { id: 'api', name: '接口分发' },
-    { id: 'mcp', name: 'MCP' },
-    { id: 'ai', name: 'AI助手' },
+    { id: 'mcp', name: 'Agent服务' },
+    { id: 'ai', name: '智能助手' },
     { id: 'models', name: '模型管理' },
     { id: 'quality', name: '数据质量审核' }
 ];
