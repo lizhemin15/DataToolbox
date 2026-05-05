@@ -5230,7 +5230,7 @@ func handleSkillsExport(w http.ResponseWriter, r *http.Request) {
 	// 将 config 转为格式化的 JSON 字符串
 	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		apiError(w, "配置序列化失败")
+		apiError(w, "配置序列化失败", 500, "SERIALIZE_ERROR")
 		return
 	}
 
