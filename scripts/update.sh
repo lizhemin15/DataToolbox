@@ -95,7 +95,7 @@ if [[ -e "$TMP_DIR/apps" ]]; then
     if [[ -f "$INSTALL_DIR/apps/data-ontology/data-store.json" ]]; then
         DATA_STORE_BACKUP=$(mktemp)
         cp "$INSTALL_DIR/apps/data-ontology/data-store.json" "$DATA_STORE_BACKUP"
-        log "已备份运行时配置: data-store.json"
+        info "已备份运行时配置: data-store.json"
     fi
     
     # 备份运行时数据库（关系索引、向量索引等）
@@ -103,7 +103,7 @@ if [[ -e "$TMP_DIR/apps" ]]; then
     if [[ -f "$INSTALL_DIR/apps/data-ontology/data-store.db" ]]; then
         DATA_DB_BACKUP=$(mktemp)
         cp "$INSTALL_DIR/apps/data-ontology/data-store.db" "$DATA_DB_BACKUP"
-        log "已备份运行时数据库: data-store.db"
+        info "已备份运行时数据库: data-store.db"
     fi
     
     # 更新 apps 目录（删除旧的，复制新的）
