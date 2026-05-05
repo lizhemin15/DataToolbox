@@ -6596,7 +6596,7 @@ func handleTableRetrievalEmbeddingPreview(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// handleTableRetrievalRelationPreview 关系预览接口
+// handleTableRetrievalRelationPreview 关系预览接口（支持CRUD）
 func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -6609,52 +6609,321 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if r.Method != http.MethodGet {
+	// 校验 match_type 的有效值
+	validMatchTypes := map[string]bool{
+		"exact":           true,
+		"case_insensitive": true,
+		"naming_style":    true,
+		"type_keyword":    true,
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		dbID := r.URL.Query().Get("db_id")
+		if dbID == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "缺少 db_id 参数",
+			})
+			return
+		}
+
+		// 获取数据库配置
+		dataOntologyMu.RLock()
+		dbConfig, ok := dataOntologyDatabases[dbID]
+		dataOntologyMu.RUnlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// 构建关系列表（添加 ID 以便 CRUD 操作）
+		relations := make([]map[string]interface{}, 0)
+		for idx, rel := range dbConfig.Relations {
+			relations = append(relations, map[string]interface{}{
+				"id":      idx, // 使用数组索引作为 ID
+				"table1": rel.Source.TableName,
+				"col1":   rel.Source.FieldName,
+				"table2": rel.Target.TableName,
+				"col2":   rel.Target.FieldName,
+				"type":   rel.MatchType,
+			})
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"relations": relations,
+		})
+
+	case http.MethodPost:
+		// 创建关系
+		var req struct {
+			DatabaseID string `json:"database_id"`
+			Table1     string `json:"table1"`
+			Col1       string `json:"col1"`
+			Table2     string `json:"table2"`
+			Col2       string `json:"col2"`
+			MatchType  string `json:"match_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || req.Table1 == "" || req.Col1 == "" || req.Table2 == "" || req.Col2 == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "缺少必要参数",
+			})
+			return
+		}
+
+		// 校验 match_type
+		if !validMatchTypes[req.MatchType] {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的 match_type，支持的值: exact, case_insensitive, naming_style, type_keyword",
+			})
+			return
+		}
+
+		// 获取数据库配置
+		dataOntologyMu.Lock()
+		dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+		dataOntologyMu.Unlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// 创建新关系
+		newRel := OntologyRelation{
+			ID:        uuid.New().String(),
+			MatchType: req.MatchType,
+			Source: FieldRef{
+				DatabaseID: req.DatabaseID,
+				TableName:  req.Table1,
+				FieldName:  req.Col1,
+			},
+			Target: FieldRef{
+				DatabaseID: req.DatabaseID,
+				TableName:  req.Table2,
+				FieldName:  req.Col2,
+			},
+			CreatedAt: time.Now(),
+		}
+
+		dataOntologyMu.Lock()
+		dbConfig.Relations = append(dbConfig.Relations, newRel)
+		// 保存配置
+		if err := saveDataOntologyStoreNoLock(); err != nil {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "保存配置失败: " + err.Error(),
+			})
+			return
+		}
+		dataOntologyMu.Unlock()
+
+		// 同步到 SQLite
+		manager := getFTS5Manager()
+		if manager != nil {
+			go manager.syncRelationsToSQLite(dbConfig)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"id":      len(dbConfig.Relations) - 1,
+			"message": "关系创建成功",
+		})
+
+	case http.MethodPut:
+		// 更新关系
+		var req struct {
+			DatabaseID string `json:"database_id"`
+			ID         int    `json:"id"`
+			Table1     string `json:"table1"`
+			Col1       string `json:"col1"`
+			Table2     string `json:"table2"`
+			Col2       string `json:"col2"`
+			MatchType  string `json:"match_type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || req.ID < 0 || req.Table1 == "" || req.Col1 == "" || req.Table2 == "" || req.Col2 == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "缺少必要参数",
+			})
+			return
+		}
+
+		// 校验 match_type
+		if !validMatchTypes[req.MatchType] {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的 match_type，支持的值: exact, case_insensitive, naming_style, type_keyword",
+			})
+			return
+		}
+
+		// 获取数据库配置
+		dataOntologyMu.Lock()
+		dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+		dataOntologyMu.Unlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// 检查索引是否越界
+		if req.ID >= len(dbConfig.Relations) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "关系不存在",
+			})
+			return
+		}
+
+		// 更新关系
+		dataOntologyMu.Lock()
+		dbConfig.Relations[req.ID].MatchType = req.MatchType
+		dbConfig.Relations[req.ID].Source = FieldRef{
+			DatabaseID: req.DatabaseID,
+			TableName:  req.Table1,
+			FieldName:  req.Col1,
+		}
+		dbConfig.Relations[req.ID].Target = FieldRef{
+			DatabaseID: req.DatabaseID,
+			TableName:  req.Table2,
+			FieldName:  req.Col2,
+		}
+		// 保存配置
+		if err := saveDataOntologyStoreNoLock(); err != nil {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "保存配置失败: " + err.Error(),
+			})
+			return
+		}
+		dataOntologyMu.Unlock()
+
+		// 同步到 SQLite
+		manager := getFTS5Manager()
+		if manager != nil {
+			go manager.syncRelationsToSQLite(dbConfig)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "关系更新成功",
+		})
+
+	case http.MethodDelete:
+		// 删除关系（支持批量）
+		var req struct {
+			DatabaseID string   `json:"database_id"`
+			IDs        []int    `json:"ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "请求格式错误",
+			})
+			return
+		}
+
+		if req.DatabaseID == "" || len(req.IDs) == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "缺少必要参数",
+			})
+			return
+		}
+
+		// 获取数据库配置
+		dataOntologyMu.Lock()
+		dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
+		dataOntologyMu.Unlock()
+
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// 检查所有 ID 是否有效
+		for _, id := range req.IDs {
+			if id < 0 || id >= len(dbConfig.Relations) {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "关系 ID 不存在: " + string(rune(id)),
+				})
+				return
+			}
+		}
+
+		// 删除关系（从后往前删除，避免索引变化）
+		dataOntologyMu.Lock()
+		sort.Ints(req.IDs)
+		for i := len(req.IDs) - 1; i >= 0; i-- {
+			id := req.IDs[i]
+			dbConfig.Relations = append(dbConfig.Relations[:id], dbConfig.Relations[id+1:]...)
+		}
+		// 保存配置
+		if err := saveDataOntologyStoreNoLock(); err != nil {
+			dataOntologyMu.Unlock()
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "保存配置失败: " + err.Error(),
+			})
+			return
+		}
+		dataOntologyMu.Unlock()
+
+		// 同步到 SQLite
+		manager := getFTS5Manager()
+		if manager != nil {
+			go manager.syncRelationsToSQLite(dbConfig)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"deleted_count": len(req.IDs),
+			"message":      "关系删除成功",
+		})
+
+	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "不支持的请求方法",
 		})
-		return
 	}
-
-	dbID := r.URL.Query().Get("db_id")
-	if dbID == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "缺少 db_id 参数",
-		})
-		return
-	}
-
-	// 获取数据库配置
-	dataOntologyMu.RLock()
-	dbConfig, ok := dataOntologyDatabases[dbID]
-	dataOntologyMu.RUnlock()
-
-	if !ok {
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "数据库不存在",
-		})
-		return
-	}
-
-	// 构建关系列表
-	relations := make([]map[string]interface{}, 0)
-	for _, rel := range dbConfig.Relations {
-		relations = append(relations, map[string]interface{}{
-			"table1": rel.Source.TableName,
-			"col1":   rel.Source.FieldName,
-			"table2": rel.Target.TableName,
-			"col2":   rel.Target.FieldName,
-			"type":   rel.MatchType,
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"relations": relations,
-	})
 }
 
 // handleTableRetrievalSearch 表检索搜索接口
