@@ -13560,7 +13560,7 @@ async function deleteRelation(relationId) {
 }
 
 async function govDownloadExamplesForTask(taskId) {
-    const task = window.govTasks?.find(t => t.id === taskId);
+    const task = govTasks?.find(t => t.id === taskId);
     if (!task?.example_files?.length) {
         showToast('没有可下载的样例文件', 'error');
         return;

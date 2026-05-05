@@ -975,7 +975,7 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    currentRunId = data.runId;
+                    currentRunId = data.run_id;
                     sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
                     document.getElementById('progressContainer').style.display = '';
                     document.getElementById('resultContainer').style.display = 'none';
@@ -1125,10 +1125,26 @@
 
             const savedRunId = sessionStorage.getItem('share_' + shareToken + '_runId');
             if (savedRunId) {
-                currentRunId = savedRunId;
-                document.getElementById('progressContainer').style.display = '';
-                document.getElementById('resultContainer').style.display = 'none';
-                pollProgress();
+                // 先验证 runId 是否有效，再恢复轮询
+                try {
+                    const resp = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run/${savedRunId}`);
+                    const data = await resp.json();
+                    if (data.success) {
+                        currentRunId = savedRunId;
+                        document.getElementById('progressContainer').style.display = '';
+                        document.getElementById('resultContainer').style.display = 'none';
+                        if (data.status === 'completed' || data.status === 'failed') {
+                            showResult(data);
+                        } else {
+                            pollProgress();
+                        }
+                    } else {
+                        // runId 无效，清除缓存
+                        sessionStorage.removeItem('share_' + shareToken + '_runId');
+                    }
+                } catch (e) {
+                    console.error('恢复 runId 失败:', e);
+                }
             }
         });
     </script>
