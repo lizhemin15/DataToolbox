@@ -2498,7 +2498,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Owner:         "admin",
 			Name:          "综合日报生成器",
 			Type:          "interactive",
-			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，AI 整合后生成综合日报",
+			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，JSON 结构化提取后生成综合日报",
 			JsCode:        loadGovernanceAggregateDailyReportJS(),
 			InputType:     "file",
 			AcceptExts:    []string{".docx"},
@@ -2746,14 +2746,14 @@ func initDataOntology() {
 			Status:    "idle",
 		}
 
-		// 示例6: 交互任务 - 综合日报生成器（多文件一次执行 + LLM + docxtemplater）
+		// 示例6: 交互任务 - 综合日报生成器（多文件一次执行 + JSON解析 + docxtemplater）
 		reportTaskID := uuid.New().String()
 		governanceTasks[reportTaskID] = &GovernanceTask{
 			ID:            reportTaskID,
 			Owner:         "admin",
 			Name:          "综合日报生成器",
 			Type:          "interactive",
-			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，AI 整合后生成综合日报",
+			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，JSON 结构化提取后生成综合日报",
 			JsCode:        loadGovernanceAggregateDailyReportJS(),
 			InputType:     "file",
 			AcceptExts:    []string{".docx"},

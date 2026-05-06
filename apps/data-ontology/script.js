@@ -8682,12 +8682,37 @@ function createGovHelper(logLines, uploadedFiles) {
                 delete t._building;
             }
 
-            return {
+            const parsedResult = {
                 title,
                 sections,
                 tables,
                 rawText: text
             };
+
+            // 输出解析结果到执行日志
+            logLines.push('=== 文档结构解析结果 ===');
+            logLines.push(`标题: ${title || '(未识别)'}`);
+            logLines.push(`章节数: ${sections.length}`);
+            logLines.push(`表格数: ${tables.length}`);
+            logLines.push('');
+            logLines.push('--- 章节结构 ---');
+            for (const s of sections) {
+                const indent = '  '.repeat(s.level);
+                logLines.push(`${indent}${s.title} (${s.paragraphs.length}段)`);
+            }
+            if (tables.length > 0) {
+                logLines.push('');
+                logLines.push('--- 表格预览 ---');
+                for (let i = 0; i < tables.length; i++) {
+                    const t = tables[i];
+                    logLines.push(`表格${i + 1}: ${t.headers.join(' | ')} (${t.rows.length}行)`);
+                }
+            }
+            logLines.push('');
+            logLines.push('--- 完整 JSON ---');
+            logLines.push(JSON.stringify({ title, sections, tables }, null, 2));
+
+            return parsedResult;
         },
     };
 }

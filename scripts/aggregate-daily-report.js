@@ -1,5 +1,5 @@
-// 综合日报生成器 - 简洁版
-// 使用 gov.parseWordStructure 解析文档，合并后填充模板
+// 综合日报生成器 - 纯 JSON 解析版
+// 使用 gov.parseWordStructure 解析文档，输出 JSON 结构，合并后填充模板
 
 function parseFilename(name) {
     const base = name.replace(/\.(docx?|DOCX?)$/i, '');
@@ -37,12 +37,33 @@ async function main() {
 
     gov.log(`模板: ${template.name}`);
     gov.log(`单位日报: ${unitFiles.length} 份`);
+    gov.log('');
 
     // 解析每份单位日报
     const units = [];
     for (const f of unitFiles) {
         const meta = parseFilename(f.name);
         const doc = await gov.parseWordStructure(f);
+        
+        // 输出解析出的 JSON 结构
+        gov.log('========================================');
+        gov.log(`文件: ${f.name}`);
+        gov.log('--- 解析结果 JSON ---');
+        gov.log(JSON.stringify({
+            文件名: f.name,
+            识别单位: meta.unit || doc.title || '未知单位',
+            日期: meta.date,
+            文档标题: doc.title,
+            章节数: doc.sections.length,
+            表格数: doc.tables.length,
+            章节列表: doc.sections.map(s => ({
+                层级: s.level,
+                标题: s.title,
+                段落数: s.paragraphs.length,
+                内容预览: s.paragraphs.slice(0, 2).join(' ').slice(0, 100)
+            }))
+        }, null, 2));
+        gov.log('');
         
         const unit = {
             unit_name: meta.unit || doc.title || '未知单位',
@@ -53,7 +74,7 @@ async function main() {
             unit_tomorrow: getSectionContent(doc.sections, ['计划', '下一步', '明日', '三、下一步'])
         };
         units.push(unit);
-        gov.log(`解析: ${f.name} → ${unit.unit_name}`);
+        gov.log(`提取字段: ${unit.unit_name} | ${unit.unit_report_date || '无日期'}`);
     }
 
     // 汇总数据
@@ -66,6 +87,13 @@ async function main() {
         tomorrow_plan: units.map(u => `【${u.unit_name}】${u.unit_tomorrow}`).join('\n'),
         units: units
     };
+
+    // 输出最终汇总 JSON
+    gov.log('');
+    gov.log('========================================');
+    gov.log('--- 最终汇总数据 JSON ---');
+    gov.log(JSON.stringify(data, null, 2));
+    gov.log('');
 
     // 生成报告
     const outName = `综合日报_${data.report_date || '输出'}.docx`;
