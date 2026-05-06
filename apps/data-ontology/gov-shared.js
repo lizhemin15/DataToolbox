@@ -46,9 +46,9 @@ const GOV_API_SECTIONS = [
             },
             {
                 name: 'gov.parseWordStructure',
-                signature: 'await gov.parseWordStructure(file, options?) → {title, sections, tables, rawText}',
-                desc: '解析 Word 文档结构，识别公文格式的标题层级（一、二、三、 / （一）（二） / 1. 2. / （1）（2））、段落、表格等。返回结构化数据，便于后续处理。',
-                example: 'const structure = await gov.parseWordStructure(INPUT_FILE);\ngov.log(\'文档标题: \' + structure.title);\ngov.log(\'章节数: \' + structure.sections.length);\nstructure.sections.forEach(s => gov.log(s.title + \': \' + s.paragraphs.length + \'段\'));'
+                signature: 'await gov.parseWordStructure(file, options?) → {title, sections, sectionsFlat, tables, rawText}',
+                desc: '解析 Word 文档结构，识别公文格式的标题层级（一、二、三、 / （一）（二） / 1. 2. / （1）（2））、段落、表格等。sections 返回树形结构（每个节点有 children），sectionsFlat 为扁平数组。',
+                example: 'const structure = await gov.parseWordStructure(INPUT_FILE);\ngov.log(\'文档标题: \' + structure.title);\nstructure.sections.forEach(s => {\n  gov.log(s.title + \': \' + s.children.length + \'子节点\');\n});'
             },
             {
                 name: 'gov.writeExcel',

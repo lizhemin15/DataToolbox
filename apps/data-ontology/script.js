@@ -8682,9 +8682,38 @@ function createGovHelper(logLines, uploadedFiles) {
                 delete t._building;
             }
 
+            // ===== 构建树形结构 =====
+            // 将扁平的 sections 数组转换为层级树
+            function buildTree(flatSections) {
+                const root = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
+                const stack = [root]; // 栈顶是当前父节点
+
+                for (const sec of flatSections) {
+                    // 弹出栈中 level >= 当前的节点，找到正确的父节点
+                    while (stack.length > 1 && stack[stack.length - 1].level >= sec.level) {
+                        stack.pop();
+                    }
+                    
+                    const parent = stack[stack.length - 1];
+                    const node = {
+                        level: sec.level,
+                        title: sec.title,
+                        paragraphs: sec.paragraphs || [],
+                        children: []
+                    };
+                    parent.children.push(node);
+                    stack.push(node);
+                }
+
+                return root.children;
+            }
+
+            const sectionTree = buildTree(sections);
+
             const parsedResult = {
                 title,
-                sections,
+                sections: sectionTree,  // 树形结构
+                sectionsFlat: sections, // 保留扁平结构供兼容
                 tables,
                 rawText: text
             };
@@ -8695,11 +8724,16 @@ function createGovHelper(logLines, uploadedFiles) {
             logLines.push(`章节数: ${sections.length}`);
             logLines.push(`表格数: ${tables.length}`);
             logLines.push('');
-            logLines.push('--- 章节结构 ---');
-            for (const s of sections) {
-                const indent = '  '.repeat(s.level);
-                logLines.push(`${indent}${s.title} (${s.paragraphs.length}段)`);
+            logLines.push('--- 章节结构（树形） ---');
+            function printTree(nodes, indent = '') {
+                for (const node of nodes) {
+                    logLines.push(`${indent}${node.title} (${node.paragraphs.length}段, ${node.children.length}子节点)`);
+                    if (node.children.length > 0) {
+                        printTree(node.children, indent + '  ');
+                    }
+                }
             }
+            printTree(sectionTree);
             if (tables.length > 0) {
                 logLines.push('');
                 logLines.push('--- 表格预览 ---');
