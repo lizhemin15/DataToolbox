@@ -8588,57 +8588,87 @@ function createGovHelper(logLines, uploadedFiles) {
                 let matchedLevel = 0;
                 let matchedTitle = '';
 
+                function splitInlineTitleContent(prefix, rest) {
+                    const text = (rest || '').trim();
+                    if (!text) {
+                        return { title: prefix, paragraphs: [] };
+                    }
+
+                    const colonIndex = text.search(/[：:]/);
+                    if (colonIndex > 0) {
+                        const titlePart = text.slice(0, colonIndex).trim();
+                        const contentPart = text.slice(colonIndex + 1).trim();
+                        return {
+                            title: `${prefix}${titlePart}`,
+                            paragraphs: contentPart ? [contentPart] : []
+                        };
+                    }
+
+                    return {
+                        title: `${prefix}${text}`,
+                        paragraphs: []
+                    };
+                }
+
                 // 检测一级标题：一、二、三、
                 const m1 = line.match(/^([一二三四五六七八九十]+)、(.*)$/);
                 if (m1) {
-                    matchedLevel = 1;
-                    matchedTitle = line;
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 1,
+                        title: `${m1[1]}、${(m1[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
                 }
 
                 // 检测二级标题：（一）（二）
                 const m2 = line.match(/^（([一二三四五六七八九十]+)）(.*)$/);
                 if (m2) {
-                    matchedLevel = 2;
-                    matchedTitle = line;
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 2,
+                        title: `（${m2[1]}）${(m2[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
                 }
 
                 // 检测三级标题：1. 2. 或 1、2、
-                const m3 = line.match(/^(\d+)[\.、．](.*)$/);
+                const m3 = line.match(/^(\d+)([\.、．])(.*)$/);
                 if (m3) {
-                    matchedLevel = 3;
-                    matchedTitle = line;
+                    if (currentSection) sections.push(currentSection);
+                    const inline = splitInlineTitleContent(`${m3[1]}${m3[2]}`, m3[3]);
+                    currentSection = {
+                        level: 3,
+                        title: inline.title,
+                        paragraphs: inline.paragraphs
+                    };
+                    continue;
                 }
 
                 // 检测四级标题：（1）（2）
                 const m4 = line.match(/^（(\d+)）(.*)$/);
                 if (m4) {
-                    matchedLevel = 4;
-                    matchedTitle = line;
+                    if (currentSection) sections.push(currentSection);
+                    const inline = splitInlineTitleContent(`（${m4[1]}）`, m4[2]);
+                    currentSection = {
+                        level: 4,
+                        title: inline.title,
+                        paragraphs: inline.paragraphs
+                    };
+                    continue;
                 }
 
-                if (matchedLevel > 0) {
-                    // 保存上一个 section
-                    if (currentSection) {
-                        sections.push(currentSection);
-                    }
-                    currentSection = {
-                        level: matchedLevel,
-                        title: matchedTitle,
-                        paragraphs: []
-                    };
-                } else if (currentSection) {
-                    // 添加到当前 section 的段落
+                // 非标题行：添加到当前段落
+                if (currentSection) {
                     if (line.length > 0) {
                         currentSection.paragraphs.push(line);
                     }
                 } else {
                     // 还没有遇到标题，可能是前言
                     if (!sections.find(s => s.level === 0)) {
-                        sections.push({
-                            level: 0,
-                            title: '前言',
-                            paragraphs: [line]
-                        });
+                        sections.push({ level: 0, title: '前言', paragraphs: [line] });
                         currentSection = sections[sections.length - 1];
                     } else if (sections.length > 0) {
                         sections[sections.length - 1].paragraphs.push(line);
