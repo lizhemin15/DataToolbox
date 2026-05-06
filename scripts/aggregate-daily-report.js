@@ -1,5 +1,5 @@
-// 综合日报生成器 - v10 简洁版 JSON 路径提取
-// 使用 gov. 的树形 JSON，通过 JSON 路径直接提取内容
+// 综合日报生成器 - v11 按公文标题规律匹配解析
+// 按标题关键词匹配提取内容，而非固定索引
 // 格式标记：**加粗** >首行缩进
 
 async function main() {
@@ -9,20 +9,26 @@ async function main() {
         return;
     }
 
-    // ===== 特异性配置 =====
+    // ===== 配置 =====
     const templatePattern = /模板|template/i;
     const outputNameFormat = (date) => `综合日报_${date || '输出'}.docx`;
     const reportTitle = '数据治理综合日报';
     
-    // JSON 路径配置：L1索引 → 目标字段
-    // gov. 返回的 sections 是数组，sections[0] 是第一个 L1 标题节点
-    const pathConfig = [
-        { path: 'sections[0]', field: 'overview', desc: '今日工作' },
-        { path: 'sections[1]', field: 'risks', desc: '存在问题' },
-        { path: 'sections[2]', field: 'tomorrow', desc: '下一步计划' },
-        { path: 'sections[3]', field: 'key_projects', desc: '项目进展' }
-    ];
-    // ===== 特异性配置结束 =====
+    // 标题关键词匹配规则：按公文标题规律
+    // L1: 一、二、三 → 主题大类
+    // L2: （一）（二）（三）→ 子主题
+    // L3: 1. 2. 3. → 详细条目
+    const titlePatterns = {
+        // 今日工作相关
+        overview: ['工作', '情况', '概述', '概要', '内容', '进展', '完成', '开展'],
+        // 存在问题
+        risks: ['问题', '风险', '隐患', '困难', '不足', '缺陷', '待解决'],
+        // 下一步计划
+        tomorrow: ['计划', '安排', '下一步', '后续', '将要', '预计', '打算'],
+        // 项目进展
+        key_projects: ['项目', '工程', '建设', '任务', '专项', '重点']
+    };
+    // ===== 配置结束 =====
 
     const template = files.find(f => templatePattern.test(f.name)) || files[0];
     const unitFiles = files.filter(f => f !== template);
@@ -31,20 +37,50 @@ async function main() {
     gov.log(`单位日报: ${unitFiles.length} 份`);
     gov.log('');
 
-    // 递归提取节点内容：标题 + 子节点
-    function getContent(node) {
+    // 递归提取节点完整内容
+    function extractContent(node, includeChildren = true) {
         const lines = [];
         // 标题加粗
         lines.push(`**${node.title}**`);
         // 自身段落（首行缩进）
         for (const p of (node.paragraphs || [])) {
-            if (p.trim()) lines.push(`>${p.trim()}`);
+            if (p && p.trim()) lines.push(`>${p.trim()}`);
         }
         // 子节点递归
-        for (const child of (node.children || [])) {
-            lines.push(...getContent(child));
+        if (includeChildren) {
+            for (const child of (node.children || [])) {
+                lines.push(...extractContent(child, true));
+            }
         }
         return lines.join('\n');
+    }
+
+    // 递归查找匹配标题的节点
+    function findNodesByKeyword(nodes, keywords, results = []) {
+        for (const node of nodes) {
+            const titleLower = (node.title || '').toLowerCase();
+            for (const kw of keywords) {
+                if (titleLower.includes(kw)) {
+                    results.push(node);
+                    break;
+                }
+            }
+            // 递归子节点
+            if (node.children && node.children.length > 0) {
+                findNodesByKeyword(node.children, keywords, results);
+            }
+        }
+        return results;
+    }
+
+    // 递归统计节点数
+    function countNodes(nodes) {
+        let count = 0;
+        for (const node of nodes) {
+            count += 1;
+            if (node.children) count += countNodes(node.children);
+        }
+        return count;
     }
 
     // 解析每份单位日报
@@ -55,21 +91,31 @@ async function main() {
         
         const doc = await gov.parseWordStructure(f);
         
+        // 输出解析结果用于调试
+        gov.log(`  文档标题: ${doc.title}`);
+        gov.log(`  章节总数: ${countNodes(doc.sections)}`);
+        
         const fields = { overview: '', key_projects: '', risks: '', summary: '', tomorrow: '' };
         
-        // 按 JSON 路径提取
-        for (const cfg of pathConfig) {
-            const node = eval(cfg.path);  // sections[0] 等
-            if (node) {
-                fields[cfg.field] = getContent(node);
-                gov.log(`  ${cfg.desc} → ${cfg.field}: ${fields[cfg.field].length} 字符`);
+        // 按关键词匹配提取各字段
+        for (const [field, keywords] of Object.entries(titlePatterns)) {
+            const matchedNodes = findNodesByKeyword(doc.sections, keywords);
+            
+            if (matchedNodes.length > 0) {
+                // 合并所有匹配节点的内容
+                const contents = matchedNodes.map(n => extractContent(n, true));
+                fields[field] = contents.join('\n\n');
+                gov.log(`  ${field} → 匹配到 ${matchedNodes.length} 个节点, ${fields[field].length} 字符`);
+            } else {
+                fields[field] = '>暂无';
+                gov.log(`  ${field} → 未匹配到相关内容`);
             }
         }
         
         units.push({
             unit_name: meta.unit || doc.title || '未知单位',
             unit_report_date: meta.date,
-            unit_overview: fields.overview,
+            unit_overview: fields.overview || '>暂无',
             unit_key_projects: fields.key_projects || '>暂无',
             unit_risks: fields.risks || '>暂无',
             unit_summary: fields.summary || '>暂无',
