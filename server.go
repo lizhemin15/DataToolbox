@@ -9819,6 +9819,7 @@ func handleApiDispatch(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqPath := r.URL.Path
 		reqMethod := r.Method
+		log.Printf("[DEBUG handleApiDispatch] reqPath=%s, reqMethod=%s", reqPath, reqMethod)
 
 		if reqMethod == http.MethodOptions {
 			next.ServeHTTP(w, r)
@@ -9828,7 +9829,9 @@ func handleApiDispatch(next http.Handler) http.Handler {
 		// 先检查是否有匹配的数据治理任务 API
 		dataOntologyMu.RLock()
 		var matchedTask *GovernanceTask
+		log.Printf("[DEBUG handleApiDispatch] governanceTasks count: %d", len(governanceTasks))
 		for _, task := range governanceTasks {
+			log.Printf("[DEBUG] task: %s, RegisterAsAPI=%v, APIPath=%s, APIMethod=%s, Enabled=%v", task.Name, task.RegisterAsAPI, task.APIPath, task.APIMethod, task.Enabled)
 			if task.RegisterAsAPI && task.APIPath == reqPath && strings.EqualFold(task.APIMethod, reqMethod) {
 				matchedTask = task
 				break
