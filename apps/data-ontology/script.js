@@ -8545,14 +8545,32 @@ function createGovHelper(logLines, uploadedFiles) {
             const maxLen = options.maxTextLength || 50000;
             const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
 
-            // 公文标题正则：一、二、三、... 或 （一）（二）... 或 1. 2. ... 或 （1）（2）...
+            // ===== 扩展公文标题正则模式 =====
+            // 公文格式支持：
+            // 1. 一级标题：一、二、三、... （中文数字+顿号）
+            // 2. 二级标题：（一）（二）（三）... （中文数字+括号）
+            // 3. 三级标题：1. 2. 3. ... （阿拉伯数字+点/顿号）
+            // 4. 四级标题：（1）（2）（3）... （阿拉伯数字+括号）
+            // 5. 五级标题：第一章、第二章、... （阿拉伯数字+章节）
+            // 6. 条目式：第1条、第2条、... （第+数字+条）
+            // 7. 无序列表：• xxx （项目符号）
+            // 8. 其他变体：１．、(一)、(１) 等全角/半角混合
             const titlePatterns = [
-                /^[一二三四五六七八九十]+、[^\n]+/,           // 一、标题
-                /^（[一二三四五六七八九十]+）[^\n]+/,         // （一）标题
-                /^\d+[\.、．][^\n]+/,                        // 1. 标题
-                /^（\d+）[^\n]+/,                            // （1）标题
-                /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/ // 混合括号
+                /^[一二三四五六七八九十]+、[^\n]+/,                    // 一、标题
+                /^（[一二三四五六七八九十]+）[^\n]+/,                  // （一）标题
+                /^\d+[\.、．：][^\n]+/,                                 // 1. 标题 或 1、标题
+                /^（\d+）[^\n]+/,                                      // （1）标题
+                /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/,        // 混合括号
+                /^第[一二三四五六七八九十\d]+章[^\n]*/,                // 第一章、第二章
+                /^第[一二三四五六七八九十\d]+条[^\n]*/,                // 第1条、第2条
+                /^[•●○◆■★][\s　][^\n]+/,                             // • xxx 无序列表
+                /^[\u25A0\u25B2\u25CB\u25CF][\s　][^\n]+/,            // ■ ★ ◆ ● ○ 无序列表变体
+                /^[\d]+\.[\s　]+[^\n]+/,                              // 1. xxx 数字点开头
+                /^[\(（]?[a-zA-Z0-9]+[\)）]?[\.、：\s　]+[^\n]+/       // a. A. (1) 等字母数字编号
             ];
+
+            // 无序列表符号模式（用于识别内容行）
+            const bulletPattern = /^[•●○◆■★\u25A0\u25B2\u25CB\u25CF][\s　]+(.+)$/;
 
             // 更健壮的行分割：处理各种换行符和不可见字符
             const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
@@ -8656,6 +8674,112 @@ function createGovHelper(logLines, uploadedFiles) {
                         level: 4,
                         title: inline.title,
                         paragraphs: inline.paragraphs
+                    };
+                    continue;
+                }
+
+                // ===== 新增：检测更多公文标题格式 =====
+
+                // 检测第一章、第二章...（阿拉伯数字章节）
+                const mChapter = line.match(/^第(\d+)章[：:\s]*(.*)$/);
+                if (mChapter) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 1,
+                        title: `第${mChapter[1]}章 ${(mChapter[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
+                }
+
+                // 检测第一章、第二章...（中文数字章节）
+                const mChapterCN = line.match(/^第([一二三四五六七八九十]+)章[：:\s]*(.*)$/);
+                if (mChapterCN) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 1,
+                        title: `第${mChapterCN[1]}章 ${(mChapterCN[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
+                }
+
+                // 检测第1条、第2条...（条目式）
+                const mArticle = line.match(/^第(\d+)条[：:\s]*(.*)$/);
+                if (mArticle) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 2,
+                        title: `第${mArticle[1]}条 ${(mArticle[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
+                }
+
+                // 检测第一条、第二条...（中文数字条目）
+                const mArticleCN = line.match(/^第([一二三四五六七八九十]+)条[：:\s]*(.*)$/);
+                if (mArticleCN) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 2,
+                        title: `第${mArticleCN[1]}条 ${(mArticleCN[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
+                }
+
+                // 检测无序列表：• xxx（作为内容节点，层级为5）
+                const mBullet = line.match(bulletPattern);
+                if (mBullet) {
+                    // 无序列表作为内容节点，如果有父节点则作为子节点
+                    const bulletContent = mBullet[1] || line;
+                    if (currentSection) {
+                        // 将无序列表项添加为独立的子节点或段落
+                        currentSection.paragraphs.push(line);
+                    } else {
+                        // 没有父节点时，创建一个内容节点
+                        if (currentSection) sections.push(currentSection);
+                        currentSection = {
+                            level: 5,
+                            title: bulletContent.trim().slice(0, 50), // 取前50字符作为标题
+                            paragraphs: [line]
+                        };
+                    }
+                    continue;
+                }
+
+                // 检测半角括号格式：(1) (2) 或 (一) (二)
+                const mParenHalf = line.match(/^\((\d+)\)[\s]*(.*)$/);
+                if (mParenHalf) {
+                    if (currentSection) sections.push(currentSection);
+                    const inline = splitInlineTitleContent(`(${mParenHalf[1]})`, mParenHalf[2]);
+                    currentSection = {
+                        level: 4,
+                        title: inline.title,
+                        paragraphs: inline.paragraphs
+                    };
+                    continue;
+                }
+
+                const mParenHalfCN = line.match(/^\(([一二三四五六七八九十]+)\)[\s]*(.*)$/);
+                if (mParenHalfCN) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 2,
+                        title: `(${mParenHalfCN[1]}) ${(mParenHalfCN[2] || '').trim()}`.trim(),
+                        paragraphs: []
+                    };
+                    continue;
+                }
+
+                // 检测字母编号：a. b. c. 或 A. B. C.
+                const mLetter = line.match(/^([a-zA-Z])[\.、．：][\s]*(.*)$/);
+                if (mLetter) {
+                    if (currentSection) sections.push(currentSection);
+                    currentSection = {
+                        level: 4,
+                        title: `${mLetter[1]}. ${(mLetter[2] || '').trim()}`.trim(),
+                        paragraphs: []
                     };
                     continue;
                 }
