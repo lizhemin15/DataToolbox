@@ -1298,6 +1298,11 @@ func loadDataOntologyStore() error {
 	if store.Tasks != nil {
 		governanceTasks = store.Tasks
 		log.Printf("已加载 %d 个治理任务", len(governanceTasks))
+		for _, t := range governanceTasks {
+			if t.RegisterAsAPI {
+				log.Printf("[API注册] %s: path=%s, method=%s", t.Name, t.APIPath, t.APIMethod)
+			}
+		}
 	}
 
 	if store.TaskLogs != nil {
