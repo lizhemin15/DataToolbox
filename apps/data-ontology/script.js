@@ -8714,15 +8714,27 @@ function createGovHelper(logLines, uploadedFiles) {
 
             // ===== 构建树形结构 =====
             // 将扁平的 sections 数组转换为层级树
-            // 支持层级跳跃容错：当遇到跳级时，智能推断父节点
+            // 支持层级跳跃容错：自动降级处理（L1→L3 变为 L1→L2，L2→L4 变为 L2→L3）
             function buildTree(flatSections) {
                 const root = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
                 const stack = [root]; // 栈顶是当前父节点
 
                 for (const sec of flatSections) {
-                    // 计算目标层级（跳级时需要特殊处理）
-                    const targetLevel = sec.level;
+                    // 计算目标层级（检测是否需要自动降级）
+                    let targetLevel = sec.level;
                     const currentParentLevel = stack[stack.length - 1].level;
+                    
+                    // 层级自动降级规则：
+                    // - L1 后直接出现 L3 → 降为 L2
+                    // - L1 后直接出现 L4 → 降为 L2
+                    // - L2 后直接出现 L4 → 降为 L3
+                    if (targetLevel > currentParentLevel + 1) {
+                        // 跳跃超过1级，自动降级到合理层级
+                        targetLevel = currentParentLevel + 1;
+                    }
+                    
+                    // 使用降级后的层级构建树
+                    sec.level = targetLevel;
                     
                     // 情况1：正常层级递增或同级，弹出栈中 level >= 当前的节点
                     // 情况2：层级跳跃（如 L1 → L3），需要找到合适的父节点
