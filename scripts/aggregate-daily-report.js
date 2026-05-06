@@ -1,5 +1,6 @@
-// 综合日报生成器 - v8 按公文层级规律自动归纳
-// 使用 gov.parseWordStructure 解析树形结构，按 L1 标题关键词自动分类
+// 综合日报生成器 - v10 简洁版 JSON 路径提取
+// 使用 gov. 的树形 JSON，通过 JSON 路径直接提取内容
+// 格式标记：**加粗** >首行缩进
 
 async function main() {
     const files = INPUT_FILES;
@@ -13,14 +14,13 @@ async function main() {
     const outputNameFormat = (date) => `综合日报_${date || '输出'}.docx`;
     const reportTitle = '数据治理综合日报';
     
-    // L1 标题关键词 → 字段映射规则
-    // 按公文规律：L1 是一级标题（一、二、三...），标题文字决定字段归属
-    const fieldRules = [
-        { keywords: ['工作进展', '工作动态', '今日工作', '情况', '综述', '进展'], field: 'overview' },
-        { keywords: ['重点', '项目', '任务', '工程'], field: 'key_projects' },
-        { keywords: ['问题', '风险', '隐患', '困难', '异常'], field: 'risks' },
-        { keywords: ['总结', '合计', '汇总', '整体', '完成'], field: 'summary' },
-        { keywords: ['计划', '下一步', '明日', '次日', '打算', '安排'], field: 'tomorrow' }
+    // JSON 路径配置：L1索引 → 目标字段
+    // gov. 返回的 sections 是数组，sections[0] 是第一个 L1 标题节点
+    const pathConfig = [
+        { path: 'sections[0]', field: 'overview', desc: '今日工作' },
+        { path: 'sections[1]', field: 'risks', desc: '存在问题' },
+        { path: 'sections[2]', field: 'tomorrow', desc: '下一步计划' },
+        { path: 'sections[3]', field: 'key_projects', desc: '项目进展' }
     ];
     // ===== 特异性配置结束 =====
 
@@ -31,25 +31,20 @@ async function main() {
     gov.log(`单位日报: ${unitFiles.length} 份`);
     gov.log('');
 
-    // 递归收集节点及所有子节点内容（含子标题）
-    function collectContent(node, includeTitle = false) {
-        const lines = includeTitle ? [node.title] : [];
-        lines.push(...(node.paragraphs || []));
+    // 递归提取节点内容：标题 + 子节点
+    function getContent(node) {
+        const lines = [];
+        // 标题加粗
+        lines.push(`**${node.title}**`);
+        // 自身段落（首行缩进）
+        for (const p of (node.paragraphs || [])) {
+            if (p.trim()) lines.push(`>${p.trim()}`);
+        }
+        // 子节点递归
         for (const child of (node.children || [])) {
-            lines.push(...collectContent(child, true)); // 子节点带标题
+            lines.push(...getContent(child));
         }
-        return lines;
-    }
-
-    // 按 L1 标题关键词匹配字段
-    function matchField(title) {
-        const t = title || '';
-        for (const rule of fieldRules) {
-            for (const kw of rule.keywords) {
-                if (t.includes(kw)) return rule.field;
-            }
-        }
-        return null;
+        return lines.join('\n');
     }
 
     // 解析每份单位日报
@@ -59,97 +54,38 @@ async function main() {
         gov.log(`解析: ${f.name}`);
         
         const doc = await gov.parseWordStructure(f);
-        const stats = gov.countTree(doc.sections);
         
-        gov.log(`  文档标题: ${doc.title || '(未识别)'}`);
-        gov.log(`  章节总数: ${stats.total}`);
-        gov.log(`  最大层级: ${stats.maxDepth}`);
+        const fields = { overview: '', key_projects: '', risks: '', summary: '', tomorrow: '' };
         
-        // 初始化字段容器
-        const fields = {
-            overview: '',
-            key_projects: '',
-            risks: '',
-            summary: '',
-            tomorrow: ''
-        };
-        
-        // 遍历 L1 节点，按标题关键词归类
-        const sections = doc.sections || [];
-        for (const node of sections) {
-            if (node.level !== 1) continue; // 只处理 L1
-            
-            const field = matchField(node.title);
-            if (!field) {
-                gov.log(`  跳过未匹配的 L1: ${node.title}`);
-                continue;
+        // 按 JSON 路径提取
+        for (const cfg of pathConfig) {
+            const node = eval(cfg.path);  // sections[0] 等
+            if (node) {
+                fields[cfg.field] = getContent(node);
+                gov.log(`  ${cfg.desc} → ${cfg.field}: ${fields[cfg.field].length} 字符`);
             }
-            
-            // 收集该节点及所有子节点内容
-            const content = collectContent(node).join('\n');
-            if (fields[field]) {
-                fields[field] += '\n' + content; // 多个同类型 L1 合并
-            } else {
-                fields[field] = content;
-            }
-            
-            gov.log(`  L1 "${node.title}" → ${field} (${content.length} 字符)`);
         }
         
-        // 应用格式标记（缩进 + 加粗）
-        // 规则：段落首行缩进，标题行加粗
-        const formatContent = (text) => {
-            if (!text) return '';
-            return text.split('\n').map(line => {
-                if (!line.trim()) return '';
-                // 已经是格式标记的不重复处理
-                if (line.startsWith('>') || line.startsWith('**')) return line;
-                // 检测是否是子标题（短行 + 以编号开头）
-                const isSubTitle = line.length < 30 && /^（[一二三四五六七八九十]+）|^\d+[\.、．：]|^（\d+）/.test(line);
-                if (isSubTitle) {
-                    return `**${line}**`; // 子标题加粗
-                }
-                return `>${line}`; // 普通段落缩进
-            }).filter(l => l).join('\n');
-        };
-        
-        const unit = {
+        units.push({
             unit_name: meta.unit || doc.title || '未知单位',
             unit_report_date: meta.date,
-            // 模板占位符字段（带格式标记）
-            unit_overview: formatContent(fields.overview),
-            unit_key_projects: formatContent(fields.key_projects),
-            unit_risks: formatContent(fields.risks),
-            unit_summary: formatContent(fields.summary),
-            unit_tomorrow: formatContent(fields.tomorrow),
-            // 树形结构字段（高级用户）
-            unit_sections_tree: gov.treeToJSON(doc.sections),
-            unit_section_count: stats.total,
-            unit_max_level: stats.maxDepth
-        };
-        
-        units.push(unit);
-        
-        gov.log(`  字段统计:`);
-        gov.log(`    overview: ${fields.overview ? fields.overview.length + ' 字符' : '(未找到)'}`);
-        gov.log(`    key_projects: ${fields.key_projects ? fields.key_projects.length + ' 字符' : '(未找到)'}`);
-        gov.log(`    risks: ${fields.risks ? fields.risks.length + ' 字符' : '(未找到)'}`);
-        gov.log(`    summary: ${fields.summary ? fields.summary.length + ' 字符' : '(未找到)'}`);
-        gov.log(`    tomorrow: ${fields.tomorrow ? fields.tomorrow.length + ' 字符' : '(未找到)'}`);
+            unit_overview: fields.overview,
+            unit_key_projects: fields.key_projects || '>暂无',
+            unit_risks: fields.risks || '>暂无',
+            unit_summary: fields.summary || '>暂无',
+            unit_tomorrow: fields.tomorrow || '>暂无'
+        });
         gov.log('');
     }
 
-    // 汇总数据
-    const data = {
+    // 生成报告
+    const outName = outputNameFormat(units[0]?.unit_report_date || '');
+    await gov.fillWordTemplate(template, {
         report_title: reportTitle,
         report_date: units[0]?.unit_report_date || '',
         units_count: units.length,
         units: units
-    };
-
-    // 生成报告
-    const outName = outputNameFormat(data.report_date);
-    await gov.fillWordTemplate(template, data, outName);
+    }, outName);
     gov.log(`完成: ${outName}`);
 }
 
