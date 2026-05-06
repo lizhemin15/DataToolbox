@@ -36,3 +36,4 @@ apps/web-nav/links-store.json
 web/
 
 DataToolbox
+node_modules/
