@@ -2630,7 +2630,7 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 
 // ensureGovernanceExampleFiles 为已持久化的预置任务补全示例文件元数据（兼容旧数据，逻辑已由 syncGovernancePresetExamplesFromEmbed 覆盖）
 func ensureGovernanceExampleFiles() {
-	if n := syncGovernancePresetExamplesFromEmbed(false); n > 0 {
+	if n := syncGovernancePresetExamplesFromEmbed(true); n > 0 {
 		if err := saveDataOntologyStore(); err != nil {
 			log.Printf("保存示例文件元数据失败: %v", err)
 		}
