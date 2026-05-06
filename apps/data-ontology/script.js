@@ -8794,6 +8794,104 @@ function createGovHelper(logLines, uploadedFiles) {
 
             return parsedResult;
         },
+
+        // ===== 通用公文解析辅助方法 =====
+
+        /**
+         * 解析文件名，提取单位和日期
+         * @param {string} name - 文件名
+         * @param {Object} options - 可选配置 { datePattern?: RegExp }
+         * @returns {{unit: string, date: string}}
+         * 
+         * 支持格式：
+         *   2024年4月15日数据中心日报 → {unit: "数据中心", date: "2024年4月15日"}
+         *   04月15日运维部日报 → {unit: "运维部", date: "04月15日"}
+         */
+        parseFilename(name, options = {}) {
+            if (!name || typeof name !== 'string') return { unit: '', date: '' };
+            
+            const base = name.replace(/\.(docx?|DOCX?)$/i, '');
+            const datePattern = options.datePattern || /^(\d{4})年(\d{1,2})月(\d{1,2})日/;
+            const m = base.match(datePattern);
+            
+            if (m) {
+                // 带年份的完整日期
+                return {
+                    unit: base.replace(datePattern, '').replace(/日报$/, '').trim() || base,
+                    date: `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`
+                };
+            }
+            
+            // 尝试匹配月日格式：04月15日
+            const mdMatch = base.match(/^(\d{1,2})月(\d{1,2})日/);
+            if (mdMatch) {
+                return {
+                    unit: base.replace(/^(\d{1,2})月(\d{1,2})日/, '').replace(/日报$/, '').trim() || base,
+                    date: `${parseInt(mdMatch[1])}月${parseInt(mdMatch[2])}日`
+                };
+            }
+            
+            // 无法解析日期
+            return { unit: base.replace(/日报$/, '').trim() || base, date: '' };
+        },
+
+        /**
+         * 将树形结构转换为模板可用的 JSON 格式
+         * @param {Array} nodes - parseWordStructure 返回的 sections 树形结构
+         * @param {Object} options - 可选配置 { baseIndent?: number, paragraphsKey?: string }
+         * @returns {Array} - 转换后的节点数组，每个节点包含 level, title, indent, paragraphs, children
+         */
+        treeToJSON(nodes, options = {}) {
+            const baseIndent = options.baseIndent || 0;
+            const paragraphsKey = options.paragraphsKey || 'paragraphs';
+            
+            const convert = (nodeList, parentLevel = 0) => {
+                return nodeList.map(node => {
+                    // 根据层级计算缩进
+                    const indent = '  '.repeat(baseIndent + Math.max(0, node.level - 1));
+                    
+                    // 将 paragraphs 数组转换为模板可用的对象数组格式
+                    const paragraphs = (node[paragraphsKey] || []).map(p => {
+                        return { paragraph: typeof p === 'string' ? p : (p.paragraph || JSON.stringify(p)) };
+                    });
+                    
+                    return {
+                        level: node.level,
+                        title: node.title,
+                        indent: indent,
+                        paragraphs: paragraphs,
+                        children: node.children && node.children.length > 0 
+                            ? convert(node.children, node.level) 
+                            : []
+                    };
+                });
+            };
+            
+            return convert(nodes);
+        },
+
+        /**
+         * 统计树形结构信息
+         * @param {Array} nodes - 树形节点数组
+         * @returns {{total: number, maxDepth: number}}
+         */
+        countTree(nodes) {
+            let total = 0;
+            let maxDepth = 0;
+            
+            function walk(nodeList, depth) {
+                for (const node of nodeList) {
+                    total++;
+                    maxDepth = Math.max(maxDepth, depth);
+                    if (node.children && node.children.length > 0) {
+                        walk(node.children, depth + 1);
+                    }
+                }
+            }
+            
+            walk(nodes, 1);
+            return { total, maxDepth };
+        },
     };
 }
 
