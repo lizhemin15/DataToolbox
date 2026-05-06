@@ -8145,6 +8145,203 @@ function createGovHelper(logLines, uploadedFiles) {
         URL.revokeObjectURL(url);
     }
 
+    /**
+     * 解析格式化文本语法
+     * 支持语法：
+     *   **文字** - 加粗
+     *   >文字 - 首行缩进 2 字符
+     * @param {string} str - 输入字符串
+     * @returns {{text: string, bold: Array<[number, number]>, indent: boolean}}
+     */
+    function parseFormatText(str) {
+        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false };
+        
+        let indent = false;
+        let text = str;
+        
+        // 检测首行缩进语法（行首的 >）
+        if (text.startsWith('>')) {
+            indent = true;
+            text = text.slice(1);
+        }
+        
+        // 解析加粗语法 **文字**
+        const bold = [];
+        const result = [];
+        let i = 0;
+        while (i < text.length) {
+            if (text[i] === '*' && text[i + 1] === '*') {
+                // 找到结束的 **
+                const end = text.indexOf('**', i + 2);
+                if (end !== -1) {
+                    const boldText = text.slice(i + 2, end);
+                    const startOffset = result.length;
+                    result.push(boldText);
+                    bold.push([startOffset, startOffset + boldText.length]);
+                    i = end + 2;
+                } else {
+                    // 没有结束符，保留原样
+                    result.push(text[i]);
+                    i++;
+                }
+            } else {
+                result.push(text[i]);
+                i++;
+            }
+        }
+        
+        return { text: result.join(''), bold, indent };
+    }
+
+    /**
+     * 检查数据中是否包含格式标记
+     * @param {any} data - 数据对象
+     * @returns {boolean}
+     */
+    function _hasFormatMarkers(data) {
+        if (!data || typeof data !== 'object') return false;
+        for (const value of Object.values(data)) {
+            if (typeof value === 'string') {
+                if (value.includes('**') || value.startsWith('>')) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 对 docx XML 应用格式化
+     * @param {string} xmlContent - word/document.xml 内容
+     * @param {Object} formatMap - 格式映射 {占位符: {text, bold, indent}}
+     * @returns {string} - 处理后的 XML
+     */
+    function _applyDocxFormatting(xmlContent, formatMap) {
+        if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
+        
+        // 解析 XML
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlContent, 'application/xml');
+        
+        // Word 命名空间
+        const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+        
+        // 查找所有文本节点
+        const textNodes = doc.getElementsByTagNameNS(NS_W, 't');
+        
+        for (let i = 0; i < textNodes.length; i++) {
+            const tNode = textNodes[i];
+            const textContent = tNode.textContent || '';
+            
+            // 查找匹配的格式规则
+            let matchedFormat = null;
+            for (const [key, format] of Object.entries(formatMap)) {
+                if (textContent.includes(format.text)) {
+                    matchedFormat = format;
+                    break;
+                }
+            }
+            
+            if (!matchedFormat) continue;
+            
+            const rNode = tNode.parentNode; // <w:r>
+            if (!rNode || rNode.localName !== 'r') continue;
+            
+            const pNode = rNode.parentNode; // <w:p>
+            if (!pNode || pNode.localName !== 'p') continue;
+            
+            // 处理加粗
+            if (matchedFormat.bold && matchedFormat.bold.length > 0 && matchedFormat.text === textContent) {
+                // 检查是否已有 rPr
+                let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
+                if (!rPr) {
+                    rPr = doc.createElementNS(NS_W, 'w:rPr');
+                    rNode.insertBefore(rPr, rNode.firstChild);
+                }
+                
+                // 添加加粗
+                if (!rPr.getElementsByTagNameNS(NS_W, 'b').length) {
+                    const b = doc.createElementNS(NS_W, 'w:b');
+                    rPr.appendChild(b);
+                }
+            }
+            
+            // 处理首行缩进
+            if (matchedFormat.indent) {
+                let pPr = pNode.getElementsByTagNameNS(NS_W, 'pPr')[0];
+                if (!pPr) {
+                    pPr = doc.createElementNS(NS_W, 'w:pPr');
+                    pNode.insertBefore(pPr, pNode.firstChild);
+                }
+                
+                // 检查是否已有 ind
+                let ind = pPr.getElementsByTagNameNS(NS_W, 'ind')[0];
+                if (!ind) {
+                    ind = doc.createElementNS(NS_W, 'w:ind');
+                    pPr.appendChild(ind);
+                }
+                ind.setAttribute('w:firstLine', '640'); // 2 字符 = 640 twips
+            }
+            
+            // 设置字体和字号（仿宋三号）
+            let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
+            if (!rPr) {
+                rPr = doc.createElementNS(NS_W, 'w:rPr');
+                rNode.insertBefore(rPr, rNode.firstChild);
+            }
+            
+            // 设置字体
+            let rFonts = rPr.getElementsByTagNameNS(NS_W, 'rFonts')[0];
+            if (!rFonts) {
+                rFonts = doc.createElementNS(NS_W, 'w:rFonts');
+                rPr.insertBefore(rFonts, rPr.firstChild);
+            }
+            rFonts.setAttribute('w:ascii', '仿宋');
+            rFonts.setAttribute('w:eastAsia', '仿宋_GB2312');
+            rFonts.setAttribute('w:hAnsi', '仿宋');
+            
+            // 设置字号（三号 = 16pt = 32 half-points）
+            if (!rPr.getElementsByTagNameNS(NS_W, 'sz').length) {
+                const sz = doc.createElementNS(NS_W, 'w:sz');
+                sz.setAttribute('w:val', '32');
+                rPr.appendChild(sz);
+            }
+            if (!rPr.getElementsByTagNameNS(NS_W, 'szCs').length) {
+                const szCs = doc.createElementNS(NS_W, 'w:szCs');
+                szCs.setAttribute('w:val', '32');
+                rPr.appendChild(szCs);
+            }
+        }
+        
+        // 序列化回 XML
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(doc);
+    }
+
+    /**
+     * 处理数据中的格式标记，返回处理后的数据和格式映射
+     * @param {Object} data - 原始数据
+     * @returns {{data: Object, formatMap: Object}}
+     */
+    function _processFormatData(data) {
+        if (!data || typeof data !== 'object') return { data, formatMap: {} };
+        
+        const formatMap = {};
+        const processedData = {};
+        
+        for (const [key, value] of Object.entries(data)) {
+            if (typeof value === 'string' && (value.includes('**') || value.startsWith('>'))) {
+                const parsed = parseFormatText(value);
+                processedData[key] = parsed.text;
+                formatMap[key] = parsed;
+            } else {
+                processedData[key] = value;
+            }
+        }
+        
+        return { data: processedData, formatMap };
+    }
+
     function _govCsvEscapeCell(val) {
         if (typeof window.govCsvEscapeCell === 'function') return window.govCsvEscapeCell(val);
         if (typeof globalThis.govCsvEscapeCell === 'function') return globalThis.govCsvEscapeCell(val);
@@ -8234,10 +8431,35 @@ function createGovHelper(logLines, uploadedFiles) {
             const fileObj = await _resolveGovTemplateFile(templateFile);
             const buf = await fileObj.arrayBuffer();
             const zip = new window.PizZip(buf);
+            
+            // 检查是否有格式标记
+            const hasFormatting = _hasFormatMarkers(data);
+            let processedData = data;
+            let formatMap = {};
+            
+            if (hasFormatting) {
+                const processed = _processFormatData(data);
+                processedData = processed.data;
+                formatMap = processed.formatMap;
+            }
+            
             const doc = new DocxCtor(zip, { paragraphLoop: true, linebreaks: true });
-            doc.setData(data || {});
+            doc.setData(processedData || {});
             doc.render();
-            const blob = doc.getZip().generate({
+            
+            let outputZip = doc.getZip();
+            
+            // 如果有格式标记，后处理 XML
+            if (hasFormatting && Object.keys(formatMap).length > 0) {
+                const documentXml = outputZip.file('word/document.xml');
+                if (documentXml) {
+                    const xmlContent = documentXml.asText();
+                    const formattedXml = _applyDocxFormatting(xmlContent, formatMap);
+                    outputZip.file('word/document.xml', formattedXml);
+                }
+            }
+            
+            const blob = outputZip.generate({
                 type: 'blob',
                 mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             });
