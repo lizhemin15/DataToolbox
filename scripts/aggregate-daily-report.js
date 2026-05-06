@@ -11,15 +11,25 @@ function parseFilename(name) {
     };
 }
 
-// 将树形结构转换为纯净 JSON（保留完整层级）
-function treeToJSON(nodes) {
-    return nodes.map(node => ({
-        level: node.level,
-        title: node.title,
-        paragraph_count: (node.paragraphs || []).length,
-        paragraphs: node.paragraphs || [],
-        children: node.children && node.children.length > 0 ? treeToJSON(node.children) : []
-    }));
+// 将树形结构转换为纯净 JSON（保留完整层级，添加 indent 字段）
+function treeToJSON(nodes, parentLevel = 0) {
+    return nodes.map(node => {
+        // 根据层级计算缩进（一级标题不缩进，每深一层加两个空格）
+        const indent = '  '.repeat(Math.max(0, node.level - 1));
+        
+        // 将 paragraphs 数组转换为模板可用的格式
+        const paragraphs = (node.paragraphs || []).map(p => ({ paragraph: p }));
+        
+        return {
+            level: node.level,
+            title: node.title,
+            indent: indent,
+            paragraphs: paragraphs,
+            children: node.children && node.children.length > 0 
+                ? treeToJSON(node.children, node.level) 
+                : []
+        };
+    });
 }
 
 // 统计树形结构信息
