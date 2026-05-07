@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据工具箱</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>数据工具箱</h1>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="搜索应用...">
+            </div>
+            <div class="filter-bar">
+                <div class="category-tabs" id="categoryTabs"></div>
+                <div class="sort-control">
+                    <select id="sortSelect">
+                        <option value="default">默认排序</option>
+                        <option value="name-asc">名称 A→Z</option>
+                        <option value="name-desc">名称 Z→A</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+        
+        <main id="appContainer">
+            <!-- 动态加载app列表 -->
+        </main>
+        
+        <footer class="footer">
+            <p>开发者：李哲民</p>
+        </footer>
+    </div>
+    
+    <script src="apps/apps.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
