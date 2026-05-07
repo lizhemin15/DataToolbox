@@ -81,6 +81,16 @@ jobs:
             done
           fi
 
+      - name: Build gov-runner for ARM
+        if: matrix.goarch == 'arm64'
+        run: |
+          bun install
+          bun run build
+          # 输出为 gov-runner 或 gov-runner.exe
+          if [ -f "gov-runner.exe" ]; then
+            mv gov-runner.exe gov-runner
+          fi
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
