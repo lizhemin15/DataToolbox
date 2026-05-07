@@ -142,8 +142,9 @@ jobs:
         run: |
           cd gov-runner-src
           bun install
-          bun build gov-shared.ts --compile --outfile ../apps/data-ontology/lib/gov-shared.js --target=browser
+          bun build gov-shared.ts --outfile ../apps/data-ontology/lib/gov-shared.js --target=browser --minify
           echo "Built gov-shared.js for browser"
+          ls -la ../apps/data-ontology/lib/gov-shared.js
 
       - name: Build
         env:
