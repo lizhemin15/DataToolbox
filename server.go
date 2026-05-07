@@ -3662,10 +3662,12 @@ func getTableFKs(db *sql.DB, config *DatabaseConfig, tableName string) map[strin
 	switch config.Type {
 	case "dm", "oracle":
 		// 达梦/Oracle: 从 USER_CONSTRAINTS + USER_CONS_COLUMNS 获取外键
+		// 需要两次 JOIN: 第一次获取外键列，第二次通过 R_CONSTRAINT_NAME 获取被引用表名
 		query := `
-			SELECT cc.COLUMN_NAME, c.R_TABLE_NAME
+			SELECT cc.COLUMN_NAME, r.TABLE_NAME
 			FROM USER_CONSTRAINTS c
 			JOIN USER_CONS_COLUMNS cc ON c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+			JOIN USER_CONSTRAINTS r ON c.R_CONSTRAINT_NAME = r.CONSTRAINT_NAME
 			WHERE c.TABLE_NAME = ? AND c.CONSTRAINT_TYPE = 'R'`
 		rows, err := db.Query(query, tableName)
 		if err != nil {
