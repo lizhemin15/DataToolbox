@@ -26,6 +26,7 @@ datatoolbox
 server.config.json
 apps/data-ontology/data-store.json
 apps/web-nav/links-store.json
+apps/data-ontology/example_files/
 *.tmp
 *.temp
 
