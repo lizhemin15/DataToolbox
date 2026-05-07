@@ -1,0 +1,222 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 当推送v开头的tag时触发，如 v1.0.0
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - goos: windows
+            goarch: amd64
+            output: datatoolbox-server.exe
+            package: datatoolbox-windows-amd64.zip
+          
+          - goos: windows
+            goarch: arm64
+            output: datatoolbox-server.exe
+            package: datatoolbox-windows-arm64.zip
+          
+          # Linux（CGO 启用，用于 SQLite 等）
+          - goos: linux
+            goarch: amd64
+            output: datatoolbox-server
+            package: datatoolbox-linux-amd64.tar.gz
+          
+          - goos: linux
+            goarch: arm64
+            output: datatoolbox-server
+            package: datatoolbox-linux-arm64.tar.gz
+          
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            output: datatoolbox-server
+            package: datatoolbox-macos-amd64.tar.gz
+          
+          - goos: darwin
+            goarch: arm64
+            output: datatoolbox-server
+            package: datatoolbox-macos-arm64.tar.gz
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Download dependencies
+        run: |
+          go mod tidy
+          go mod download
+
+      - name: Inject version into source static files (for embed)
+        run: |
+          VERSION="${GITHUB_REF_#v}"
+          if [ -n "$VERSION" ]; then
+            python3 scripts/inject_version.py "$VERSION" .
+          fi
+
+      - name: Build gov-runner
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          cd gov-runner
+          bun install
+          # 每个平台输出到不同文件名，避免并行构建互相覆盖
+          case "${{ matrix.goos }}-${{ matrix.goarch }}" in
+            linux-amd64) bun build --compile ./index.ts --outfile gov-runner-linux-x64 --target=bun-linux-x64 ;;
+            linux-arm64) bun build --compile ./index.ts --outfile gov-runner-linux-arm64 --target=bun-linux-arm64 ;;
+            windows-amd64) bun build --compile ./index.ts --outfile gov-runner-windows-x64.exe --target=bun-windows-x64 ;;
+            windows-arm64) bun build --compile ./index.ts --outfile gov-runner-windows-arm64.exe --target=bun-windows-arm64 ;;
+            darwin-amd64) bun build --compile ./index.ts --outfile gov-runner-darwin-x64 --target=bun-darwin-x64 ;;
+            darwin-arm64) bun build --compile ./index.ts --outfile gov-runner-darwin-arm64 --target=bun-darwin-arm64 ;;
+            *) echo "Unknown matrix"; exit 1 ;;
+          esac
+          cd ..
+
+      - name: Build server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          # 使用 release 标签构建
+          go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
+
+      - name: Prepare package files
+        run: |
+          mkdir -p package/web
+          cp ${{ matrix.output }} package/
+          cp server.config.json package/
+          cp scripts/install..sh package/install.sh
+          cp README_DEPLOY.md package/
+          chmod +x package/install.sh
+          # 复制静态文件到发布目录
+          cp -r index.html apps css js lib package/web/
+          # 自动注入版本号
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -n "$VERSION" ]; then
+            python3 scripts/inject_version.py "$VERSION" package
+          fi
+          # 复制 gov-runner（根据平台选择对应文件）
+          case "${{ matrix.goos }}-${{ matrix.goarch }}" in
+            linux-amd64) cp gov-runner/gov-runner-linux-x64 package/gov-runner ;;
+            linux-arm64) cp gov-runner/gov-runner-linux-arm64 package/gov-runner ;;
+            windows-amd64) cp gov-runner/gov-runner-windows-x64.exe package/gov-runner.exe ;;
+            windows-arm64) cp gov-runner/gov-runner-windows-arm64.exe package/gov-runner.exe ;;
+            darwin-amd64) cp gov-runner/gov-runner-darwin-x64 package/gov-runner ;;
+            darwin-arm64) cp gov-runner/gov-runner-darwin-arm64 package/gov-runner ;;
+          esac
+          chmod +x package/gov-runner
+
+      - name: Create startup script for Windows
+        if: matrix.goos == 'windows'
+        run: |
+          cat > package/start.bat << 'EOF'
+          @echo off
+          chcp 65001 >nul
+          cd /d "%~dp0"
+          echo ====================================
+          echo DataToolbox 服务器
+          echo ====================================
+          echo.
+          if "%1"=="" (
+              datatoolbox-server.exe
+          ) else (
+              datatoolbox-server.exe -port %1
+          )
+          pause
+          EOF
+
+      - name: Create startup script for Unix
+        if: matrix.goos != 'windows'
+        run: |
+          cat > package/start.sh << 'EOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          echo "===================================="
+          echo "DataToolbox 服务器"
+          echo "===================================="
+          echo ""
+          if [ -z "$1" ]; then
+              ./datatoolbox-server
+          else
+              ./datatoolbox-server -port "$1"
+          fi
+          EOF
+          chmod +x package/start.sh
+          chmod +x package/datatoolbox-server
+
+      - name: Create ZIP package (Windows)
+        if: matrix.goos == 'windows'
+        run: |
+          cd package
+          zip -r ../${{ matrix.package }} .
+
+      - name: Create TAR.GZ package (Unix)
+        if: matrix.goos != 'windows'
+        run: |
+          cd package
+          tar -czf ../${{ matrix.package }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: ${{ matrix.package }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          body: |
+            ## DataToolbox Server Release
+            
+            ### 📦 下载说明
+            
+            根据你的系统选择对应的包：
+            
+            - **Windows (64位 Intel/AMD)**: `datatoolbox-windows-amd64.zip`
+            - **Windows (ARM64)**: `datatoolbox-windows-arm64.zip`
+            - **Linux (64位)**: `datatoolbox-linux-amd64.tar.gz`
+            - **Linux (ARM64)**: `datatoolbox-linux-arm64.tar.gz`
+            - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`
+            - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
