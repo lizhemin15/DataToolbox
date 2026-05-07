@@ -86,7 +86,7 @@ jobs:
         run: |
           # 使用 Docker + QEMU 进行 ARM64 交叉编译
           docker run --rm --privileged multiarch/qemu-user-static --setup --credential yes -c yes || true
-          docker run --rm -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
+          docker run --rm --platform linux/amd64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
             apt-get update && apt-get install -y curl
             curl -fsSL https://bun.sh/install | bash
             export BUN_INSTALL="$HOME/.bun"
