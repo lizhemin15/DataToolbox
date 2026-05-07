@@ -50,6 +50,12 @@ export interface GovHelper {
   writeText(filename: string, content: string): void;
   writeJSON(filename: string, data: any): void;
   parseFilename(name: string, options?: { datePattern?: RegExp }): { unit: string; date: string };
+  parseWordStructure(file: FileLike, options?: { maxTextLength?: number }): Promise<{
+    title: string;
+    sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+    tables: any[];
+    rawText: string;
+  }>;
 }
 
 /**
@@ -309,6 +315,151 @@ export function createGovHelper(
       }
       
       return { unit: base.replace(/日报$/, '').trim() || base, date: '' };
+    },
+
+    /**
+     * 解析 Word 文档结构，识别公文格式的标题层级、段落、表格等。
+     * 从前端 script.js 移植
+     */
+    async parseWordStructure(file: FileLike, options: { maxTextLength?: number } = {}) {
+      if (!file) throw new Error('缺少文件');
+      const arrayBuffer = await file.arrayBuffer();
+      const buf = Buffer.from(arrayBuffer);
+      const zip = new PizZip(buf);
+      
+      // 提取纯文本
+      const docXml = zip.file('word/document.xml');
+      if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
+      const xml = docXml.asText() || '';
+      
+      // 提取所有 <w:t> 标签中的文本
+      const matches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+      const texts = matches.map((m: string) => {
+        const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+        return m2 ? m2[1] : '';
+      });
+      const rawText = texts.join('');
+      
+      const maxLen = options.maxTextLength || 50000;
+      const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
+
+      // ===== 扩展公文标题正则模式 =====
+      const titlePatterns = [
+        /^[一二三四五六七八九十]+、[^\n]+/,
+        /^（[一二三四五六七八九十]+）[^\n]+/,
+        /^\d+[\.、．：][^\n]+/,
+        /^（\d+）[^\n]+/,
+        /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/,
+        /^第[一二三四五六七八九十\d]+章[^\n]*/,
+        /^第[一二三四五六七八九十\d]+条[^\n]*/,
+        /^[•●○◆■★][\s　][^\n]+/,
+        /^[\u25A0\u25B2\u25CB\u25CF][\s　][^\n]+/,
+        /^[\d]+\.[\s　]+[^\n]+/,
+        /^[\\(（]?[a-zA-Z0-9]+[\\)）]?[\.、：\s　]+[^\n]+/
+      ];
+
+      const lines = text.split(/\r?\n/).map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+      const sections: any[] = [];
+      let currentSection: any = null;
+      let title = '';
+
+      // 尝试识别文档标题
+      for (let i = 0; i < Math.min(10, lines.length); i++) {
+        const line = lines[i];
+        if (line && line.length > 2 && line.length < 100) {
+          let isChapterTitle = false;
+          for (const pattern of titlePatterns) {
+            if (pattern.test(line)) {
+              isChapterTitle = true;
+              break;
+            }
+          }
+          if (!isChapterTitle) {
+            title = line;
+            break;
+          }
+        }
+      }
+
+      // 解析章节
+      for (const line of lines) {
+        if (!line) continue;
+
+        // 检测一级标题：一、二、三、
+        const m1 = line.match(/^([一二三四五六七八九十]+)、(.*)$/);
+        if (m1) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 1, title: `${m1[1]}、${(m1[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测二级标题：（一）（二）
+        const m2 = line.match(/^（([一二三四五六七八九十]+)）(.*)$/);
+        if (m2) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 2, title: `（${m2[1]}）${(m2[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测三级标题：1. 2.
+        const m3 = line.match(/^(\d+)([\.、．])(.*)$/);
+        if (m3) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 3, title: `${m3[1]}${m3[2]}${(m3[3] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测四级标题：（1）（2）
+        const m4 = line.match(/^（(\d+)）(.*)$/);
+        if (m4) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 4, title: `（${m4[1]}）${(m4[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测第一章、第二章
+        const mChapter = line.match(/^第(\d+)章[：:\s]*(.*)$/);
+        if (mChapter) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 1, title: `第${mChapter[1]}章 ${(mChapter[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测第1条、第2条
+        const mArticle = line.match(/^第(\d+)条[：:\s]*(.*)$/);
+        if (mArticle) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 1, title: `第${mArticle[1]}条 ${(mArticle[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 如果没有匹配任何标题模式，作为段落添加
+        if (currentSection) {
+          currentSection.paragraphs.push(line);
+        }
+      }
+
+      if (currentSection) sections.push(currentSection);
+
+      // 尝试提取表格
+      const tables: any[] = [];
+      const tableXmlMatches = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
+      for (const tableXml of tableXmlMatches.slice(0, 20)) {
+        const rows: string[][] = [];
+        const rowMatches = tableXml.match(/<w:tr[\s\S]*?<\/w:tr>/g) || [];
+        for (const rowXml of rowMatches) {
+          const cells: string[] = [];
+          const cellMatches = rowXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+          for (const cell of cellMatches) {
+            const m = cell.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+            cells.push(m ? m[1] : '');
+          }
+          if (cells.length > 0) rows.push(cells);
+        }
+        if (rows.length > 0) tables.push(rows);
+      }
+
+      return { title, sections, tables, rawText };
     },
   };
 }
