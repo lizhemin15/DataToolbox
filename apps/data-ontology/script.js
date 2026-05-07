@@ -1104,7 +1104,7 @@ async function switchTab(tabName) {
 
 // 数据库列表与详情管理。
 const dbTypeDefaults = {
-    dm: { port: 5236, requiresDb: true },
+    dm: { port: 5236, requiresDb: false },  // 达梦用用户名作为schema，不需要数据库名
     oracle: { port: 1521, requiresDb: true },
     mysql: { port: 3306, requiresDb: true },
     mariadb: { port: 3306, requiresDb: true },
