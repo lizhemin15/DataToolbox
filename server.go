@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -1106,6 +1107,7 @@ var (
 	governanceJobQueue = make(chan *GovernanceJob, 100) // 任务队列
 	govRunnerPath      = "gov-runner"                   // 未嵌入时从可执行文件旁查找
 	govRunnerAPIBase   string                           // 供 gov-runner 回调本机 API，在 main 中设置
+	mcpLoopbackAddr    string                           // MCP 回环地址
 )
 
 // 网页导航
@@ -14181,4 +14183,192 @@ func main() {
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("启动服务器失败: %v", err)
 	}
+}
+
+// ============================================================
+// 质量审计数据库初始化
+// ============================================================
+
+// initQualityAuditDB 初始化质量审计数据库
+func initQualityAuditDB() {
+	// 创建质量审计表（如果不存在）
+	auditDBPath := filepath.Join(getDataDir(), "quality_audit.db")
+	db, err := sql.Open("sqlite", auditDBPath)
+	if err != nil {
+		log.Printf("质量审计数据库打开失败: %v", err)
+		return
+	}
+	defer db.Close()
+
+	// 创建审计记录表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS audit_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id TEXT NOT NULL,
+			task_type TEXT NOT NULL,
+			database_id TEXT,
+			table_name TEXT,
+			issue_type TEXT,
+			issue_description TEXT,
+			severity TEXT,
+			status TEXT DEFAULT 'open',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			resolved_at TIMESTAMP,
+			resolved_by TEXT
+		)
+	`)
+	if err != nil {
+		log.Printf("创建审计记录表失败: %v", err)
+		return
+	}
+
+	log.Printf("质量审计数据库初始化完成: %s", auditDBPath)
+}
+
+// ============================================================
+// gov-runner 路径解析
+// ============================================================
+
+// resolveGovRunnerPath 解析 gov-runner 可执行文件路径
+func resolveGovRunnerPath() (string, error) {
+	// 1. 检查嵌入的 gov-runner（与主程序同目录）
+	execPath, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(execPath), "gov-runner")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	// 2. 检查 PATH
+	if path, err := exec.LookPath("gov-runner"); err == nil {
+		return path, nil
+	}
+
+	// 3. 检查当前工作目录
+	if _, err := os.Stat("gov-runner"); err == nil {
+		return "./gov-runner", nil
+	}
+
+	return "", fmt.Errorf("gov-runner 未找到，请确保它在 PATH 中或与主程序同目录")
+}
+
+// ============================================================
+// MCP Server
+// ============================================================
+
+// runMCPServer 启动 MCP 服务器（stdio 模式）
+func runMCPServer() {
+	// MCP 服务器通过 stdio 与客户端通信
+	// 需要设置 DATA_ONTOLOGY_BASE_URL 和 DATA_ONTOLOGY_API_KEY 环境变量
+	baseURL := os.Getenv("DATA_ONTOLOGY_BASE_URL")
+	apiKey := os.Getenv("DATA_ONTOLOGY_API_KEY")
+
+	if baseURL == "" {
+		baseURL = mcpLoopbackAddr
+	}
+
+	log.Printf("MCP 服务器启动，连接到: %s", baseURL)
+
+	// TODO: 实现 MCP 协议
+	// 当前为占位实现，后续可扩展
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// 处理 MCP 请求
+		log.Printf("MCP 收到: %s", line)
+		// 返回响应
+		fmt.Printf("{\"jsonrpc\":\"2.0\",\"result\":{},\"id\":1}\n")
+	}
+}
+
+// ============================================================
+// MCP HTTP Handler
+// ============================================================
+
+// handleMCPHTTP 处理 MCP HTTP 请求
+func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 处理 MCP 请求
+	// TODO: 实现完整的 MCP 协议处理
+	resp := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"result":  map[string]interface{}{"status": "ok"},
+		"id":      req["id"],
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// ============================================================
+// 质量审计 API
+// ============================================================
+
+// handleQualityAuditAPI 处理质量审计 API 请求
+func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		// 获取审计记录列表
+		records := getAuditRecords()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(records)
+	case "POST":
+		// 创建审计记录
+		var record map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// TODO: 保存到数据库
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// getAuditRecords 获取审计记录
+func getAuditRecords() []map[string]interface{} {
+	// TODO: 从数据库读取
+	return []map[string]interface{}{}
+}
+
+// ============================================================
+// 静态文件处理器
+// ============================================================
+
+// newStaticFileHandler 创建静态文件处理器
+func newStaticFileHandler() http.Handler {
+	// 查找 web 目录
+	webDir := "web"
+	if _, err := os.Stat(webDir); os.IsNotExist(err) {
+		// 尝试可执行文件目录
+		execPath, _ := os.Executable()
+		webDir = filepath.Join(filepath.Dir(execPath), "web")
+	}
+
+	// 如果 web 目录不存在，返回一个简单的处理器
+	if _, err := os.Stat(webDir); os.IsNotExist(err) {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write([]byte("<html><body><h1>DataToolbox</h1><p>Web UI not found. Please build the frontend.</p></body></html>"))
+				return
+			}
+			http.NotFound(w, r)
+		})
+	}
+
+	return http.FileServer(http.Dir(webDir))
 }
