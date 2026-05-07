@@ -69,13 +69,6 @@ jobs:
           go mod tidy
           go mod download
 
-      - name: Inject version into source static files (for embed)
-        run: |
-          VERSION="${GITHUB_REF_#v}"
-          if [ -n "$VERSION" ]; then
-            python3 scripts/inject_version.py "$VERSION" .
-          fi
-
       - name: Build gov-runner
         env:
           GOOS: ${{ matrix.goos }}
@@ -114,11 +107,6 @@ jobs:
           chmod +x package/install.sh
           # 复制静态文件到发布目录
           cp -r index.html css js lib package/web/
-          # 自动注入版本号
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ -n "$VERSION" ]; then
-            python3 scripts/inject_version.py "$VERSION" package
-          fi
           # 复制 gov-runner（根据平台选择对应文件）
           case "${{ matrix.goos }}-${{ matrix.goarch }}" in
             linux-amd64) cp gov-runner/gov-runner-linux-x64 package/gov-runner ;;
