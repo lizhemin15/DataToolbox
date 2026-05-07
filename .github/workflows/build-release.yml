@@ -113,7 +113,7 @@ jobs:
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           # 复制静态文件到发布目录
-          cp -r index.html apps css js lib package/web/
+          cp -r index.html css js lib package/web/
           # 自动注入版本号
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
