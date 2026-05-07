@@ -1153,10 +1153,20 @@ func getDataOntologyStorePath() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Printf("获取可执行文件路径失败: %v", err)
-		return "apps/data-ontology/data-store.json"
+		return "apps/data-ontology/data-Store.ql.json"
 	}
 	rootDir := filepath.Dir(exePath)
-	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
+	return filepath.Join(rootDir, "apps", "data-ontology", "data-Store.ql.json")
+}
+
+// getDataDir 获取数据目录
+func getDataDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "data"
+	}
+	rootDir := filepath.Dir(exePath)
+	return filepath.Join(rootDir, "data")
 }
 
 // 加载持久化数据
@@ -14281,7 +14291,7 @@ func runMCPServer() {
 	// MCP 服务器通过 stdio 与客户端通信
 	// 需要设置 DATA_ONTOLOGY_BASE_URL 和 DATA_ONTOLOGY_API_KEY 环境变量
 	baseURL := os.Getenv("DATA_ONTOLOGY_BASE_URL")
-	apiKey := os.Getenv("DATA_ONTOLOGY_API_KEY")
+	_ = os.Getenv("DATA_ONTOLOGY_API_KEY") // 保留用于未来扩展
 
 	if baseURL == "" {
 		baseURL = mcpLoopbackAddr
