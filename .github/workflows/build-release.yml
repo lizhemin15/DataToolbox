@@ -139,6 +139,11 @@ jobs:
           chmod +x package/update.sh
           # 复制静态文件到包根目录
           cp -r index.html apps css js lib examples package/
+
+          # 关键：打包时用空模板替换敏感配置文件，避免泄露数据库密码和AI API Key
+          # 用户首次启动时会自动生成空白配置
+          echo '{}' > package/apps/data-ontology/data-store.json
+
           # 注入版本号：替换静态资源 URL 中的 ?v=X.Y.Z
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
