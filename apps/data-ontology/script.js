@@ -8150,25 +8150,64 @@ function createGovHelper(logLines, uploadedFiles) {
      * 支持语法：
      *   **文字** - 加粗
      *   >文字 - 首行缩进 2 字符
+     *   [f:字体,s:字号] - 指定字体和字号（可选，可嵌套）
      * @param {string} str - 输入字符串
-     * @returns {{text: string, bold: Array<[number, number]>, indent: boolean}}
+     * @param {Object} defaultFont - 默认字体配置 {name: string, size: number}
+     * @returns {{text: string, bold: Array<[number, number]>, indent: boolean, fonts: Array<[number, number, string, number]>}}
      */
-    function parseFormatText(str) {
-        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false };
-        
+    function parseFormatText(str, defaultFont = null) {
+        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [] };
+
         let indent = false;
         let text = str;
-        
+
         // 检测首行缩进语法（行首的 >）
         if (text.startsWith('>')) {
             indent = true;
             text = text.slice(1);
         }
-        
+
+        // 解析字体字号标记 [f:字体,s:字号]
+        const fontMarkers = [];
+        const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
+        let fontMatch;
+        while ((fontMatch = fontRegex.exec(text)) !== null) {
+            const fontName = fontMatch[1].trim();
+            const fontSize = parseInt(fontMatch[2], 10);
+            const markerStart = fontMatch.index;
+            const markerLength = fontMatch[0].length;
+
+            // 找到标记后的文字（直到下一个标记或字符串结束）
+            const afterMarker = text.slice(markerStart + markerLength);
+            const nextMarker = afterMarker.search(/\[f:|$/);
+            const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
+
+            fontMarkers.push({
+                markerStart,
+                markerLength,
+                fontName,
+                fontSize,
+                contentLength
+            });
+        }
+
+        // 移除字体标记，计算最终文本
+        let textWithoutFontMarkers = text.replace(fontRegex, '');
+
+        // 计算字体标记在移除标记后的文本中的位置
+        const fonts = [];
+        let offsetAdjustment = 0;
+        for (const marker of fontMarkers) {
+            const adjustedStart = marker.markerStart - offsetAdjustment;
+            fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
+            offsetAdjustment += marker.markerLength;
+        }
+
         // 解析加粗语法 **文字**
         const bold = [];
         const result = [];
         let i = 0;
+        text = textWithoutFontMarkers;
         while (i < text.length) {
             if (text[i] === '*' && text[i + 1] === '*') {
                 // 找到结束的 **
@@ -8189,8 +8228,26 @@ function createGovHelper(logLines, uploadedFiles) {
                 i++;
             }
         }
-        
-        return { text: result.join(''), bold, indent };
+
+        const finalText = result.join('');
+
+        // 调整字体位置（因为加粗标记也被移除了）
+        const adjustedFonts = fonts.map(([start, end, name, size]) => {
+            // 计算加粗标记移除后的位置调整
+            let boldAdjustment = 0;
+            let pos = 0;
+            for (const [boldStart, boldEnd] of bold) {
+                if (boldStart <= start) {
+                    boldAdjustment += 2; // 开始的 **
+                }
+                if (boldEnd <= end) {
+                    boldAdjustment += 2; // 结束的 **
+                }
+            }
+            return [start - boldAdjustment, end - boldAdjustment, name, size];
+        });
+
+        return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont };
     }
 
     /**
@@ -8213,26 +8270,26 @@ function createGovHelper(logLines, uploadedFiles) {
     /**
      * 对 docx XML 应用格式化
      * @param {string} xmlContent - word/document.xml 内容
-     * @param {Object} formatMap - 格式映射 {占位符: {text, bold, indent}}
+     * @param {Object} formatMap - 格式映射 {占位符: {text, bold, indent, fonts, defaultFont}}
      * @returns {string} - 处理后的 XML
      */
     function _applyDocxFormatting(xmlContent, formatMap) {
         if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
-        
+
         // 解析 XML
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlContent, 'application/xml');
-        
+
         // Word 命名空间
         const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-        
+
         // 查找所有文本节点
         const textNodes = doc.getElementsByTagNameNS(NS_W, 't');
-        
+
         for (let i = 0; i < textNodes.length; i++) {
             const tNode = textNodes[i];
             const textContent = tNode.textContent || '';
-            
+
             // 查找匹配的格式规则
             let matchedFormat = null;
             for (const [key, format] of Object.entries(formatMap)) {
@@ -8241,31 +8298,18 @@ function createGovHelper(logLines, uploadedFiles) {
                     break;
                 }
             }
-            
+
             if (!matchedFormat) continue;
-            
+
             const rNode = tNode.parentNode; // <w:r>
             if (!rNode || rNode.localName !== 'r') continue;
-            
+
             const pNode = rNode.parentNode; // <w:p>
             if (!pNode || pNode.localName !== 'p') continue;
-            
-            // 处理加粗
-            if (matchedFormat.bold && matchedFormat.bold.length > 0 && matchedFormat.text === textContent) {
-                // 检查是否已有 rPr
-                let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
-                if (!rPr) {
-                    rPr = doc.createElementNS(NS_W, 'w:rPr');
-                    rNode.insertBefore(rPr, rNode.firstChild);
-                }
-                
-                // 添加加粗
-                if (!rPr.getElementsByTagNameNS(NS_W, 'b').length) {
-                    const b = doc.createElementNS(NS_W, 'w:b');
-                    rPr.appendChild(b);
-                }
-            }
-            
+
+            // 默认字体配置
+            const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
+
             // 处理首行缩进
             if (matchedFormat.indent) {
                 let pPr = pNode.getElementsByTagNameNS(NS_W, 'pPr')[0];
@@ -8273,7 +8317,7 @@ function createGovHelper(logLines, uploadedFiles) {
                     pPr = doc.createElementNS(NS_W, 'w:pPr');
                     pNode.insertBefore(pPr, pNode.firstChild);
                 }
-                
+
                 // 检查是否已有 ind
                 let ind = pPr.getElementsByTagNameNS(NS_W, 'ind')[0];
                 if (!ind) {
@@ -8282,63 +8326,197 @@ function createGovHelper(logLines, uploadedFiles) {
                 }
                 ind.setAttribute('w:firstLine', '640'); // 2 字符 = 640 twips
             }
-            
-            // 设置字体和字号（仿宋三号）
-            let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
-            if (!rPr) {
-                rPr = doc.createElementNS(NS_W, 'w:rPr');
-                rNode.insertBefore(rPr, rNode.firstChild);
-            }
-            
-            // 设置字体
-            let rFonts = rPr.getElementsByTagNameNS(NS_W, 'rFonts')[0];
-            if (!rFonts) {
-                rFonts = doc.createElementNS(NS_W, 'w:rFonts');
-                rPr.insertBefore(rFonts, rPr.firstChild);
-            }
-            rFonts.setAttribute('w:ascii', '仿宋');
-            rFonts.setAttribute('w:eastAsia', '仿宋_GB2312');
-            rFonts.setAttribute('w:hAnsi', '仿宋');
-            
-            // 设置字号（三号 = 16pt = 32 half-points）
-            if (!rPr.getElementsByTagNameNS(NS_W, 'sz').length) {
-                const sz = doc.createElementNS(NS_W, 'w:sz');
-                sz.setAttribute('w:val', '32');
-                rPr.appendChild(sz);
-            }
-            if (!rPr.getElementsByTagNameNS(NS_W, 'szCs').length) {
-                const szCs = doc.createElementNS(NS_W, 'w:szCs');
-                szCs.setAttribute('w:val', '32');
-                rPr.appendChild(szCs);
+
+            // 处理加粗和字体混排
+            const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
+            const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
+
+            if (hasBold || hasFonts) {
+                // 需要拆分成多个 <w:r> 节点
+                const segments = _splitTextByFormat(textContent, matchedFormat);
+
+                // 移除原有的 <w:r>
+                const nextSibling = rNode.nextSibling;
+                pNode.removeChild(rNode);
+
+                // 为每个片段创建新的 <w:r>
+                for (const segment of segments) {
+                    const newR = doc.createElementNS(NS_W, 'w:r');
+
+                    // 创建 rPr
+                    const rPr = doc.createElementNS(NS_W, 'w:rPr');
+                    newR.appendChild(rPr);
+
+                    // 设置字体
+                    const rFonts = doc.createElementNS(NS_W, 'w:rFonts');
+                    rFonts.setAttribute('w:ascii', segment.fontName);
+                    rFonts.setAttribute('w:eastAsia', segment.fontName);
+                    rFonts.setAttribute('w:hAnsi', segment.fontName);
+                    rPr.appendChild(rFonts);
+
+                    // 设置字号（pt -> half-points）
+                    const sz = doc.createElementNS(NS_W, 'w:sz');
+                    sz.setAttribute('w:val', String(segment.fontSize * 2));
+                    rPr.appendChild(sz);
+
+                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
+                    szCs.setAttribute('w:val', String(segment.fontSize * 2));
+                    rPr.appendChild(szCs);
+
+                    // 设置加粗
+                    if (segment.bold) {
+                        const b = doc.createElementNS(NS_W, 'w:b');
+                        rPr.appendChild(b);
+                    }
+
+                    // 创建文本节点
+                    const newT = doc.createElementNS(NS_W, 'w:t');
+                    newT.textContent = segment.text;
+                    if (segment.text.startsWith(' ') || segment.text.endsWith(' ')) {
+                        newT.setAttribute('xml:space', 'preserve');
+                    }
+                    newR.appendChild(newT);
+
+                    // 插入到段落中
+                    if (nextSibling) {
+                        pNode.insertBefore(newR, nextSibling);
+                    } else {
+                        pNode.appendChild(newR);
+                    }
+                }
+            } else {
+                // 没有加粗和字体标记，只设置默认字体
+                let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
+                if (!rPr) {
+                    rPr = doc.createElementNS(NS_W, 'w:rPr');
+                    rNode.insertBefore(rPr, rNode.firstChild);
+                }
+
+                // 设置字体
+                let rFonts = rPr.getElementsByTagNameNS(NS_W, 'rFonts')[0];
+                if (!rFonts) {
+                    rFonts = doc.createElementNS(NS_W, 'w:rFonts');
+                    rPr.insertBefore(rFonts, rPr.firstChild);
+                }
+                rFonts.setAttribute('w:ascii', defaultFont.name);
+                rFonts.setAttribute('w:eastAsia', defaultFont.name);
+                rFonts.setAttribute('w:hAnsi', defaultFont.name);
+
+                // 设置字号
+                if (!rPr.getElementsByTagNameNS(NS_W, 'sz').length) {
+                    const sz = doc.createElementNS(NS_W, 'w:sz');
+                    sz.setAttribute('w:val', String(defaultFont.size * 2));
+                    rPr.appendChild(sz);
+                }
+                if (!rPr.getElementsByTagNameNS(NS_W, 'szCs').length) {
+                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
+                    szCs.setAttribute('w:val', String(defaultFont.size * 2));
+                    rPr.appendChild(szCs);
+                }
             }
         }
-        
+
         // 序列化回 XML
         const serializer = new XMLSerializer();
         return serializer.serializeToString(doc);
     }
 
     /**
+     * 根据格式信息拆分文本
+     * @param {string} text - 文本内容
+     * @param {Object} format - 格式信息 {bold, fonts, defaultFont}
+     * @returns {Array<{text: string, bold: boolean, fontName: string, fontSize: number}>}
+     */
+    function _splitTextByFormat(text, format) {
+        const segments = [];
+        const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
+
+        // 创建文本位置到格式的映射
+        const formatMap = new Map();
+
+        // 映射字体信息
+        if (format.fonts && format.fonts.length > 0) {
+            for (const [start, end, fontName, fontSize] of format.fonts) {
+                for (let i = start; i < end; i++) {
+                    formatMap.set(i, { fontName, fontSize });
+                }
+            }
+        }
+
+        // 映射加粗信息
+        const boldSet = new Set();
+        if (format.bold && format.bold.length > 0) {
+            for (const [start, end] of format.bold) {
+                for (let i = start; i < end; i++) {
+                    boldSet.add(i);
+                }
+            }
+        }
+
+        // 按格式变化拆分文本
+        if (text.length === 0) return segments;
+
+        let currentSegment = {
+            text: '',
+            bold: boldSet.has(0),
+            fontName: formatMap.has(0) ? formatMap.get(0).fontName : defaultFont.name,
+            fontSize: formatMap.has(0) ? formatMap.get(0).fontSize : defaultFont.size
+        };
+
+        for (let i = 0; i < text.length; i++) {
+            const charBold = boldSet.has(i);
+            const charFont = formatMap.has(i) ? formatMap.get(i) : defaultFont;
+
+            // 检查格式是否变化
+            if (charBold !== currentSegment.bold ||
+                charFont.fontName !== currentSegment.fontName ||
+                charFont.fontSize !== currentSegment.fontSize) {
+                // 保存当前片段
+                if (currentSegment.text.length > 0) {
+                    segments.push(currentSegment);
+                }
+                // 开始新片段
+                currentSegment = {
+                    text: text[i],
+                    bold: charBold,
+                    fontName: charFont.fontName,
+                    fontSize: charFont.fontSize
+                };
+            } else {
+                currentSegment.text += text[i];
+            }
+        }
+
+        // 保存最后一个片段
+        if (currentSegment.text.length > 0) {
+            segments.push(currentSegment);
+        }
+
+        return segments;
+    }
+
+    /**
      * 处理数据中的格式标记，返回处理后的数据和格式映射
      * @param {Object} data - 原始数据
+     * @param {Object} defaultFont - 默认字体配置 {name: string, size: number}
      * @returns {{data: Object, formatMap: Object}}
      */
-    function _processFormatData(data) {
+    function _processFormatData(data, defaultFont = null) {
         if (!data || typeof data !== 'object') return { data, formatMap: {} };
-        
+
         const formatMap = {};
         const processedData = {};
-        
+
         for (const [key, value] of Object.entries(data)) {
-            if (typeof value === 'string' && (value.includes('**') || value.startsWith('>'))) {
-                const parsed = parseFormatText(value);
+            if (typeof value === 'string' && (value.includes('**') || value.startsWith('>') || value.includes('[f:'))) {
+                const parsed = parseFormatText(value, defaultFont);
                 processedData[key] = parsed.text;
                 formatMap[key] = parsed;
             } else {
                 processedData[key] = value;
             }
         }
-        
+
         return { data: processedData, formatMap };
     }
 
@@ -8423,7 +8601,7 @@ function createGovHelper(logLines, uploadedFiles) {
             if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
         },
-        async fillWordTemplate(templateFile, data, outputFilename) {
+        async fillWordTemplate(templateFile, data, outputFilename, defaultFont = null) {
             await ensureGovLibsLoaded();
             if (!window.PizZip) throw new Error('PizZip 未加载');
             const DocxCtor = _govGetDocxtemplaterClass();
@@ -8438,7 +8616,7 @@ function createGovHelper(logLines, uploadedFiles) {
             let formatMap = {};
             
             if (hasFormatting) {
-                const processed = _processFormatData(data);
+                const processed = _processFormatData(data, defaultFont);
                 processedData = processed.data;
                 formatMap = processed.formatMap;
             }
