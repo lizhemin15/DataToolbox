@@ -111,14 +111,12 @@ jobs:
           cp gov-runner ../
           file ../gov-runner
 
-      - name: Build gov-runner for Windows ARM64 using cross-compilation
+      - name: Build gov-runner for Windows ARM64 (skip - using nogov tag)
         if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
         run: |
-          cd gov-runner-src
-          bun install
-          bun build index.ts --compile --outfile gov-runner.exe --target=windows-arm64
-          cp gov-runner.exe ../
-          file ../gov-runner.exe
+          echo "Windows ARM64 uses nogov tag, gov-runner not embedded"
+          # 创建空的 gov-runner.exe 占位符
+          touch gov-runner.exe || true
 
       - name: Build gov-runner for other platforms (native)
         if: |
