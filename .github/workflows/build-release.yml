@@ -119,7 +119,12 @@ jobs:
             darwin-amd64) cp gov-runner/gov-runner-darwin-x64 package/gov-runner ;;
             darwin-arm64) cp gov-runner/gov-runner-darwin-arm64 package/gov-runner ;;
           esac
-          chmod +x package/gov-runner
+          # 设置执行权限（Windows 用 .exe 后缀）
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            chmod +x package/gov-runner.exe
+          else
+            chmod +x package/gov-runner
+          fi
 
       - name: Create startup script for Windows
         if: matrix.goos == 'windows'
