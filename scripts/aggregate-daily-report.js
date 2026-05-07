@@ -1,138 +1,228 @@
-// 综合日报生成器 - v11 按公文标题规律匹配解析
-// 按标题关键词匹配提取内容，而非固定索引
-// 格式标记：**加粗** >首行缩进
+// 综合日报生成器 v13 - 模块化架构
+// 1. 提取模板占位符 → module 字典
+// 2. 解析子文档 → jsons 字典 (数组形式，支持 [层级][索引] 访问)
+// 3. 用户手动写替换规则
+// 4. 一键替换生成最终文档
+
+// ===== 工具函数 =====
+
+function str(v) {
+  if (v === undefined || v === null) return '';
+  return String(v);
+}
+
+// 从模板文本中提取占位符 {xxx}
+function extractPlaceholders(text) {
+  const matches = text.match(/\{[^}]+\}/g) || [];
+  const unique = [...new Set(matches.map(m => m. slice(1, -1)))];
+  return unique;
+}
+
+// 递归收集节点及所有子节点内容
+function collectContent(node, includeTitle = false) {
+  const lines = includeTitle ? [node.title] : [];
+  lines.push(...(node.paragraphs || []));
+  for (const child of (node.children || [])) {
+    lines.push(...collectContent(child, true));
+  }
+  return lines;
+}
+
+// 将树形结构转换为数组格式 [层级][索引] = {title, paragraphs, children}
+// 便于用 jsons["文档"][0][2] 这种方式访问
+function treeToArray(nodes, level = 0, result = {}) {
+  if (!result[level]) result[level] = [];
+  
+  for (const node of nodes) {
+    const item = {
+      title: node.title || '',
+      paragraphs: node.paragraphs || [],
+      children: node.children || []
+    };
+    result[level].push(item);
+    
+    // 递归处理子节点
+    if (node.children && node.children.length > 0) {
+      treeToArray(node.children, level + 1, result);
+    }
+  }
+  
+  return result;
+}
+
+// 格式化内容：子标题加粗，普通段落缩进
+function formatContent(text) {
+  if (!text) return '';
+  return text.split('\n').map(line => {
+    if (!line.trim()) return '';
+    if (line.startsWith('>') || line.startsWith('**')) return line;
+    const isSubTitle = line.length < 30 && /^（[一二三四五六七八九十]+）|^\d+[\.、．：]|^（\d+）/.test(line);
+    return isSubTitle ? `**${line}**` : `>${line}`;
+  }).filter(l => l).join('\n');
+}
+
+// ===== 主流程 =====
 
 async function main() {
-    const files = INPUT_FILES;
-    if (!files || files.length < 2) {
-        gov.log('请上传：1个模板 + 至少1份单位日报');
-        return;
-    }
+  const files = INPUT_FILES;
+  if (!files || files.length < 2) {
+    gov.log('请上传：1个模板 + 至少1份单位日报');
+    gov.log('支持格式：.docx（推荐）、.doc（需先转换）、.wps（需先转换）');
+    return;
+  }
 
-    // ===== 配置 =====
-    const templatePattern = /模板|template/i;
-    const outputNameFormat = (date) => `综合日报_${date || '输出'}.docx`;
-    const reportTitle = '数据治理综合日报';
+  // ===== 1. 识别模板和数据文件 =====
+  const templatePattern = /模板|template/i;
+  const template = files.find(f => templatePattern.test(f.name)) || files[0];
+  const unitFiles = files.filter(f => f !== template);
+
+  gov.log(`=== 综合日报生成器 v13 ===`);
+  gov.log(`模板: ${template.name}`);
+  gov.log(`单位日报: ${unitFiles.length} 份`);
+  gov.log('');
+
+  // ===== 2. 检查文件格式 =====
+  const validExts = ['.docx'];
+  const warnExts = ['.doc', '.wps'];
+  
+  for (const f of [template, ...unitFiles]) {
+    const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+    if (warnExts.includes(ext)) {
+      gov.log(`⚠️  ${f.name}: .doc/.wps 格式兼容性有限，建议先用 Word/ WPS 转换为 .docx`);
+    } else if (!validExts.includes(ext)) {
+      gov.log(`❌ ${f. name}: 不支持的格式 ${ext}，请上传 .docx 文件`);
+      return;
+    }
+  }
+
+  // ===== 3. 提取模板占位符 =====
+  gov.log(`=== 步骤1: 提取模板占位符 ===`);
+  const templateText = await gov.readWord(template);
+  const placeholders = extractPlaceholders(templateText. value || '');
+  
+  const module = {};
+  for (const p of placeholders) {
+    module[p] = '';
+  }
+  
+  gov.log(`发现 ${placeholders.length} 个占位符:`);
+  placeholders.forEach(p => gov.log(`  {${p}}`));
+  gov.log('');
+
+  // ===== 4. 解析子文档为 JSON (数组格式) =====
+  gov.log(`=== 步骤2: 解析子文档 ===`);
+  const jsons = {};
+  
+  for (const f of unitFiles) {
+    const name = f.name.replace(/\.(docx?|DOCX?)$/i, '');
+    gov.log(`解析: ${f.name}`);
     
-    // 标题关键词匹配规则：按公文标题规律
-    // L1: 一、二、三 → 主题大类
-    // L2: （一）（二）（三）→ 子主题
-    // L3: 1. 2. 3. → 详细条目
-    const titlePatterns = {
-        // 今日工作相关
-        overview: ['工作', '情况', '概述', '概要', '内容', '进展', '完成', '开展'],
-        // 存在问题
-        risks: ['问题', '风险', '隐患', '困难', '不足', '缺陷', '待解决'],
-        // 下一步计划
-        tomorrow: ['计划', '安排', '下一步', '后续', '将要', '预计', '打算'],
-        // 项目进展
-        key_projects: ['项目', '工程', '建设', '任务', '专项', '重点']
-    };
-    // ===== 配置结束 =====
-
-    const template = files.find(f => templatePattern.test(f.name)) || files[0];
-    const unitFiles = files.filter(f => f !== template);
-
-    gov.log(`模板: ${template.name}`);
-    gov.log(`单位日报: ${unitFiles.length} 份`);
+    try {
+      const doc = await gov.parseWordStructure(f);
+      const stats = gov.countTree(doc.sections);
+      
+      gov.log(`  文档标题: ${doc.title || '(未识别)'}`);
+      gov.log(`  章节总数: ${stats.total}`);
+      gov.log(`  最大层级: ${stats.maxDepth}`);
+      
+      // 转换为数组格式 [层级][索引] = {title, paragraphs, children}
+      // 这样可以: jsons["文档名"][0] 获取 L1 数组
+      //          jsons["文档名"][0][0] 获取 L1 第一个节点
+      //          jsons["文档名"][0][0].title 获取标题
+      //          jsons["文档名"][0][0].paragraphs 获取段落数组
+      const jsonArray = treeToArray(doc.sections || []);
+      
+      jsons[name] = jsonArray;
+      gov.log(`  ✓ 已存储到 jsons["${name}"] (层级数: ${Object.keys(jsonArray).length})`);
+      
+      // 打印各层级节点数量
+      for (const [lvl, arr] of Object.entries(jsonArray)) {
+        gov.log(`    L${parseInt(lvl)+1}: ${arr.length} 个节点`);
+      }
+    } catch (e) {
+      gov.log(`  ✗ 解析失败: ${e.message}`);
+      jsons[name] = { error: e.message };
+    }
     gov.log('');
+  }
 
-    // 递归提取节点完整内容
-    function extractContent(node, includeChildren = true) {
-        const lines = [];
-        // 标题加粗
-        lines.push(`**${node.title}**`);
-        // 自身段落（首行缩进）
-        for (const p of (node.paragraphs || [])) {
-            if (p && p.trim()) lines.push(`>${p.trim()}`);
-        }
-        // 子节点递归
-        if (includeChildren) {
-            for (const child of (node.children || [])) {
-                lines.push(...extractContent(child, true));
-            }
-        }
-        return lines.join('\n');
-    }
+  // ===== 5. 用户替换规则区域 =====
+  gov.log(`=== 步骤3: 用户替换规则 ===`);
+  gov.log(`请在下方 "用户填写区域" 编写替换规则`);
+  gov.log(`可用变量: module, jsons, formatContent`);
+  gov.log(`访问示例:`);
+  gov.log(`  jsons["单位A日报"][0]         // L1 一级标题数组`);
+  gov.log(`  jsons["单位A日报"][0][0]      // L1 第一个节点`);
+  gov.log(`  jsons["单位A日报"][0][0].title        // 节点标题`);
+  gov.log(`  jsons["单位A日报"][0][0].paragraphs   // 节点段落数组`);
+  gov.log('');
+  gov.log(`  // 合并多份文档的 L1 内容`);
+  gov.log(`  const allContent = Object.values(jsons).flatMap(j => j[0]?.map(n => n.paragraphs.join('\\n')) || []);`);
+  gov.log(`  module["overview"] = allContent.join('\\n\\n');`);
+  gov.log('');
 
-    // 递归查找匹配标题的节点
-    function findNodesByKeyword(nodes, keywords, results = []) {
-        for (const node of nodes) {
-            const titleLower = (node.title || '').toLowerCase();
-            for (const kw of keywords) {
-                if (titleLower.includes(kw)) {
-                    results.push(node);
-                    break;
-                }
-            }
-            // 递归子节点
-            if (node.children && node.children.length > 0) {
-                findNodesByKeyword(node.children, keywords, results);
-            }
-        }
-        return results;
-    }
+  // ===== 用户填写区域开始 =====
+  // 
+  // 在此编写替换规则，例如:
+  //
+  // // 示例1: 直接赋值
+  // module["report_title"] = "数据治理综合日报";
+  // module["report_date"] = "2024年4月12日";
+  //
+  // // 示例2: 从 jsons 提取内容
+  // const unitA = jsons["单位A日报"];
+  // if (unitA && unitA[0]) {
+  //   // 合并 L1 所有节点的段落
+  //   const overview = unitA[0].map(n => n.paragraphs.join('\n')).join('\n\n');
+  //   module["overview"] = formatContent(overview);
+  // }
+  //
+  // // 示例3: 合并多份文档
+  // const allRisks = [];
+  // for (const name in jsons) {
+  //   const doc = jsons[name];
+  //   // 查找"风险"相关标题的节点
+  //   const riskNodes = doc[0]?.filter(n => n.title.includes('风险') || n.title.includes('问题')) || [];
+  //   for (const n of riskNodes) {
+  //     allRisks.push(...n.paragraphs);
+  //   }
+  // }
+  // module["risks"] = formatContent(allRisks.join('\n'));
+  //
+  // // 示例4: 提取特定索引的内容
+  // module["summary"] = jsons["单位A日报"][0][1]?.paragraphs[0] || '无';
+  //
+  // ===== 用户填写区域结束 =====
 
-    // 递归统计节点数
-    function countNodes(nodes) {
-        let count = 0;
-        for (const node of nodes) {
-            count += 1;
-            if (node.children) count += countNodes(node.children);
-        }
-        return count;
-    }
+  // ===== 6. 检查占位符是否已填充 =====
+  gov.log(`=== 步骤4: 检查占位符 ===`);
+  const unfilled = Object.entries(module).filter(([k, v]) => !v).map(([k]) => k);
+  
+  if (unfilled.length > 0) {
+    gov.log(`⚠️  以下占位符未填充，Word 中将显示为空:`);
+    unfilled.forEach(k => gov.log(`  {${k}}`));
+    gov.log('');
+  } else {
+    gov.log(`✓ 所有占位符已填充`);
+  }
 
-    // 解析每份单位日报
-    const units = [];
-    for (const f of unitFiles) {
-        const meta = gov.parseFilename(f.name);
-        gov.log(`解析: ${f.name}`);
-        
-        const doc = await gov.parseWordStructure(f);
-        
-        // 输出解析结果用于调试
-        gov.log(`  文档标题: ${doc.title}`);
-        gov.log(`  章节总数: ${countNodes(doc.sections)}`);
-        
-        const fields = { overview: '', key_projects: '', risks: '', summary: '', tomorrow: '' };
-        
-        // 按关键词匹配提取各字段
-        for (const [field, keywords] of Object.entries(titlePatterns)) {
-            const matchedNodes = findNodesByKeyword(doc.sections, keywords);
-            
-            if (matchedNodes.length > 0) {
-                // 合并所有匹配节点的内容
-                const contents = matchedNodes.map(n => extractContent(n, true));
-                fields[field] = contents.join('\n\n');
-                gov.log(`  ${field} → 匹配到 ${matchedNodes.length} 个节点, ${fields[field].length} 字符`);
-            } else {
-                fields[field] = '>暂无';
-                gov.log(`  ${field} → 未匹配到相关内容`);
-            }
-        }
-        
-        units.push({
-            unit_name: meta.unit || doc.title || '未知单位',
-            unit_report_date: meta.date,
-            unit_overview: fields.overview || '>暂无',
-            unit_key_projects: fields.key_projects || '>暂无',
-            unit_risks: fields.risks || '>暂无',
-            unit_summary: fields.summary || '>暂无',
-            unit_tomorrow: fields.tomorrow || '>暂无'
-        });
-        gov.log('');
-    }
-
-    // 生成报告
-    const outName = outputNameFormat(units[0]?.unit_report_date || '');
-    await gov.fillWordTemplate(template, {
-        report_title: reportTitle,
-        report_date: units[0]?.unit_report_date || '',
-        units_count: units.length,
-        units: units
-    }, outName);
-    gov.log(`完成: ${outName}`);
+  // ===== 7. 生成最终文档 =====
+  gov.log(`=== 步骤5: 生成最终文档 ===`);
+  
+  const data = {};
+  for (const [k, v] of Object.entries(module)) {
+    data[k] = v;
+  }
+  
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const outName = `综合日报_${dateStr}.docx`;
+  
+  try {
+    await gov.fillWordTemplate(template, data, outName);
+    gov.log(`✓ 完成: ${outName}`);
+  } catch (e) {
+    gov.log(`✗ 生成失败: ${e.message}`);
+  }
 }
 
 await main();
