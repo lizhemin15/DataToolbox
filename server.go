@@ -16666,7 +16666,8 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 	// 如果有文件，读取并转为 base64
 	if len(job.InputFiles) > 0 {
-		if batchMode == "single" {
+		// "single" 或 "multi" 模式：多文件合并执行
+		if batchMode == "single" || batchMode == "multi" {
 			var filePayloads []map[string]interface{}
 			for _, filePath := range job.InputFiles {
 				data, err := os.ReadFile(filePath)

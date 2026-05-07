@@ -461,6 +461,29 @@ export function createGovHelper(
 
       return { title, sections, tables, rawText };
     },
+
+    /**
+     * 统计树形结构信息
+     * @param nodes - 树形节点数组
+     * @returns {{total: number, maxDepth: number}}
+     */
+    countTree(nodes: any[]): { total: number; maxDepth: number } {
+      let total = 0;
+      let maxDepth = 0;
+
+      function walk(nodeList: any[], depth: number) {
+        for (const node of nodeList) {
+          total++;
+          if (depth > maxDepth) maxDepth = depth;
+          if (node.children && node.children.length > 0) {
+            walk(node.children, depth + 1);
+          }
+        }
+      }
+
+      walk(nodes, 1);
+      return { total, maxDepth };
+    },
   };
 }
 
