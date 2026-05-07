@@ -88,9 +88,9 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          # gov-runner 已预编译，直接使用
-          # Windows 没有 gov-runner.exe，使用 nogov tag
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          # gov-runner 嵌入的是构建机器架构（x86_64）
+          # 非 amd64 架构需要用 nogov tag，让 gov-runner 作为独立文件
+          if [ "${{ matrix.goos }}" = "windows" ] || [ "${{ matrix.goarch }}" != "amd64" ]; then
             go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
           else
             go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
@@ -120,15 +120,9 @@ jobs:
               fi
             done
           fi
-          # 复制 gov-runner（已预编译）
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            # Windows 版本需要单独的 gov-runner.exe
-            if [ -f "gov-runner.exe" ]; then
-              cp gov-runner.exe package/
-            else
-              echo "Warning: gov-runner.exe not found, skipping"
-            fi
-          else
+          # 复制 gov-runner（仅 amd64 架构，因为嵌入的是 x86_64 版本）
+          # ARM 等其他架构需要用户自行提供正确版本的 gov-runner
+          if [ "${{ matrix.goarch }}" = "amd64" ] && [ "${{ matrix.goos }}" != "windows" ]; then
             if [ -f "gov-runner" ]; then
               cp gov-runner package/
               chmod +x package/gov-runner
