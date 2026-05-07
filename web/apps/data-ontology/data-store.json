@@ -97,7 +97,9 @@
       "enabled": false,
       "input_type": "file",
       "accept_exts": [
-        ".docx"
+        ".docx",
+        ".doc",
+        ".wps"
       ],
       "register_as_api": false,
       "file_batch_mode": "multi",
