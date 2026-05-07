@@ -81,14 +81,33 @@ jobs:
             done
           fi
 
-      - name: Build gov-runner for ARM
-        if: matrix.goarch == 'arm64'
+      - name: Build gov-runner for ARM64 using Docker QEMU
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
         run: |
-          bun install
-          bun run build
-          # 输出为 gov-runner 或 gov-runner.exe
-          if [ -f "gov-runner.exe" ]; then
-            mv gov-runner.exe gov-runner
+          # 使用 Docker + QEMU 进行 ARM64 交叉编译
+          docker run --rm --privileged multiarch/qemu-user-static --setup --credential yes -c yes || true
+          docker run --rm -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
+            apt-get update && apt-get install -y curl
+            curl -fsSL https://bun.sh/install | bash
+            export BUN_INSTALL="$HOME/.bun"
+            export PATH="$BUN_INSTALL/bin:$PATH"
+            cd gov-runner && bun install && bun build index.ts --compile --outfile gov-runner
+          '
+          cp gov-runner/gov-runner . 2>/dev/null || ls -la
+
+      - name: Build gov-runner for other platforms
+        if: matrix.goos != 'linux' || matrix.goarch != 'arm64'
+        run: |
+          if [ -d "gov-runner" ]; then
+            cd gov-runner
+            bun install
+            if [ "${{ matrix.goos }}" = "windows" ]; then
+              bun build index.ts --compile --outfile gov-runner.exe
+              cp gov-runner.exe ../
+            else
+              bun build index.ts --compile --outfile gov-runner
+              cp gov-runner ../
+            fi
           fi
 
       - name: Build
@@ -98,8 +117,8 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          # gov-runner 已预编译，直接使用
-          # Windows 没有 gov-runner.exe，使用 nogov tag
+          # Windows 使用 nogov tag（gov-runner 作为外部文件加载）
+          # 其他平台嵌入 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
             go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
           else
