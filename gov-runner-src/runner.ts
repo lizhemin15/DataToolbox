@@ -8,7 +8,7 @@ import * as Papa from 'papaparse';
 import mammoth from 'mammoth';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
-import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap } from './gov-shared';
+import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure } from './gov-shared';
 
 export interface GovContext {
   apiBase: string;

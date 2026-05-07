@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "build:shared": "bun build gov-shared.ts --compile --outfile ../apps/data-ontology/lib/gov-shared.js --target=browser"
   },
   "devDependencies": {
     "@types/bun": "latest"

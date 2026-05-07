@@ -138,6 +138,13 @@ jobs:
             fi
           fi
 
+      - name: Build gov-shared.js for frontend
+        run: |
+          cd gov-runner-src
+          bun install
+          bun build gov-shared.ts --compile --outfile ../apps/data-ontology/lib/gov-shared.js --target=browser
+          echo "Built gov-shared.js for browser"
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
