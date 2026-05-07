@@ -81,23 +81,50 @@ jobs:
             done
           fi
 
-      - name: Build gov-runner for ARM64 using Docker QEMU
+      - name: Build gov-runner for Linux ARM64 using Docker QEMU
         if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
         run: |
           # 使用 Docker + QEMU 进行 ARM64 交叉编译
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
-          # ARM64 gov- runner 使用 Ubuntu 基础镜像（含 glibc，与生产环境一致）
+          # ARM64 gov-runner 使用 Ubuntu 基础镜像（含 glibc，与生产环境一致）
           docker run --rm --platform linux/arm64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
+            set -e
             apt-get update && apt-get install -y curl unzip
             curl -fsSL https://bun.sh/install | bash
             export BUN_INSTALL="$HOME/.bun"
             export PATH="$BUN_INSTALL/bin:$PATH"
-            cd /project/gov-runner-src && bun install && bun build index.ts --compile --outfile gov-runner
+            cd /project/gov-runner-src
+            bun install
+            bun build index.ts --compile --outfile gov-runner
+            cp gov-runner /project/
           '
-          cp gov-runner-src/gov-runner . 2>/dev/null || ls -la
+          # 验证编译结果
+          file gov-runner || { echo "ERROR: gov-runner not found after Docker build"; exit 1; }
 
-      - name: Build gov-runner for other platforms
-        if: matrix.goos != 'linux' || matrix.goarch != 'arm64'
+      - name: Build gov-runner for macOS ARM64 using Docker QEMU
+        if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
+        run: |
+          # macOS ARM64 使用交叉编译（bun 支持 --target 参数）
+          cd gov-runner-src
+          bun install
+          bun build index.ts --compile --outfile gov-runner --target=darwin-arm64
+          cp gov-runner ../
+          file ../gov-runner
+
+      - name: Build gov-runner for Windows ARM64 using cross-compilation
+        if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
+        run: |
+          cd gov-runner-src
+          bun install
+          bun build index.ts --compile --outfile gov-runner.exe --target=windows-arm64
+          cp gov-runner.exe ../
+          file ../gov-runner.exe
+
+      - name: Build gov-runner for other platforms (native)
+        if: |
+          (matrix.goos != 'linux' || matrix.goarch != 'arm64') &&
+          (matrix.goos != 'darwin' || matrix.goarch != 'arm64') &&
+          (matrix.goos != 'windows' || matrix.goarch != 'arm64')
         run: |
           if [ -d "gov-runner-src" ]; then
             cd gov-runner-src
@@ -124,6 +151,43 @@ jobs:
             go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
           else
             go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
+          fi
+
+      - name: Verify gov-runner architecture
+        run: |
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            if [ -f "gov-runner.exe" ]; then
+              file gov-runner.exe
+              echo "✓ gov-runner.exe ready for packaging"
+            else
+              echo "✗ gov-runner.exe not found!"
+              exit 1
+            fi
+          else
+            if [ -f "gov-runner" ]; then
+              file gov-runner
+              # 验证架构匹配
+              if [ "${{ matrix.goarch }}" = "arm64" ]; then
+                if file gov-runner | grep -q "aarch64\|ARM aarch64\|ARM64"; then
+                  echo "✓ gov-runner is ARM64 binary"
+                else
+                  echo "✗ gov-runner is NOT ARM64 binary!"
+                  file gov-runner
+                  exit 1
+                fi
+              elif [ "${{ matrix.goarch }}" = "amd64" ]; then
+                if file gov-runner | grep -q "x86-64\|x86_64\|Intel 80386"; then
+                  echo "✓ gov-runner is x86_64 binary"
+                else
+                  echo "✗ gov-runner is NOT x86_64 binary!"
+                  file gov-runner
+                  exit 1
+                fi
+              fi
+            else
+              echo "✗ gov-runner not found!"
+              exit 1
+            fi
           fi
 
       - name: Prepare package files
