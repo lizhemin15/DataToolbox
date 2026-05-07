@@ -169,7 +169,19 @@ async function main() {
   // module["report_title"] = "数据治理综合日报";
   // module["report_date"] = "2024年4月12日";
   //
-  // // 示例2: 从 jsons 提取内容
+  // // 示例2: 格式标记（v14 新增）
+  // // **文字** 加粗，支持混排
+  // module["title"] = "**重要通知**";
+  // module["overview"] = "**工作进展：**已完成数据采集，共处理 **1200 万条**数据。";
+  //
+  // // [f:字体,s:字号] 指定字体字号
+  // module["header"] = "[f:黑体,s:18]关于XX工作的报告";
+  // module["key_point"] = "**[f:黑体,s:16]重点项目：**[f:楷体,s:14]已完成一期建设";
+  //
+  // // >文字 首行缩进
+  // module["content"] = ">**摘要：**本项目已完成全部既定目标...";
+  //
+  // // 示例3: 从 jsons 提取内容
   // const unitA = jsons["单位A日报"];
   // if (unitA && unitA[0]) {
   //   // 合并 L1 所有节点的段落
@@ -177,7 +189,7 @@ async function main() {
   //   module["overview"] = formatContent(overview);
   // }
   //
-  // // 示例3: 合并多份文档
+  // // 示例4: 合并多份文档
   // const allRisks = [];
   // for (const name in jsons) {
   //   const doc = jsons[name];
@@ -189,8 +201,11 @@ async function main() {
   // }
   // module["risks"] = formatContent(allRisks.join('\n'));
   //
-  // // 示例4: 提取特定索引的内容
+  // // 示例5: 提取特定索引的内容
   // module["summary"] = jsons["单位A日报"][0][1]?.paragraphs[0] || '无';
+  //
+  // // 示例6: 设置全局默认字体（仿宋三号）
+  // // await gov.fillWordTemplate(template, data, outName, { name: '仿宋_GB2312', size: 16 });
   //
   // ===== 用户填写区域结束 =====
 
