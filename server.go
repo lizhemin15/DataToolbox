@@ -2506,8 +2506,8 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Description:   "上传综合日报 Word 模板 + 多份单位日报（.docx），按文件名解析日期与单位，JSON 结构化提取后生成综合日报",
 			JsCode:        loadGovernanceAggregateDailyReportJS(),
 			InputType:     "file",
-			AcceptExts:    []string{".docx"},
-			FileBatchMode: "single",
+			AcceptExts:    []string{".docx", ".doc", ".wps"},
+			FileBatchMode: "multi",
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "综合日报模板.docx", Path: "综合日报模板.docx"},
 				{Name: "2024年4月12日单位A日报.docx", Path: "2024年4月12日单位A日报.docx"},
