@@ -13820,16 +13820,29 @@ type TextParseRequest struct {
 
 // parseOfficialDocument 解析公文格式文本
 func parseOfficialDocument(text string, minLevel, maxLevel int, detectNumbering, includeContent bool) ([]TextSection, map[string]interface{}) {
-	// 定义各级标题的正则表达式
+	// 定义各级标题的正则表达式（按优先级排序）
 	levelPatterns := []struct {
 		level   int
 		pattern *regexp.Regexp
 	}{
-		{1, regexp.MustCompile(`^[一二三四五六七八九十]+、`)},                           // 一、二、三、
-		{2, regexp.MustCompile(`^[（(][一二三四五六七八九十]+[)）]`)},                   // （一）（二）或 (一)(二)
-		{3, regexp.MustCompile(`^\d+[.、]`)},                                      // 1. 2. 或 1、2、
-		{4, regexp.MustCompile(`^[（(]\d+[)）]`)},                                  // （1）（2）或 (1)(2)
-		{5, regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩]|^\d+\)`)},                         // ①②③ 或 1) 2)
+		// 法条格式：第一条、第二条、第一条第一款
+		{1, regexp.MustCompile(`^第[一二三四五六七八九十百千]+条`)},                              // 第一条、第二条
+		{1, regexp.MustCompile(`^第[一二三四五六七八九十百千]+条第[一二三四五六七八九十]+款`)},      // 第一条第一款
+		{1, regexp.MustCompile(`^第[一二三四五六七八九十百千]+条第[（(][一二三四五六七八九十]+[）)]项`)}, // 第一条第（一）项
+		// 图书格式：第一章、第一节、第一章第一节
+		{1, regexp.MustCompile(`^第[一二三四五六七八九十百千]+[章节篇部卷]`)},                    // 第一章、第一节、第一篇
+		// 中文数字序号：一、二、三、
+		{1, regexp.MustCompile(`^[一二三四五六七八九十百]+、`)},                                 // 一、二、三、
+		// 中文数字带括号：（一）（二）
+		{2, regexp.MustCompile(`^[（(][一二三四五六七八九十百]+[)）]`)},                        // （一）（二）
+		// 阿拉伯数字序号：1. 2. 或 1、2、
+		{3, regexp.MustCompile(`^\d+[.、]`)},                                                 // 1. 2. 或 1、2、
+		// 阿拉伯数字带括号：（1）（2）
+		{4, regexp.MustCompile(`^[（(]\d+[)）]`)},                                            // （1）（2）
+		// 圆圈数字或阿拉伯数字带括号：① ② 或 1) 2)
+		{5, regexp.MustCompile(`^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]|^\d+\)`)},                  // ⑩②③ 或 1) 2)
+		// 加粗标记作为标题（可选）
+		{6, regexp.MustCompile(`^\*\*.+\*\*`)},                                              // **加粗文字** 表示标题
 	}
 
 	lines := strings.Split(text, "\n")
@@ -13851,17 +13864,23 @@ func parseOfficialDocument(text string, minLevel, maxLevel int, detectNumbering,
 				continue
 			}
 
-			if match := lp.pattern.FindString(line); match != "" {
-				detectedLevel = lp.level
-				number = match
-				title = strings.TrimSpace(strings.TrimPrefix(line, match))
+		if match := lp.pattern.FindString(line); match != "" {
+			detectedLevel = lp.level
+			number = match
+			title = strings.TrimSpace(strings.TrimPrefix(line, match))
 
-				// 如果不检测编号标题，跳过
-				if !detectNumbering {
-					continue
-				}
-				break
+			// 处理加粗标记：**标题** -> 标题
+			if strings.HasPrefix(match, "**") && strings.HasSuffix(match, "**") {
+				title = strings.Trim(match, "*")
+				number = "" // 加粗标记不是编号
 			}
+
+			// 如果不检测编号标题，跳过
+			if !detectNumbering && lp.level < 6 { // level 6 是加粗标记，不受 detectNumbering 影响
+				continue
+			}
+			break
+		}
 		}
 
 		if detectedLevel > 0 {
