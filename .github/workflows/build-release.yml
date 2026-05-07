@@ -86,8 +86,9 @@ jobs:
         run: |
           # 使用 Docker + QEMU 进行 ARM64 交叉编译
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
+          # ARM64 gov- runner 使用 Ubuntu 基础镜像（含 glibc，与生产环境一致）
           docker run --rm --platform linux/arm64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
-            apt-get update && apt-get install -y curl unzip unzip
+            apt-get update && apt-get install -y curl unzip
             curl -fsSL https://bun.sh/install | bash
             export BUN_INSTALL="$HOME/.bun"
             export PATH="$BUN_INSTALL/bin:$PATH"
