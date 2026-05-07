@@ -86,6 +86,9 @@ jobs:
             darwin-arm64) bun build --compile ./index.ts --outfile gov-runner-darwin-arm64 --target=bun-darwin-arm64 ;;
             *) echo "Unknown matrix"; exit 1 ;;
           esac
+          # 调试：列出编译产物
+          echo "=== Built files in gov-runner/ ==="
+          ls -la gov-runner-* 2>/dev/null || echo "No gov-runner-* files found"
           cd ..
 
       - name: Build server
