@@ -87,19 +87,19 @@ jobs:
           # 使用 Docker + QEMU 进行 ARM64 交叉编译
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
           docker run --rm --platform linux/arm64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
-            apt-get update && apt-get install -y curl
+            apt-get update && apt-get install -y curl unzip unzip
             curl -fsSL https://bun.sh/install | bash
             export BUN_INSTALL="$HOME/.bun"
             export PATH="$BUN_INSTALL/bin:$PATH"
-            cd gov-runner && bun install && bun build index.ts --compile --outfile gov-runner
+            cd /project/gov-runner-src && bun install && bun build index.ts --compile --outfile gov-runner
           '
-          cp gov-runner/gov-runner . 2>/dev/null || ls -la
+          cp gov-runner-src/gov-runner . 2>/dev/null || ls -la
 
       - name: Build gov-runner for other platforms
         if: matrix.goos != 'linux' || matrix.goarch != 'arm64'
         run: |
-          if [ -d "gov-runner" ]; then
-            cd gov-runner
+          if [ -d "gov-runner-src" ]; then
+            cd gov-runner-src
             bun install
             if [ "${{ matrix.goos }}" = "windows" ]; then
               bun build index.ts --compile --outfile gov-runner.exe
