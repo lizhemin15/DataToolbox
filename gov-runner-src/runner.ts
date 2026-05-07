@@ -49,6 +49,7 @@ export interface GovHelper {
   writeCSV(filename: string, data: any[][]): void;
   writeText(filename: string, content: string): void;
   writeJSON(filename: string, data: any): void;
+  parseFilename(name: string, options?: { datePattern?: RegExp }): { unit: string; date: string };
 }
 
 /**
@@ -276,6 +277,38 @@ export function createGovHelper(
       const buf = Buffer.from(text, 'utf8');
       outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
       logLines.push(`已生成输出文件: ${outName}`);
+    },
+
+    /**
+     * 解析文件名，提取单位和日期
+     * 支持格式：
+     *   2024年4月15日数据中心日报 → {unit: "数据中心", date: "2024年4月15日"}
+     *   04月15日运维部日报 → {unit: "运维部", date: "04月15日"}
+     */
+    parseFilename(name: string, options: { datePattern?: RegExp } = {}): { unit: string; date: string } {
+      if (!name || typeof name !== 'string') return { unit: '', date: '' };
+      
+      const base = name.replace(/\.(docx?|DOCX?)$/i, '');
+      const datePattern = options.datePattern || /^(\d{4})年(\d{1,2})月(\d{1,2})日/;
+      const m = base.match(datePattern);
+      
+      if (m) {
+        return {
+          unit: base.replace(datePattern, '').replace(/日报$/, '').trim() || base,
+          date: `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`
+        };
+      }
+      
+      // 尝试匹配月日格式：04月15日
+      const mdMatch = base.match(/^(\d{1,2})月(\d{1,2})日/);
+      if (mdMatch) {
+        return {
+          unit: base.replace(/^(\d{1,2})月(\d{1,2})日/, '').replace(/日报$/, '').trim() || base,
+          date: `${parseInt(mdMatch[1])}月${parseInt(mdMatch[2])}日`
+        };
+      }
+      
+      return { unit: base.replace(/日报$/, '').trim() || base, date: '' };
     },
   };
 }
