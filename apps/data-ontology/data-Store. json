@@ -1,0 +1,10 @@
+{
+  "users": {},
+  "databases": {},
+  "apis": {},
+  "ai_config": {},
+  "ai_capabilities": {},
+  "governance_tasks": {},
+  "mcp_enabled": true,
+  "mcp_safe_config": {}
+}
