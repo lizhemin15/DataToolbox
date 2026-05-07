@@ -109,7 +109,7 @@ jobs:
           mkdir -p package/web
           cp ${{ matrix.output }} package/
           cp server.config.json package/
-          cp scripts/install..sh package/install.sh
+          cp scripts/install.sh package/install.sh
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           # 复制静态文件到发布目录
