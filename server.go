@@ -2515,6 +2515,7 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 				{Name: "2024年4月12日单位C日报.docx", Path: "2024年4月12日单位C日报.docx"},
 				{Name: "2024年4月12日单位D日报.docx", Path: "2024年4月12日单位D日报.docx"},
 				{Name: "2024年4月12日单位E日报.docx", Path: "2024年4月12日单位E日报.docx"},
+				{Name: "多级标题测试文档.docx", Path: "多级标题测试文档.docx"},
 			},
 			CreatedAt: now,
 			Status:    "idle",
