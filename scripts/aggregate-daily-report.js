@@ -183,51 +183,103 @@ async function main() {
   gov.log('');
 
   // ===== 用户填写区域开始 =====
-  // 
-  // 在此编写替换规则，例如:
-  //
-  // // 示例1: 直接赋值
-  // module["report_title"] = "数据治理综合日报";
-  // module["report_date"] = "2024年4月12日";
-  //
-  // // 示例2: 格式标记（v14 新增）
-  // // **文字** 加粗，支持混排
-  // module["title"] = "**重要通知**";
-  // module["overview"] = "**工作进展：**已完成数据采集，共处理 **1200 万条**数据。";
-  //
-  // // [f:字体,s:字号] 指定字体字号
-  // module["header"] = "[f:黑体,s:18]关于XX工作的报告";
-  // module["key_point"] = "**[f:黑体,s:16]重点项目：**[f:楷体,s:14]已完成一期建设";
-  //
-  // // >文字 首行缩进
-  // module["content"] = ">**摘要：**本项目已完成全部既定目标...";
-  //
-  // // 示例3: 从 jsons 提取内容
-  // const unitA = jsons["单位A日报"];
-  // if (unitA && unitA[0]) {
-  //   // 合并 L1 所有节点的段落
-  //   const overview = unitA[0].map(n => n.paragraphs.join('\n')).join('\n\n');
-  //   module["overview"] = formatContent(overview);
-  // }
-  //
-  // // 示例4: 合并多份文档
-  // const allRisks = [];
-  // for (const name in jsons) {
-  //   const doc = jsons[name];
-  //   // 查找"风险"相关标题的节点
-  //   const riskNodes = doc[0]?.filter(n => n.title.includes('风险') || n.title.includes('问题')) || [];
-  //   for (const n of riskNodes) {
-  //     allRisks.push(...n.paragraphs);
-  //   }
-  // }
-  // module["risks"] = formatContent(allRisks.join('\n'));
-  //
-  // // 示例5: 提取特定索引的内容
-  // module["summary"] = jsons["单位A日报"][0][1]?.paragraphs[0] || '无';
-  //
-  // // 示例6: 设置全局默认字体（仿宋三号）
-  // // await gov.fillWordTemplate(template, data, outName, { name: '仿宋_GB2312', size: 16 });
-  //
+  // 实际替换规则 - 从单位日报提取内容填充模板
+  
+  // 1. 填充基本信息
+  module["report_title"] = "**数据治理综合日报**";
+  module["report_date"] = "2024年4月12日";
+  module["unit_count"] = String(findJsons("日报").length);
+  
+  // 2. 提取各单位概览
+  const overviews = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    const firstL1 = data[0]?.[0];
+    if (firstL1 && firstL1.paragraphs?.length > 0) {
+      overviews.push(`**${unitName}：**${firstL1.paragraphs.join('；')}`);
+    }
+  }
+  module["overview"] = overviews.join('\n\n');
+  
+  // 3. 提取重点项目
+  const projects = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    const projectNodes = data[0]?.filter(n => n.title?.includes('项目')) || [];
+    for (const n of projectNodes) {
+      if (n.paragraphs?.length > 0) {
+        projects.push(`**${unitName} - ${n.title}：**${n.paragraphs.join('；')}`);
+      }
+    }
+  }
+  module["key_projects"] = projects.join('\n\n') || '暂无重点项目信息';
+  
+  // 4. 提取风险信息
+  const risks = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    const riskNodes = data[0]?.filter(n => n.title?.includes('风险') || n.title?.includes('问题')) || [];
+    for (const n of riskNodes) {
+      if (n.paragraphs?.length > 0) {
+        risks.push(`**${unitName}：**${n.paragraphs.join('；')}`);
+      }
+    }
+  }
+  module["risk_detail"] = risks.join('\n\n') || '暂无风险信息';
+  
+  // 5. 提取明日计划
+  const plans = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    const planNodes = data[0]?.filter(n => n.title?.includes('计划') || n.title?.includes('明日')) || [];
+    for (const n of planNodes) {
+      if (n.paragraphs?.length > 0) {
+        plans.push(`**${unitName}：**${n.paragraphs.join('；')}`);
+      }
+    }
+  }
+  module["tomorrow_plan"] = plans.join('\n\n') || '暂无明日计划';
+  
+  // 6. 构建单位明细数组
+  const unitDetails = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    unitDetails.push({
+      unit_name: unitName,
+      unit_report_date: "2024年4月12日",
+      unit_summary: `**${unitName}日报摘要**`,
+      unit_overview: data[0]?.[0]?.paragraphs?.join('\n') || '暂无概览',
+      unit_key_projects: data[0]?.filter(n => n.title?.includes('项目'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无',
+      unit_risks: data[0]?.filter(n => n.title?.includes('风险'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无',
+      unit_risk: '暂无风险',
+      unit_tomorrow: data[0]?.filter(n => n.title?.includes('计划'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无计划'
+    });
+  }
+  module["units"] = unitDetails;
+  
+  // 7. 风险项数组
+  const riskItems = [];
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    const riskNodes = data[0]?.filter(n => n.title?.includes('风险')) || [];
+    for (const n of riskNodes) {
+      for (const p of (n.paragraphs || [])) {
+        riskItems.push({ risk_item: `**${unitName}：**${p}` });
+      }
+    }
+  }
+  module["risk_items"] = riskItems.length > 0 ? riskItems : [{ risk_item: '暂无风险' }];
+  
+  gov.log('=== 替换规则执行完成 ===');
+  gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
+  
+  // ===== 用户填写区域结束 =====
   // ===== 用户填写区域结束 =====
 
   // ===== 6. 检查占位符是否已填充 =====
