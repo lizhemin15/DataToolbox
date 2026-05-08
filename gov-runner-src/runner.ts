@@ -137,13 +137,25 @@ export function createGovHelper(
       const docXml = zip.file('word/document.xml');
       if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
       const xml = docXml.asText() || '';
-      // 提取所有 <w:t> 标签中的文本
-      const matches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-      const texts = matches.map(m => {
-        const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
-        return m2 ? m2[1] : '';
-      });
-      const value = texts.join('');
+      
+      // 按段落提取文本（每个 <w:p> 对应一个段落，用换行分隔）
+      // 这样 parseWordStructure 才能正确解析章节结构
+      const paragraphRegex = /<w:p[^>]*>([\s\S]*?)<\/w:p>/g;
+      const paragraphs: string[] = [];
+      let match;
+      while ((match = paragraphRegex.exec(xml)) !== null) {
+        const pXml = match[1];
+        // 提取段落内所有 <w:t> 标签的文本
+        const tMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+        const text = tMatches.map(m => {
+          const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+          return m2 ? m2[1] : '';
+        }).join('');
+        if (text.trim()) {
+          paragraphs.push(text);
+        }
+      }
+      const value = paragraphs.join('\n');
       return { value };
     },
 
@@ -332,13 +344,24 @@ export function createGovHelper(
       if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
       const xml = docXml.asText() || '';
       
-      // 提取所有 <w:t> 标签中的文本
-      const matches = xml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-      const texts = matches.map((m: string) => {
-        const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
-        return m2 ? m2[1] : '';
-      });
-      const rawText = texts.join('');
+      // 按段落提取文本（每个 <w:p> 对应一个段落，用换行分隔）
+      // 和 readWord 保持一致，这样章节解析才能正确工作
+      const paragraphRegex = /<w:p[^>]*>([\s\S]*?)<\/w:p>/g;
+      const paragraphs: string[] = [];
+      let pMatch;
+      while ((pMatch = paragraphRegex.exec(xml)) !== null) {
+        const pXml = pMatch[1];
+        // 提取段落内所有 <w:t> 标签的文本
+        const tMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+        const text = tMatches.map((m: string) => {
+          const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+          return m2 ? m2[1] : '';
+        }).join('');
+        if (text.trim()) {
+          paragraphs.push(text);
+        }
+      }
+      const rawText = paragraphs.join('\n');
       
       const maxLen = options.maxTextLength || 50000;
       const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
