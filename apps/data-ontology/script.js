@@ -8583,8 +8583,13 @@ function createGovHelper(logLines, uploadedFiles) {
     };
 
     return {
-        log(msg) {
-            logLines.push(String(msg));
+        log(...args) {
+            logLines.push(args.map(a => {
+                if (a === null) return 'null';
+                if (a === undefined) return 'undefined';
+                if (typeof a === 'object') return JSON.stringify(a);
+                return String(a);
+            }).join(' '));
         },
         getDefaultFont() {
             try {
