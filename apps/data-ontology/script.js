@@ -7154,7 +7154,7 @@ function renderGovTaskList() {
                     <span>${t.status === 'idle' ? '待运行' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '失败'}</span>
                 </div>
             </div>
-            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" data-task-id="${safeTId}" data-task-name="${t.name ? t.name.replace(/"/g, '&quot;') : ''}" onclick="event.stopPropagation(); govDownloadExamplesForTask(this.dataset.taskId, window._govTaskExamples?.[this.dataset.taskId] || [], this.dataset.taskName)">下载样例</button>` : ''}
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" data-task-id="${safeTId}" data-task-name="${t.name ? t.name.replace(/"/g, '&quot;') : ''}" onclick="event.stopPropagation(); govDownloadExamplesForTask(this.dataset.taskId, null, this.dataset.taskName)">下载样例</button>` : ''}
         </div>
     `;}).join('');
 
@@ -14359,12 +14359,23 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
         return;
     }
     
-    // exampleFiles 直接从任务数据传入，避免额外 API 调用
-    let files = exampleFiles || [];
-    if (!files.length) {
+    // 优先从全局 govTasks 查找，确保数据最新
+    let files = exampleFiles;
+    if (!files || !files.length) {
+        const task = govTasks.find(t => t.id === taskId);
+        if (task && task.example_files && task.example_files.length) {
+            files = task.example_files;
+        }
+    }
+    
+    if (!files || !files.length) {
         showToast('没有可下载的样例文件', 'error');
         return;
     }
+    
+    // 清理任务名中的非法字符，用于文件名
+    const safeTaskName = (taskName || '治理任务').replace(/[\\/:*?"<>|]/g, '_');
+    const zipName = `${safeTaskName}_样例文件.zip`;
     
     showToast('正在准备下载...', 'info');
     
@@ -14376,7 +14387,6 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
     
     // 使用批量打包接口下载
     try {
-        const zipName = taskName ? `${taskName}_样例文件.zip` : 'governance-examples.zip';
         const res = await fetch(`${API_BASE}/api/data-ontology/governance/examples/download`, {
             method: 'POST',
             headers: { 
@@ -14396,6 +14406,7 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
     } catch (e) {
         console.error('下载失败:', e);
         showToast('下载失败: ' + e.message, 'error');
