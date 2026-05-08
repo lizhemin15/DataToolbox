@@ -16701,6 +16701,29 @@ func executeGovernanceJob(job *GovernanceJob) {
 	}
 
 	// 准备任务参数
+	// 构建 currentGovTask 对象（手动构建确保字段正确序列化）
+	currentGovTask := map[string]interface{}{
+		"id":             task.ID,
+		"name":           task.Name,
+		"database_id":   task.DatabaseID,
+		"type":           task.Type,
+		"description":    task.Description,
+		"js_code":        task.JsCode,
+		"cron_expr":      task.CronExpr,
+		"enabled":        task.Enabled,
+		"input_type":     task.InputType,
+		"accept_exts":    task.AcceptExts,
+		"register_as_api": task.RegisterAsAPI,
+		"api_path":       task.APIPath,
+		"api_method":     task.APIMethod,
+		"file_batch_mode": task.FileBatchMode,
+		"runtime":        task.Runtime,
+		"run_mode":       task.RunMode,
+		"execution_mode": task.ExecutionMode,
+		"owner":          task.Owner,
+		"created_at":     task.CreatedAt,
+	}
+
 	taskData := map[string]interface{}{
 		"code":            code,
 		"token":           job.Token,
@@ -16708,7 +16731,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 		"db_type":         dbType,
 		"databases":       databases,
 		"input_text":      job.InputText,
-		"current_gov_task": task, // 传递完整任务对象，包含 database_id 等字段
+		"current_gov_task": currentGovTask,
 	}
 	// 如果是分享任务，传入 share_token 让 runner 使用免鉴权端点
 	if isShare {
