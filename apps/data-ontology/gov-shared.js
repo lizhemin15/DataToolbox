@@ -58,9 +58,15 @@ const GOV_API_SECTIONS = [
             },
             {
                 name: 'gov.fillWordTemplate',
-                signature: 'await gov.fillWordTemplate(templateFile, data, outputFilename)',
-                desc: '基于 .docx 模板（占位符 {name}、循环 {#items}...{/items}、条件 {#show}...{/show}）用 docxtemplater 渲染并下载。templateFile 为 File/Blob，或与已上传文件同名的字符串。',
-                example: 'await gov.fillWordTemplate(INPUT_FILE, {\n  name: \'张三\',\n  date: \'2024-01-01\',\n  items: [{ x: 1 }, { x: 2 }],\n  show: true\n}, \'报告.docx\');'
+                signature: 'await gov.fillWordTemplate(templateFile, data, outputFilename, defaultFont?)',
+                desc: '基于 .docx 模板（占位符 {name}、循环 {#items}...{/items}、条件 {#show}...{/show}）用 docxtemplater 渲染并下载。支持富文本语法：**加粗**、>首行缩进、[f:字体,s:字号]。defaultFont 可选，不传时自动使用界面中配置的默认字体字号。templateFile 为 File/Blob，或与已上传文件同名的字符串。',
+                example: 'await gov.fillWordTemplate(INPUT_FILE, {\n  title: \'重点**加粗**说明\',\n  body: \'[f:黑体,s:18]标题\\n>首行缩进段落\'\n}, \'报告.docx\');'
+            },
+            {
+                name: 'gov.getDefaultFont',
+                signature: 'gov.getDefaultFont() → {name, size}',
+                desc: '读取界面配置的默认字体字号，返回如 { name: "仿宋_GB2312", size: 16 }。可手动传给 gov.fillWordTemplate 的第 4 个参数。',
+                example: 'const defaultFont = gov.getDefaultFont();\nawait gov.fillWordTemplate(INPUT_FILE, data, \'报告.docx\', defaultFont);'
             },
             {
                 name: 'gov.fillExcelTemplate',
