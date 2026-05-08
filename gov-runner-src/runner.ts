@@ -10,6 +10,172 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure } from './gov-shared';
 
+/**
+ * 处理富文本格式：**加粗**、[f:字体,s:字号]文字、>首行缩进
+ */
+function processRichTextFormatting(xml: string): string {
+  // 处理每个 <w:t> 元素中的富文本标记
+  return xml.replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, (match, text) => {
+    if (!text) return match;
+    
+    // 检查是否包含富文本标记
+    const hasBold = text.includes('**');
+    const hasFont = /\[f:([^,]+),s:(\d+)\]/.test(text);
+    
+    if (!hasBold && !hasFont) {
+      return match;
+    }
+    
+    // 提取原有的 XML 属性
+    const attrMatch = match.match(/<w:t([^>]*)>/);
+    const attrs = attrMatch ? attrMatch[1] : '';
+    
+    // 解析富文本格式
+    const segments = parseRichTextSegments(text);
+    
+    if (segments.length === 1 && !segments[0].bold && !segments[0].font) {
+      // 没有需要处理的格式，返回原样
+      return match;
+    }
+    
+    // 生成多个 <w:r> 元素
+    const runs = segments.map(seg => {
+      let runXml = '<w:r>';
+      
+      // 添加运行属性
+      if (seg.bold || seg.font) {
+        runXml += '<w:rPr>';
+        if (seg.bold) {
+          runXml += '<w:b/>';
+        }
+        if (seg.font) {
+          // 字体名称（半点单位）
+          const size = seg.size ? seg.size * 2 : 32; // 默认三号（16pt = 32半点）
+          runXml += `<w:rFonts w:ascii="${seg.font}" w:eastAsia="${seg.font}" w:hAnsi="${seg.font}"/>`;
+          runXml += `<w:sz w:val="${size}"/>`;
+        }
+        runXml += '</w:rPr>';
+      }
+      
+      runXml += `<w:t${seg.text.includes(' ') ? ' xml:space="preserve"' : ''}>${escapeXml(seg.text)}</w:t>`;
+      runXml += '</w:r>';
+      
+      return runXml;
+    });
+    
+    return runs.join('');
+  });
+}
+
+/**
+ * 解析富文本片段
+ */
+function parseRichTextSegments(text: string): Array<{text: string; bold?: boolean; font?: string; size?: number}> {
+  const segments: Array<{text: string; bold?: boolean; font?: string; size?: number}> = [];
+  
+  // 先处理字体标记 [f:字体,s:字号]
+  let currentFont: string | undefined;
+  let currentSize: number | undefined;
+  
+  // 正则匹配字体标记
+  const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
+  let lastIndex = 0;
+  let match;
+  
+  // 先提取所有字体标记及其后的文本
+  const parts: Array<{text: string; font?: string; size?: number}> = [];
+  let pos = 0;
+  
+  while ((match = fontRegex.exec(text)) !== null) {
+    // 字体标记之前的文本
+    if (match.index > pos) {
+      parts.push({ text: text.substring(pos, match.index) });
+    }
+    
+    // 字体标记本身不输出，只记录设置
+    currentFont = match[1];
+    currentSize = parseInt(match[2], 10);
+    pos = match.index + match[0].length;
+    
+    // 查找下一个字体标记或文本结束
+    const nextMatch = fontRegex.exec(text);
+    fontRegex.lastIndex = pos; // 重置以便下次匹配
+    
+    const endPos = nextMatch ? nextMatch.index : text.length;
+    
+    if (endPos > pos) {
+      parts.push({ 
+        text: text.substring(pos, endPos),
+        font: currentFont,
+        size: currentSize
+      });
+      pos = endPos;
+      fontRegex.lastIndex = pos;
+    }
+  }
+  
+  // 剩余文本
+  if (pos < text.length) {
+    parts.push({ text: text.substring(pos) });
+  }
+  
+  // 如果没有字体标记，使用原文本
+  if (parts.length === 0) {
+    parts.push({ text });
+  }
+  
+  // 处理每个部分的加粗标记
+  for (const part of parts) {
+    // 处理 **加粗** 标记
+    const boldParts = parseBoldSegments(part.text);
+    for (const bp of boldParts) {
+      segments.push({
+        text: bp.text,
+        bold: bp.bold,
+        font: part.font,
+        size: part.size
+      });
+    }
+  }
+  
+  return segments;
+}
+
+/**
+ * 解析加粗标记
+ */
+function parseBoldSegments(text: string): Array<{text: string; bold?: boolean}> {
+  const segments: Array<{text: string; bold?: boolean}> = [];
+  
+  // 匹配 **加粗** 和普通文本
+  const regex = /\*\*([^*]+)\*\*|([^*]+)/g;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1] !== undefined) {
+      // **加粗** 部分
+      segments.push({ text: match[1], bold: true });
+    } else if (match[2] !== undefined && match[2].length > 0) {
+      // 普通文本
+      segments.push({ text: match[2] });
+    }
+  }
+  
+  return segments.length > 0 ? segments : [{ text }];
+}
+
+/**
+ * XML 转义
+ */
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 export interface GovContext {
   apiBase: string;
   token: string;
@@ -202,7 +368,20 @@ export function createGovHelper(
       const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
       doc.setData(data || {});
       doc.render();
-      const out = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer;
+      
+      // 获取生成的文档内容
+      const generatedZip = doc.getZip();
+      let documentXml = generatedZip.file('word/document.xml')?.asText();
+      
+      if (documentXml) {
+        // 处理富文本格式
+        documentXml = processRichTextFormatting(documentXml);
+        
+        // 更新 zip 中的 document.xml
+        generatedZip.file('word/document.xml', documentXml);
+      }
+      
+      const out = generatedZip.generate({ type: 'nodebuffer' }) as Buffer;
       const base = outputFilename || 'output.docx';
       const name = /\.docx$/i.test(base) ? base : `${base}.docx`;
       outputFiles.push({ name, content_base64: out.toString('base64') });
