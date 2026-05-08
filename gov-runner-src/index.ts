@@ -83,6 +83,17 @@ async function handleRequest(req: Request): Promise<Response> {
           inputFile = new BufferFile(file.name, buffer);
         }
 
+        // 解析 currentGovTask
+        let currentGovTask: any = null;
+        const currentGovTaskJson = formData.get('current_gov_task') as string;
+        if (currentGovTaskJson) {
+          try {
+            currentGovTask = JSON.parse(currentGovTaskJson);
+          } catch (e) {
+            // ignore parse error
+          }
+        }
+
         ctx = {
           apiBase: API_BASE,
           token,
@@ -94,6 +105,10 @@ async function handleRequest(req: Request): Promise<Response> {
         // JSON 请求
         const body = await req.json();
         code = body.code;
+        
+        // 解析 currentGovTask
+        const currentGovTask = body.current_gov_task || null;
+        
         ctx = {
           apiBase: API_BASE,
           token: body.token,
@@ -115,7 +130,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // 执行
-      const result = await runUserCode(code, ctx, { inputFile, inputText });
+      const result = await runUserCode(code, ctx, { inputFile, inputText, currentGovTask });
 
       return Response.json({
         success: result.success,
@@ -176,6 +191,7 @@ async function runFromCLI() {
     inputFile,
     inputFiles,
     inputText: task.input_text || '',
+    currentGovTask: task.current_gov_task || null,
   });
 
   // 输出 JSON 结果（Go 服务解析）

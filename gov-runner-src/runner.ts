@@ -808,6 +808,7 @@ export async function runUserCode(
     inputFile?: FileLike | null;
     inputFiles?: FileLike[] | null;
     inputText?: string;
+    currentGovTask?: any;
   } = {}
 ): Promise<{ success: boolean; output: string[]; error?: string; output_files?: GovOutputFile[] }> {
   const logLines: string[] = [];
@@ -834,6 +835,7 @@ export async function runUserCode(
       'PizZip',
       'Docxtemplater',
       'INPUT_FILES',
+      'currentGovTask',
       code
     );
 
@@ -846,7 +848,8 @@ export async function runUserCode(
       mammoth,
       PizZip,
       Docxtemplater,
-      inputFiles
+      inputFiles,
+      options.currentGovTask || null
     );
 
     return { success: true, output: logLines, output_files: outputFiles.length ? outputFiles : undefined };

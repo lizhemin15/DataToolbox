@@ -16702,12 +16702,13 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 	// 准备任务参数
 	taskData := map[string]interface{}{
-		"code":        code,
-		"token":       job.Token,
-		"database_id": dbID,
-		"db_type":     dbType,
-		"databases":   databases,
-		"input_text":  job.InputText,
+		"code":            code,
+		"token":           job.Token,
+		"database_id":     dbID,
+		"db_type":         dbType,
+		"databases":       databases,
+		"input_text":      job.InputText,
+		"current_gov_task": task, // 传递完整任务对象，包含 database_id 等字段
 	}
 	// 如果是分享任务，传入 share_token 让 runner 使用免鉴权端点
 	if isShare {
