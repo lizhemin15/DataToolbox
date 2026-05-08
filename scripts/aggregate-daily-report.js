@@ -282,7 +282,9 @@ async function main() {
   gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
   
   // ===== 用户填写区域结束 =====
-  // ===== 用户填写区域结束 =====
+
+
+
 
   // ===== 6. 检查占位符是否已填充 =====
   gov.log(`=== 步骤4: 检查占位符 ===`);
