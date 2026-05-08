@@ -61,6 +61,27 @@ function formatContent(text) {
   }).filter(l => l).join('\n');
 }
 
+// 按关键词查找文档（比完整文件名更稳定）
+function findJson(keyword) {
+  for (const name in jsons) {
+    if (name.includes(keyword)) {
+      return { name, data: jsons[name] };
+    }
+  }
+  return null;
+}
+
+// 按关键词查找所有匹配文档
+function findJsons(keyword) {
+  const results = [];
+  for (const name in jsons) {
+    if (name.includes(keyword)) {
+      results.push({ name, data: jsons[name] });
+    }
+  }
+  return results;
+}
+
 // ===== 主流程 =====
 
 async function main() {
