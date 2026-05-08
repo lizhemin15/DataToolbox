@@ -727,6 +727,31 @@ export function createGovHelper(
 
       if (currentSection) sections.push(currentSection);
 
+      // 将扁平结构转换为树形结构
+      // 使用栈算法：维护当前路径上的父节点
+      const tree: any[] = [];
+      const stack: { level: number; node: any }[] = [];
+      
+      for (const section of sections) {
+        const node = { ...section, children: [] };
+        
+        // 弹出所有 level >= 当前 level 的节点
+        while (stack.length > 0 && stack[stack.length - 1].level >= section.level) {
+          stack.pop();
+        }
+        
+        if (stack.length === 0) {
+          // 没有父节点，添加到根
+          tree.push(node);
+        } else {
+          // 添加到最近的父节点
+          stack[stack.length - 1].node.children.push(node);
+        }
+        
+        // 当前节点入栈，作为后续节点的潜在父节点
+        stack.push({ level: section.level, node });
+      }
+
       // 尝试提取表格
       const tables: any[] = [];
       const tableXmlMatches = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
@@ -745,7 +770,7 @@ export function createGovHelper(
         if (rows.length > 0) tables.push(rows);
       }
 
-      return { title, sections, tables, rawText };
+      return { title, sections: tree, sectionsFlat: sections, tables, rawText };
     },
 
     /**
