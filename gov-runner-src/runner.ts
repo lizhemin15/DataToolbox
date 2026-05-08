@@ -296,9 +296,54 @@ export function createGovHelper(
     async readWord(file: FileLike): Promise<{ value: string }> {
       if (!file) throw new Error('未提供文件');
       const arrayBuffer = await file.arrayBuffer();
-      // 用 PizZip + XML 解析替代 mammoth（编译后 mammoth 异步调用会挂起）
       const buf = Buffer.from(arrayBuffer);
-      const zip = new PizZip(buf);
+      
+      // 检测文件格式
+      const filename = file.name.toLowerCase();
+      const isDocx = filename.endsWith('.docx');
+      const isDoc = filename.endsWith('.doc') || filename.endsWith('.wps');
+      
+      let docxBuffer: Buffer;
+      
+      if (isDocx) {
+        // 直接使用 docx
+        docxBuffer = buf;
+      } else if (isDoc) {
+        // .doc 或 .wps 格式，需要转换为 docx
+        // 写入临时文件
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        const { execSync } = await import('child_process');
+        
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-convert-'));
+        const inputFile = path.join(tmpDir, file.name);
+        // LibreOffice 输出文件名是原文件名加 .docx
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const outputFile = path.join(tmpDir, `${baseName}.docx`);
+        
+        try {
+          fs.writeFileSync(inputFile, buf);
+          
+          // 用 LibreOffice 转换
+          execSync(`soffice --headless --convert-to docx "${inputFile}" --outdir "${tmpDir}"`, {
+            timeout: 30000,
+            stdio: 'pipe'
+          });
+          
+          docxBuffer = fs.readFileSync(outputFile);
+        } finally {
+          // 清理临时文件
+          try {
+            fs.rmSync(tmpDir, { recursive: true });
+          } catch {}
+        }
+      } else {
+        throw new Error(`不支持的文件格式: ${file.name}`);
+      }
+      
+      // 解析 docx（zip 包）
+      const zip = new PizZip(docxBuffer);
       // docx 是 zip 包，文档内容在 word/document.xml
       const docXml = zip.file('word/document.xml');
       if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
@@ -515,7 +560,46 @@ export function createGovHelper(
     async parseWordStructure(file: FileLike, options: { maxTextLength?: number } = {}) {
       if (!file) throw new Error('缺少文件');
       const arrayBuffer = await file.arrayBuffer();
-      const buf = Buffer.from(arrayBuffer);
+      let buf = Buffer.from(arrayBuffer);
+      
+      // 检测文件格式并转换
+      const filename = file.name.toLowerCase();
+      const isDocx = filename.endsWith('.docx');
+      const isDoc = filename.endsWith('.doc') || filename.endsWith('.wps');
+      
+      if (isDoc) {
+        // .doc 或 .wps 格式，需要转换为 docx
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        const { execSync } = await import('child_process');
+        
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-convert-'));
+        const inputFile = path.join(tmpDir, file.name);
+        // LibreOffice 输出文件名是原文件名加 .docx
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const outputFile = path.join(tmpDir, `${baseName}.docx`);
+        
+        try {
+          fs.writeFileSync(inputFile, buf);
+          
+          // 用 LibreOffice 转换
+          execSync(`soffice --headless --convert-to docx "${inputFile}" --outdir "${tmpDir}"`, {
+            timeout: 30000,
+            stdio: 'pipe'
+          });
+          
+          buf = fs.readFileSync(outputFile);
+        } finally {
+          // 清理临时文件
+          try {
+            fs.rmSync(tmpDir, { recursive: true });
+          } catch {}
+        }
+      } else if (!isDocx) {
+        throw new Error(`不支持的文件格式: ${file.name}`);
+      }
+      
       const zip = new PizZip(buf);
       
       // 提取纯文本
