@@ -17034,6 +17034,11 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 
 	// 写入临时任务文件
 	taskJSON, _ := json.Marshal(taskData)
+	// DEBUG: 打印 current_gov_task 内容
+	if cgTask, ok := taskData["current_gov_task"]; ok {
+		log.Printf("[DEBUG] current_gov_task before marshal: %+v", cgTask)
+	}
+	log.Printf("[DEBUG] taskJSON sample: %s", string(taskJSON[:min(500, len(taskJSON))]))
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("gov-task-%d.json", time.Now().UnixNano()))
 	if err := os.WriteFile(tmpFile, taskJSON, 0644); err != nil {
 		return &GovRunnerResult{
