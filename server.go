@@ -15947,6 +15947,60 @@ func sanitizeGovernanceExampleFilename(s string) string {
 	return base
 }
 
+func getGovernanceExampleFile(safe string) ([]byte, error) {
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+	diskPath := filepath.Join(dataDir, "example_files", safe)
+	if b, err := os.ReadFile(diskPath); err == nil {
+		return b, nil
+	}
+	return governanceExamplesFS.ReadFile("examples/governance/" + safe)
+}
+
+type ExampleFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+func listGovernanceExampleFiles() ([]ExampleFile, error) {
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+	exampleDir := filepath.Join(dataDir, "example_files")
+	seen := map[string]bool{}
+	var examples []ExampleFile
+	if entries, err := os.ReadDir(exampleDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".docx") {
+				continue
+			}
+			info, err := entry.Info()
+			size := int64(0)
+			if err == nil {
+				size = info.Size()
+			}
+			examples = append(examples, ExampleFile{Name: entry.Name(), Size: size})
+			seen[entry.Name()] = true
+		}
+	}
+	entries, err := governanceExamplesFS.ReadDir("examples/governance")
+	if err != nil {
+		if len(examples) > 0 {
+			return examples, nil
+		}
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".docx") || seen[entry.Name()] {
+			continue
+		}
+		info, err := entry.Info()
+		size := int64(0)
+		if err == nil {
+			size = info.Size()
+		}
+		examples = append(examples, ExampleFile{Name: entry.Name(), Size: size})
+	}
+	return examples, nil
+}
+
 // handleGovernanceExamplesList GET …/examples 返回示例文件列表
 func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -15962,32 +16016,11 @@ func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = username
 
-	// 从 embed.FS 读取示例文件列表
-	entries, err := governanceExamplesFS.ReadDir("examples/governance")
+	examples, err := listGovernanceExampleFiles()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取示例目录失败"})
 		return
-	}
-
-	type ExampleFile struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
-	}
-
-	var examples []ExampleFile
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".docx") {
-			info, err := entry.Info()
-			size := int64(0)
-			if err == nil {
-				size = info.Size()
-			}
-			examples = append(examples, ExampleFile{
-				Name: entry.Name(),
-				Size: size,
-			})
-		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -16035,7 +16068,7 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	data, err := governanceExamplesFS.ReadFile("examples/governance/" + safe)
+	data, err := getGovernanceExampleFile(safe)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
@@ -16118,7 +16151,7 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, it := range items {
-		data, err := governanceExamplesFS.ReadFile("examples/governance/" + it.diskPath)
+		data, err := getGovernanceExampleFile(it.diskPath)
 		if err != nil {
 			zw.Close()
 			w.Header().Set("Content-Type", "application/json")
@@ -18665,8 +18698,8 @@ func handleGovernanceShareExampleDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 从 embed FS 读取文件
-	data, err := governanceExamplesFS.ReadFile("examples/governance/" + safe)
+	// 优先从磁盘读取，fallback 到 embed
+	data, err := getGovernanceExampleFile(safe)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
