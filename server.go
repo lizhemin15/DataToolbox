@@ -15464,14 +15464,13 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.APIMethod != "" {
 			task.APIMethod = update.APIMethod
 		}
-		// 分享字段
-		task.ShareEnabled = update.ShareEnabled
+		// 分享字段 - 保留原有分享状态，除非明确关闭
+		// 只有通过 DELETE /share API 才能关闭分享，PUT 更新不应自动关闭
 		if update.ShareEnabled && task.ShareToken == "" {
 			task.ShareToken = uuid.New().String()
+			task.ShareEnabled = true
 		}
-		if !update.ShareEnabled {
-			task.ShareToken = ""
-		}
+		// 不自动关闭分享：如果前端没传 share_enabled 或传了 false，保持原状态
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
 		dataOntologyMu.Unlock()
 
