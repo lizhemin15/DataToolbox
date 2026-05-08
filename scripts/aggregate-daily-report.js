@@ -186,80 +186,170 @@ async function main() {
 
   // ===== 用户填写区域开始 =====
   // 实际替换规则 - 从单位日报提取内容填充模板
+  // 多层级文档结构：一、→ （一）→ 1. → （1）
   
   // 1. 填充基本信息
   module["report_title"] = "**数据治理综合日报**";
   module["report_date"] = "2024年4月12日";
   module["unit_count"] = String(findJsons("日报").length);
   
-  // 2. 提取各单位概览
+  // 2. 提取各单位概览（从 L1 "一、工作概述" 的 L2 子节点获取）
   const overviews = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
-    const firstL1 = data[0]?.[0];
-    if (firstL1 && firstL1.paragraphs?.length > 0) {
-      overviews.push(`**${unitName}：**${firstL1.paragraphs.join('；')}`);
+    const overviewNode = data[0]?.find(n => n.title?.includes('工作概述'));
+    if (overviewNode) {
+      const contents = [];
+      // 从 L2 子节点提取内容
+      for (const l2 of (overviewNode.children || [])) {
+        if (l2.paragraphs?.length > 0) {
+          contents.push(...l2.paragraphs);
+        }
+      }
+      if (contents.length > 0) {
+        overviews.push(`**${unitName}：**${contents.join('；')}`);
+      }
     }
   }
   module["overview"] = overviews.join('\n\n');
   
-  // 3. 提取重点项目
+  // 3. 提取重点项目（从 L1 "二、重点项目" 获取，包含 L2、L3 内容）
   const projects = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
-    const projectNodes = data[0]?.filter(n => n.title?.includes('项目')) || [];
-    for (const n of projectNodes) {
-      if (n.paragraphs?.length > 0) {
-        projects.push(`**${unitName} - ${n.title}：**${n.paragraphs.join('；')}`);
+    // 找 L1 中包含"项目"的节点
+    const projectNode = data[0]?.find(n => n.title?.includes('项目'));
+    if (projectNode) {
+      // 收集该节点及其所有子节点的内容
+      const projectContents = [];
+      // L2 子节点
+      for (const l2 of (projectNode.children || [])) {
+        projectContents.push(`**${l2.title}**`);
+        // L3 子节点
+        for (const l3 of (l2.children || [])) {
+          projectContents.push(`  ${l3.title}：${l3.paragraphs?.join('；') || ''}`);
+        }
+        // L2 自己的段落
+        if (l2.paragraphs?.length > 0) {
+          projectContents.push(`  ${l2.paragraphs.join('；')}`);
+        }
+      }
+      // L1 的段落
+      if (projectNode.paragraphs?.length > 0) {
+        projectContents.push(...projectNode.paragraphs);
+      }
+      if (projectContents.length > 0) {
+        projects.push(`**${unitName}**\n${projectContents.join('\n')}`);
       }
     }
   }
   module["key_projects"] = projects.join('\n\n') || '暂无重点项目信息';
   
-  // 4. 提取风险信息
+  // 4. 提取风险信息（从 L1 "三、问题与风险" 获取）
   const risks = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
-    const riskNodes = data[0]?.filter(n => n.title?.includes('风险') || n.title?.includes('问题')) || [];
-    for (const n of riskNodes) {
-      if (n.paragraphs?.length > 0) {
-        risks.push(`**${unitName}：**${n.paragraphs.join('；')}`);
+    // 找 L1 中包含"风险"或"问题"的节点
+    const riskNode = data[0]?.find(n => n.title?.includes('风险') || n.title?.includes('问题'));
+    if (riskNode) {
+      const riskContents = [];
+      for (const l2 of (riskNode.children || [])) {
+        riskContents.push(`**${l2.title}**`);
+        for (const l3 of (l2.children || [])) {
+          riskContents.push(`  ${l3.title}：${l3.paragraphs?.join('；') || ''}`);
+        }
+        if (l2.paragraphs?.length > 0) {
+          riskContents.push(`  ${l2.paragraphs.join('；')}`);
+        }
+      }
+      if (riskNode.paragraphs?.length > 0) {
+        riskContents.push(...riskNode.paragraphs);
+      }
+      if (riskContents.length > 0) {
+        risks.push(`**${unitName}**\n${riskContents.join('\n')}`);
       }
     }
   }
   module["risk_detail"] = risks.join('\n\n') || '暂无风险信息';
   
-  // 5. 提取明日计划
+  // 5. 提取明日计划（从 L1 "四、明日计划" 获取）
   const plans = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
-    const planNodes = data[0]?.filter(n => n.title?.includes('计划') || n.title?.includes('明日')) || [];
-    for (const n of planNodes) {
-      if (n.paragraphs?.length > 0) {
-        plans.push(`**${unitName}：**${n.paragraphs.join('；')}`);
+    // 找 L1 中包含"计划"的节点
+    const planNode = data[0]?.find(n => n.title?.includes('计划'));
+    if (planNode) {
+      const planContents = [];
+      for (const l2 of (planNode.children || [])) {
+        planContents.push(`**${l2.title}**`);
+        if (l2.paragraphs?.length > 0) {
+          planContents.push(`  ${l2.paragraphs.join('；')}`);
+        }
+      }
+      if (planNode.paragraphs?.length > 0) {
+        planContents.push(...planNode.paragraphs);
+      }
+      if (planContents.length > 0) {
+        plans.push(`**${unitName}**\n${planContents.join('\n')}`);
       }
     }
   }
   module["tomorrow_plan"] = plans.join('\n\n') || '暂无明日计划';
   
-  // 6. 构建单位明细数组
+  // 6. 构建单位明细数组（包含完整多层级结构）
   const unitDetails = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    
+    // 收集所有 L1 内容
+    const allSections = [];
+    for (const l1 of (data[0] || [])) {
+      const section = { title: l1.title, children: [] };
+      // L2
+      for (const l2 of (l1.children || [])) {
+        const l2Node = { title: l2.title, paragraphs: l2.paragraphs, children: [] };
+        // L3
+        for (const l3 of (l2.children || [])) {
+          l2Node.children.push({ title: l3.title, paragraphs: l3.paragraphs });
+        }
+        section.children.push(l2Node);
+      }
+      // L1 自己的段落
+      if (l1.paragraphs?.length > 0) {
+        section.paragraphs = l1.paragraphs;
+      }
+      allSections.push(section);
+    }
+    
+    // 收集所有内容文本
+    const allText = [];
+    for (const l1 of (data[0] || [])) {
+      allText.push(`**${l1.title}**`);
+      for (const l2 of (l1.children || [])) {
+        allText.push(`  **${l2.title}**`);
+        if (l2.paragraphs?.length > 0) {
+          allText.push(`    ${l2.paragraphs.join('；')}`);
+        }
+        for (const l3 of (l2.children || [])) {
+          allText.push(`      ${l3.title}：${l3.paragraphs?.join('；') || ''}`);
+        }
+      }
+    }
+    
     unitDetails.push({
       unit_name: unitName,
       unit_report_date: "2024年4月12日",
       unit_summary: `**${unitName}日报摘要**`,
-      unit_overview: data[0]?.[0]?.paragraphs?.join('\n') || '暂无概览',
-      unit_key_projects: data[0]?.filter(n => n.title?.includes('项目'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无',
-      unit_risks: data[0]?.filter(n => n.title?.includes('风险'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无',
+      unit_overview: allText.join('\n'),
+      unit_key_projects: '（已整合到 unit_overview）',
+      unit_risks: '（已整合到 unit_overview）',
       unit_risk: '暂无风险',
-      unit_tomorrow: data[0]?.filter(n => n.title?.includes('计划'))?.map(n => n.paragraphs?.join('；'))?.join('\n') || '暂无计划'
+      unit_tomorrow: '（已整合到 unit_overview）'
     });
   }
   module["units"] = unitDetails;
@@ -269,10 +359,18 @@ async function main() {
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
-    const riskNodes = data[0]?.filter(n => n.title?.includes('风险')) || [];
-    for (const n of riskNodes) {
-      for (const p of (n.paragraphs || [])) {
-        riskItems.push({ risk_item: `**${unitName}：**${p}` });
+    // 找 L1 中包含"风险"的节点
+    const riskNode = data[0]?.find(n => n.title?.includes('风险'));
+    if (riskNode) {
+      for (const l2 of (riskNode.children || [])) {
+        for (const l3 of (l2.children || [])) {
+          for (const p of (l3.paragraphs || [])) {
+            riskItems.push({ risk_item: `**${unitName} - ${l2.title} - ${l3.title}：**${p}` });
+          }
+        }
+        for (const p of (l2.paragraphs || [])) {
+          riskItems.push({ risk_item: `**${unitName} - ${l2.title}：**${p}` });
+        }
       }
     }
   }
@@ -280,6 +378,7 @@ async function main() {
   
   gov.log('=== 替换规则执行完成 ===');
   gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
+  gov.log(`处理了 ${unitDetails.length} 个单位的多层级内容`);
   
   // ===== 用户填写区域结束 =====
 
