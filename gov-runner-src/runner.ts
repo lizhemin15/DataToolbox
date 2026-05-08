@@ -262,8 +262,13 @@ export function createGovHelper(
   };
 
   return {
-    log(msg: string) {
-      logLines.push(String(msg));
+    log(...args: any[]) {
+      logLines.push(args.map(a => {
+        if (a === null) return 'null';
+        if (a === undefined) return 'undefined';
+        if (typeof a === 'object') return JSON.stringify(a);
+        return String(a);
+      }).join(' '));
     },
 
     showTable,
