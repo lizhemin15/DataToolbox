@@ -14299,28 +14299,70 @@ async function deleteRelation(relationId) {
 }
 
 async function govDownloadExamplesForTask(taskId) {
-    const task = govTasks?.find(t => t.id === taskId);
-    if (!task?.example_files?.length) {
+    const token = localStorage.getItem('dataOntologyToken') || '';
+    if (!token) {
+        showToast('请先登录', 'error');
+        return;
+    }
+    
+    showToast('正在准备下载...', 'info');
+    
+    // 获取任务名称
+    let taskName = '';
+    try {
+        const res = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        const task = data.tasks?.find(t => t.id === taskId);
+        taskName = task?.name || '';
+    } catch (e) {
+        console.error('获取任务信息失败:', e);
+    }
+    
+    // 直接从接口获取示例文件列表
+    let files = [];
+    try {
+        const res = await fetch(`${API_BASE}/api/data-ontology/governance/examples`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.examples?.length) {
+            files = data.examples.map(e => ({ name: e.name, path: e.name }));
+        }
+    } catch (e) {
+        console.error('获取示例文件列表失败:', e);
+    }
+    
+    if (!files?.length) {
         showToast('没有可下载的样例文件', 'error');
         return;
     }
-    const token = localStorage.getItem('dataOntologyToken') || '';
-    for (const file of task.example_files) {
-        const url = `/api/data-ontology/governance/examples/${encodeURIComponent(file.path)}`;
-        try {
-            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-            if (!res.ok) throw new Error(res.statusText);
-            const blob = await res.blob();
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = file.name || file.path;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(a.href);
-        } catch (e) {
-            console.error('下载失败:', file.name, e);
-            showToast('下载失败: ' + file.name, 'error');
-        }
+    
+    // 使用批量打包接口下载
+    try {
+        const zipName = taskName ? `${taskName}_样例文件.zip` : 'governance-examples.zip';
+        const res = await fetch(`${API_BASE}/api/data-ontology/governance/examples/download`, {
+            method: 'POST',
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                files: files,
+                zip_name: zipName
+            })
+        });
+        if (!res.ok) throw new Error(res.statusText);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = zipName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    } catch (e) {
+        console.error('下载失败:', e);
+        showToast('下载失败: ' + e.message, 'error');
     }
 }

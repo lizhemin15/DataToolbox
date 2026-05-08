@@ -16093,11 +16093,12 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	}
 	_ = username
 	var req struct {
-		Paths []string `json:"paths"`
-		Files []struct {
+		Files   []struct {
 			Name string `json:"name"`
 			Path string `json:"path"`
 		} `json:"files"`
+		Paths   []string `json:"paths"`
+		ZipName string  `json:"zip_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -16177,8 +16178,17 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
 		return
 	}
+	zipName := req.ZipName
+	if zipName == "" {
+		zipName = "governance-examples.zip"
+	}
+	if !strings.HasSuffix(strings.ToLower(zipName), ".zip") {
+		zipName += ".zip"
+	}
+	// URL 编码文件名（解决中文乱码问题）
+	encodedZipName := url.PathEscape(zipName)
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="governance-examples.zip"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+zipName+`"; filename*=UTF-8''`+encodedZipName)
 	w.Write(buf.Bytes())
 }
 

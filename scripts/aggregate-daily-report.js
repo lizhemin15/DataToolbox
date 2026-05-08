@@ -185,6 +185,25 @@ async function main() {
   gov.log('');
 
   // ===== 用户填写区域开始 =====
+  // ============================================================
+  // 【配置区】可修改以下默认值
+  // ============================================================
+  const DEFAULT_FONT = '仿宋_GB2312';  // 默认字体
+  const DEFAULT_SIZE = 16;              // 默认字号(pt)：16=三号, 18=四号, 22=小二
+  
+  // ============================================================
+  // 【富文本格式说明】可在文字中混排以下格式标记：
+  //
+  // 1. 加粗：    **要加粗的文字**
+  // 2. 字体字号：[f:字体名,字号]文字  例如：[f:黑体,18]黑体18pt
+  //              常用字号：16=三号(16pt), 18=四号(18pt), 22=小二(22pt)
+  // 3. 首行缩进：>要缩进的文字
+  //
+  // 【混排示例】
+  //   "这是普通文字**这是加粗**也是普通"  → 混合排版
+  //   "[f:黑体,18]标题后面是其他文字"      → 黑体18pt会延续到文字结束
+  // ============================================================
+  //
   // 实际替换规则 - 从单位日报提取内容填充模板
   // 多层级文档结构：一、→ （一）→ 1. → （1）
   
@@ -400,6 +419,9 @@ async function main() {
   // ===== 7. 生成最终文档 =====
   gov.log(`=== 步骤5: 生成最终文档 ===`);
   
+  // 使用用户配置的默认字体
+  const defaultFont = { name: DEFAULT_FONT, size: DEFAULT_SIZE };
+  
   const data = {};
   for (const [k, v] of Object.entries(module)) {
     data[k] = v;
@@ -409,7 +431,7 @@ async function main() {
   const outName = `综合日报_${dateStr}.docx`;
   
   try {
-    await gov.fillWordTemplate(template, data, outName);
+    await gov.fillWordTemplate(template, data, outName, defaultFont);
     gov.log(`✓ 完成: ${outName}`);
   } catch (e) {
     gov.log(`✗ 生成失败: ${e.message}`);
