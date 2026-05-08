@@ -16186,9 +16186,17 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 		zipName += ".zip"
 	}
 	// URL 编码文件名（解决中文乱码问题）
+	// filename 部分用 ASCII 安全字符（避免某些浏览器/代理读旧字段显示乱码）
+	// filename* 部分用 UTF-8 编码（现代浏览器优先读取）
 	encodedZipName := url.PathEscape(zipName)
+	safeASCII := strings.Map(func(r rune) rune {
+		if r < 128 {
+			return r
+		}
+		return '_'
+	}, zipName)
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+zipName+`"; filename*=UTF-8''`+encodedZipName)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeASCII+`"; filename*=UTF-8''`+encodedZipName)
 	w.Write(buf.Bytes())
 }
 
