@@ -7154,7 +7154,7 @@ function renderGovTaskList() {
                     <span>${t.status === 'idle' ? '待运行' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '失败'}</span>
                 </div>
             </div>
-            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" data-task-id="${safeTId}" data-task-name="${t.name ? t.name.replace(/"/g, '&quot;') : ''}" onclick="event.stopPropagation(); govDownloadExamplesForTask(this.dataset.taskId, null, this.dataset.taskName)">下载样例</button>` : ''}
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" data-task-id="${safeTId}" data-task-name="${t.name ? t.name.replace(/"/g, '&quot;') : ''}" onclick="event.stopPropagation(); govDownloadExamplesForTask(this.dataset.taskId, ${JSON.stringify(t.example_files).replace(/"/g, '&quot;')}, this.dataset.taskName)">下载样例</button>` : ''}
         </div>
     `;}).join('');
 
