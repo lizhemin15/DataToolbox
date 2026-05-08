@@ -363,7 +363,6 @@ async function main() {
     unitDetails.push({
       unit_name: unitName,
       unit_report_date: "2024年4月12日",
-      unit_summary: `**${unitName}日报摘要**`,
       unit_overview: allText.join('\n'),
       unit_key_projects: '（已整合到 unit_overview）',
       unit_risks: '（已整合到 unit_overview）',
