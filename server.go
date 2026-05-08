@@ -17040,6 +17040,9 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 	}
 	log.Printf("[DEBUG] taskJSON sample: %s", string(taskJSON[:min(500, len(taskJSON))]))
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("gov-task-%d.json", time.Now().UnixNano()))
+	// DEBUG: 保留临时文件用于调试
+	debugFile := filepath.Join(os.TempDir(), "gov-task-debug.json")
+	os.WriteFile(debugFile, taskJSON, 0644)
 	if err := os.WriteFile(tmpFile, taskJSON, 0644); err != nil {
 		return &GovRunnerResult{
 			Success: false,
