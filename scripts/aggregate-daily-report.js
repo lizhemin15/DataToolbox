@@ -319,29 +319,9 @@ async function main() {
   }
   module["tomorrow_plan"] = plans.join('\n\n') || '暂无明日计划';
   
-  // 6. 风险项数组（用于 {#risk_items} 循环）
-  const riskItems = [];
-  for (const { name, data } of findJsons("日报")) {
-    const unitMatch = name.match(/单位([A-Z])/);
-    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/gi, '');
-    // 找 L1 中包含"风险"或"问题"的节点
-    const riskNode = data[0]?.find(n => n.title?.includes('风险') || n.title?.includes('问题'));
-    if (riskNode) {
-      // 收集风险项
-      for (const l2 of (riskNode.children || [])) {
-        for (const p of (l2.paragraphs || [])) {
-          riskItems.push({ risk_item: `${unitName} - ${l2.title.replace(/^[（(]\d+[)）]?\s*/, '')}: ${p}` });
-        }
-      }
-    }
-  }
-  module["risk_items"] = riskItems.length > 0 ? riskItems : [{ risk_item: '暂无风险项' }];
-  
-  // 注意：模板已删除 {#units} 循环块，单位详情已合并到 overview
-  
   gov.log('=== 替换规则执行完成 ===');
   gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
-  gov.log(`处理了 ${unitDetails.length} 个单位的多层级内容`);
+  gov.log(`处理了 ${findJsons('日报').length} 个单位的多层级内容`);
   
   // ===== 用户填写区域结束 =====
 
@@ -350,7 +330,10 @@ async function main() {
 
   // ===== 6. 检查占位符是否已填充 =====
   gov.log(`=== 步骤4: 检查占位符 ===`);
-  const unfilled = Object.entries(module).filter(([k, v]) => !v).map(([k]) => k);
+  
+  // 已知的模板未使用占位符（用户可能上传了旧模板）
+  const knownUnused = ['risk_items', 'risk_item', 'units', 'unit_name', 'unit_report_date', 'unit_overview', 'unit_key_projects', 'unit_risks', 'unit_tomorrow'];
+  const unfilled = Object.entries(module).filter(([k, v]) => !v && !knownUnused.includes(k)).map(([k]) => k);
   
   if (unfilled.length > 0) {
     gov.log(`⚠️  以下占位符未填充，Word 中将显示为空:`);
