@@ -7105,6 +7105,14 @@ function renderGovTaskList() {
     const container = document.getElementById('govTaskList');
     if (!container) return;
 
+    // 将 example_files 存入全局变量，供下载按钮使用
+    window._govTaskExamples = window._govTaskExamples || {};
+    govTasks.forEach(t => {
+        if (t.example_files?.length) {
+            window._govTaskExamples[t.id] = t.example_files;
+        }
+    });
+
     const search = (document.getElementById('govTaskSearchInput')?.value || '').toLowerCase();
     let filtered = govTasks.filter(t => {
         if (govCurrentFilter !== 'all' && t.type !== govCurrentFilter) return false;
@@ -7136,7 +7144,7 @@ function renderGovTaskList() {
                     <span>${t.status === 'idle' ? '待运行' : t.status === 'running' ? '运行中' : t.status === 'success' ? '成功' : '失败'}</span>
                 </div>
             </div>
-            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" onclick="event.stopPropagation(); govDownloadExamplesForTask('${safeTId}')">下载样例</button>` : ''}
+            ${t.example_files && t.example_files.length ? `<button type="button" class="gov-example-btn" data-task-id="${safeTId}" data-task-name="${t.name ? t.name.replace(/"/g, '&quot;') : ''}" onclick="event.stopPropagation(); govDownloadExamplesForTask(this.dataset.taskId, window._govTaskExamples?.[this.dataset.taskId] || [], this.dataset.taskName)">下载样例</button>` : ''}
         </div>
     `;}).join('');
 
@@ -14298,46 +14306,27 @@ async function deleteRelation(relationId) {
     }
 }
 
-async function govDownloadExamplesForTask(taskId) {
+async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
     const token = localStorage.getItem('dataOntologyToken') || '';
     if (!token) {
         showToast('请先登录', 'error');
         return;
     }
     
-    showToast('正在准备下载...', 'info');
-    
-    // 获取任务名称
-    let taskName = '';
-    try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/governance/tasks`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        const task = data.tasks?.find(t => t.id === taskId);
-        taskName = task?.name || '';
-    } catch (e) {
-        console.error('获取任务信息失败:', e);
-    }
-    
-    // 直接从接口获取示例文件列表
-    let files = [];
-    try {
-        const res = await fetch(`${API_BASE}/api/data-ontology/governance/examples`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        if (data.success && data.examples?.length) {
-            files = data.examples.map(e => ({ name: e.name, path: e.name }));
-        }
-    } catch (e) {
-        console.error('获取示例文件列表失败:', e);
-    }
-    
-    if (!files?.length) {
+    // exampleFiles 直接从任务数据传入，避免额外 API 调用
+    let files = exampleFiles || [];
+    if (!files.length) {
         showToast('没有可下载的样例文件', 'error');
         return;
     }
+    
+    showToast('正在准备下载...', 'info');
+    
+    // 格式化文件列表：{ name: "xxx.docx", path: "xxx.docx" }
+    const formattedFiles = files.map(f => ({
+        name: typeof f === 'string' ? f : f.name,
+        path: typeof f === 'string' ? f : (f.path || f.name)
+    }));
     
     // 使用批量打包接口下载
     try {
@@ -14349,7 +14338,7 @@ async function govDownloadExamplesForTask(taskId) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                files: files,
+                files: formattedFiles,
                 zip_name: zipName
             })
         });
