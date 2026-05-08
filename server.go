@@ -15433,7 +15433,7 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		task.Type = update.Type
 		task.Description = update.Description
 		task.JsCode = update.JsCode
-		// DatabaseID needs validation - only update if non-empty and valid
+		// DatabaseID: allow empty string to clear, validate non-empty values
 		if update.DatabaseID != "" {
 			dc, dcOk := dataOntologyDatabases[update.DatabaseID]
 			if !dcOk || !dataOntologyResourceVisible(dc.Owner, username) {
@@ -15441,8 +15441,8 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})
 				return
 			}
-			task.DatabaseID = update.DatabaseID
 		}
+		task.DatabaseID = update.DatabaseID
 		task.Runtime = update.Runtime
 		task.RunMode = update.RunMode
 		task.ExecutionMode = update.ExecutionMode
