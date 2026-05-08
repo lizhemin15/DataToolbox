@@ -80,18 +80,7 @@ function govNormalizeExampleFile(item) {
     return { name: name || path, path: path, _raw: item };
 }
 
-function govDownloadExamplesForTask(taskId) {
-    const task = govTasks.find(t => t.id === taskId);
-    const list = task && task.example_files;
-    if (!list || !list.length) return;
-    const files = list.map(govNormalizeExampleFile).filter(Boolean);
-    if (!files.length) return;
-    if (files.length === 1) {
-        govDownloadExampleSingle(files[0].path);
-    } else {
-        govDownloadExampleZip(files);
-    }
-}
+// govDownloadExamplesForTask 已在 script.js 中定义，支持 taskName 和 exampleFiles 参数
 
 async function govReloadExamplesFromEmbed() {
     try {

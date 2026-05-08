@@ -200,25 +200,7 @@ function govDownloadBlob(blob, filename) {
     URL.revokeObjectURL(url);
 }
 
-async function govDownloadExamplesForTask(taskId) {
-    const task = window.govTasks?.find(t => t.id === taskId);
-    if (!task?.example_files?.length) {
-        alert('没有可下载的样例文件');
-        return;
-    }
-    const token = localStorage.getItem('authToken') || '';
-    for (const file of task.example_files) {
-        const url = `/api/data-ontology/governance/examples/${encodeURIComponent(file.path)}`;
-        try {
-            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-            if (!res.ok) throw new Error(res.statusText);
-            const blob = await res.blob();
-            govDownloadBlob(blob, file.name || file.path);
-        } catch (e) {
-            console.error('下载失败:', file.name, e);
-        }
-    }
-}
+// govDownloadExamplesForTask 已在 script.js 中定义，支持 taskName 和 exampleFiles 参数
 
 const GOV_API_DOCS = GOV_API_SECTIONS;
 const governanceFunctions = GOV_API_DOCS;
@@ -232,8 +214,8 @@ const GOV_SHARED = {
     govApplyCellMapToSheet,
     govDataIsFlatCellMap,
     govCsvEscapeCell,
-    govDownloadBlob,
-    govDownloadExamplesForTask
+    govDownloadBlob
+    // govDownloadExamplesForTask 已在 script.js 中定义，不在此导出
 };
 
 if (typeof window !== 'undefined') {
@@ -247,7 +229,7 @@ if (typeof window !== 'undefined') {
     window.govDataIsFlatCellMap = govDataIsFlatCellMap;
     window.govCsvEscapeCell = govCsvEscapeCell;
     window.govDownloadBlob = govDownloadBlob;
-    window.govDownloadExamplesForTask = govDownloadExamplesForTask;
+    // govDownloadExamplesForTask 已在 script.js 中定义，不在此覆盖
 }
 if (typeof globalThis !== 'undefined') {
     globalThis.GOV_SHARED = GOV_SHARED;
@@ -260,5 +242,5 @@ if (typeof globalThis !== 'undefined') {
     globalThis.govDataIsFlatCellMap = govDataIsFlatCellMap;
     globalThis.govCsvEscapeCell = govCsvEscapeCell;
     globalThis.govDownloadBlob = govDownloadBlob;
-    globalThis.govDownloadExamplesForTask = govDownloadExamplesForTask;
+    // govDownloadExamplesForTask 已在 script.js 中定义，不在此覆盖
 }
