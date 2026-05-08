@@ -9546,9 +9546,10 @@ async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverri
         const DocxCtor = _govGetDocxtemplaterClass();
 
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const fn = new AsyncFunction('gov', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', 'INPUT_FILES', code);
+        const fn = new AsyncFunction('gov', 'currentGovTask', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', 'INPUT_FILES', code);
         const inputFiles = uploaded;
-        await fn(gov, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor, inputFiles);
+        const taskForRun = currentGovTask;
+        await fn(gov, taskForRun, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor, inputFiles);
     } catch (err) {
         status = 'error';
         errorMsg = err.message || String(err);
