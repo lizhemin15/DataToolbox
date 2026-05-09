@@ -7947,6 +7947,8 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
             formData.append('output', output || '');
             formData.append('error', errorMsg || '');
             formData.append('input_text', inputText || '');
+            formData.append('share_enabled', 'true');
+            formData.append('share_token', currentGovTask.share_token);
             for (const f of files) {
                 if (f instanceof File) {
                     formData.append('files', f);
@@ -7959,6 +7961,7 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
         } else {
             // 无文件或未开启分享，只传 JSON
             const inputFileNames = files ? files.map(f => f.name || f) : [];
+            const shareEnabled = currentGovTask.share_enabled ? true : false;
             await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -7967,7 +7970,9 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
                     output: output,
                     error: errorMsg,
                     input_text: inputText,
-                    input_files: inputFileNames
+                    input_files: inputFileNames,
+                    share_enabled: shareEnabled,
+                    share_token: currentGovTask.share_token || ''
                 })
             });
         }
