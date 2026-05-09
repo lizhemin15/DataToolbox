@@ -1082,7 +1082,7 @@ type GovernanceTask struct {
 	Type          string                  `json:"type"` // "scheduled" | "interactive"
 	Description   string                  `json:"description,omitempty"`
 	JsCode        string                  `json:"js_code"`
-	DatabaseID    string                  `json:"database_id,omitempty"`
+	DatabaseID    string                  `json:"database_id"` // 去掉 omitempty，确保空字符串也能序列化
 	CronExpr      string                  `json:"cron_expr,omitempty"` // "分 时 日 月 周" e.g. "0 2 * * *"
 	Enabled       bool                    `json:"enabled"`
 	InputType     string                  `json:"input_type,omitempty"`      // "file" | "text" | "both"
