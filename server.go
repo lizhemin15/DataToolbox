@@ -16492,41 +16492,98 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 		return
 	}
 
-	// 解析请求
-	var req struct {
-		RunID      string   `json:"run_id"`
-		Status     string   `json:"status"`
-		Output     string   `json:"output"`
-		Error      string   `json:"error"`
-		InputText  string   `json:"input_text"`
-		InputFiles []string `json:"input_files"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析请求失败: " + err.Error()})
-		return
+	// 先生成 runID，用于文件保存目录
+	runID := uuid.New().String()
+
+	// 解析上传的文件（支持 multipart/form-data）
+	var inputFileNames []string
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		maxSize := int64(100 * 1024 * 1024) // 100MB
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		if err := r.ParseMultipartForm(maxSize); err == nil {
+			// 如果任务有分享功能，保存文件到 share-uploads
+			if task.ShareEnabled && task.ShareToken != "" {
+				uploadDir := filepath.Join(dataDir, "apps", "data-ontology", "share-uploads", task.ShareToken, runID)
+				if err := os.MkdirAll(uploadDir, 0755); err == nil {
+					files := r.MultipartForm.File["files"]
+					for _, fileHeader := range files {
+						safeFilename, err := sanitizeFilename(fileHeader.Filename)
+						if err != nil {
+							continue
+						}
+						file, err := fileHeader.Open()
+						if err != nil {
+							continue
+						}
+						tmpPath := filepath.Join(uploadDir, safeFilename)
+						dst, err := os.Create(tmpPath)
+						if err != nil {
+							file.Close()
+							continue
+						}
+						_, copyErr := io.Copy(dst, file)
+						file.Close()
+						closeErr := dst.Close()
+						if copyErr != nil || closeErr != nil {
+							os.Remove(tmpPath)
+							continue
+						}
+						inputFileNames = append(inputFileNames, safeFilename)
+					}
+				}
+			}
+		}
 	}
 
-	runID := req.RunID
-	if runID == "" {
-		runID = uuid.New().String()
-	}
+	// 如果没有上传文件，解析 JSON 请求体获取文件名
+	if len(inputFileNames) == 0 {
+		var req struct {
+			RunID      string   `json:"run_id"`
+			Status     string   `json:"status"`
+			Output     string   `json:"output"`
+			Error      string   `json:"error"`
+			InputText  string   `json:"input_text"`
+			InputFiles []string `json:"input_files"`
+		}
+		// 重新构造请求体（因为上面可能已经读取了 multipart）
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
+			runID = req.RunID
+			if runID == "" {
+				runID = uuid.New().String()
+			}
+			inputFileNames = req.InputFiles
 
-	// 更新任务状态
-	dataOntologyMu.Lock()
-	task.Status = req.Status
-	task.LastOutput = req.Output
-	task.LastError = req.Error
-	task.LastRunAt = time.Now().Format(time.RFC3339)
-	task.RunID = runID
-	dataOntologyMu.Unlock()
+			// 更新任务状态
+			dataOntologyMu.Lock()
+			task.Status = req.Status
+			task.LastOutput = req.Output
+			task.LastError = req.Error
+			task.LastRunAt = time.Now().Format(time.RFC3339)
+			task.RunID = runID
+			dataOntologyMu.Unlock()
+		} else {
+			// 无法解析，直接返回错误
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析请求失败: " + err.Error()})
+			return
+		}
+	} else {
+		// 有文件上传，更新任务状态为成功
+		dataOntologyMu.Lock()
+		task.Status = "success"
+		task.LastRunAt = time.Now().Format(time.RFC3339)
+		task.RunID = runID
+		dataOntologyMu.Unlock()
+	}
 
 	// 保存任务日志并同步到分享页
-	governanceFinalizeRunLogFromTask(taskID, runID, req.InputFiles)
+	governanceFinalizeRunLogFromTask(taskID, runID, inputFileNames)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"run_id":  runID,
-		"message": "前端执行结果已保存并同步到分享页",
+		"success":     true,
+		"run_id":      runID,
+		"input_files": inputFileNames,
+		"message":     "前端执行结果已保存并同步到分享页",
 	})
 }
 

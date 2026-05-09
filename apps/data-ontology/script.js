@@ -7940,19 +7940,37 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
 
     // 前端执行完成后，通知后端保存结果并同步到分享页
     try {
-        // 提取文件名列表
-        const inputFileNames = files ? files.map(f => f.name || f) : [];
-        await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                status: status,
-                output: output,
-                error: errorMsg,
-                input_text: inputText,
-                input_files: inputFileNames
-            })
-        });
+        // 如果有文件且任务开启了分享，用 FormData 上传文件
+        if (files && files.length > 0 && currentGovTask.share_enabled && currentGovTask.share_token) {
+            const formData = new FormData();
+            formData.append('status', status);
+            formData.append('output', output || '');
+            formData.append('error', errorMsg || '');
+            formData.append('input_text', inputText || '');
+            for (const f of files) {
+                if (f instanceof File) {
+                    formData.append('files', f);
+                }
+            }
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+                method: 'POST',
+                body: formData
+            });
+        } else {
+            // 无文件或未开启分享，只传 JSON
+            const inputFileNames = files ? files.map(f => f.name || f) : [];
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: status,
+                    output: output,
+                    error: errorMsg,
+                    input_text: inputText,
+                    input_files: inputFileNames
+                })
+            });
+        }
     } catch (e) {
         console.warn('同步前端执行结果到后端失败:', e);
     }
@@ -9706,24 +9724,45 @@ async function executeGovTaskInBrowser(code, file, inputText, files) {
 
     // 前端执行完成后，通知后端保存结果并同步到分享页
     try {
-        // 提取文件名列表（兼容单文件和文件数组）
-        let inputFileNames = [];
+        // 提取文件列表（兼容单文件和文件数组）
+        let filesToUpload = [];
         if (file) {
-            inputFileNames = [file.name || file];
+            filesToUpload = [file];
         } else if (files && files.length > 0) {
-            inputFileNames = files.map(f => f.name || f);
+            filesToUpload = files;
         }
-        await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                status: status,
-                output: output,
-                error: errorMsg,
-                input_text: inputText,
-                input_files: inputFileNames
-            })
-        });
+
+        // 如果有文件且任务开启了分享，用 FormData 上传文件
+        if (filesToUpload.length > 0 && currentGovTask.share_enabled && currentGovTask.share_token) {
+            const formData = new FormData();
+            formData.append('status', status);
+            formData.append('output', output || '');
+            formData.append('error', errorMsg || '');
+            formData.append('input_text', inputText || '');
+            for (const f of filesToUpload) {
+                if (f instanceof File) {
+                    formData.append('files', f);
+                }
+            }
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+                method: 'POST',
+                body: formData
+            });
+        } else {
+            // 无文件或未开启分享，只传 JSON
+            const inputFileNames = filesToUpload.map(f => f.name || f);
+            await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: status,
+                    output: output,
+                    error: errorMsg,
+                    input_text: inputText,
+                    input_files: inputFileNames
+                })
+            });
+        }
     } catch (e) {
         console.warn('同步前端执行结果到后端失败:', e);
     }
