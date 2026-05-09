@@ -16633,77 +16633,6 @@ func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string)
 	}
 }
 
-// syncTaskLogsToShareRuns 把任务历史日志同步到分享执行记录（懒同步，访问分享页时触发）
-func syncTaskLogsToShareRuns(taskID, shareToken string) {
-	if shareToken == "" {
-		return
-	}
-
-	dataOntologyMu.RLock()
-	logs := governanceTaskLogs[taskID]
-	dataOntologyMu.RUnlock()
-
-	if len(logs) == 0 {
-		return
-	}
-
-	// 收集已存在的 run_id，避免重复同步
-	governanceShareRunsMu.RLock()
-	existingRunIDs := make(map[string]bool)
-	for _, run := range governanceShareRuns {
-		if run.TaskID == taskID {
-			existingRunIDs[run.ID] = true
-		}
-	}
-	governanceShareRunsMu.RUnlock()
-
-	// 同步未存在的日志记录
-	now := time.Now()
-	hasNew := false
-	governanceShareRunsMu.Lock()
-	for _, log := range logs {
-		if log == nil || log.RunID == "" || existingRunIDs[log.RunID] {
-			continue
-		}
-		// 只同步已完成的日志（非 running 状态）
-		if log.Status == "running" {
-			continue
-		}
-		shareStatus := "completed"
-		shareOutput := log.Output
-		if log.Status != "success" {
-			shareStatus = "failed"
-			if log.Error != "" {
-				if shareOutput != "" {
-					shareOutput = log.Error + "\n" + shareOutput
-				} else {
-					shareOutput = log.Error
-				}
-			}
-		}
-		governanceShareRuns[log.RunID] = &GovernanceShareRun{
-			ID:         log.RunID,
-			TaskID:     taskID,
-			ShareToken: shareToken,
-			Status:     shareStatus,
-			Progress:   100,
-			Output:     shareOutput,
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}
-		hasNew = true
-	}
-	governanceShareRunsMu.Unlock()
-
-	if hasNew {
-		if err := saveDataOntologyStore(); err != nil {
-			log.Printf("[ShareSync] 同步历史日志失败: %v", err)
-		} else {
-			log.Printf("[ShareSync] 已同步任务 %s 的历史日志到分享页", taskID)
-		}
-	}
-}
-
 // governanceWorker 任务执行器，从队列取出任务并执行
 func governanceWorker() {
 	for job := range governanceJobQueue {
@@ -19093,24 +19022,47 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 		return
 	}
 
-	governanceShareRunsMu.RLock()
-	run, exists := governanceShareRuns[runID]
-	governanceShareRunsMu.RUnlock()
+	// 直接从 governanceTaskLogs 读取（单一数据源）
+	dataOntologyMu.RLock()
+	logs := governanceTaskLogs[task.ID]
+	dataOntologyMu.RUnlock()
 
-	if !exists {
+	// 查找对应 run_id 的日志
+	var log *GovernanceTaskLog
+	for _, l := range logs {
+		if l != nil && l.RunID == runID {
+			log = l
+			break
+		}
+	}
+
+	if log == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
 		return
 	}
 
+	status := "completed"
+	output := log.Output
+	if log.Status == "error" {
+		status = "failed"
+		if log.Error != "" {
+			if output != "" {
+				output = log.Error + "\n" + output
+			} else {
+				output = log.Error
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":      true,
-		"status":       run.Status,
-		"progress":     run.Progress,
-		"output":       run.Output,
-		"input_files":  run.InputFiles,
-		"result_files": run.ResultFiles,
-		"created_at":   run.CreatedAt,
-		"updated_at":   run.UpdatedAt,
+		"status":       status,
+		"progress":     100,
+		"output":       output,
+		"input_files":  []string{},
+		"result_files": []string{},
+		"created_at":   log.StartTime,
+		"updated_at":   log.EndTime,
 	})
 }
 
@@ -19122,37 +19074,48 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		return
 	}
 
-	// 懒同步：把任务历史日志中未同步到分享页的记录同步过来
-	syncTaskLogsToShareRuns(task.ID, task.ShareToken)
+	// 直接从 governanceTaskLogs 读取（单一数据源）
+	dataOntologyMu.RLock()
+	logs := governanceTaskLogs[task.ID]
+	dataOntologyMu.RUnlock()
 
-	governanceShareRunsMu.RLock()
-	defer governanceShareRunsMu.RUnlock()
-
-	// 收集该 task_id 下的所有执行记录（按 task_id 查询，而非 share_token）
-	var runs []*GovernanceShareRun
-	for _, run := range governanceShareRuns {
-		if run.TaskID == task.ID {
-			runs = append(runs, run)
+	// 过滤掉运行中的日志，只返回已完成的
+	var completedLogs []*GovernanceTaskLog
+	for _, log := range logs {
+		if log != nil && log.Status != "running" {
+			completedLogs = append(completedLogs, log)
 		}
 	}
 
-	// 按创建时间倒序排列
-	sort.Slice(runs, func(i, j int) bool {
-		return runs[i].CreatedAt.After(runs[j].CreatedAt)
+	// 按开始时间倒序排列
+	sort.Slice(completedLogs, func(i, j int) bool {
+		return completedLogs[i].StartTime > completedLogs[j].StartTime
 	})
 
 	// 转换为前端需要的格式
-	result := make([]map[string]interface{}, len(runs))
-	for i, run := range runs {
+	result := make([]map[string]interface{}, len(completedLogs))
+	for i, log := range completedLogs {
+		status := "completed"
+		output := log.Output
+		if log.Status == "error" {
+			status = "failed"
+			if log.Error != "" {
+				if output != "" {
+					output = log.Error + "\n" + output
+				} else {
+					output = log.Error
+				}
+			}
+		}
 		result[i] = map[string]interface{}{
-			"id":           run.ID,
-			"status":       run.Status,
-			"progress":     run.Progress,
-			"output":       run.Output,
-			"input_files":  run.InputFiles,
-			"result_files": run.ResultFiles,
-			"created_at":   run.CreatedAt,
-			"updated_at":   run.UpdatedAt,
+			"id":           log.RunID,
+			"status":       status,
+			"progress":     100,
+			"output":       output,
+			"input_files":  []string{},
+			"result_files": []string{},
+			"created_at":   log.StartTime,
+			"updated_at":   log.EndTime,
 		}
 	}
 
@@ -19170,11 +19133,21 @@ func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 
-	governanceShareRunsMu.RLock()
-	run, exists := governanceShareRuns[runID]
-	governanceShareRunsMu.RUnlock()
+	// 直接从 governanceTaskLogs 读取（单一数据源）
+	dataOntologyMu.RLock()
+	logs := governanceTaskLogs[task.ID]
+	dataOntologyMu.RUnlock()
 
-	if !exists {
+	// 查找对应 run_id 的日志
+	var log *GovernanceTaskLog
+	for _, l := range logs {
+		if l != nil && l.RunID == runID {
+			log = l
+			break
+		}
+	}
+
+	if log == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
 		return
@@ -19186,12 +19159,12 @@ func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, ta
 		downloadType = "output"
 	}
 
-	// 根据类型选择目录
+	// 根据类型选择目录（使用 task.ShareToken）
 	var baseDir string
 	if downloadType == "input" {
-		baseDir = filepath.Join("apps", "data-ontology", "share-uploads", run.ShareToken, runID)
+		baseDir = filepath.Join("apps", "data-ontology", "share-uploads", task.ShareToken, runID)
 	} else {
-		baseDir = filepath.Join("apps", "data-ontology", "share-outputs", run.ShareToken, runID)
+		baseDir = filepath.Join("apps", "data-ontology", "share-outputs", task.ShareToken, runID)
 	}
 
 	// 获取要下载的文件名
