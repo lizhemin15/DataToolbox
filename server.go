@@ -16513,22 +16513,66 @@ func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
 }
 
 // governanceFinalizeRunLogFromTask 根据任务当前状态将本次 run 的执行日志落库
-func governanceFinalizeRunLogFromTask(taskID, runID string) {
+func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string) {
 	dataOntologyMu.RLock()
 	var outStr, errStr string
 	status := "error"
+	shareToken := ""
 	if t, ok := governanceTasks[taskID]; ok {
 		if t.Status == "success" {
 			status = "success"
 		}
 		outStr = t.LastOutput
 		errStr = t.LastError
+		shareToken = t.ShareToken
 	}
 	dataOntologyMu.RUnlock()
 	if status == "success" {
 		governanceFinalizeRunLog(taskID, runID, "success", outStr, "")
 	} else {
 		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
+	}
+	if shareToken != "" {
+		shareStatus := "completed"
+		shareOutput := outStr
+		if status != "success" {
+			shareStatus = "failed"
+			if errStr != "" {
+				if shareOutput != "" {
+					shareOutput = errStr + "\n" + shareOutput
+				} else {
+					shareOutput = errStr
+				}
+			}
+		}
+		governanceShareRunsMu.Lock()
+		if run, exists := governanceShareRuns[runID]; exists {
+			run.Status = shareStatus
+			run.Progress = 100
+			run.Output = shareOutput
+			if inputFiles != nil {
+				run.InputFiles = append([]string(nil), inputFiles...)
+			}
+			run.UpdatedAt = time.Now()
+		} else {
+			now := time.Now()
+			clonedInputs := append([]string(nil), inputFiles...)
+			governanceShareRuns[runID] = &GovernanceShareRun{
+				ID:         runID,
+				TaskID:     taskID,
+				ShareToken: shareToken,
+				Status:     shareStatus,
+				Progress:   100,
+				Output:     shareOutput,
+				InputFiles: clonedInputs,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}
+		}
+		governanceShareRunsMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[TaskRun] 保存分享执行记录失败: %v", err)
+		}
 	}
 }
 
@@ -16780,7 +16824,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 						}
 						dataOntologyMu.Unlock()
 						saveDataOntologyStore()
-						governanceFinalizeRunLogFromTask(taskID, runID)
+						governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
 					}
 					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 					os.RemoveAll(tmpDir)
@@ -16867,7 +16911,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				dataOntologyMu.Unlock()
 				saveDataOntologyStore()
-				governanceFinalizeRunLogFromTask(taskID, runID)
+				governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
 			}
 		} else {
 			var allOutput []string
@@ -16984,7 +17028,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				dataOntologyMu.Unlock()
 				saveDataOntologyStore()
-				governanceFinalizeRunLogFromTask(taskID, runID)
+				governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
 			}
 		}
 	} else {
@@ -17030,7 +17074,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
-			governanceFinalizeRunLogFromTask(taskID, runID)
+			governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
 		}
 	}
 
