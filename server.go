@@ -1241,6 +1241,25 @@ func getDataOntologyStorePath() string {
 // 加载持久化数据
 func loadDataOntologyStore() error {
 	storePath := getDataOntologyStorePathFn()
+	dir := filepath.Dir(storePath)
+	baseName := filepath.Base(storePath)
+
+	// 检查是否存在大小写不一致的同名文件，自动修正
+	// 例如：data-Store.json -> data-store.json
+	files, _ := os.ReadDir(dir)
+	for _, f := range files {
+		if strings.ToLower(f.Name()) == strings.ToLower(baseName) && f.Name() != baseName {
+			oldPath := filepath.Join(dir, f.Name())
+			newPath := filepath.Join(dir, baseName)
+			log.Printf("[自动修正] 检测到文件名大小写不一致: %s -> %s", oldPath, newPath)
+			if err := os.Rename(oldPath, newPath); err != nil {
+				log.Printf("[自动修正] 重命名失败: %v", err)
+			} else {
+				log.Printf("[自动修正] 重命名成功")
+			}
+			break
+		}
+	}
 
 	// 检查文件是否存在
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
