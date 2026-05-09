@@ -19074,6 +19074,10 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []string) {
 	dataDir := filepath.Dir(getDataOntologyStorePath())
 	
+	// 初始化为空切片（避免返回 nil）
+	inputFiles = []string{}
+	outputFiles = []string{}
+	
 	// 扫描输入文件目录: share-uploads/{shareToken}/{runID}/
 	uploadDir := filepath.Join(dataDir, "share-uploads", shareToken, runID)
 	if entries, err := os.ReadDir(uploadDir); err == nil {
