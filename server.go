@@ -19054,16 +19054,47 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 		}
 	}
 
+	// 扫描该运行的文件列表
+	inputFiles, outputFiles := scanShareRunFiles(task.ShareToken, runID)
+	
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":      true,
 		"status":       status,
 		"progress":     100,
 		"output":       output,
-		"input_files":  []string{},
-		"result_files": []string{},
+		"input_files":  inputFiles,
+		"result_files": outputFiles,
 		"created_at":   log.StartTime,
 		"updated_at":   log.EndTime,
 	})
+}
+
+// scanShareRunFiles 扫描分享任务的输入/输出文件
+// 返回 inputFiles 和 outputFiles 两个列表
+func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []string) {
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+	
+	// 扫描输入文件目录: share-uploads/{shareToken}/{runID}/
+	uploadDir := filepath.Join(dataDir, "share-uploads", shareToken, runID)
+	if entries, err := os.ReadDir(uploadDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				inputFiles = append(inputFiles, entry.Name())
+			}
+		}
+	}
+	
+	// 扫描输出文件目录: share-outputs/{shareToken}/{runID}/
+	outputDir := filepath.Join(dataDir, "share-outputs", shareToken, runID)
+	if entries, err := os.ReadDir(outputDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				outputFiles = append(outputFiles, entry.Name())
+			}
+		}
+	}
+	
+	return inputFiles, outputFiles
 }
 
 // handleGovernanceShareRuns 列出分享任务的所有执行记录
@@ -19107,13 +19138,16 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 				}
 			}
 		}
+		// 扫描该运行的文件列表
+		inputFiles, outputFiles := scanShareRunFiles(task.ShareToken, log.RunID)
+		
 		result[i] = map[string]interface{}{
 			"id":           log.RunID,
 			"status":       status,
 			"progress":     100,
 			"output":       output,
-			"input_files":  []string{},
-			"result_files": []string{},
+			"input_files":  inputFiles,
+			"result_files": outputFiles,
 			"created_at":   log.StartTime,
 			"updated_at":   log.EndTime,
 		}
