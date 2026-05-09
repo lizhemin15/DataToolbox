@@ -16504,7 +16504,8 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 		if err := r.ParseMultipartForm(maxSize); err == nil {
 			// 如果任务有分享功能，保存文件到 share-uploads
 			if task.ShareEnabled && task.ShareToken != "" {
-				uploadDir := filepath.Join(dataDir, "apps", "data-ontology", "share-uploads", task.ShareToken, runID)
+				dataDir := filepath.Dir(getDataOntologyStorePath())
+				uploadDir := filepath.Join(dataDir, "share-uploads", task.ShareToken, runID)
 				if err := os.MkdirAll(uploadDir, 0755); err == nil {
 					files := r.MultipartForm.File["files"]
 					for _, fileHeader := range files {
