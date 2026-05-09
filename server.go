@@ -842,19 +842,19 @@ type DatabaseConfig struct {
 // DatabaseInfo 数据库信息（不包含敏感信息）
 // TableInfo 表信息（包含表名和备注）
 type TableInfo struct {
-	Name        string   `json:"name"`
-	Comment     string   `json:"comment,omitempty"`
-	ColumnNames []string `json:"column_names,omitempty"` // 用于表检索
-	Columns     []ColumnInfo `json:"columns,omitempty"` // 增强的字段信息（包含类型、注释、主键、外键）
+	Name        string       `json:"name"`
+	Comment     string       `json:"comment,omitempty"`
+	ColumnNames []string     `json:"column_names,omitempty"` // 用于表检索
+	Columns     []ColumnInfo `json:"columns,omitempty"`      // 增强的字段信息（包含类型、注释、主键、外键）
 }
 
 type ColumnInfo struct {
-	Name     string `json:"name"`
-	Type     string `json:"type,omitempty"`
-	Comment  string `json:"comment,omitempty"`
-	IsPK     bool   `json:"is_pk,omitempty"`
-	IsFK     bool   `json:"is_fk,omitempty"`
-	FKTable  string `json:"fk_table,omitempty"` // 外键关联的表名
+	Name    string `json:"name"`
+	Type    string `json:"type,omitempty"`
+	Comment string `json:"comment,omitempty"`
+	IsPK    bool   `json:"is_pk,omitempty"`
+	IsFK    bool   `json:"is_fk,omitempty"`
+	FKTable string `json:"fk_table,omitempty"` // 外键关联的表名
 }
 
 type DatabaseInfo struct {
@@ -3626,12 +3626,10 @@ func extractSQLiteComment(sqlStr string) string {
 	return ""
 }
 
-
-
 // getTablePKs 获取表的主键字段
 func getTablePKs(db *sql.DB, config *DatabaseConfig, tableName string) []string {
 	var pkColumns []string
-	
+
 	switch config.Type {
 	case "dm", "oracle":
 		// 达梦/Oracle: 从 USER_CONSTRAINTS + USER_CONS_COLUMNS 获取主键
@@ -3677,7 +3675,7 @@ func getTablePKs(db *sql.DB, config *DatabaseConfig, tableName string) []string 
 // getTableFKs 获取表的外键信息
 func getTableFKs(db *sql.DB, config *DatabaseConfig, tableName string) map[string]string {
 	fkMap := make(map[string]string) // column_name -> referenced_table
-	
+
 	switch config.Type {
 	case "dm", "oracle":
 		// 达梦/Oracle: 从 USER_CONSTRAINTS + USER_CONS_COLUMNS 获取外键
@@ -3740,7 +3738,7 @@ func getTableInfoList(dbConfig *DatabaseConfig) ([]TableInfo, error) {
 		if err == nil {
 			var colNames []string
 			var colInfos []ColumnInfo
-			
+
 			// 获取字段注释、主键、外键信息
 			colComments := getColumnComments(db, dbConfig, tableName)
 			pkColumns := getTablePKs(db, dbConfig, tableName)
@@ -3749,7 +3747,7 @@ func getTableInfoList(dbConfig *DatabaseConfig) ([]TableInfo, error) {
 			for _, pk := range pkColumns {
 				pkSet[pk] = true
 			}
-			
+
 			for _, col := range columns {
 				if colName, ok := col["name"].(string); ok {
 					colNames = append(colNames, colName)
@@ -6997,10 +6995,10 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 
 	// 校验 match_type 的有效值
 	validMatchTypes := map[string]bool{
-		"exact":           true,
+		"exact":            true,
 		"case_insensitive": true,
-		"naming_style":    true,
-		"type_keyword":    true,
+		"naming_style":     true,
+		"type_keyword":     true,
 	}
 
 	switch r.Method {
@@ -7031,7 +7029,7 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 		relations := make([]map[string]interface{}, 0)
 		for idx, rel := range dbConfig.Relations {
 			relations = append(relations, map[string]interface{}{
-				"id":      idx, // 使用数组索引作为 ID
+				"id":     idx, // 使用数组索引作为 ID
 				"table1": rel.Source.TableName,
 				"col1":   rel.Source.FieldName,
 				"table2": rel.Target.TableName,
@@ -7231,8 +7229,8 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 	case http.MethodDelete:
 		// 删除关系（支持批量）
 		var req struct {
-			DatabaseID string   `json:"database_id"`
-			IDs        []int    `json:"ids"`
+			DatabaseID string `json:"database_id"`
+			IDs        []int  `json:"ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -7311,9 +7309,9 @@ func handleTableRetrievalRelationPreview(w http.ResponseWriter, r *http.Request)
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":      true,
+			"success":       true,
 			"deleted_count": len(req.IDs),
-			"message":      "关系删除成功",
+			"message":       "关系删除成功",
 		})
 
 	default:
@@ -7453,91 +7451,91 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 
 		vectors, total, err := manager.listVectors(databaseID, page, pageSize)
 		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "获取向量列表失败: " + err.Error(),
+			})
+			return
+		}
+
+		// 补充元数据：按 database_id 分组，批量查询表信息
+		dataOntologyMu.RLock()
+		databasesCopy := make(map[string]DatabaseConfig)
+		for k, v := range dataOntologyDatabases {
+			databasesCopy[k] = *v
+		}
+		dataOntologyMu.RUnlock()
+
+		// 按 database_id 分组向量
+		vectorsByDB := make(map[string][]int) // database_id -> vector indices
+		for i, v := range vectors {
+			vectorsByDB[v.DatabaseID] = append(vectorsByDB[v.DatabaseID], i)
+		}
+
+		// 为每个数据库补充元数据
+		for dbID, indices := range vectorsByDB {
+			dbConfig, ok := databasesCopy[dbID]
+			if !ok {
+				continue // 数据库配置不存在，跳过
+			}
+
+			// 获取该数据库的表信息
+			tableInfos, err := getTableInfoList(&dbConfig)
+			if err != nil {
+				continue // 查询失败，跳过
+			}
+
+			// 构建表名 -> TableInfo 映射
+			tableMap := make(map[string]TableInfo)
+			for _, ti := range tableInfos {
+				tableMap[ti.Name] = ti
+			}
+
+			// 补充元数据到对应的向量
+			for _, idx := range indices {
+				ti, found := tableMap[vectors[idx].TableName]
+				if !found {
+					continue
+				}
+
+				// 填充字段
+				vectors[idx].Comment = ti.Comment
+				vectors[idx].ColumnCount = len(ti.Columns)
+				if vectors[idx].ColumnCount == 0 {
+					vectors[idx].ColumnCount = len(ti.ColumnNames)
+				}
+
+				// 提取主键字段
+				var pkFields []string
+				for _, col := range ti.Columns {
+					if col.IsPK {
+						pkFields = append(pkFields, col.Name)
+					}
+				}
+				if len(pkFields) > 0 {
+					vectors[idx].PKFields = strings.Join(pkFields, ",")
+				}
+
+				// 提取外键信息
+				var fkFields []string
+				for _, col := range ti.Columns {
+					if col.IsFK && col.FKTable != "" {
+						fkFields = append(fkFields, col.Name+"->"+col.FKTable)
+					}
+				}
+				if len(fkFields) > 0 {
+					vectors[idx].FKFields = strings.Join(fkFields, ",")
+				}
+			}
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "获取向量列表失败: " + err.Error(),
+			"success":   true,
+			"vectors":   vectors,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
 		})
-		return
-	}
-
-	// 补充元数据：按 database_id 分组，批量查询表信息
-	dataOntologyMu.RLock()
-	databasesCopy := make(map[string]DatabaseConfig)
-	for k, v := range dataOntologyDatabases {
-		databasesCopy[k] = *v
-	}
-	dataOntologyMu.RUnlock()
-
-	// 按 database_id 分组向量
-	vectorsByDB := make(map[string][]int) // database_id -> vector indices
-	for i, v := range vectors {
-		vectorsByDB[v.DatabaseID] = append(vectorsByDB[v.DatabaseID], i)
-	}
-
-	// 为每个数据库补充元数据
-	for dbID, indices := range vectorsByDB {
-		dbConfig, ok := databasesCopy[dbID]
-		if !ok {
-			continue // 数据库配置不存在，跳过
-		}
-
-		// 获取该数据库的表信息
-		tableInfos, err := getTableInfoList(&dbConfig)
-		if err != nil {
-			continue // 查询失败，跳过
-		}
-
-		// 构建表名 -> TableInfo 映射
-		tableMap := make(map[string]TableInfo)
-		for _, ti := range tableInfos {
-			tableMap[ti.Name] = ti
-		}
-
-		// 补充元数据到对应的向量
-		for _, idx := range indices {
-			ti, found := tableMap[vectors[idx].TableName]
-			if !found {
-				continue
-			}
-
-			// 填充字段
-			vectors[idx].Comment = ti.Comment
-			vectors[idx].ColumnCount = len(ti.Columns)
-			if vectors[idx].ColumnCount == 0 {
-				vectors[idx].ColumnCount = len(ti.ColumnNames)
-			}
-
-			// 提取主键字段
-			var pkFields []string
-			for _, col := range ti.Columns {
-				if col.IsPK {
-					pkFields = append(pkFields, col.Name)
-				}
-			}
-			if len(pkFields) > 0 {
-				vectors[idx].PKFields = strings.Join(pkFields, ",")
-			}
-
-			// 提取外键信息
-			var fkFields []string
-			for _, col := range ti.Columns {
-				if col.IsFK && col.FKTable != "" {
-					fkFields = append(fkFields, col.Name+"->"+col.FKTable)
-				}
-			}
-			if len(fkFields) > 0 {
-				vectors[idx].FKFields = strings.Join(fkFields, ",")
-			}
-		}
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"vectors":   vectors,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	})
 
 	case http.MethodDelete:
 		// 删除向量（支持批量）
@@ -7669,10 +7667,10 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  true,
-			"synced":   synced,
-			"vectors":  vectors,
-			"tables":   req.Tables,
+			"success": true,
+			"synced":  synced,
+			"vectors": vectors,
+			"tables":  req.Tables,
 		})
 
 	case http.MethodPut:
@@ -7770,10 +7768,10 @@ func handleTableRetrievalVectorList(w http.ResponseWriter, r *http.Request) {
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  true,
-			"synced":   synced,
-			"vectors":  vectors,
-			"tables":   req.Tables,
+			"success": true,
+			"synced":  synced,
+			"vectors": vectors,
+			"tables":  req.Tables,
 		})
 
 	default:
@@ -7856,8 +7854,8 @@ func handleTableRetrievalRelationList(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		// 删除关系（支持批量）
 		var req struct {
-			DatabaseID   string `json:"database_id"`
-			RelationIDs  []int  `json:"relation_ids"`
+			DatabaseID  string `json:"database_id"`
+			RelationIDs []int  `json:"relation_ids"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -7943,7 +7941,7 @@ func handleTableRetrievalRelationList(w http.ResponseWriter, r *http.Request) {
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    true,
+			"success":     true,
 			"relation_id": id,
 		})
 
@@ -15339,14 +15337,14 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 		if task.RunMode == "" {
 			task.RunMode = task.Runtime
 		}
-	if task.ExecutionMode == "" {
-		// scheduled 类型默认使用 backend 执行模式
-		if task.Type == "scheduled" {
-			task.ExecutionMode = "backend"
-		} else {
-			task.ExecutionMode = task.RunMode
+		if task.ExecutionMode == "" {
+			// scheduled 类型默认使用 backend 执行模式
+			if task.Type == "scheduled" {
+				task.ExecutionMode = "backend"
+			} else {
+				task.ExecutionMode = task.RunMode
+			}
 		}
-	}
 
 		dataOntologyMu.Lock()
 		governanceTasks[task.ID] = &task
@@ -15398,6 +15396,10 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		case "save-log":
 			handleGovernanceTaskSaveLog(w, r, taskID)
+			return
+		case "frontend-run":
+			// 前端执行完成后通知后端保存结果并同步到分享页
+			handleGovernanceTaskFrontendRun(w, r, taskID)
 			return
 		case "progress":
 			handleGovernanceTaskProgress(w, r, taskID)
@@ -16116,12 +16118,12 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	}
 	_ = username
 	var req struct {
-		Files   []struct {
+		Files []struct {
 			Name string `json:"name"`
 			Path string `json:"path"`
 		} `json:"files"`
 		Paths   []string `json:"paths"`
-		ZipName string  `json:"zip_name"`
+		ZipName string   `json:"zip_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -16477,6 +16479,56 @@ func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt str
 	}
 }
 
+// handleGovernanceTaskFrontendRun 处理前端执行完成后的回调，用于同步任务结果到分享页
+func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+
+	// 解析请求
+	var req struct {
+		RunID     string `json:"run_id"`
+		Status    string `json:"status"`
+		Output    string `json:"output"`
+		Error     string `json:"error"`
+		InputText string `json:"input_text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析请求失败: " + err.Error()})
+		return
+	}
+
+	runID := req.RunID
+	if runID == "" {
+		runID = uuid.New().String()
+	}
+
+	// 更新任务状态
+	dataOntologyMu.Lock()
+	task.Status = req.Status
+	task.LastOutput = req.Output
+	task.LastError = req.Error
+	task.LastRunAt = time.Now().Format(time.RFC3339)
+	task.RunID = runID
+	dataOntologyMu.Unlock()
+
+	// 保存任务日志并同步到分享页
+	governanceFinalizeRunLogFromTask(taskID, runID, nil)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"run_id":  runID,
+		"message": "前端执行结果已保存并同步到分享页",
+	})
+}
+
 // governanceFinalizeRunLog 将对应 run_id 的「运行中」日志更新为结束状态；若无则追加一条完成记录
 func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
 	if runID == "" {
@@ -16771,34 +16823,34 @@ func executeGovernanceJob(job *GovernanceJob) {
 	// 准备任务参数
 	// 构建 currentGovTask 对象（手动构建确保字段正确序列化）
 	currentGovTask := map[string]interface{}{
-		"id":             task.ID,
-		"name":           task.Name,
-		"database_id":   task.DatabaseID,
-		"type":           task.Type,
-		"description":    task.Description,
-		"js_code":        task.JsCode,
-		"cron_expr":      task.CronExpr,
-		"enabled":        task.Enabled,
-		"input_type":     task.InputType,
-		"accept_exts":    task.AcceptExts,
+		"id":              task.ID,
+		"name":            task.Name,
+		"database_id":     task.DatabaseID,
+		"type":            task.Type,
+		"description":     task.Description,
+		"js_code":         task.JsCode,
+		"cron_expr":       task.CronExpr,
+		"enabled":         task.Enabled,
+		"input_type":      task.InputType,
+		"accept_exts":     task.AcceptExts,
 		"register_as_api": task.RegisterAsAPI,
-		"api_path":       task.APIPath,
-		"api_method":     task.APIMethod,
+		"api_path":        task.APIPath,
+		"api_method":      task.APIMethod,
 		"file_batch_mode": task.FileBatchMode,
-		"runtime":        task.Runtime,
-		"run_mode":       task.RunMode,
-		"execution_mode": task.ExecutionMode,
-		"owner":          task.Owner,
-		"created_at":     task.CreatedAt,
+		"runtime":         task.Runtime,
+		"run_mode":        task.RunMode,
+		"execution_mode":  task.ExecutionMode,
+		"owner":           task.Owner,
+		"created_at":      task.CreatedAt,
 	}
 
 	taskData := map[string]interface{}{
-		"code":            code,
-		"token":           job.Token,
-		"database_id":     dbID,
-		"db_type":         dbType,
-		"databases":       databases,
-		"input_text":      job.InputText,
+		"code":             code,
+		"token":            job.Token,
+		"database_id":      dbID,
+		"db_type":          dbType,
+		"databases":        databases,
+		"input_text":       job.InputText,
 		"current_gov_task": currentGovTask,
 	}
 	// 如果是分享任务，传入 share_token 让 runner 使用免鉴权端点
@@ -19973,7 +20025,7 @@ func syncSpecificVectors(manager *FTS5Manager, dbConfig *DatabaseConfig, tableIn
 		if ti.Comment != "" {
 			text += " " + ti.Comment
 		}
-		
+
 		// 如果有增强的字段信息，使用详细信息生成向量
 		if len(ti.Columns) > 0 {
 			for _, col := range ti.Columns {

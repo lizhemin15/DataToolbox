@@ -7937,6 +7937,22 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
+
+    // 前端执行完成后，通知后端保存结果并同步到分享页
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: status,
+                output: output,
+                error: errorMsg,
+                input_text: inputText
+            })
+        });
+    } catch (e) {
+        console.warn('同步前端执行结果到后端失败:', e);
+    }
 }
 
 // 在后端执行治理任务。
@@ -9684,6 +9700,22 @@ async function executeGovTaskInBrowser(code, file, inputText) {
             ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
         </div>
     `;
+
+    // 前端执行完成后，通知后端保存结果并同步到分享页
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: status,
+                output: output,
+                error: errorMsg,
+                input_text: inputText
+            })
+        });
+    } catch (e) {
+        console.warn('同步前端执行结果到后端失败:', e);
+    }
 }
 
 // ==================== gov API 接口 ====================
