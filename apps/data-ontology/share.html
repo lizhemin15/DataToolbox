@@ -870,6 +870,21 @@
                     document.title = data.name;
                     document.getElementById('taskDescription').textContent = data.description || '暂无描述';
 
+                    // 根据 execution_mode 和 type 决定是否显示上传区域
+                    // scheduled 类型任务（定时任务）不需要用户上传文件，但可手动执行
+                    const isScheduledTask = data.type === 'scheduled' || data.execution_mode === 'backend';
+                    if (isScheduledTask) {
+                        // 隐藏上传拖拽区域，但保留执行按钮
+                        document.querySelector('.upload-area').style.display = 'none';
+                        // 启用执行按钮（定时任务不需要文件也能执行）
+                        const runBtn = document.getElementById('runBtn');
+                        runBtn.disabled = false;
+                        runBtn.textContent = '立即执行';
+                        // 显示提示信息
+                        const taskDescription = document.getElementById('taskDescription');
+                        taskDescription.textContent = '定时任务，例行自动执行。您也可以点击下方"立即执行"按钮手动触发一次。';
+                    }
+
                     // 显示示例文件
                     if (data.example_files && data.example_files.length > 0) {
                         const exampleSection = document.getElementById('exampleSection');
@@ -955,7 +970,9 @@
 
         // 执行任务
         async function runTask() {
-            if (selectedFiles.length === 0) {
+            // scheduled 类型任务可以无文件执行
+            const isScheduled = taskInfo && (taskInfo.type === 'scheduled' || taskInfo.execution_mode === 'backend');
+            if (selectedFiles.length === 0 && !isScheduled) {
                 showError('请选择文件', '请先上传需要处理的文件，再点击"开始处理"。');
                 return;
             }

@@ -15339,9 +15339,14 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 		if task.RunMode == "" {
 			task.RunMode = task.Runtime
 		}
-		if task.ExecutionMode == "" {
+	if task.ExecutionMode == "" {
+		// scheduled 类型默认使用 backend 执行模式
+		if task.Type == "scheduled" {
+			task.ExecutionMode = "backend"
+		} else {
 			task.ExecutionMode = task.RunMode
 		}
+	}
 
 		dataOntologyMu.Lock()
 		governanceTasks[task.ID] = &task
@@ -18764,13 +18769,21 @@ func handleGovernanceShareInfo(w http.ResponseWriter, r *http.Request, task *Gov
 		return
 	}
 
+	// 兼容旧数据：scheduled 类型任务默认使用 backend 执行模式
+	executionMode := task.ExecutionMode
+	if executionMode == "" && task.Type == "scheduled" {
+		executionMode = "backend"
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":       true,
-		"name":          task.Name,
-		"description":   task.Description,
-		"input_type":    task.InputType,
-		"accept_exts":   task.AcceptExts,
-		"example_files": task.ExampleFiles,
+		"success":        true,
+		"name":           task.Name,
+		"description":    task.Description,
+		"type":           task.Type,
+		"input_type":     task.InputType,
+		"accept_exts":    task.AcceptExts,
+		"example_files":  task.ExampleFiles,
+		"execution_mode": executionMode,
 	})
 }
 
@@ -18884,7 +18897,9 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 		r.URL.RawQuery = r.URL.RawQuery + "&_runID=" + runID
 	}
 
-	if len(filePaths) == 0 {
+	// 对于定时任务（scheduled类型）或后端执行模式，可以不需要上传文件
+	isScheduledTask := task.Type == "scheduled" || task.ExecutionMode == "backend"
+	if len(filePaths) == 0 && !isScheduledTask {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未上传文件"})
 		return
 	}
