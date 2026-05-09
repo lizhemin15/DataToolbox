@@ -1111,6 +1111,19 @@
                         ? run.result_files.map(f => `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=output" class="history-file-link" target="_blank">${f}</a>`).join('')
                         : '<span class="history-file-none">-</span>';
                     
+                    // 执行日志（可展开/折叠）
+                    let outputHtml = '';
+                    if (run.output) {
+                        const escapedOutput = run.output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        outputHtml = `
+                            <div class="history-output-section">
+                                <div class="history-output-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? '' : 'none'; this.textContent = this.textContent === '▶ 显示执行日志' ? '▼ 隐藏执行日志' : '▶ 显示执行日志'">
+                                    ▶ 显示执行日志
+                                </div>
+                                <div class="history-output-content" style="display: none;">${escapedOutput}</div>
+                            </div>`;
+                    }
+                    
                     return `<div class="history-item">
                         <div class="history-item-header">
                             <div class="history-item-status ${statusClass}">${statusText}</div>
@@ -1125,6 +1138,7 @@
                                 <div class="history-file-label">输出文件</div>
                                 <div class="history-file-list">${outputFilesHtml}</div>
                             </div>
+                            ${outputHtml}
                         </div>
                     </div>`;
                 }).join('');

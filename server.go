@@ -19074,6 +19074,7 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 			"id":           run.ID,
 			"status":       run.Status,
 			"progress":     run.Progress,
+			"output":       run.Output,
 			"input_files":  run.InputFiles,
 			"result_files": run.ResultFiles,
 			"created_at":   run.CreatedAt,
