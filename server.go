@@ -16633,6 +16633,77 @@ func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string)
 	}
 }
 
+// syncTaskLogsToShareRuns 把任务历史日志同步到分享执行记录（懒同步，访问分享页时触发）
+func syncTaskLogsToShareRuns(taskID, shareToken string) {
+	if shareToken == "" {
+		return
+	}
+
+	dataOntologyMu.RLock()
+	logs := governanceTaskLogs[taskID]
+	dataOntologyMu.RUnlock()
+
+	if len(logs) == 0 {
+		return
+	}
+
+	// 收集已存在的 run_id，避免重复同步
+	governanceShareRunsMu.RLock()
+	existingRunIDs := make(map[string]bool)
+	for _, run := range governanceShareRuns {
+		if run.TaskID == taskID {
+			existingRunIDs[run.ID] = true
+		}
+	}
+	governanceShareRunsMu.RUnlock()
+
+	// 同步未存在的日志记录
+	now := time.Now()
+	hasNew := false
+	governanceShareRunsMu.Lock()
+	for _, log := range logs {
+		if log == nil || log.RunID == "" || existingRunIDs[log.RunID] {
+			continue
+		}
+		// 只同步已完成的日志（非 running 状态）
+		if log.Status == "running" {
+			continue
+		}
+		shareStatus := "completed"
+		shareOutput := log.Output
+		if log.Status != "success" {
+			shareStatus = "failed"
+			if log.Error != "" {
+				if shareOutput != "" {
+					shareOutput = log.Error + "\n" + shareOutput
+				} else {
+					shareOutput = log.Error
+				}
+			}
+		}
+		governanceShareRuns[log.RunID] = &GovernanceShareRun{
+			ID:         log.RunID,
+			TaskID:     taskID,
+			ShareToken: shareToken,
+			Status:     shareStatus,
+			Progress:   100,
+			Output:     shareOutput,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+		hasNew = true
+	}
+	governanceShareRunsMu.Unlock()
+
+	if hasNew {
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[ShareSync] 同步历史日志失败: %v", err)
+		} else {
+			log.Printf("[ShareSync] 已同步任务 %s 的历史日志到分享页", taskID)
+		}
+	}
+}
+
 // governanceWorker 任务执行器，从队列取出任务并执行
 func governanceWorker() {
 	for job := range governanceJobQueue {
@@ -19050,6 +19121,9 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
 		return
 	}
+
+	// 懒同步：把任务历史日志中未同步到分享页的记录同步过来
+	syncTaskLogsToShareRuns(task.ID, task.ShareToken)
 
 	governanceShareRunsMu.RLock()
 	defer governanceShareRunsMu.RUnlock()
