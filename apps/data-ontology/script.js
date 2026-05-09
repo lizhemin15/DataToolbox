@@ -7790,7 +7790,7 @@ async function runGovTask() {
 
     const runMode = getGovTaskRunMode(currentGovTask);
     if (runMode === 'frontend') {
-        await executeGovTaskInBrowser(currentGovTask.js_code, null, '');
+        await executeGovTaskInBrowser(currentGovTask.js_code, null, '', []);
         return;
     }
 
@@ -7902,7 +7902,7 @@ async function executeInteractiveTask() {
             await executeGovTaskAggregateInBrowser(files, inputText);
             return;
         }
-        await executeGovTaskInBrowser(currentGovTask.js_code, files[0] || null, inputText);
+        await executeGovTaskInBrowser(currentGovTask.js_code, files[0] || null, inputText, files);
         return;
     }
 
@@ -7940,6 +7940,8 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
 
     // 前端执行完成后，通知后端保存结果并同步到分享页
     try {
+        // 提取文件名列表
+        const inputFileNames = files ? files.map(f => f.name || f) : [];
         await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -7947,7 +7949,8 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
                 status: status,
                 output: output,
                 error: errorMsg,
-                input_text: inputText
+                input_text: inputText,
+                input_files: inputFileNames
             })
         });
     } catch (e) {
@@ -9670,7 +9673,7 @@ async function executeGovTaskBatchInBrowser(code, files, inputText) {
         </div>`;
 }
 
-async function executeGovTaskInBrowser(code, file, inputText) {
+async function executeGovTaskInBrowser(code, file, inputText, files) {
     if (!currentGovTask) return;
 
     currentGovTask.status = 'running';
@@ -9680,7 +9683,7 @@ async function executeGovTaskInBrowser(code, file, inputText) {
     const container = document.getElementById('govTaskOutput');
     container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
 
-    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText);
+    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText, files);
 
     currentGovTask.status = status;
     currentGovTask.last_output = output;
@@ -9703,6 +9706,13 @@ async function executeGovTaskInBrowser(code, file, inputText) {
 
     // 前端执行完成后，通知后端保存结果并同步到分享页
     try {
+        // 提取文件名列表（兼容单文件和文件数组）
+        let inputFileNames = [];
+        if (file) {
+            inputFileNames = [file.name || file];
+        } else if (files && files.length > 0) {
+            inputFileNames = files.map(f => f.name || f);
+        }
         await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/frontend-run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -9710,7 +9720,8 @@ async function executeGovTaskInBrowser(code, file, inputText) {
                 status: status,
                 output: output,
                 error: errorMsg,
-                input_text: inputText
+                input_text: inputText,
+                input_files: inputFileNames
             })
         });
     } catch (e) {

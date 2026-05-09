@@ -16494,11 +16494,12 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 
 	// 解析请求
 	var req struct {
-		RunID     string `json:"run_id"`
-		Status    string `json:"status"`
-		Output    string `json:"output"`
-		Error     string `json:"error"`
-		InputText string `json:"input_text"`
+		RunID      string   `json:"run_id"`
+		Status     string   `json:"status"`
+		Output     string   `json:"output"`
+		Error      string   `json:"error"`
+		InputText  string   `json:"input_text"`
+		InputFiles []string `json:"input_files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析请求失败: " + err.Error()})
@@ -16520,7 +16521,7 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 	dataOntologyMu.Unlock()
 
 	// 保存任务日志并同步到分享页
-	governanceFinalizeRunLogFromTask(taskID, runID, nil)
+	governanceFinalizeRunLogFromTask(taskID, runID, req.InputFiles)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
