@@ -17118,21 +17118,45 @@ func executeGovernanceJob(job *GovernanceJob) {
 				log.Printf("任务 %s 合并执行成功", taskID)
 			}
 
-			if isShare {
-				var resultFiles []string
-				for _, f := range result.OutputFiles {
-					resultFiles = append(resultFiles, f.Name)
-				}
-				status := "completed"
-				output := strings.Join(result.Output, "\n")
-				if len(extraLines) > 0 {
-					output += "\n" + strings.Join(extraLines, "\n")
-				}
-				if !result.Success {
-					status = "failed"
-					output = result.Error + "\n" + output
-				}
+		if isShare {
+			var resultFiles []string
+			for _, f := range result.OutputFiles {
+				resultFiles = append(resultFiles, f.Name)
+			}
+			status := "completed"
+			output := strings.Join(result.Output, "\n")
+			if len(extraLines) > 0 {
+				output += "\n" + strings.Join(extraLines, "\n")
+			}
+			if !result.Success {
+				status = "failed"
+				output = result.Error + "\n" + output
+			}
 			updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
+			// 分享任务也要更新任务本身的状态
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if result.Success {
+					t.Status = "success"
+					out := strings.Join(result.Output, "\n")
+					if len(extraLines) > 0 {
+						out += "\n" + strings.Join(extraLines, "\n")
+					}
+					t.LastOutput = out
+				} else {
+					t.Status = "error"
+					t.LastError = result.Error
+					if len(result.Output) > 0 {
+						t.LastOutput = strings.Join(result.Output, "\n")
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
+				t.CurrentFile = ""
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
 		} else {
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[taskID]; ok {
