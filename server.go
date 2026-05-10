@@ -16778,7 +16778,7 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
 	}
 	// 使用传入的分享配置或任务配置来保存分享记录
-	log.Printf("[DEBUG] 最终分享配置: shareEnabled=%v, shareToken=%s, inputFiles=%v", shareEnabled, shareToken, inputFiles)
+	log.Printf("[DEBUG] 最终分享配置: shareEnabled=%v, shareToken=%s, inputFiles=%v, len(shareToken)=%d", shareEnabled, shareToken, inputFiles, len(shareToken))
 	if shareEnabled && shareToken != "" {
 		log.Printf("[DEBUG] 进入分享记录保存分支")
 		shareStatus := "completed"
