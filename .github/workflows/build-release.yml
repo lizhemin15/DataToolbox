@@ -190,7 +190,7 @@ jobs:
         if: |
           ! (matrix.goos == 'darwin' && matrix.goarch == 'arm64') &&
           ! (matrix.goos == 'windows' && matrix.goarch == 'arm64') &&
-          ! (matrix.goos == 'linux' && matrix.goarch == 'arm64' && ! file gov-runner)
+          ! (matrix.goos == 'linux' && matrix.goarch == 'arm64')
         run: |
           if [ "${{ matrix.goos }}" = "windows" ]; then
             if [ -f "gov-runner.exe" ]; then
