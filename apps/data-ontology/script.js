@@ -6821,16 +6821,6 @@ function editGovTaskDraftFromAI(messageId) {
     document.getElementById('govAcceptExtsInput').value = (draft.accept_exts || []).join(', ');
     populateGovDbSelect();
     document.getElementById('govTaskDbSelect').value = draft.database_id || '';
-    try {
-        const savedFont = localStorage.getItem('govDefaultFont');
-        const savedSize = localStorage.getItem('govDefaultSize');
-        const fontEl = document.getElementById('govDefaultFont');
-        const sizeEl = document.getElementById('govDefaultSize');
-        if (fontEl && savedFont) fontEl.value = savedFont;
-        if (sizeEl && savedSize) sizeEl.value = savedSize;
-    } catch (e) {
-        console.warn('读取默认字体配置失败', e);
-    }
     onGovTaskTypeChange();
     document.getElementById('govFormError').textContent = '';
     document.getElementById('govFormError').classList.remove('show');
@@ -7455,18 +7445,6 @@ function editGovTask() {
     populateGovDbSelect();
     document.getElementById('govTaskDbSelect').value = currentGovTask.database_id || '';
 
-    // 回填默认字体字号配置
-    try {
-        const savedFont = localStorage.getItem('govDefaultFont');
-        const savedSize = localStorage.getItem('govDefaultSize');
-        const fontEl = document.getElementById('govDefaultFont');
-        const sizeEl = document.getElementById('govDefaultSize');
-        if (fontEl && savedFont) fontEl.value = savedFont;
-        if (sizeEl && savedSize) sizeEl.value = savedSize;
-    } catch (e) {
-        console.warn('读取默认字体配置失败', e);
-    }
-
     onGovTaskTypeChange();
     document.getElementById('govFormError').textContent = '';
     document.getElementById('govFormError').classList.remove('show');
@@ -7582,16 +7560,6 @@ async function handleGovTaskSubmit(e) {
         document.getElementById('govFormError').textContent = '名称和脚本不能为空';
         document.getElementById('govFormError').classList.add('show');
         return;
-    }
-
-    // 保存默认字体字号配置到 localStorage
-    try {
-        const fontEl = document.getElementById('govDefaultFont');
-        const sizeEl = document.getElementById('govDefaultSize');
-        if (fontEl) localStorage.setItem('govDefaultFont', fontEl.value);
-        if (sizeEl) localStorage.setItem('govDefaultSize', sizeEl.value);
-    } catch (e) {
-        console.warn('保存默认字体配置失败', e);
     }
 
     try {
@@ -8654,16 +8622,8 @@ function createGovHelper(logLines, uploadedFiles) {
             }).join(' '));
         },
         getDefaultFont() {
-            try {
-                const fontName = localStorage.getItem('govDefaultFont') || '仿宋_GB2312';
-                const fontSize = Number(localStorage.getItem('govDefaultSize') || '16');
-                return {
-                    name: fontName,
-                    size: Number.isFinite(fontSize) ? fontSize : 16
-                };
-            } catch (e) {
-                return { name: '仿宋_GB2312', size: 16 };
-            }
+            // 返回默认字体配置，可在代码中覆盖：gov.fillWordTemplate(tpl, data, fn, {name:'黑体',size:18})
+            return { name: '仿宋_GB2312', size: 16 };
         },
         showTable,
         table: showTable,

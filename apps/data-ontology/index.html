@@ -1916,29 +1916,6 @@
                         </div>
                     </div>
                 </div>
-                <!-- 默认字体字号配置（Word 富文本用） -->
-                <div class="form-group" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <label for="govDefaultFont" style="margin:0;font-size:13px;">默认字体:</label>
-                        <select id="govDefaultFont" style="padding:4px 8px;border-radius:4px;border:1px solid #ddd;font-size:13px;">
-                            <option value="仿宋_GB2312" selected>仿宋_GB2312</option>
-                            <option value="黑体">黑体</option>
-                            <option value="楷体">楷体</option>
-                            <option value="宋体">宋体</option>
-                            <option value="微软雅黑">微软雅黑</option>
-                        </select>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <label for="govDefaultSize" style="margin:0;font-size:13px;">默认字号:</label>
-                        <select id="govDefaultSize" style="padding:4px 8px;border-radius:4px;border:1px solid #ddd;font-size:13px;">
-                            <option value="16" selected>三号 (16pt)</option>
-                            <option value="18">四号 (18pt)</option>
-                            <option value="22">小二 (22pt)</option>
-                            <option value="24">二号 (24pt)</option>
-                        </select>
-                    </div>
-                    <span style="font-size:12px;color:#666;">（Word富文本：**加粗**、>缩进、[f:字体,s:字号]）</span>
-                </div>
                 <div class="form-group">
                     <label for="govCodeInput" style="display:flex;align-items:center;justify-content:space-between;">
                         <span>任务代码 (JavaScript)</span>
@@ -1954,7 +1931,7 @@
 // gov.readExcel(file)               - 读取Excel，返回workbook
 // gov.readCSV(text)                 - 解析CSV，返回二维数组
 // gov.writeExcel(fn, data, opt?)    - 导出 Excel（二维数组或对象数组），浏览器下载
-// await gov.fillWordTemplate(ft, data, fn)   - .docx 模板 {占位符} 渲染下载（自动用默认字体）
+// await gov.fillWordTemplate(ft, data, fn, font?)   - .docx 模板 {占位符} 渲染下载，font如{name:'仿宋',size:16}
 // await gov.fillExcelTemplate(file, data, fn)  - .xlsx 模板按 A1、Sheet1!A1 等填格下载
 // gov.writeCSV(fn, rows)            - 导出 CSV（二维数组），浏览器下载
 // gov.writeText(fn, str)            - 导出纯文本，浏览器下载
