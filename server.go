@@ -19309,6 +19309,7 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 	
 	// 扫描输入文件目录: share-uploads/{shareToken}/{runID}/
 	uploadDir := filepath.Join(dataDir, "share-uploads", shareToken, runID)
+	log.Printf("[DEBUG] scanShareRunFiles: uploadDir=%s", uploadDir)
 	if entries, err := os.ReadDir(uploadDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
@@ -19316,10 +19317,13 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 				inputFiles = append(inputFiles, filepath.Join(uploadDir, entry.Name()))
 			}
 		}
+	} else {
+		log.Printf("[DEBUG] scanShareRunFiles: uploadDir read error: %v", err)
 	}
 	
 	// 扫描输出文件目录: share-outputs/{shareToken}/{runID}/
 	outputDir := filepath.Join(dataDir, "share-outputs", shareToken, runID)
+	log.Printf("[DEBUG] scanShareRunFiles: outputDir=%s", outputDir)
 	if entries, err := os.ReadDir(outputDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
@@ -19327,8 +19331,11 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 				outputFiles = append(outputFiles, filepath.Join(outputDir, entry.Name()))
 			}
 		}
+	} else {
+		log.Printf("[DEBUG] scanShareRunFiles: outputDir read error: %v", err)
 	}
 	
+	log.Printf("[DEBUG] scanShareRunFiles: found %d input files, %d output files", len(inputFiles), len(outputFiles))
 	return inputFiles, outputFiles
 }
 
