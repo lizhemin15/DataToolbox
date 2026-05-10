@@ -19330,28 +19330,19 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		for _, f := range run.InputFiles {
 			inputFileNames = append(inputFileNames, filepath.Base(f))
 		}
-
-		// 调试信息：原始 InputFiles
-		debugInfo := ""
-		if len(inputFileNames) == 0 && len(run.InputFiles) > 0 {
-			debugInfo = fmt.Sprintf("原始 InputFiles: %v", run.InputFiles)
-		}
-
 		resultFileNames := make([]string, 0, len(run.ResultFiles))
 		for _, f := range run.ResultFiles {
 			resultFileNames = append(resultFileNames, filepath.Base(f))
 		}
 		result[i] = map[string]interface{}{
-			"id":            run.ID,
-			"status":        status,
-			"progress":      run.Progress,
-			"output":        output,
-			"input_files":   inputFileNames,
-			"result_files":  resultFileNames,
-			"created_at":    run.CreatedAt.Format(time.RFC3339),
-			"updated_at":    run.UpdatedAt.Format(time.RFC3339),
-			"_debug_input":  run.InputFiles, // 调试字段：原始输入文件路径
-			"_debug_result": run.ResultFiles, // 调试字段：原始输出文件路径
+			"id":           run.ID,
+			"status":       status,
+			"progress":     run.Progress,
+			"output":       output,
+			"input_files":  inputFileNames,
+			"result_files": resultFileNames,
+			"created_at":   run.CreatedAt.Format(time.RFC3339),
+			"updated_at":   run.UpdatedAt.Format(time.RFC3339),
 		}
 		}
 
