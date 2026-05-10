@@ -17061,7 +17061,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 						}
 						dataOntologyMu.Unlock()
 						saveDataOntologyStore()
-						governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
+						governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 					}
 					tmpDir := filepath.Join(os.TempDir(), "gov-tasks", taskID)
 					os.RemoveAll(tmpDir)
@@ -17148,7 +17148,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				dataOntologyMu.Unlock()
 				saveDataOntologyStore()
-				governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
+				governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 			}
 		} else {
 			var allOutput []string
@@ -17265,7 +17265,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				dataOntologyMu.Unlock()
 				saveDataOntologyStore()
-				governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
+				governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 			}
 		}
 	} else {
@@ -17311,7 +17311,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
-			governanceFinalizeRunLogFromTask(taskID, runID, job.InputFiles)
+			governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 		}
 	}
 
