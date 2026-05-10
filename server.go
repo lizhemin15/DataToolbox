@@ -16495,17 +16495,36 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 	// 先生成 runID，用于文件保存目录
 	runID := uuid.New().String()
 
-	// 解析上传的文件（支持 multipart/form-data）
-	var inputFileNames []string
+	// 从请求中读取分享配置（前端可能会传）
+	shareEnabledFromReq := false
+	shareTokenFromReq := ""
+	inputFileNames := []string{}
+
 	contentType := r.Header.Get("Content-Type")
+
+	// 解析上传的文件（支持 multipart/form-data）
 	if strings.Contains(contentType, "multipart/form-data") {
 		maxSize := int64(100 * 1024 * 1024) // 100MB
 		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 		if err := r.ParseMultipartForm(maxSize); err == nil {
-			// 如果任务有分享功能，保存文件到 share-uploads
-			if task.ShareEnabled && task.ShareToken != "" {
+			// 优先使用请求参数中的分享配置，如果没有则用任务配置
+			if v := r.FormValue("share_enabled"); v == "true" {
+				shareEnabledFromReq = true
+			}
+			if v := r.FormValue("share_token"); v != "" {
+				shareTokenFromReq = v
+			}
+
+			// 如果请求参数没有提供分享配置，使用任务配置
+			if !shareEnabledFromReq && shareTokenFromReq == "" {
+				shareEnabledFromReq = task.ShareEnabled
+				shareTokenFromReq = task.ShareToken
+			}
+
+			// 如果分享功能开启，保存文件到 share-uploads
+			if shareEnabledFromReq && shareTokenFromReq != "" {
 				dataDir := filepath.Dir(getDataOntologyStorePath())
-				uploadDir := filepath.Join(dataDir, "share-uploads", task.ShareToken, runID)
+				uploadDir := filepath.Join(dataDir, "share-uploads", shareTokenFromReq, runID)
 				if err := os.MkdirAll(uploadDir, 0755); err == nil {
 					files := r.MultipartForm.File["files"]
 					for _, fileHeader := range files {
@@ -16540,12 +16559,14 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 	// 如果没有上传文件，解析 JSON 请求体获取文件名
 	if len(inputFileNames) == 0 {
 		var req struct {
-			RunID      string   `json:"run_id"`
-			Status     string   `json:"status"`
-			Output     string   `json:"output"`
-			Error      string   `json:"error"`
-			InputText  string   `json:"input_text"`
-			InputFiles []string `json:"input_files"`
+			RunID       string   `json:"run_id"`
+			Status      string   `json:"status"`
+			Output      string   `json:"output"`
+			Error       string   `json:"error"`
+			InputText   string   `json:"input_text"`
+			InputFiles  []string `json:"input_files"`
+			ShareEnabled bool    `json:"share_enabled"`
+			ShareToken  string   `json:"share_token"`
 		}
 		// 重新构造请求体（因为上面可能已经读取了 multipart）
 		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
@@ -16554,6 +16575,20 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 				runID = uuid.New().String()
 			}
 			inputFileNames = req.InputFiles
+
+			// 优先使用请求中的分享配置
+			if req.ShareEnabled {
+				shareEnabledFromReq = true
+			}
+			if req.ShareToken != "" {
+				shareTokenFromReq = req.ShareToken
+			}
+
+			// 如果请求参数没有提供分享配置，使用任务配置
+			if !shareEnabledFromReq && shareTokenFromReq == "" {
+				shareEnabledFromReq = task.ShareEnabled
+				shareTokenFromReq = task.ShareToken
+			}
 
 			// 更新任务状态
 			dataOntologyMu.Lock()
@@ -16577,8 +16612,8 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 		dataOntologyMu.Unlock()
 	}
 
-	// 保存任务日志并同步到分享页
-	governanceFinalizeRunLogFromTask(taskID, runID, inputFileNames)
+	// 保存任务日志并同步到分享页（使用从请求或任务中获取的分享配置）
+	governanceFinalizeRunLogFromTaskWithShare(taskID, runID, inputFileNames, shareEnabledFromReq, shareTokenFromReq)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
@@ -16666,6 +16701,76 @@ func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string)
 			run.Status = shareStatus
 			run.Progress = 100
 			run.Output = shareOutput
+			if inputFiles != nil {
+				run.InputFiles = append([]string(nil), inputFiles...)
+			}
+			run.UpdatedAt = time.Now()
+		} else {
+			now := time.Now()
+			clonedInputs := append([]string(nil), inputFiles...)
+			governanceShareRuns[runID] = &GovernanceShareRun{
+				ID:         runID,
+				TaskID:     taskID,
+				ShareToken: shareToken,
+				Status:     shareStatus,
+				Progress:   100,
+				Output:     shareOutput,
+				InputFiles: clonedInputs,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}
+		}
+		governanceShareRunsMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("[TaskRun] 保存分享执行记录失败: %v", err)
+		}
+	}
+}
+
+// governanceFinalizeRunLogFromTaskWithShare 带分享配置的版本，允许从请求参数传入分享信息
+func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles []string, shareEnabled bool, shareToken string) {
+	dataOntologyMu.RLock()
+	var outStr, errStr string
+	status := "error"
+	if t, ok := governanceTasks[taskID]; ok {
+		if t.Status == "success" {
+			status = "success"
+		}
+		outStr = t.LastOutput
+		errStr = t.LastError
+		// 如果请求参数没有提供分享配置，则使用任务配置
+		if !shareEnabled && shareToken == "" {
+			shareEnabled = t.ShareEnabled
+			shareToken = t.ShareToken
+		}
+	}
+	dataOntologyMu.RUnlock()
+	if status == "success" {
+		governanceFinalizeRunLog(taskID, runID, "success", outStr, "")
+	} else {
+		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
+	}
+	// 使用传入的分享配置或任务配置来保存分享记录
+	if shareEnabled && shareToken != "" {
+		shareStatus := "completed"
+		shareOutput := outStr
+		if status != "success" {
+			shareStatus = "failed"
+			if errStr != "" {
+				if shareOutput != "" {
+					shareOutput = errStr + "\n" + shareOutput
+				} else {
+					shareOutput = errStr
+				}
+			}
+		}
+		governanceShareRunsMu.Lock()
+		if run, exists := governanceShareRuns[runID]; exists {
+			run.Status = shareStatus
+			run.Progress = 100
+			run.Output = shareOutput
+			// 更新 ShareToken
+			run.ShareToken = shareToken
 			if inputFiles != nil {
 				run.InputFiles = append([]string(nil), inputFiles...)
 			}
