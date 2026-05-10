@@ -15825,6 +15825,7 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 		Token:      token,
 		InputFiles: filePaths,
 		InputText:  inputText,
+		ShareToken: task.ShareToken,
 	}
 
 	// 更新任务状态
