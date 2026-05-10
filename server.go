@@ -15705,7 +15705,7 @@ func handleGovernanceTaskLogsClear(w http.ResponseWriter, r *http.Request, taskI
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持DELETE"})
 		return
 	}
-	_, _, ok := requireGovernanceTaskAccess(w, r, taskID)
+	task, _, ok := requireGovernanceTaskAccess(w, r, taskID)
 	if !ok {
 		return
 	}
@@ -15713,7 +15713,21 @@ func handleGovernanceTaskLogsClear(w http.ResponseWriter, r *http.Request, taskI
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
 
+	// 清空任务日志
 	governanceTaskLogs[taskID] = []*GovernanceTaskLog{}
+
+	// 清空该任务关联的分享记录
+	shareToken := task.ShareToken
+	if shareToken != "" {
+		governanceShareRunsMu.Lock()
+		// 删除该 shareToken 下的所有 run 记录
+		for runID, run := range governanceShareRuns {
+			if run.ShareToken == shareToken {
+				delete(governanceShareRuns, runID)
+			}
+		}
+		governanceShareRunsMu.Unlock()
+	}
 
 	// 持久化
 	store := DataOntologyStore{
