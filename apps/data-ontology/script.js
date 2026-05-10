@@ -8055,6 +8055,7 @@ async function pollTaskProgress(taskId, runId) {
 
     const poll = async () => {
         try {
+            console.log('[pollTaskProgress] 轮询中...');
             const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${taskId}/progress`);
             const data = await response.json();
 
@@ -8064,6 +8065,7 @@ async function pollTaskProgress(taskId, runId) {
             }
 
             const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
+            console.log('[pollTaskProgress] status:', status, 'percent:', percent);
 
             // 如果有文件进度，渲染进度条；否则显示 last_output（由 gov.log 输出）
             if (total_files > 0) {
@@ -8090,6 +8092,7 @@ async function pollTaskProgress(taskId, runId) {
 
             // 任务已结束，更新状态并刷新详情
             if (status !== 'running') {
+                console.log('[pollTaskProgress] 任务已结束, status:', status);
                 // 直接更新 currentGovTask 和 govTasks 数组，避免 loadGovernanceTasks 触发额外的轮询
                 if (currentGovTask && currentGovTask.id === taskId) {
                     currentGovTask.status = status;
