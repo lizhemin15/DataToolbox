@@ -16736,8 +16736,6 @@ func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string)
 
 // governanceFinalizeRunLogFromTaskWithShare 带分享配置的版本，允许从请求参数传入分享信息
 func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles []string, shareEnabled bool, shareToken string) {
-	log.Printf("[DEBUG] governanceFinalizeRunLogFromTaskWithShare called: taskID=%s, runID=%s, inputFiles=%v, shareEnabled=%v, shareToken=%s", taskID, runID, inputFiles, shareEnabled, shareToken)
-	
 	dataOntologyMu.RLock()
 	var outStr, errStr string
 	status := "error"
@@ -16751,7 +16749,9 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		if !shareEnabled && shareToken == "" {
 			shareEnabled = t.ShareEnabled
 			shareToken = t.ShareToken
-			log.Printf("[DEBUG] 使用任务配置: shareEnabled=%v, shareToken=%s", shareEnabled, shareToken)
+		} else if shareEnabled && shareToken == "" {
+			// 前端传了 share_enabled=true 但没有 share_token，用任务配置
+			shareToken = t.ShareToken
 		}
 	}
 	dataOntologyMu.RUnlock()
@@ -16761,6 +16761,7 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
 	}
 	// 使用传入的分享配置或任务配置来保存分享记录
+	log.Printf("[DEBUG] 最终分享配置: shareEnabled=%v, shareToken=%s, inputFiles=%v", shareEnabled, shareToken, inputFiles)
 	if shareEnabled && shareToken != "" {
 		shareStatus := "completed"
 		shareOutput := outStr
