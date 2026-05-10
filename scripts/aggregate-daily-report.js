@@ -133,6 +133,15 @@ async function main() {
         results.push({ name, data: jsons[name] });
       }
     }
+    // 按单位名称排序（单位A、单位B、单位C...）
+    results.sort((a, b) => {
+      const aMatch = a.name.match(/单位([A-Z])/);
+      const bMatch = b.name.match(/单位([A-Z])/);
+      if (aMatch && bMatch) {
+        return aMatch[1].localeCompare(bMatch[1]);
+      }
+      return a.name.localeCompare(b.name);
+    });
     return results;
   }
   
@@ -287,29 +296,25 @@ async function main() {
     }
   }
   
-  // 格式化输出（输出 L2 标题和内容，标题用数字编号）
+  // 格式化输出（只输出内容，不输出 L2 标题，因为日报数据里已有标题）
   const projectLines = [];
-  let sectionNum = 1;
   for (const [section, projects] of Object.entries(projectSections)) {
     if (section === '_overview') {
       projectLines.push(...projects);
       continue;
     }
     
-    // 输出 L2 标题（如"（二）待启动项目"）
-    projectLines.push(`（${sectionNum}）${section}`);
-    sectionNum++;
     for (const [project, contents] of Object.entries(projects)) {
       if (project === '_summary') {
-        // L2 级别的汇总内容（缩进）
+        // L2 级别的汇总内容
         for (const c of contents) {
-          projectLines.push(`>${c}`);
+          projectLines.push(c);
         }
       } else {
         // L3 级别的项目标题和内容
-        projectLines.push(`${project}`);
+        projectLines.push(project);
         for (const c of contents) {
-          projectLines.push(`>${c}`);
+          projectLines.push(c);
         }
       }
     }
@@ -366,27 +371,23 @@ async function main() {
     }
   }
   
-  // 格式化输出（输出 L2 标题和内容）
+  // 格式化输出（只输出内容，不输出 L2 标题）
   const riskLines = [];
-  let riskSectionNum = 1;
   for (const [section, risks] of Object.entries(riskSections)) {
     if (section === '_overview') {
       riskLines.push(...risks);
       continue;
     }
     
-    // 输出 L2 标题
-    riskLines.push(`（${riskSectionNum}）${section}`);
-    riskSectionNum++;
     for (const [risk, contents] of Object.entries(risks)) {
       if (risk === '_summary') {
         for (const c of contents) {
-          riskLines.push(`>${c}`);
+          riskLines.push(c);
         }
       } else {
-        riskLines.push(`${risk}`);
+        riskLines.push(risk);
         for (const c of contents) {
-          riskLines.push(`>${c}`);
+          riskLines.push(c);
         }
       }
     }
@@ -443,27 +444,23 @@ async function main() {
     }
   }
   
-  // 格式化输出（输出 L2 标题和内容）
+  // 格式化输出（只输出内容，不输出 L2 标题）
   const planLines = [];
-  let planSectionNum = 1;
   for (const [section, plans] of Object.entries(planSections)) {
     if (section === '_overview') {
       planLines.push(...plans);
       continue;
     }
     
-    // 输出 L2 标题
-    planLines.push(`（${planSectionNum}）${section}`);
-    planSectionNum++;
     for (const [plan, contents] of Object.entries(plans)) {
       if (plan === '_summary') {
         for (const c of contents) {
-          planLines.push(`>${c}`);
+          planLines.push(c);
         }
       } else {
-        planLines.push(`${plan}`);
+        planLines.push(plan);
         for (const c of contents) {
-          planLines.push(`>${c}`);
+          planLines.push(c);
         }
       }
     }
