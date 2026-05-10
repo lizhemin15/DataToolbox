@@ -16968,7 +16968,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 	if !exists {
 		dataOntologyMu.RUnlock()
 		if isShare {
-			updateShareRun(runID, "failed", 0, "任务不存在", nil)
+			updateShareRun(runID, "failed", 0, "任务不存在", nil, nil)
 		}
 		return
 	}
@@ -16998,7 +16998,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 	// 如果是分享任务，初始化执行记录
 	if isShare {
-		updateShareRun(runID, "running", 0, "开始执行...", nil)
+		updateShareRun(runID, "running", 0, "开始执行...", nil, nil)
 	}
 
 	// 准备任务参数
@@ -17049,9 +17049,9 @@ func executeGovernanceJob(job *GovernanceJob) {
 				if err != nil {
 					log.Printf("读取文件失败: %v", err)
 					errMsg := "读取文件失败: " + err.Error()
-					if isShare {
-						updateShareRun(runID, "failed", 100, errMsg, nil)
-					} else {
+				if isShare {
+					updateShareRun(runID, "failed", 100, errMsg, nil, nil)
+				} else {
 						dataOntologyMu.Lock()
 						if t, ok := governanceTasks[taskID]; ok {
 							t.Status = "error"
@@ -17082,7 +17082,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			taskData["files"] = filePayloads
 
 			if isShare {
-				updateShareRun(runID, "running", 50, "合并执行...", nil)
+				updateShareRun(runID, "running", 50, "合并执行...", nil, nil)
 			} else {
 				dataOntologyMu.Lock()
 				if t, ok := governanceTasks[taskID]; ok {
@@ -17124,34 +17124,34 @@ func executeGovernanceJob(job *GovernanceJob) {
 					status = "failed"
 					output = result.Error + "\n" + output
 				}
-				updateShareRun(runID, status, 100, output, resultFiles)
-			} else {
-				dataOntologyMu.Lock()
-				if t, ok := governanceTasks[taskID]; ok {
-					if result.Success {
-						t.Status = "success"
-						out := strings.Join(result.Output, "\n")
-						if len(extraLines) > 0 {
-							out += "\n" + strings.Join(extraLines, "\n")
-						}
-						t.LastOutput = out
-					} else {
-						t.Status = "error"
-						t.LastError = result.Error
-						if len(result.Output) > 0 {
-							t.LastOutput = strings.Join(result.Output, "\n")
-						}
-					}
-					t.LastRunAt = time.Now().Format(time.RFC3339)
-					t.ProcessedFiles = len(job.InputFiles)
-					t.Percent = 100
-					t.CurrentFile = ""
-				}
-				dataOntologyMu.Unlock()
-				saveDataOntologyStore()
-				governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
-			}
+			updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
 		} else {
+			dataOntologyMu.Lock()
+			if t, ok := governanceTasks[taskID]; ok {
+				if result.Success {
+					t.Status = "success"
+					out := strings.Join(result.Output, "\n")
+					if len(extraLines) > 0 {
+						out += "\n" + strings.Join(extraLines, "\n")
+					}
+					t.LastOutput = out
+				} else {
+					t.Status = "error"
+					t.LastError = result.Error
+					if len(result.Output) > 0 {
+						t.LastOutput = strings.Join(result.Output, "\n")
+					}
+				}
+				t.LastRunAt = time.Now().Format(time.RFC3339)
+				t.ProcessedFiles = len(job.InputFiles)
+				t.Percent = 100
+				t.CurrentFile = ""
+			}
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+			governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
+		}
+	} else {
 			var allOutput []string
 			var lastError string
 
@@ -17166,10 +17166,10 @@ func executeGovernanceJob(job *GovernanceJob) {
 				taskData["file_name"] = filepath.Base(filePath)
 
 				// 更新进度
-				progress := (i * 100) / len(job.InputFiles)
-				if isShare {
-					updateShareRun(runID, "running", progress, fmt.Sprintf("处理文件: %s", filepath.Base(filePath)), nil)
-				} else {
+			progress := (i * 100) / len(job.InputFiles)
+			if isShare {
+				updateShareRun(runID, "running", progress, fmt.Sprintf("处理文件: %s", filepath.Base(filePath)), nil, nil)
+			} else {
 					dataOntologyMu.Lock()
 					if t, ok := governanceTasks[taskID]; ok {
 						t.ProcessedFiles = i
@@ -17212,7 +17212,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 				// 每处理完一个文件更新输出
 				if isShare {
-					updateShareRun(runID, "running", progress, strings.Join(allOutput, "\n"), nil)
+					updateShareRun(runID, "running", progress, strings.Join(allOutput, "\n"), nil, nil)
 				} else {
 					dataOntologyMu.Lock()
 					if t, ok := governanceTasks[taskID]; ok {
@@ -17242,12 +17242,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				status := "completed"
 				output := strings.Join(allOutput, "\n")
-				if lastError != "" {
-					status = "failed"
-					output = lastError + "\n" + output
-				}
-				updateShareRun(runID, status, 100, output, resultFiles)
-			} else {
+			if lastError != "" {
+				status = "failed"
+				output = lastError + "\n" + output
+			}
+			updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
+		} else {
 				dataOntologyMu.Lock()
 				if t, ok := governanceTasks[taskID]; ok {
 					if lastError == "" {
@@ -17287,18 +17287,18 @@ func executeGovernanceJob(job *GovernanceJob) {
 				for _, f := range result.OutputFiles {
 					resultFiles = append(resultFiles, f.Name)
 				}
-			}
-			status := "completed"
-			output := strings.Join(result.Output, "\n")
-			if len(extraLines) > 0 {
-				output += "\n" + strings.Join(extraLines, "\n")
-			}
-			if !result.Success {
-				status = "failed"
-				output = result.Error + "\n" + output
-			}
-			updateShareRun(runID, status, 100, output, resultFiles)
-		} else {
+		}
+		status := "completed"
+		output := strings.Join(result.Output, "\n")
+		if len(extraLines) > 0 {
+			output += "\n" + strings.Join(extraLines, "\n")
+		}
+		if !result.Success {
+			status = "failed"
+			output = result.Error + "\n" + output
+		}
+		updateShareRun(runID, status, 100, output, nil, resultFiles)
+	} else {
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[taskID]; ok {
 				if result.Success {
@@ -18841,7 +18841,7 @@ func handleGovParseText(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateShareRun 更新分享执行记录
-func updateShareRun(runID string, status string, progress int, output string, resultFiles []string) {
+func updateShareRun(runID string, status string, progress int, output string, inputFiles []string, resultFiles []string) {
 	needSave := false
 	var shareRun *GovernanceShareRun
 	governanceShareRunsMu.Lock()
@@ -18850,6 +18850,9 @@ func updateShareRun(runID string, status string, progress int, output string, re
 		run.Progress = progress
 		if output != "" {
 			run.Output += output + "\n"
+		}
+		if inputFiles != nil {
+			run.InputFiles = inputFiles
 		}
 		if resultFiles != nil {
 			run.ResultFiles = resultFiles
