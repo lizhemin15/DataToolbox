@@ -19297,14 +19297,16 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 	// 优先从 governanceShareRuns 读取（前端执行会保存到这里）
 	governanceShareRunsMu.RLock()
 	var shareRuns []*GovernanceShareRun
-	for _, run := range governanceShareRuns {
+	log.Printf("[DEBUG] 开始遍历 governanceShareRuns, 总数: %d", len(governanceShareRuns))
+	for runID, run := range governanceShareRuns {
+		log.Printf("[DEBUG] 检查 run: id=%s, run.ShareToken=%s, task.ShareToken=%s, inputFiles=%v", runID[:8], run.ShareToken, task.ShareToken, run.InputFiles)
 		if run.ShareToken == task.ShareToken {
 			shareRuns = append(shareRuns, run)
 			log.Printf("[DEBUG] 找到匹配 run: id=%s, inputFiles=%v, resultFiles=%v", run.ID[:8], run.InputFiles, run.ResultFiles)
 		}
 	}
 	governanceShareRunsMu.RUnlock()
-	log.Printf("[DEBUG] governanceShareRuns 记录数: %d, shareToken: %s", len(shareRuns), task.ShareToken)
+	log.Printf("[DEBUG] governanceShareRuns 匹配记录数: %d, task.ShareToken: %s", len(shareRuns), task.ShareToken)
 
 	// 如果有分享记录，直接使用
 	if len(shareRuns) > 0 {
@@ -19328,19 +19330,28 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		for _, f := range run.InputFiles {
 			inputFileNames = append(inputFileNames, filepath.Base(f))
 		}
+
+		// 调试信息：原始 InputFiles
+		debugInfo := ""
+		if len(inputFileNames) == 0 && len(run.InputFiles) > 0 {
+			debugInfo = fmt.Sprintf("原始 InputFiles: %v", run.InputFiles)
+		}
+
 		resultFileNames := make([]string, 0, len(run.ResultFiles))
 		for _, f := range run.ResultFiles {
 			resultFileNames = append(resultFileNames, filepath.Base(f))
 		}
 		result[i] = map[string]interface{}{
-			"id":           run.ID,
-			"status":       status,
-			"progress":     run.Progress,
-			"output":       output,
-			"input_files":  inputFileNames,
-			"result_files": resultFileNames,
-			"created_at":   run.CreatedAt.Format(time.RFC3339),
-			"updated_at":   run.UpdatedAt.Format(time.RFC3339),
+			"id":            run.ID,
+			"status":        status,
+			"progress":      run.Progress,
+			"output":        output,
+			"input_files":   inputFileNames,
+			"result_files":  resultFileNames,
+			"created_at":    run.CreatedAt.Format(time.RFC3339),
+			"updated_at":    run.UpdatedAt.Format(time.RFC3339),
+			"_debug_input":  run.InputFiles, // 调试字段：原始输入文件路径
+			"_debug_result": run.ResultFiles, // 调试字段：原始输出文件路径
 		}
 		}
 
