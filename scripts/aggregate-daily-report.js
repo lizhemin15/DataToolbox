@@ -221,7 +221,46 @@ async function main() {
   module["report_date"] = "2024年4月12日";
   module["unit_count"] = String(findJsons("日报").length);
   
-  // 2. 提取各单位概览（从 L1 "一、工作概述" 的 L2 子节点获取）
+  // 2. 提取人员统计
+  let totalShould = 0, totalActual = 0, totalTravel = 0;
+  const personnelDetails = [];
+  
+  for (const { name, data } of findJsons("日报")) {
+    const unitMatch = name.match(/单位([A-Z])/);
+    const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    
+    // 查找"人员统计"节点
+    const overviewNode = data[0]?.find(n => n.title?.includes('工作概述'));
+    if (overviewNode) {
+      for (const l2 of (overviewNode.children || [])) {
+        if (l2.title?.includes('人员统计')) {
+          // 从段落中提取数字
+          for (const para of (l2.paragraphs || [])) {
+            const shouldMatch = para.match(/应该在岗人数[：:]\s*(\d+)/);
+            const actualMatch = para.match(/实际在岗人数[：:]\s*(\d+)/);
+            const travelMatch = para.match(/出差人数[：:]\s*(\d+)/);
+            
+            const shouldAttend = shouldMatch ? parseInt(shouldMatch[1]) : 0;
+            const actualAttend = actualMatch ? parseInt(actualMatch[1]) : 0;
+            const travelCount = travelMatch ? parseInt(travelMatch[1]) : 0;
+            
+            totalShould += shouldAttend;
+            totalActual += actualAttend;
+            totalTravel += travelCount;
+            
+            personnelDetails.push(`${unitName}：应该在岗${shouldAttend}人，实际在岗${actualAttend}人，出差${travelCount}人`);
+          }
+        }
+      }
+    }
+  }
+  
+  module["total_should"] = String(totalShould);
+  module["total_actual"] = String(totalActual);
+  module["total_travel"] = String(totalTravel);
+  module["personnel_detail"] = personnelDetails.join('；');
+  
+  // 3. 提取各单位概览（从 L1 "一、工作概述" 的 L2 子节点获取）
   const overviews = [];
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
