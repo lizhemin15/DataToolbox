@@ -287,7 +287,7 @@ async function main() {
     }
   }
   
-  // 格式化输出（用换行符分隔，Word 模板会自动处理）
+  // 格式化输出（只输出内容，不输出标题，因为模板里已有标题）
   const projectLines = [];
   for (const [section, projects] of Object.entries(projectSections)) {
     if (section === '_overview') {
@@ -295,8 +295,7 @@ async function main() {
       continue;
     }
     
-    // 输出 L2 标题（如"（一）在建项目"）
-    projectLines.push(`**（一）${section}**`);
+    // 不输出 L2 标题，模板里已有
     for (const [project, contents] of Object.entries(projects)) {
       if (project === '_summary') {
         // L2 级别的汇总内容（缩进）
@@ -305,7 +304,7 @@ async function main() {
         }
       } else {
         // L3 级别的项目标题和内容
-        projectLines.push(`**1.${project}**`);
+        projectLines.push(`**${project}**`);
         for (const c of contents) {
           projectLines.push(`>${c}`);
         }
@@ -364,7 +363,7 @@ async function main() {
     }
   }
   
-  // 格式化输出
+  // 格式化输出（只输出内容，不输出标题）
   const riskLines = [];
   for (const [section, risks] of Object.entries(riskSections)) {
     if (section === '_overview') {
@@ -372,14 +371,14 @@ async function main() {
       continue;
     }
     
-    riskLines.push(`**（一）${section}**`);
+    // 不输出 L2 标题，模板里已有
     for (const [risk, contents] of Object.entries(risks)) {
       if (risk === '_summary') {
         for (const c of contents) {
           riskLines.push(`>${c}`);
         }
       } else {
-        riskLines.push(`**1.${risk}**`);
+        riskLines.push(`**${risk}**`);
         for (const c of contents) {
           riskLines.push(`>${c}`);
         }
@@ -438,7 +437,7 @@ async function main() {
     }
   }
   
-  // 格式化输出
+  // 格式化输出（只输出内容，不输出标题）
   const planLines = [];
   for (const [section, plans] of Object.entries(planSections)) {
     if (section === '_overview') {
@@ -446,14 +445,14 @@ async function main() {
       continue;
     }
     
-    planLines.push(`**（一）${section}**`);
+    // 不输出 L2 标题，模板里已有
     for (const [plan, contents] of Object.entries(plans)) {
       if (plan === '_summary') {
         for (const c of contents) {
           planLines.push(`>${c}`);
         }
       } else {
-        planLines.push(`**1.${plan}**`);
+        planLines.push(`**${plan}**`);
         for (const c of contents) {
           planLines.push(`>${c}`);
         }
