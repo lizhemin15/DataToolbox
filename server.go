@@ -19300,6 +19300,7 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 	for _, run := range governanceShareRuns {
 		if run.ShareToken == task.ShareToken {
 			shareRuns = append(shareRuns, run)
+			log.Printf("[DEBUG] 找到匹配 run: id=%s, inputFiles=%v, resultFiles=%v", run.ID[:8], run.InputFiles, run.ResultFiles)
 		}
 	}
 	governanceShareRunsMu.RUnlock()
