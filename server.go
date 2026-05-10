@@ -16481,6 +16481,8 @@ func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt str
 
 // handleGovernanceTaskFrontendRun 处理前端执行完成后的回调，用于同步任务结果到分享页
 func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, taskID string) {
+	log.Printf("[DEBUG] handleGovernanceTaskFrontendRun called: taskID=%s", taskID)
+	
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
