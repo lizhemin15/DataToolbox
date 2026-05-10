@@ -15851,6 +15851,14 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 			"message": "任务已入队，正在后台执行",
 		})
 	default:
+		// 队列已满，回滚状态，避免残留 running
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[taskID]; ok {
+			t.Status = "idle"
+			t.RunID = ""
+			t.LastError = "任务队列已满，请稍后重试"
+		}
+		dataOntologyMu.Unlock()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "任务队列已满，请稍后重试",

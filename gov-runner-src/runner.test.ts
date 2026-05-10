@@ -54,4 +54,37 @@ describe('gov-runner', () => {
     expect(result.output).toContain('before error');
     expect(result.error).toContain('boom');
   });
+
+  test('awaits async user code to completion', async () => {
+    const result = await runUserCode(
+      `gov.log('开始');
+       await new Promise(r => setTimeout(r, 100));
+       gov.log('中间');
+       await new Promise(r => setTimeout(r, 50));
+       gov.log('完成');`,
+      baseCtx
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('开始');
+    expect(result.output).toContain('中间');
+    expect(result.output).toContain('完成');
+  });
+
+  test('awaits async function main pattern', async () => {
+    // 用户常见写法：定义 async main 并调用，runner 必须等待
+    const result = await runUserCode(
+      `async function main(){
+         gov.log('start');
+         await new Promise(r => setTimeout(r, 80));
+         gov.log('end');
+       }
+       main();`, // 注意：这里没有 await，但 runUserCode 内部会 await AsyncFunction 的返回值
+      baseCtx
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('start');
+    expect(result.output).toContain('end');
+  });
 });

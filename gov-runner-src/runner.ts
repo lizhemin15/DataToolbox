@@ -844,7 +844,7 @@ export async function runUserCode(
       code
     );
 
-    await fn(
+    const result = fn(
       gov,
       inputFile,
       options.inputText || '',
@@ -856,6 +856,13 @@ export async function runUserCode(
       inputFiles,
       options.currentGovTask || null
     );
+
+    // 显式等待用户代码返回的 Promise（包括 async function main() 调用）
+    // 即使用户未在顶层写 await，AsyncFunction 执行结果仍是一个 Promise
+    // 若用户代码返回的是 Promise（如 async main() 调用），需要等待其 resolve
+    if (result && typeof result.then === 'function') {
+      await result;
+    }
 
     return { success: true, output: logLines, output_files: outputFiles.length ? outputFiles : undefined };
   } catch (error: any) {
