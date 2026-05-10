@@ -16729,16 +16729,19 @@ func governanceFinalizeRunLogFromTask(taskID, runID string, inputFiles []string)
 		} else {
 			now := time.Now()
 			clonedInputs := append([]string(nil), inputFiles...)
+			// 扫描输出文件
+			_, resultFiles := scanShareRunFiles(shareToken, runID)
 			governanceShareRuns[runID] = &GovernanceShareRun{
-				ID:         runID,
-				TaskID:     taskID,
-				ShareToken: shareToken,
-				Status:     shareStatus,
-				Progress:   100,
-				Output:     shareOutput,
-				InputFiles: clonedInputs,
-				CreatedAt:  now,
-				UpdatedAt:  now,
+				ID:          runID,
+				TaskID:      taskID,
+				ShareToken:  shareToken,
+				Status:      shareStatus,
+				Progress:    100,
+				Output:      shareOutput,
+				InputFiles:  clonedInputs,
+				ResultFiles: resultFiles,
+				CreatedAt:   now,
+				UpdatedAt:   now,
 			}
 		}
 		governanceShareRunsMu.Unlock()
@@ -16803,16 +16806,19 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		} else {
 			now := time.Now()
 			clonedInputs := append([]string(nil), inputFiles...)
+			// 扫描输出文件
+			_, resultFiles := scanShareRunFiles(shareToken, runID)
 			governanceShareRuns[runID] = &GovernanceShareRun{
-				ID:         runID,
-				TaskID:     taskID,
-				ShareToken: shareToken,
-				Status:     shareStatus,
-				Progress:   100,
-				Output:     shareOutput,
-				InputFiles: clonedInputs,
-				CreatedAt:  now,
-				UpdatedAt:  now,
+				ID:          runID,
+				TaskID:      taskID,
+				ShareToken:  shareToken,
+				Status:      shareStatus,
+				Progress:    100,
+				Output:      shareOutput,
+				InputFiles:  clonedInputs,
+				ResultFiles: resultFiles,
+				CreatedAt:   now,
+				UpdatedAt:   now,
 			}
 		}
 		governanceShareRunsMu.Unlock()
