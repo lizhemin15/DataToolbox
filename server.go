@@ -19307,7 +19307,8 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 	if entries, err := os.ReadDir(uploadDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
-				inputFiles = append(inputFiles, entry.Name())
+				// 返回完整路径
+				inputFiles = append(inputFiles, filepath.Join(uploadDir, entry.Name()))
 			}
 		}
 	}
@@ -19317,7 +19318,8 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 	if entries, err := os.ReadDir(outputDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
-				outputFiles = append(outputFiles, entry.Name())
+				// 返回完整路径
+				outputFiles = append(outputFiles, filepath.Join(outputDir, entry.Name()))
 			}
 		}
 	}
