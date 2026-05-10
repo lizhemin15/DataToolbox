@@ -19319,16 +19319,25 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 			} else if status != "completed" {
 				status = "pending"
 			}
-			result[i] = map[string]interface{}{
-				"id":           run.ID,
-				"status":       status,
-				"progress":     run.Progress,
-				"output":       output,
-				"input_files":  run.InputFiles,
-				"result_files": run.ResultFiles,
-				"created_at":   run.CreatedAt.Format(time.RFC3339),
-				"updated_at":   run.UpdatedAt.Format(time.RFC3339),
-			}
+		// 提取文件名（去掉路径前缀）
+		inputFileNames := make([]string, 0, len(run.InputFiles))
+		for _, f := range run.InputFiles {
+			inputFileNames = append(inputFileNames, filepath.Base(f))
+		}
+		resultFileNames := make([]string, 0, len(run.ResultFiles))
+		for _, f := range run.ResultFiles {
+			resultFileNames = append(resultFileNames, filepath.Base(f))
+		}
+		result[i] = map[string]interface{}{
+			"id":           run.ID,
+			"status":       status,
+			"progress":     run.Progress,
+			"output":       output,
+			"input_files":  inputFileNames,
+			"result_files": resultFileNames,
+			"created_at":   run.CreatedAt.Format(time.RFC3339),
+			"updated_at":   run.UpdatedAt.Format(time.RFC3339),
+		}
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
