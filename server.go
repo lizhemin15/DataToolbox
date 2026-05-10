@@ -19284,6 +19284,7 @@ func scanShareRunFiles(shareToken, runID string) (inputFiles, outputFiles []stri
 
 // handleGovernanceShareRuns 列出分享任务的所有执行记录
 func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *GovernanceTask) {
+	log.Printf("[DEBUG] handleGovernanceShareRuns called: shareToken=%s", task.ShareToken)
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
@@ -19299,6 +19300,7 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		}
 	}
 	governanceShareRunsMu.RUnlock()
+	log.Printf("[DEBUG] governanceShareRuns 记录数: %d, shareToken: %s", len(shareRuns), task.ShareToken)
 
 	// 如果有分享记录，直接使用
 	if len(shareRuns) > 0 {
