@@ -1345,20 +1345,20 @@ func loadDataOntologyStore() error {
 		smallModels = store.SmallModels
 		log.Printf("已加载 %d 个小模型配置", len(smallModels))
 	}
-	// 加载分享任务执行记录
+	// 加载分享任务执行记录（强制加载，兼容 nil）
+	governanceShareRunsMu.Lock()
 	if store.ShareRuns != nil {
-		governanceShareRunsMu.Lock()
 		for _, runs := range store.ShareRuns {
 			for runID, run := range runs {
 				governanceShareRuns[runID] = run
 			}
 		}
-		governanceShareRunsMu.Unlock()
-		totalRuns := 0
-		for _, runs := range store.ShareRuns {
-			totalRuns += len(runs)
-		}
-		log.Printf("已加载 %d 条分享任务执行记录（%d 个分享）", totalRuns, len(store.ShareRuns))
+	}
+	// 统计当前内存中的记录数
+	memRuns := len(governanceShareRuns)
+	governanceShareRunsMu.Unlock()
+	if memRuns > 0 {
+		log.Printf("已加载 %d 条分享任务执行记录", memRuns)
 	}
 	// 历史数据无 Owner 时视为管理员资源，避免泄露给普通用户
 	for _, c := range dataOntologyDatabases {
