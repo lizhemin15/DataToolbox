@@ -7080,7 +7080,9 @@ async function loadGovernanceTasks() {
                     currentGovTask = fresh;
                     showGovTaskDetail(currentGovTask);
                     loadGovTaskLogs();
+                    console.log('[loadGovernanceTasks] 更新任务:', fresh.name, 'status:', fresh.status);
                     if (currentGovTask.status === 'running') {
+                        console.log('[loadGovernanceTasks] 任务状态为 running, 启动轮询');
                         setTimeout(refreshGovTaskStatus, 3000);
                     }
                 } else {
@@ -7097,7 +7099,9 @@ async function loadGovernanceTasks() {
                         currentGovTask = t;
                         showGovTaskDetail(currentGovTask);
                         loadGovTaskLogs();
+                        console.log('[loadGovernanceTasks] 恢复任务:', t.name, 'status:', t.status);
                         if (currentGovTask.status === 'running') {
+                            console.log('[loadGovernanceTasks] 任务状态为 running, 启动轮询');
                             setTimeout(refreshGovTaskStatus, 3000);
                         }
                     }
