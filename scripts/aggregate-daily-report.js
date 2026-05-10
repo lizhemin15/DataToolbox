@@ -296,7 +296,7 @@ async function main() {
     }
   }
   
-  // 格式化输出（只输出内容，不输出 L2 标题，因为日报数据里已有标题）
+  // 格式化输出（输出 L2 标题，区分不同分类）
   const projectLines = [];
   for (const [section, projects] of Object.entries(projectSections)) {
     if (section === '_overview') {
@@ -304,6 +304,8 @@ async function main() {
       continue;
     }
     
+    // 输出 L2 标题（如"（一）在建项目"）
+    projectLines.push(`（${section}）`);
     for (const [project, contents] of Object.entries(projects)) {
       if (project === '_summary') {
         // L2 级别的汇总内容
@@ -371,7 +373,7 @@ async function main() {
     }
   }
   
-  // 格式化输出（只输出内容，不输出 L2 标题）
+  // 格式化输出（输出 L2 标题，区分不同分类）
   const riskLines = [];
   for (const [section, risks] of Object.entries(riskSections)) {
     if (section === '_overview') {
@@ -379,6 +381,8 @@ async function main() {
       continue;
     }
     
+    // 输出 L2 标题
+    riskLines.push(`（${section}）`);
     for (const [risk, contents] of Object.entries(risks)) {
       if (risk === '_summary') {
         for (const c of contents) {
@@ -444,7 +448,7 @@ async function main() {
     }
   }
   
-  // 格式化输出（只输出内容，不输出 L2 标题）
+  // 格式化输出（输出 L2 标题，区分不同分类）
   const planLines = [];
   for (const [section, plans] of Object.entries(planSections)) {
     if (section === '_overview') {
@@ -452,6 +456,8 @@ async function main() {
       continue;
     }
     
+    // 输出 L2 标题
+    planLines.push(`（${section}）`);
     for (const [plan, contents] of Object.entries(plans)) {
       if (plan === '_summary') {
         for (const c of contents) {
