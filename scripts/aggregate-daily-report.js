@@ -233,91 +233,231 @@ async function main() {
   }
   module["overview"] = overviews.join('\n\n');
   
-  // 3. 提取重点项目（从 L1 "二、重点项目" 获取，包含 L2、L3 内容）
-  const projects = [];
+  // 3. 提取重点项目（按项目类型分组，合并各单位内容）
+  // 文档结构：二、重点项目 → （一）在建项目 → 1.数据治理平台 → 内容
+  const projectSections = {};  // { "在建项目": { "数据治理平台": ["单位A：xxx", "单位B：yyy"] } }
+  
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    
     // 找 L1 中包含"项目"的节点
     const projectNode = data[0]?.find(n => n.title?.includes('项目'));
-    if (projectNode) {
-      // 收集该节点及其所有子节点的内容
-      const projectContents = [];
-      // L2 子节点
-      for (const l2 of (projectNode.children || [])) {
-        projectContents.push(`**${l2.title}**`);
-        // L3 子节点
-        for (const l3 of (l2.children || [])) {
-          projectContents.push(`  ${l3.title}：${l3.paragraphs?.join('；') || ''}`);
+    if (!projectNode) continue;
+    
+    // 遍历 L2 子节点（如"（一）在建项目"）
+    for (const l2 of (projectNode.children || [])) {
+      const sectionTitle = l2.title?.replace(/^[（(][一二三四五六七八九十]+[)）]\\s*/, '') || l2.title || '其他';
+      if (!projectSections[sectionTitle]) {
+        projectSections[sectionTitle] = {};
+      }
+      
+      // 遍历 L3 子节点（如"1.数据治理平台"）
+      for (const l3 of (l2.children || [])) {
+        const projectTitle = l3.title?.replace(/^\\d+[\\.、．：:]\\s*/, '') || l3.title || '其他项目';
+        if (!projectSections[sectionTitle][projectTitle]) {
+          projectSections[sectionTitle][projectTitle] = [];
         }
-        // L2 自己的段落
-        if (l2.paragraphs?.length > 0) {
-          projectContents.push(`  ${l2.paragraphs.join('；')}`);
+        
+        // 收集内容
+        const content = l3.paragraphs?.join('；') || '';
+        if (content) {
+          projectSections[sectionTitle][projectTitle].push(`${unitName}：${content}`);
         }
       }
-      // L1 的段落
-      if (projectNode.paragraphs?.length > 0) {
-        projectContents.push(...projectNode.paragraphs);
+      
+      // L2 自己的段落（如"下月计划启动：移动端适配项目"）
+      if (l2.paragraphs?.length > 0) {
+        const l2Content = l2.paragraphs.join('；');
+        if (!projectSections[sectionTitle]['_summary']) {
+          projectSections[sectionTitle]['_summary'] = [];
+        }
+        projectSections[sectionTitle]['_summary'].push(`${unitName}：${l2Content}`);
       }
-      if (projectContents.length > 0) {
-        projects.push(`**${unitName}**\n${projectContents.join('\n')}`);
+    }
+    
+    // L1 的段落
+    if (projectNode.paragraphs?.length > 0) {
+      if (!projectSections['_overview']) {
+        projectSections['_overview'] = [];
+      }
+      projectSections['_overview'].push(...projectNode.paragraphs);
+    }
+  }
+  
+  // 格式化输出
+  const projectLines = [];
+  for (const [section, projects] of Object.entries(projectSections)) {
+    if (section === '_overview') {
+      projectLines.push(...projects);
+      continue;
+    }
+    
+    projectLines.push(`**（${section}）**`);
+    for (const [project, contents] of Object.entries(projects)) {
+      if (project === '_summary') {
+        // L2 级别的汇总内容
+        for (const c of contents) {
+          projectLines.push(`>${c}`);
+        }
+      } else {
+        // L3 级别的项目内容
+        projectLines.push(`**${project}**`);
+        for (const c of contents) {
+          projectLines.push(`>${c}`);
+        }
       }
     }
   }
-  module["key_projects"] = projects.join('\n\n') || '暂无重点项目信息';
+  module["key_projects"] = projectLines.join('\\n') || '暂无重点项目信息';
   
-  // 4. 提取风险信息（从 L1 "三、问题与风险" 获取）
-  const risks = [];
+  // 4. 提取风险信息（按风险类型分组，合并各单位内容）
+  const riskSections = {};
+  
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    
     // 找 L1 中包含"风险"或"问题"的节点
     const riskNode = data[0]?.find(n => n.title?.includes('风险') || n.title?.includes('问题'));
-    if (riskNode) {
-      const riskContents = [];
-      for (const l2 of (riskNode.children || [])) {
-        riskContents.push(`**${l2.title}**`);
-        for (const l3 of (l2.children || [])) {
-          riskContents.push(`  ${l3.title}：${l3.paragraphs?.join('；') || ''}`);
+    if (!riskNode) continue;
+    
+    // 遍历 L2 子节点
+    for (const l2 of (riskNode.children || [])) {
+      const sectionTitle = l2.title?.replace(/^[（(][一二三四五六七八九十]+[)）]\\s*/, '') || l2.title || '其他';
+      if (!riskSections[sectionTitle]) {
+        riskSections[sectionTitle] = {};
+      }
+      
+      // 遍历 L3 子节点
+      for (const l3 of (l2.children || [])) {
+        const riskTitle = l3.title?.replace(/^\\d+[\\.、．：:]\\s*/, '') || l3.title || '其他风险';
+        if (!riskSections[sectionTitle][riskTitle]) {
+          riskSections[sectionTitle][riskTitle] = [];
         }
-        if (l2.paragraphs?.length > 0) {
-          riskContents.push(`  ${l2.paragraphs.join('；')}`);
+        
+        const content = l3.paragraphs?.join('；') || '';
+        if (content) {
+          riskSections[sectionTitle][riskTitle].push(`${unitName}：${content}`);
         }
       }
-      if (riskNode.paragraphs?.length > 0) {
-        riskContents.push(...riskNode.paragraphs);
+      
+      // L2 自己的段落
+      if (l2.paragraphs?.length > 0) {
+        const l2Content = l2.paragraphs.join('；');
+        if (!riskSections[sectionTitle]['_summary']) {
+          riskSections[sectionTitle]['_summary'] = [];
+        }
+        riskSections[sectionTitle]['_summary'].push(`${unitName}：${l2Content}`);
       }
-      if (riskContents.length > 0) {
-        risks.push(`**${unitName}**\n${riskContents.join('\n')}`);
+    }
+    
+    // L1 的段落
+    if (riskNode.paragraphs?.length > 0) {
+      if (!riskSections['_overview']) {
+        riskSections['_overview'] = [];
+      }
+      riskSections['_overview'].push(...riskNode.paragraphs);
+    }
+  }
+  
+  // 格式化输出
+  const riskLines = [];
+  for (const [section, risks] of Object.entries(riskSections)) {
+    if (section === '_overview') {
+      riskLines.push(...risks);
+      continue;
+    }
+    
+    riskLines.push(`**（${section}）**`);
+    for (const [risk, contents] of Object.entries(risks)) {
+      if (risk === '_summary') {
+        for (const c of contents) {
+          riskLines.push(`>${c}`);
+        }
+      } else {
+        riskLines.push(`**${risk}**`);
+        for (const c of contents) {
+          riskLines.push(`>${c}`);
+        }
       }
     }
   }
-  module["risk_detail"] = risks.join('\n\n') || '暂无风险信息';
+  module["risk_detail"] = riskLines.join('\\n') || '暂无风险信息';
   
-  // 5. 提取明日计划（从 L1 "四、明日计划" 获取）
-  const plans = [];
+  // 5. 提取明日计划（按计划类型分组，合并各单位内容）
+  const planSections = {};
+  
   for (const { name, data } of findJsons("日报")) {
     const unitMatch = name.match(/单位([A-Z])/);
     const unitName = unitMatch ? `单位${unitMatch[1]}` : name.replace(/日报|\\.docx/g, '');
+    
     // 找 L1 中包含"计划"的节点
     const planNode = data[0]?.find(n => n.title?.includes('计划'));
-    if (planNode) {
-      const planContents = [];
-      for (const l2 of (planNode.children || [])) {
-        planContents.push(`**${l2.title}**`);
-        if (l2.paragraphs?.length > 0) {
-          planContents.push(`  ${l2.paragraphs.join('；')}`);
+    if (!planNode) continue;
+    
+    // 遍历 L2 子节点
+    for (const l2 of (planNode.children || [])) {
+      const sectionTitle = l2.title?.replace(/^[（(][一二三四五六七八九十]+[)）]\\s*/, '') || l2.title || '其他';
+      if (!planSections[sectionTitle]) {
+        planSections[sectionTitle] = {};
+      }
+      
+      // 遍历 L3 子节点
+      for (const l3 of (l2.children || [])) {
+        const planTitle = l3.title?.replace(/^\\d+[\\.、．：:]\\s*/, '') || l3.title || '其他计划';
+        if (!planSections[sectionTitle][planTitle]) {
+          planSections[sectionTitle][planTitle] = [];
+        }
+        
+        const content = l3.paragraphs?.join('；') || '';
+        if (content) {
+          planSections[sectionTitle][planTitle].push(`${unitName}：${content}`);
         }
       }
-      if (planNode.paragraphs?.length > 0) {
-        planContents.push(...planNode.paragraphs);
+      
+      // L2 自己的段落
+      if (l2.paragraphs?.length > 0) {
+        const l2Content = l2.paragraphs.join('；');
+        if (!planSections[sectionTitle]['_summary']) {
+          planSections[sectionTitle]['_summary'] = [];
+        }
+        planSections[sectionTitle]['_summary'].push(`${unitName}：${l2Content}`);
       }
-      if (planContents.length > 0) {
-        plans.push(`**${unitName}**\n${planContents.join('\n')}`);
+    }
+    
+    // L1 的段落
+    if (planNode.paragraphs?.length > 0) {
+      if (!planSections['_overview']) {
+        planSections['_overview'] = [];
+      }
+      planSections['_overview'].push(...planNode.paragraphs);
+    }
+  }
+  
+  // 格式化输出
+  const planLines = [];
+  for (const [section, plans] of Object.entries(planSections)) {
+    if (section === '_overview') {
+      planLines.push(...plans);
+      continue;
+    }
+    
+    planLines.push(`**（${section}）**`);
+    for (const [plan, contents] of Object.entries(plans)) {
+      if (plan === '_summary') {
+        for (const c of contents) {
+          planLines.push(`>${c}`);
+        }
+      } else {
+        planLines.push(`**${plan}**`);
+        for (const c of contents) {
+          planLines.push(`>${c}`);
+        }
       }
     }
   }
-  module["tomorrow_plan"] = plans.join('\n\n') || '暂无明日计划';
+  module["tomorrow_plan"] = planLines.join('\\n') || '暂无明日计划';
   
   gov.log('=== 替换规则执行完成 ===');
   gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
