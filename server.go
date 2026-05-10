@@ -19280,7 +19280,53 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 		return
 	}
 
-	// 直接从 governanceTaskLogs 读取（单一数据源）
+	// 优先从 governanceShareRuns 读取（前端执行会保存到这里）
+	governanceShareRunsMu.RLock()
+	var shareRuns []*GovernanceShareRun
+	for _, run := range governanceShareRuns {
+		if run.ShareToken == task.ShareToken {
+			shareRuns = append(shareRuns, run)
+		}
+	}
+	governanceShareRunsMu.RUnlock()
+
+	// 如果有分享记录，直接使用
+	if len(shareRuns) > 0 {
+		// 按创建时间倒序排列
+		sort.Slice(shareRuns, func(i, j int) bool {
+			return shareRuns[i].CreatedAt.After(shareRuns[j].CreatedAt)
+		})
+
+		// 转换为前端格式
+		result := make([]map[string]interface{}, len(shareRuns))
+		for i, run := range shareRuns {
+			status := run.Status
+			output := run.Output
+			if status == "failed" {
+				status = "failed"
+			} else if status != "completed" {
+				status = "pending"
+			}
+			result[i] = map[string]interface{}{
+				"id":           run.ID,
+				"status":       status,
+				"progress":     run.Progress,
+				"output":       output,
+				"input_files":  run.InputFiles,
+				"result_files": run.ResultFiles,
+				"created_at":   run.CreatedAt.Format(time.RFC3339),
+				"updated_at":   run.UpdatedAt.Format(time.RFC3339),
+			}
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"runs":    result,
+		})
+		return
+	}
+
+	// 兼容旧数据：从 governanceTaskLogs 读取
 	dataOntologyMu.RLock()
 	logs := governanceTaskLogs[task.ID]
 	dataOntologyMu.RUnlock()
