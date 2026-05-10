@@ -16583,19 +16583,22 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 			}
 			inputFileNames = req.InputFiles
 
-			// 优先使用请求中的分享配置
-			if req.ShareEnabled {
-				shareEnabledFromReq = true
-			}
-			if req.ShareToken != "" {
-				shareTokenFromReq = req.ShareToken
-			}
+		// 优先使用请求中的分享配置
+		if req.ShareEnabled {
+			shareEnabledFromReq = true
+		}
+		if req.ShareToken != "" {
+			shareTokenFromReq = req.ShareToken
+		} else if req.ShareEnabled {
+			// 前端传了 share_enabled=true 但没有 share_token，用任务配置的
+			shareTokenFromReq = task.ShareToken
+		}
 
-			// 如果请求参数没有提供分享配置，使用任务配置
-			if !shareEnabledFromReq && shareTokenFromReq == "" {
-				shareEnabledFromReq = task.ShareEnabled
-				shareTokenFromReq = task.ShareToken
-			}
+		// 如果请求参数没有提供分享配置，使用任务配置
+		if !shareEnabledFromReq && shareTokenFromReq == "" {
+			shareEnabledFromReq = task.ShareEnabled
+			shareTokenFromReq = task.ShareToken
+		}
 
 			// 更新任务状态
 			dataOntologyMu.Lock()
