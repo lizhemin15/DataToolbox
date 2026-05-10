@@ -17157,6 +17157,8 @@ func executeGovernanceJob(job *GovernanceJob) {
 			}
 			dataOntologyMu.Unlock()
 			saveDataOntologyStore()
+			// 分享任务也要更新日志记录
+			governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 		} else {
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[taskID]; ok {
