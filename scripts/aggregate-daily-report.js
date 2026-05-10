@@ -247,6 +247,7 @@ async function main() {
     
     // 遍历 L2 子节点（如"（一）在建项目"）
     for (const l2 of (projectNode.children || [])) {
+      // 去掉序号前缀，保留纯标题（如"在建项目"）
       const sectionTitle = l2.title?.replace(/^[（(][一二三四五六七八九十]+[)）]\\s*/, '') || l2.title || '其他';
       if (!projectSections[sectionTitle]) {
         projectSections[sectionTitle] = {};
@@ -254,6 +255,7 @@ async function main() {
       
       // 遍历 L3 子节点（如"1.数据治理平台"）
       for (const l3 of (l2.children || [])) {
+        // 去掉序号前缀，保留纯标题（如"数据治理平台"）
         const projectTitle = l3.title?.replace(/^\\d+[\\.、．：:]\\s*/, '') || l3.title || '其他项目';
         if (!projectSections[sectionTitle][projectTitle]) {
           projectSections[sectionTitle][projectTitle] = [];
@@ -285,7 +287,7 @@ async function main() {
     }
   }
   
-  // 格式化输出
+  // 格式化输出（用换行符分隔，Word 模板会自动处理）
   const projectLines = [];
   for (const [section, projects] of Object.entries(projectSections)) {
     if (section === '_overview') {
@@ -293,16 +295,17 @@ async function main() {
       continue;
     }
     
-    projectLines.push(`**（${section}）**`);
+    // 输出 L2 标题（如"（一）在建项目"）
+    projectLines.push(`**（一）${section}**`);
     for (const [project, contents] of Object.entries(projects)) {
       if (project === '_summary') {
-        // L2 级别的汇总内容
+        // L2 级别的汇总内容（缩进）
         for (const c of contents) {
           projectLines.push(`>${c}`);
         }
       } else {
-        // L3 级别的项目内容
-        projectLines.push(`**${project}**`);
+        // L3 级别的项目标题和内容
+        projectLines.push(`**1.${project}**`);
         for (const c of contents) {
           projectLines.push(`>${c}`);
         }
@@ -369,14 +372,14 @@ async function main() {
       continue;
     }
     
-    riskLines.push(`**（${section}）**`);
+    riskLines.push(`**（一）${section}**`);
     for (const [risk, contents] of Object.entries(risks)) {
       if (risk === '_summary') {
         for (const c of contents) {
           riskLines.push(`>${c}`);
         }
       } else {
-        riskLines.push(`**${risk}**`);
+        riskLines.push(`**1.${risk}**`);
         for (const c of contents) {
           riskLines.push(`>${c}`);
         }
@@ -443,14 +446,14 @@ async function main() {
       continue;
     }
     
-    planLines.push(`**（${section}）**`);
+    planLines.push(`**（一）${section}**`);
     for (const [plan, contents] of Object.entries(plans)) {
       if (plan === '_summary') {
         for (const c of contents) {
           planLines.push(`>${c}`);
         }
       } else {
-        planLines.push(`**${plan}**`);
+        planLines.push(`**1.${plan}**`);
         for (const c of contents) {
           planLines.push(`>${c}`);
         }
