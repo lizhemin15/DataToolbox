@@ -7816,10 +7816,12 @@ async function toggleGovTask() {
 
 async function refreshGovTaskStatus() {
     if (!currentGovTask) return;
+    console.log('[refreshGovTaskStatus] 开始刷新, 当前状态:', currentGovTask.status);
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}`);
         const data = await response.json();
         if (data.success && data.task) {
+            console.log('[refreshGovTaskStatus] 后端返回状态:', data.task.status);
             const idx = govTasks.findIndex(t => t.id === data.task.id);
             if (idx >= 0) govTasks[idx] = data.task;
             currentGovTask = data.task;
@@ -7827,7 +7829,10 @@ async function refreshGovTaskStatus() {
             renderGovTaskList();
             loadGovTaskLogs();
             if (data.task.status === 'running') {
+                console.log('[refreshGovTaskStatus] 状态仍为 running, 3秒后继续轮询');
                 setTimeout(refreshGovTaskStatus, 3000);
+            } else {
+                console.log('[refreshGovTaskStatus] 任务已结束, 停止轮询');
             }
         }
     } catch (error) {
