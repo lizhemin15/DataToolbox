@@ -8083,14 +8083,19 @@ async function pollTaskProgress(taskId, runId) {
                     </div>`;
             }
 
-            // 任务已结束，刷新详情
+            // 任务已结束，更新状态并刷新详情
             if (status !== 'running') {
-                // 重新加载任务详情和日志 /logs?
-                await loadGovernanceTasks();
-                const task = govTasks.find(t => t.id === taskId);
-                if (task) {
-                    currentGovTask = task;
-                    showGovTaskDetail(task);
+                // 直接更新 currentGovTask 和 govTasks 数组，避免 loadGovernanceTasks 触发额外的轮询
+                if (currentGovTask && currentGovTask.id === taskId) {
+                    currentGovTask.status = status;
+                    currentGovTask.percent = percent;
+                    currentGovTask.last_output = last_output;
+                    currentGovTask.last_error = last_error;
+                    currentGovTask.last_run_at = new Date().toISOString();
+                    const idx = govTasks.findIndex(t => t.id === taskId);
+                    if (idx >= 0) govTasks[idx] = currentGovTask;
+                    showGovTaskDetail(currentGovTask);
+                    renderGovTaskList();
                 }
                 await loadGovTaskLogs();
                 return;
