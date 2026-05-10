@@ -287,8 +287,9 @@ async function main() {
     }
   }
   
-  // 格式化输出（输出 L2 标题和内容）
+  // 格式化输出（输出 L2 标题和内容，标题用数字编号）
   const projectLines = [];
+  let sectionNum = 1;
   for (const [section, projects] of Object.entries(projectSections)) {
     if (section === '_overview') {
       projectLines.push(...projects);
@@ -296,7 +297,8 @@ async function main() {
     }
     
     // 输出 L2 标题（如"（二）待启动项目"）
-    projectLines.push(`**（${section}）**`);
+    projectLines.push(`（${sectionNum}）${section}`);
+    sectionNum++;
     for (const [project, contents] of Object.entries(projects)) {
       if (project === '_summary') {
         // L2 级别的汇总内容（缩进）
@@ -366,6 +368,7 @@ async function main() {
   
   // 格式化输出（输出 L2 标题和内容）
   const riskLines = [];
+  let riskSectionNum = 1;
   for (const [section, risks] of Object.entries(riskSections)) {
     if (section === '_overview') {
       riskLines.push(...risks);
@@ -373,7 +376,8 @@ async function main() {
     }
     
     // 输出 L2 标题
-    riskLines.push(`**（${section}）**`);
+    riskLines.push(`（${riskSectionNum}）${section}`);
+    riskSectionNum++;
     for (const [risk, contents] of Object.entries(risks)) {
       if (risk === '_summary') {
         for (const c of contents) {
@@ -441,6 +445,7 @@ async function main() {
   
   // 格式化输出（输出 L2 标题和内容）
   const planLines = [];
+  let planSectionNum = 1;
   for (const [section, plans] of Object.entries(planSections)) {
     if (section === '_overview') {
       planLines.push(...plans);
@@ -448,7 +453,8 @@ async function main() {
     }
     
     // 输出 L2 标题
-    planLines.push(`**（${section}）**`);
+    planLines.push(`（${planSectionNum}）${section}`);
+    planSectionNum++;
     for (const [plan, contents] of Object.entries(plans)) {
       if (plan === '_summary') {
         for (const c of contents) {
