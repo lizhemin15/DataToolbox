@@ -16507,12 +16507,19 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 		maxSize := int64(100 * 1024 * 1024) // 100MB
 		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 		if err := r.ParseMultipartForm(maxSize); err == nil {
-			// 优先使用请求参数中的分享配置，如果没有则用任务配置
+			// 优先使用请求参数中的分享配置，，如果没有则用任务配置
 			if v := r.FormValue("share_enabled"); v == "true" {
 				shareEnabledFromReq = true
 			}
 			if v := r.FormValue("share_token"); v != "" {
 				shareTokenFromReq = v
+			}
+
+			// 如果前端传了 input_files 参数，优先使用它（原始文件名）
+			if v := r.FormValue("input_files"); v != "" {
+				if err := json.Unmarshal([]byte(v), &inputFileNames); err != nil {
+					inputFileNames = []string{} // 解析失败则回退到从文件提取
+				}
 			}
 
 			// 如果请求参数没有提供分享配置，使用任务配置
