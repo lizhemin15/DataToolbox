@@ -311,7 +311,7 @@ async function main() {
       }
     }
   }
-  module["key_projects"] = projectLines.join('\\n') || '暂无重点项目信息';
+  module["key_projects"] = projectLines.join('\n') || '暂无重点项目信息';
   
   // 4. 提取风险信息（按风险类型分组，合并各单位内容）
   const riskSections = {};
@@ -385,7 +385,7 @@ async function main() {
       }
     }
   }
-  module["risk_detail"] = riskLines.join('\\n') || '暂无风险信息';
+  module["risk_detail"] = riskLines.join('\n') || '暂无风险信息';
   
   // 5. 提取明日计划（按计划类型分组，合并各单位内容）
   const planSections = {};
@@ -459,7 +459,7 @@ async function main() {
       }
     }
   }
-  module["tomorrow_plan"] = planLines.join('\\n') || '暂无明日计划';
+  module["tomorrow_plan"] = planLines.join('\n') || '暂无明日计划';
   
   gov.log('=== 替换规则执行完成 ===');
   gov.log(`已填充 ${Object.keys(module).filter(k => module[k]).length} 个占位符`);
