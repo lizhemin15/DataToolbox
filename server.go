@@ -16792,22 +16792,22 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 				}
 			}
 		}
-	governanceShareRunsMu.Lock()
-	if run, exists := governanceShareRuns[runID]; exists {
-		run.Status = shareStatus
-		run.Progress = 100
-		run.Output = shareOutput
-		// 更新 ShareToken
-		run.ShareToken = shareToken
-		if inputFiles != nil {
-			run.InputFiles = append([]string(nil), inputFiles...)
-		}
-		// 扫描输出文件并更新
-		_, resultFiles := scanShareRunFiles(shareToken, runID)
-		if len(resultFiles) > 0 {
-			run.ResultFiles = resultFiles
-		}
-		run.UpdatedAt = time.Now()
+		governanceShareRunsMu.Lock()
+		if run, exists := governanceShareRuns[runID]; exists {
+			run.Status = shareStatus
+			run.Progress = 100
+			run.Output = shareOutput
+			// 更新 ShareToken
+			run.ShareToken = shareToken
+			if inputFiles != nil {
+				run.InputFiles = append([]string(nil), inputFiles...)
+			}
+			// 扫描输出文件并更新
+			_, resultFiles := scanShareRunFiles(shareToken, runID)
+			if len(resultFiles) > 0 {
+				run.ResultFiles = resultFiles
+			}
+			run.UpdatedAt = time.Now()
 		} else {
 			now := time.Now()
 			clonedInputs := append([]string(nil), inputFiles...)
