@@ -37,3 +37,6 @@ web/
 
 DataToolbox
 node_modules/
+
+# Compiled binaries
+gov-runner

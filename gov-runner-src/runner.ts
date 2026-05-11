@@ -14,8 +14,9 @@ import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govPars
  * 处理富文本格式：**加粗**、[f:字体,s:字号]文字、>首行缩进
  */
 function processRichTextFormatting(xml: string): string {
-  // 处理每个 <w:t> 元素中的富文本标记
-  return xml.replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, (match, text) => {
+  // 找到所有包含 ** 或 [f: 的 <w:r> 元素，并替换其中的内容
+  // 注意：需要匹配整个 <w:r> 元素，而不是只匹配 <w:t>
+  return xml.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (match, rPr, text) => {
     if (!text) return match;
     
     // 检查是否包含富文本标记
@@ -25,10 +26,6 @@ function processRichTextFormatting(xml: string): string {
     if (!hasBold && !hasFont) {
       return match;
     }
-    
-    // 提取原有的 XML 属性
-    const attrMatch = match.match(/<w:t([^>]*)>/);
-    const attrs = attrMatch ? attrMatch[1] : '';
     
     // 解析富文本格式
     const segments = parseRichTextSegments(text);
