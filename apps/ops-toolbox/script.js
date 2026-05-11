@@ -75,13 +75,15 @@ document.getElementById('ssh-connect').addEventListener('click', () => {
     document.getElementById('ssh-connect').disabled = true;
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${location.host}/ws/ops/ssh?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&user=${encodeURIComponent(user)}&password=${encodeURIComponent(password)}`;
+    // 密码通过 WebSocket 子协议传递，不放在 URL 中
+    const wsUrl = `${proto}//${location.host}/ws/ops/ssh?host=${encodeURIComponent(host)}&port=${encodeURIComponent(port)}&user=${encodeURIComponent(user)}`;
 
     document.getElementById('terminal-container').style.display = 'block';
     initXterm();
     sshTerm.writeln(`\x1b[33m正在连接 ${user}@${host}:${port} ...\x1b[0m`);
 
-    sshWs = new WebSocket(wsUrl);
+    // 使用 WebSocket 子协议传递密码
+    sshWs = new WebSocket(wsUrl, [password]);
     sshWs.binaryType = 'arraybuffer';
 
     sshWs.onopen = () => {

@@ -17639,13 +17639,13 @@ func (w *opsSSHWriter) Write(p []byte) (n int, err error) {
 }
 
 // handleSSHWebSocket 通过 WebSocket 代理 SSH 终端
-// 连接参数通过 URL Query 传入：host, port, user, password
+// 连接参数：host, port, user 通过 URL Query 传入，password 通过 WebSocket 子协议传入
 func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	host := q.Get("host")
 	portStr := q.Get("port")
 	user := q.Get("user")
-	password := q.Get("password")
+	// 密码不再从 URL 参数读取，改用子协议传递
 
 	if host == "" || user == "" {
 		http.Error(w, "missing host or user", http.StatusBadRequest)
@@ -17655,6 +17655,27 @@ func handleSSHWebSocket(w http.ResponseWriter, r *http.Request) {
 		portStr = "22"
 	}
 
+	// 从 Sec-WebSocket-Protocol header 中读取密码
+	// 前端需要设置: new WebSocket(url, [password])
+	var password string
+	if protocols := r.Header.Get("Sec-WebSocket-Protocol"); protocols != "" {
+		// 协议列表格式: "password-here" 或 "protocol1, password-here"
+		parts := strings.Split(protocols, ",")
+		if len(parts) > 0 {
+			// 取最后一个协议作为密码（去掉引号和空格）
+			password = strings.TrimSpace(strings.Trim(parts[len(parts)-1], `" `))
+		}
+	}
+
+	if password == "" {
+		http.Error(w, "missing password in websocket protocol", http.StatusBadRequest)
+		return
+	}
+
+	// 使用自定义 upgrader，响应时包含子协议
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
 	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
