@@ -227,6 +227,17 @@
                         <div id="userMgmtCreateMsg" class="error-message"></div>
                     </div>
                     <div class="tables-section user-mgmt-drawer-section">
+                        <h3>批量导入</h3>
+                        <div class="db-info" style="gap:12px;">
+                            <button type="button" id="downloadUserTemplateBtn" class="btn btn-sm btn-secondary">下载模板</button>
+                            <label class="btn btn-sm btn-primary" style="margin:0;cursor:pointer;">
+                                导入 Excel
+                                <input type="file" id="importUsersFile" accept=".xlsx,.xls" style="display:none;">
+                            </label>
+                        </div>
+                        <div id="userMgmtImportMsg" class="error-message"></div>
+                    </div>
+                    <div class="tables-section user-mgmt-drawer-section">
                         <h3>用户列表</h3>
                         <div id="userMgmtList" class="user-mgmt-table-wrap"></div>
                     </div>

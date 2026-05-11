@@ -5007,6 +5007,102 @@ func handleDataOntologyUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleDataOntologyUsersBatch POST /api/data-ontology/users/batch 批量创建用户（仅 admin）
+func handleDataOntologyUsersBatch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		return
+	}
+
+	if _, ok := requireDataOntologyAdmin(w, r); !ok {
+		return
+	}
+
+	var body struct {
+		Users []struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		} `json:"users"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+
+	if len(body.Users) == 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "用户列表不能为空"})
+		return
+	}
+
+	type ResultItem struct {
+		Username string `json:"username"`
+		Success  bool   `json:"success"`
+		Message  string `json:"message,omitempty"`
+	}
+
+	var successList []ResultItem
+	var failList []ResultItem
+
+	dataOntologyMu.Lock()
+	for _, user := range body.Users {
+		name := strings.TrimSpace(user.Username)
+		pwd := strings.TrimSpace(user.Password)
+
+		if name == "" {
+			failList = append(failList, ResultItem{
+				Username: user.Username,
+				Success:  false,
+				Message:  "用户名不能为空",
+			})
+			continue
+		}
+
+		if pwd == "" {
+			failList = append(failList, ResultItem{
+				Username: name,
+				Success:  false,
+				Message:  "密码不能为空",
+			})
+			continue
+		}
+
+		if _, exists := dataOntologyUsers[name]; exists {
+			failList = append(failList, ResultItem{
+				Username: name,
+				Success:  false,
+				Message:  "用户名已存在",
+			})
+			continue
+		}
+
+		dataOntologyUsers[name] = &User{
+			Username: name,
+			Password: hashPassword(pwd),
+		}
+		successList = append(successList, ResultItem{
+			Username: name,
+			Success:  true,
+		})
+	}
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存用户失败: %v", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"total":        len(body.Users),
+		"successCount": len(successList),
+		"failCount":    len(failList),
+		"successList":  successList,
+		"failList":     failList,
+	})
+}
+
 // handleDataOntologyUsersDetail DELETE /users/{username} / PUT /users/{username}/password
 func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -19698,6 +19794,7 @@ func main() {
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
 	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
+	mux.HandleFunc("/api/data-ontology/users/batch", handleDataOntologyUsersBatch)
 	mux.HandleFunc("/api/data-ontology/users/", handleDataOntologyUsersDetail)
 	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
 	mux.HandleFunc("/api/data-ontology/settings", handleUserSettings)

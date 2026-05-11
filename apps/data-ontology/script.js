@@ -940,6 +940,11 @@ function initEventListeners() {
     const editPwdConfirm = document.getElementById('editPasswordConfirmInput');
     if (editPwd) editPwd.addEventListener('input', clearUserPasswordModalPwdHint);
     if (editPwdConfirm) editPwdConfirm.addEventListener('input', clearUserPasswordModalPwdHint);
+    // 批量导入用户
+    const downloadUserTemplateBtn = document.getElementById('downloadUserTemplateBtn');
+    if (downloadUserTemplateBtn) downloadUserTemplateBtn.addEventListener('click', handleDownloadUserTemplate);
+    const importUsersFile = document.getElementById('importUsersFile');
+    if (importUsersFile) importUsersFile.addEventListener('change', handleImportUsers);
 }
 
 // 提示框相关工具。
@@ -1491,6 +1496,82 @@ async function handleCreateUser() {
         msgEl.textContent = e.message;
         msgEl.classList.add('show');
     }
+}
+
+// 下载用户导入模板
+function handleDownloadUserTemplate() {
+    // 使用 SheetJS 创建 Excel
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+        ['用户名', '密码'],
+        ['user1', 'password1'],
+        ['user2', 'password2'],
+        ['user3', 'password3']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    // 设置列宽
+    ws['!cols'] = [{ wch: 20 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws, '用户列表');
+    XLSX.writeFile(wb, '用户导入模板.xlsx');
+}
+
+// 导入用户 Excel
+async function handleImportUsers(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const msgEl = document.getElementById('userMgmtImportMsg');
+    msgEl.classList.remove('show');
+    
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: ['username', 'password'] });
+        
+        // 跳过表头
+        const users = json.slice(1).filter(row => row.username && row.password);
+        
+        if (users.length === 0) {
+            msgEl.textContent = 'Excel 中没有有效的用户数据';
+            msgEl.classList.add('show');
+            e.target.value = '';
+            return;
+        }
+        
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/users/batch`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ users })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const successCount = result.success_count || 0;
+            const failCount = result.fail_count || 0;
+            let message = `导入完成：成功 ${successCount} 个`;
+            if (failCount > 0) {
+                message += `，失败 ${failCount} 个`;
+                if (result.fail_list && result.fail_list.length > 0) {
+                    message += '\n失败原因：\n' + result.fail_list.map(f => `${f.username}: ${f.message}`).join('\n');
+                }
+            }
+            showToast(message, failCount > 0 ? 'warning' : 'success');
+            loadUsers();
+        } else {
+            msgEl.textContent = result.message || '导入失败';
+            msgEl.classList.add('show');
+        }
+    } catch (err) {
+        msgEl.textContent = '解析文件失败: ' + err.message;
+        msgEl.classList.add('show');
+    }
+    
+    e.target.value = '';
 }
 
 // 测试数据库连接。
