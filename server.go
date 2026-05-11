@@ -403,7 +403,7 @@ func jsonSuccess(w http.ResponseWriter, data map[string]interface{}) {
 
 // jsonError 写入错误 JSON 响应
 func jsonError(w http.ResponseWriter, message string, errorCode string) {
-	jsonResponse(w, map[string]interface{}{"success": false, "message": message, "errorCode": errorCode}, 0)
+	jsonResponse(w, map[string]interface{}{"success": false, "message": message, "error_code": errorCode}, 0)
 }
 
 // jsonErrorWithLog 写入错误 JSON 响应并记录日志
@@ -5094,12 +5094,12 @@ func handleDataOntologyUsersBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"total":        len(body.Users),
-		"successCount": len(successList),
-		"failCount":    len(failList),
-		"successList":  successList,
-		"failList":     failList,
+		"success":       true,
+		"total":         len(body.Users),
+		"success_count": len(successList),
+		"fail_count":    len(failList),
+		"success_list":  successList,
+		"fail_list":     failList,
 	})
 }
 
@@ -6246,12 +6246,12 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 	edges, warn := queryForeignKeyLineage(db, config, tables)
 	edges = dedupeLineageEdges(edges)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":   true,
-		"dbType":    config.Type,
-		"tables":    tables,
-		"edges":     edges,
-		"edgeCount": len(edges),
-		"message":   warn,
+		"success":     true,
+		"db_type":     config.Type,
+		"tables":      tables,
+		"edges":       edges,
+		"edge_count":  len(edges),
+		"message":     warn,
 	})
 }
 
@@ -11442,7 +11442,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			sendSSE(w, "confirm_write", map[string]interface{}{
 				"response": responseText,
 				"sql":      sqlQuery,
-				"dbId":     targetDBID,
+				"db_id":    targetDBID,
 				"attempts": attempts,
 				"retries":  retry,
 			})
@@ -11590,7 +11590,7 @@ func handleAIConfirmExecute(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		SQL  string `json:"sql"`
-		DBID string `json:"dbId"`
+		DBID string `json:"db_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -17925,9 +17925,9 @@ func handleSFTPConnect(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[SFTP] 连接成功: host=%s, user=%s, session=%s", req.Host, req.User, sessionID)
 	jsonSuccess(w, map[string]interface{}{
-		"success":     true,
-		"sessionId":   sessionID,
-		"currentPath": homePath,
+		"success":      true,
+		"session_id":   sessionID,
+		"current_path": homePath,
 	})
 }
 
@@ -17957,15 +17957,15 @@ func handleSFTPList(w http.ResponseWriter, r *http.Request) {
 	files := make([]map[string]interface{}, 0, len(entries)+1)
 	if remotePath != "/" {
 		files = append(files, map[string]interface{}{
-			"name": "..", "size": int64(0), "isDir": true, "modTime": "", "permissions": "drwxr-xr-x",
+			"name": "..", "size": int64(0), "is_dir": true, "mod_time": "", "permissions": "drwxr-xr-x",
 		})
 	}
 	for _, e := range entries {
 		files = append(files, map[string]interface{}{
 			"name":        e.Name(),
 			"size":        e.Size(),
-			"isDir":       e.IsDir(),
-			"modTime":     e.ModTime().Format("2006-01-02 15:04"),
+			"is_dir":      e.IsDir(),
+			"mod_time":    e.ModTime().Format("2006-01-02 15:04"),
 			"permissions": e.Mode().String(),
 		})
 	}

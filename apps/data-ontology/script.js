@@ -1551,8 +1551,8 @@ async function handleImportUsers(e) {
         const result = await response.json();
         
         if (result.success) {
-            const successCount = result.successCount || result.success_count || 0;
-            const failCount = result.failCount || result.fail_count || 0;
+            const successCount = result.success_count || 0;
+            const failCount = result.fail_count || 0;
             let message = `导入完成：成功 ${successCount} 个`;
             if (failCount > 0) {
                 message += `，失败 ${failCount} 个`;
@@ -11367,7 +11367,7 @@ function renderLineageGraph(data) {
 
     const tables = data.tables || [];
     const edges = data.edges || [];
-    const edgeCount = data.edgeCount != null ? data.edgeCount : edges.length;
+    const edgeCount = data.edge_count != null ? data.edge_count : edges.length;
 
     if (listEl) {
         if (edges.length === 0) {

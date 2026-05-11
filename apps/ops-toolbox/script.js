@@ -169,8 +169,8 @@ document.getElementById('sftp-connect').addEventListener('click', async () => {
         const data = await res.json();
         if (!data.success) throw new Error(data.message);
 
-        sftpSessionId = data.sessionId;
-        sftpCurrentPath = data.currentPath || '/';
+        sftpSessionId = data.session_id;
+        sftpCurrentPath = data.current_path || '/';
         sftpConnected = true;
 
         document.getElementById('sftp-connect-form').style.display = 'none';
@@ -298,14 +298,14 @@ function createRemoteFileItem(file) {
     const main = document.createElement('div');
     main.className = 'file-item-main';
     main.innerHTML = `
-        <div class="file-icon">${file.isDir ? '📁' : getFileIcon(file.name)}</div>
+        <div class="file-icon">${file.is_dir ? '📁' : getFileIcon(file.name)}</div>
         <div class="file-info">
             <div class="file-name" title="${escHtml(file.name)}">${escHtml(file.name)}</div>
-            <div class="file-size">${file.isDir ? '' : fmtSize(file.size)}${file.modTime ? (file.isDir ? '' : ' · ') + file.modTime : ''}</div>
+            <div class="file-size">${file.is_dir ? '' : fmtSize(file.size)}${file.mod_time ? (file.is_dir ? '' : ' · ') + file.mod_time : ''}</div>
         </div>`;
 
     main.addEventListener('click', () => {
-        if (file.isDir) {
+        if (file.is_dir) {
             let newPath;
             if (file.name === '..') {
                 const parts = sftpCurrentPath.replace(/\/$/, '').split('/');
@@ -326,7 +326,7 @@ function createRemoteFileItem(file) {
     const actions = document.createElement('div');
     actions.className = 'file-actions';
 
-    if (!file.isDir && file.name !== '..') {
+    if (!file.is_dir && file.name !== '..') {
         const dlBtn = document.createElement('button');
         dlBtn.className = 'file-action-btn';
         dlBtn.textContent = '下载';
