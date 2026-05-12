@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 export interface GovHelperInterface {
   log(msg: string): void;
   showTable(data: any[]): void;
+  getDefaultFont(): { name: string; size: number };
   getDbType(): string;
   getDatabases(): Array<{ id: string; name: string; type: string }>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -17,7 +18,7 @@ export interface GovHelperInterface {
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
-  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
+  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont?: { name: string; size: number }): Promise<void>;
   writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
   fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   writeCSV(filename: string, data: any[][]): void;
