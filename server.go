@@ -1115,15 +1115,17 @@ type GovernanceTask struct {
 
 // GovernanceTaskLog 任务执行日志
 type GovernanceTaskLog struct {
-	ID        string `json:"id"`
-	TaskID    string `json:"task_id"`
-	RunID     string `json:"run_id,omitempty"` // 与 GovernanceJob.RunID 对应，用于异步执行更新同一条日志
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time,omitempty"`
-	Status    string `json:"status"` // "running" | "success" | "error"
-	Output    string `json:"output,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Input     string `json:"input,omitempty"`
+	ID          string   `json:"id"`
+	TaskID      string   `json:"task_id"`
+	RunID       string   `json:"run_id,omitempty"` // 与 GovernanceJob.RunID 对应，用于异步执行更新同一条日志
+	StartTime   string   `json:"start_time"`
+	EndTime     string   `json:"end_time,omitempty"`
+	Status      string   `json:"status"` // "running" | "success" | "error"
+	Output      string   `json:"output,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Input       string   `json:"input,omitempty"`
+	InputFiles  []string `json:"input_files,omitempty"`  // 输入文件列表（文件名）
+	ResultFiles []string `json:"result_files,omitempty"` // 输出文件列表（文件名）
 }
 
 // 数据本体池存储
@@ -16579,14 +16581,20 @@ func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt str
 	if startedAt == "" {
 		startedAt = time.Now().Format(time.RFC3339)
 	}
+	// 提取输入文件名（不含路径）
+	var inputFileNames []string
+	for _, p := range job.InputFiles {
+		inputFileNames = append(inputFileNames, filepath.Base(p))
+	}
 	dataOntologyMu.Lock()
 	logEntry := &GovernanceTaskLog{
-		ID:        uuid.New().String(),
-		TaskID:    taskID,
-		RunID:     job.RunID,
-		StartTime: startedAt,
-		Status:    "running",
-		Input:     governanceJobInputSummary(job),
+		ID:         uuid.New().String(),
+		TaskID:     taskID,
+		RunID:      job.RunID,
+		StartTime:  startedAt,
+		Status:     "running",
+		Input:      governanceJobInputSummary(job),
+		InputFiles: inputFileNames,
 	}
 	governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], logEntry)
 	if len(governanceTaskLogs[taskID]) > 50 {
@@ -16756,6 +16764,11 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 
 // governanceFinalizeRunLog 将对应 run_id 的「运行中」日志更新为结束状态；若无则追加一条完成记录
 func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
+	governanceFinalizeRunLogWithFiles(taskID, runID, status, output, errStr, nil, nil)
+}
+
+// governanceFinalizeRunLogWithFiles 带文件列表的版本
+func governanceFinalizeRunLogWithFiles(taskID, runID, status, output, errStr string, inputFiles, resultFiles []string) {
 	if runID == "" {
 		runID = uuid.New().String()
 	}
@@ -16769,20 +16782,28 @@ func governanceFinalizeRunLog(taskID, runID, status, output, errStr string) {
 			l.Output = output
 			l.Error = errStr
 			l.EndTime = now
+			if len(inputFiles) > 0 {
+				l.InputFiles = inputFiles
+			}
+			if len(resultFiles) > 0 {
+				l.ResultFiles = resultFiles
+			}
 			found = true
 			break
 		}
 	}
 	if !found {
 		governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], &GovernanceTaskLog{
-			ID:        uuid.New().String(),
-			TaskID:    taskID,
-			RunID:     runID,
-			StartTime: now,
-			EndTime:   now,
-			Status:    status,
-			Output:    output,
-			Error:     errStr,
+			ID:          uuid.New().String(),
+			TaskID:      taskID,
+			RunID:       runID,
+			StartTime:   now,
+			EndTime:     now,
+			Status:      status,
+			Output:      output,
+			Error:       errStr,
+			InputFiles:  inputFiles,
+			ResultFiles: resultFiles,
 		})
 	}
 	if len(governanceTaskLogs[taskID]) > 50 {
@@ -16882,10 +16903,26 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		}
 	}
 	dataOntologyMu.RUnlock()
+	
+	// 提取输入文件名（不含路径）
+	var inputFileNames []string
+	for _, f := range inputFiles {
+		inputFileNames = append(inputFileNames, filepath.Base(f))
+	}
+	
+	// 扫描输出文件（如果有分享 token）
+	var resultFileNames []string
+	if shareToken != "" {
+		_, files := scanShareRunFiles(shareToken, runID)
+		for _, f := range files {
+			resultFileNames = append(resultFileNames, filepath.Base(f))
+		}
+	}
+	
 	if status == "success" {
-		governanceFinalizeRunLog(taskID, runID, "success", outStr, "")
+		governanceFinalizeRunLogWithFiles(taskID, runID, "success", outStr, "", inputFileNames, resultFileNames)
 	} else {
-		governanceFinalizeRunLog(taskID, runID, "error", outStr, errStr)
+		governanceFinalizeRunLogWithFiles(taskID, runID, "error", outStr, errStr, inputFileNames, resultFileNames)
 	}
 	// 使用传入的分享配置或任务配置来保存分享记录
 	log.Printf("[DEBUG] 最终分享配置: shareEnabled=%v, shareToken=%s, inputFiles=%v, len(shareToken)=%d", shareEnabled, shareToken, inputFiles, len(shareToken))
@@ -19572,16 +19609,34 @@ func handleGovernanceShareRuns(w http.ResponseWriter, r *http.Request, task *Gov
 				}
 			}
 		}
-		// 扫描该运行的文件列表
-		inputFiles, outputFiles := scanShareRunFiles(task.ShareToken, log.RunID)
-		
+		// 优先使用日志中保存的文件列表，为空时才扫描文件目录
+		inputFiles := log.InputFiles
+		outputFiles := log.ResultFiles
+		if len(inputFiles) == 0 || len(outputFiles) == 0 {
+			scannedInputs, scannedOutputs := scanShareRunFiles(task.ShareToken, log.RunID)
+			if len(inputFiles) == 0 {
+				inputFiles = scannedInputs
+			}
+			if len(outputFiles) == 0 {
+				outputFiles = scannedOutputs
+			}
+		}
+		// 提取文件名（如果存的是完整路径）
+		inputFileNames := make([]string, 0, len(inputFiles))
+		for _, f := range inputFiles {
+			inputFileNames = append(inputFileNames, filepath.Base(f))
+		}
+		outputFileNames := make([]string, 0, len(outputFiles))
+		for _, f := range outputFiles {
+			outputFileNames = append(outputFileNames, filepath.Base(f))
+		}
 		result[i] = map[string]interface{}{
 			"id":           log.RunID,
 			"status":       status,
 			"progress":     100,
 			"output":       output,
-			"input_files":  inputFiles,
-			"result_files": outputFiles,
+			"input_files":  inputFileNames,
+			"result_files": outputFileNames,
 			"created_at":   log.StartTime,
 			"updated_at":   log.EndTime,
 		}
