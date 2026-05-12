@@ -847,6 +847,25 @@ body {
     font-weight: 600;
 }
 
+/* 带按钮的信息项：值和按钮水平排列 */
+.info-item-with-action {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.info-item-with-action .info-value-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.info-item-with-action .btn {
+    padding: 2px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 .info-value.status {
     padding: 4px 12px;
     border-radius: 12px;

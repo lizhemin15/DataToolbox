@@ -307,19 +307,23 @@
                                 <span class="info-label">状态:</span>
                                 <span id="govTaskStatus" class="info-value status"></span>
                             </div>
-                            <div class="info-item" id="govShareItem" style="display:none;">
+                            <div class="info-item-with-action" id="govShareItem" style="display:none;">
                                 <span class="info-label">分享:</span>
-                                <span id="govTaskShareStatus" class="info-value"></span>
-                                <button id="govCopyShareLinkBtn" class="btn btn-sm" onclick="copyGovShareLink()" style="margin-left:8px;display:none;">📋 复制链接</button>
+                                <div class="info-value-wrap">
+                                    <span id="govTaskShareStatus" class="info-value"></span>
+                                    <button id="govCopyShareLinkBtn" class="btn btn-sm" onclick="copyGovShareLink()" style="display:none;">📋 复制链接</button>
+                                </div>
                             </div>
                             <div class="info-item" id="govCronItem" style="display:none;">
                                 <span class="info-label">Cron:</span>
                                 <span id="govTaskCron" class="info-value"></span>
                             </div>
-                            <div class="info-item" id="govEnabledItem" style="display:none;">
+                            <div class="info-item-with-action" id="govEnabledItem" style="display:none;">
                                 <span class="info-label">调度:</span>
-                                <span id="govTaskEnabled" class="info-value"></span>
-                                <button id="govToggleBtn" class="btn btn-sm" onclick="toggleGovTask()" style="margin-left:8px;"></button>
+                                <div class="info-value-wrap">
+                                    <span id="govTaskEnabled" class="info-value"></span>
+                                    <button id="govToggleBtn" class="btn btn-sm" onclick="toggleGovTask()"></button>
+                                </div>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">数据库:</span>
