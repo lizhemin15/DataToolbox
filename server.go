@@ -16788,11 +16788,14 @@ func governanceFinalizeRunLogWithFiles(taskID, runID, status, output, errStr str
 			l.EndTime = now
 			if len(inputFiles) > 0 {
 				l.InputFiles = inputFiles
+				log.Printf("[DEBUG] governanceFinalizeRunLogWithFiles: 更新日志 inputFiles=%v", inputFiles)
 			}
 			if len(resultFiles) > 0 {
 				l.ResultFiles = resultFiles
+				log.Printf("[DEBUG] governanceFinalizeRunLogWithFiles: 更新日志 resultFiles=%v", resultFiles)
 			}
 			found = true
+			log.Printf("[DEBUG] governanceFinalizeRunLogWithFiles: 找到 running 日志并更新, runID=%s, inputFiles=%v, resultFiles=%v", runID, l.InputFiles, l.ResultFiles)
 			break
 		}
 	}
@@ -16809,6 +16812,7 @@ func governanceFinalizeRunLogWithFiles(taskID, runID, status, output, errStr str
 			InputFiles:  inputFiles,
 			ResultFiles: resultFiles,
 		})
+		log.Printf("[DEBUG] governanceFinalizeRunLogWithFiles: 创建新日志, runID=%s, inputFiles=%v, resultFiles=%v", runID, inputFiles, resultFiles)
 	}
 	if len(governanceTaskLogs[taskID]) > 50 {
 		governanceTaskLogs[taskID] = governanceTaskLogs[taskID][len(governanceTaskLogs[taskID])-50:]
