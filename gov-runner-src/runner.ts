@@ -19,16 +19,20 @@ function processRichTextFormatting(xml: string): string {
   return xml.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (match, rPr, text) => {
     if (!text) return match;
     
+    // docxtemplater 已经对文本进行了 XML 转义（如 < 变成 &lt;）
+    // 需要先反转义，处理富文本标记后再转义
+    const rawText = unescapeXml(text);
+    
     // 检查是否包含富文本标记
-    const hasBold = text.includes('**');
-    const hasFont = /\[f:([^,]+),s:(\d+)\]/.test(text);
+    const hasBold = rawText.includes('**');
+    const hasFont = /\[f:([^,]+),s:(\d+)\]/.test(rawText);
     
     if (!hasBold && !hasFont) {
       return match;
     }
     
     // 解析富文本格式
-    const segments = parseRichTextSegments(text);
+    const segments = parseRichTextSegments(rawText);
     
     if (segments.length === 1 && !segments[0].bold && !segments[0].font) {
       // 没有需要处理的格式，返回原样
@@ -164,6 +168,18 @@ function parseBoldSegments(text: string): Array<{text: string; bold?: boolean}> 
 /**
  * XML 转义
  */
+/**
+ * XML 反转义（将 &lt; &gt; &amp; 等还原为原始字符）
+ */
+function unescapeXml(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
 function escapeXml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
