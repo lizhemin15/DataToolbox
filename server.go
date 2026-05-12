@@ -19115,6 +19115,15 @@ func updateShareRun(runID string, status string, progress int, output string, in
 		if status == "failed" {
 			logStatus = "error"
 		}
+		// 提取文件名（不含路径）
+		var inputFileNames []string
+		for _, f := range shareRun.InputFiles {
+			inputFileNames = append(inputFileNames, filepath.Base(f))
+		}
+		var resultFileNames []string
+		for _, f := range shareRun.ResultFiles {
+			resultFileNames = append(resultFileNames, filepath.Base(f))
+		}
 		logEntry := &GovernanceTaskLog{
 			ID:          uuid.New().String(),
 			TaskID:      shareRun.TaskID,
@@ -19124,8 +19133,8 @@ func updateShareRun(runID string, status string, progress int, output string, in
 			Status:      logStatus,
 			Output:      shareRun.Output,
 			Input:       strings.Join(shareRun.InputFiles, ", "),
-			InputFiles:  shareRun.InputFiles,
-			ResultFiles: shareRun.ResultFiles,
+			InputFiles:  inputFileNames,
+			ResultFiles: resultFileNames,
 		}
 			governanceTaskLogs[shareRun.TaskID] = append(governanceTaskLogs[shareRun.TaskID], logEntry)
 			if len(governanceTaskLogs[shareRun.TaskID]) > 50 {
