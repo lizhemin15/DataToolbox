@@ -16026,10 +16026,12 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 	}
 
 	var req struct {
-		Status string `json:"status"`
-		Output string `json:"output"`
-		Error  string `json:"error"`
-		Input  string `json:"input"`
+		Status      string   `json:"status"`
+		Output      string   `json:"output"`
+		Error       string   `json:"error"`
+		Input       string   `json:"input"`
+		InputFiles  []string `json:"input_files"`
+		ResultFiles []string `json:"result_files"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
@@ -16038,14 +16040,16 @@ func handleGovernanceTaskSaveLog(w http.ResponseWriter, r *http.Request, taskID 
 
 	now := time.Now().Format(time.RFC3339)
 	logEntry := &GovernanceTaskLog{
-		ID:        uuid.New().String(),
-		TaskID:    taskID,
-		StartTime: now,
-		EndTime:   now,
-		Status:    req.Status,
-		Output:    req.Output,
-		Error:     req.Error,
-		Input:     req.Input,
+		ID:          uuid.New().String(),
+		TaskID:      taskID,
+		StartTime:   now,
+		EndTime:     now,
+		Status:      req.Status,
+		Output:      req.Output,
+		Error:       req.Error,
+		Input:       req.Input,
+		InputFiles:  req.InputFiles,
+		ResultFiles: req.ResultFiles,
 	}
 
 	dataOntologyMu.Lock()
@@ -19102,21 +19106,23 @@ func updateShareRun(runID string, status string, progress int, output string, in
 				t.Percent = 100
 				t.CurrentFile = ""
 			}
-			// 创建任务执行日志
-			logStatus := "success"
-			if status == "failed" {
-				logStatus = "error"
-			}
-			logEntry := &GovernanceTaskLog{
-				ID:        uuid.New().String(),
-				TaskID:    shareRun.TaskID,
-				RunID:     runID,
-				StartTime: shareRun.CreatedAt.Format(time.RFC3339),
-				EndTime:   now,
-				Status:    logStatus,
-				Output:    shareRun.Output,
-				Input:     strings.Join(shareRun.InputFiles, ", "),
-			}
+		// 创建任务执行日志
+		logStatus := "success"
+		if status == "failed" {
+			logStatus = "error"
+		}
+		logEntry := &GovernanceTaskLog{
+			ID:          uuid.New().String(),
+			TaskID:      shareRun.TaskID,
+			RunID:       runID,
+			StartTime:   shareRun.CreatedAt.Format(time.RFC3339),
+			EndTime:     now,
+			Status:      logStatus,
+			Output:      shareRun.Output,
+			Input:       strings.Join(shareRun.InputFiles, ", "),
+			InputFiles:  shareRun.InputFiles,
+			ResultFiles: shareRun.ResultFiles,
+		}
 			governanceTaskLogs[shareRun.TaskID] = append(governanceTaskLogs[shareRun.TaskID], logEntry)
 			if len(governanceTaskLogs[shareRun.TaskID]) > 50 {
 				governanceTaskLogs[shareRun.TaskID] = governanceTaskLogs[shareRun.TaskID][len(governanceTaskLogs[shareRun.TaskID])-50:]
