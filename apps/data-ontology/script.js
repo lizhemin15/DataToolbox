@@ -8399,7 +8399,7 @@ function createGovHelper(logLines, uploadedFiles) {
             return [start - boldAdjustment, end - boldAdjustment, name, size];
         });
 
-        return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont };
+        return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
     }
 
     /**
@@ -8411,7 +8411,7 @@ function createGovHelper(logLines, uploadedFiles) {
         if (!data || typeof data !== 'object') return false;
         for (const value of Object.values(data)) {
             if (typeof value === 'string') {
-                if (value.includes('**') || value.startsWith('>')) {
+                if (value.includes('**') || value.startsWith('>') || value.includes('[f:')) {
                     return true;
                 }
             }
