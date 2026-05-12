@@ -11,307 +11,7 @@ import Docxtemplater from 'docxtemplater';
 import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure } from './gov-shared';
 
 /**
- * 解析格式文本：**加粗**、[f:字体,s:字号]、>首行缩进
- * 从前端 script.js 移植，适配后端环境
- */
-function parseFormatText(str: string, defaultFont: { name: string; size: number } | null = null): { text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]>; defaultFont: { name: string; size: number } } {
-  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
-
-  let indent = false;
-  let text = str;
-
-  // 检测首行缩进语法（行首的 >）
-  if (text.startsWith('>')) {
-    indent = true;
-    text = text.slice(1);
-  }
-
-  // 解析字体字号标记 [f:字体,s:字号]
-  const fontMarkers: Array<{ markerStart: number; markerLength: number; fontName: string; fontSize: number; contentLength: number }> = [];
-  const fontRegex = /\[f:([^\,\]]+),s:(\d+)\]/g;
-  let fontMatch;
-  while ((fontMatch = fontRegex.exec(text)) !== null) {
-    const fontName = fontMatch[1].trim();
-    const fontSize = parseInt(fontMatch[2], 10);
-    const markerStart = fontMatch.index;
-    const markerLength = fontMatch[0].length;
-
-    // 找到标记后的文字（直到下一个标记或字符串结束）
-    const afterMarker = text.slice(markerStart + markerLength);
-    const nextMarkerIdx = afterMarker.search(/\[f:|$/);
-    const contentLength = nextMarkerIdx === -1 ? afterMarker.length : nextMarkerIdx;
-
-    fontMarkers.push({
-      markerStart,
-      markerLength,
-      fontName,
-      fontSize,
-      contentLength
-    });
-  }
-
-  // 移除字体标记，计算最终文本
-  let textWithoutFontMarkers = text.replace(fontRegex, '');
-
-  // 计算字体标记在移除标记后的文本中的位置
-  const fonts: Array<[number, number, string, number]> = [];
-  let offsetAdjustment = 0;
-  for (const marker of fontMarkers) {
-    const adjustedStart = marker.markerStart - offsetAdjustment;
-    fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
-    offsetAdjustment += marker.markerLength;
-  }
-
-  // 解析加粗语法 **文字**
-  const bold: Array<[number, number]> = [];
-  const result: string[] = [];
-  let i = 0;
-  text = textWithoutFontMarkers;
-  while (i < text.length) {
-    if (text[i] === '*' && text[i + 1] === '*') {
-      // 找到结束的 **
-      const end = text.indexOf('**', i + 2);
-      if (end !== -1) {
-        const boldText = text.slice(i + 2, end);
-        const startOffset = result.length;
-        result.push(boldText);
-        bold.push([startOffset, startOffset + boldText.length]);
-        i = end + 2;
-      } else {
-        // 没有结束符，保留原样
-        result.push(text[i]);
-        i++;
-      }
-    } else {
-      result.push(text[i]);
-      i++;
-    }
-  }
-
-  const finalText = result.join('');
-
-  // 调整字体位置（因为加粗标记也被移除了）
-  const adjustedFonts = fonts.map(([start, end, name, size]) => {
-    // 计算加粗标记移除后的位置调整
-    let boldAdjustment = 0;
-    for (const [boldStart, boldEnd] of bold) {
-      if (boldStart <= start) {
-        boldAdjustment += 2; // 开始的 **
-      }
-      if (boldEnd <= end) {
-        boldAdjustment += 2; // 结束的 **
-      }
-    }
-    return [start - boldAdjustment, end - boldAdjustment, name, size];
-  });
-
-  return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
-}
-
-/**
- * 处理数据中的格式标记，返回处理后的数据和格式映射
- * 从前端 script.js 移植
- */
-function processFormatData(data: any, defaultFont: { name: string; size: number } | null = null): { data: any; formatMap: Record<string, any> } {
-  if (!data || typeof data !== 'object') return { data, formatMap: {} };
-
-  const formatMap: Record<string, any> = {};
-  const processedData: Record<string, any> = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    if (typeof value === 'string' && (value.includes('**') || value.startsWith('>') || value.includes('[f:'))) {
-      const parsed = parseFormatText(value, defaultFont);
-      processedData[key] = parsed.text;
-      formatMap[key] = parsed;
-    } else {
-      processedData[key] = value;
-    }
-  }
-
-  return { data: processedData, formatMap };
-}
-
-/**
- * 根据格式信息拆分文本
- * 从前端 script.js 移植
- */
-function splitTextByFormat(text: string, format: { bold?: Array<[number, number]>; fonts?: Array<[number, number, string, number]>; defaultFont?: { name: string; size: number } }): Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> {
-  const segments: Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> = [];
-  const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
-
-  // 创建文本位置到格式的映射
-  const fontMap = new Map<number, { fontName: string; fontSize: number }>();
-
-  // 映射字体信息
-  if (format.fonts && format.fonts.length > 0) {
-    for (const [start, end, fontName, fontSize] of format.fonts) {
-      for (let i = start; i < end; i++) {
-        fontMap.set(i, { fontName, fontSize });
-      }
-    }
-  }
-
-  // 映射加粗信息
-  const boldSet = new Set<number>();
-  if (format.bold && format.bold.length > 0) {
-    for (const [start, end] of format.bold) {
-      for (let i = start; i < end; i++) {
-        boldSet.add(i);
-      }
-    }
-  }
-
-  // 按格式变化拆分文本
-  if (text.length === 0) return segments;
-
-  let currentSegment = {
-    text: '',
-    bold: boldSet.has(0),
-    fontName: fontMap.has(0) ? fontMap.get(0)!.fontName : defaultFont.name,
-    fontSize: fontMap.has(0) ? fontMap.get(0)!.fontSize : defaultFont.size
-  };
-
-  for (let i = 0; i < text.length; i++) {
-    const charBold = boldSet.has(i);
-    const charFont = fontMap.has(i) ? fontMap.get(i)! : defaultFont;
-
-    // 检查格式是否变化
-    if (charBold !== currentSegment.bold ||
-        charFont.fontName !== currentSegment.fontName ||
-        charFont.fontSize !== currentSegment.fontSize) {
-      // 保存当前片段
-      if (currentSegment.text.length > 0) {
-        segments.push(currentSegment);
-      }
-      // 开始新片段
-      currentSegment = {
-        text: text[i],
-        bold: charBold,
-        fontName: charFont.fontName,
-        fontSize: charFont.fontSize
-      };
-    } else {
-      currentSegment.text += text[i];
-    }
-  }
-
-  // 保存最后一个片段
-  if (currentSegment.text.length > 0) {
-    segments.push(currentSegment);
-  }
-
-  return segments;
-}
-
-/**
- * 对 docx XML 应用格式化（后端版，无 DOM 依赖）
- * 从前端 script.js 移植，使用正则和字符串操作替代 DOM 操作
- */
-function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>): string {
-  if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
-
-  // 处理每个格式规则
-  for (const [key, format] of Object.entries(formatMap)) {
-    const formatText = format.text as string;
-    if (!formatText) continue;
-
-    // 查找包含该文本的 <w:t> 节点
-    // 匹配模式：<w:r>...<w:t>...文本...</w:t>...</w:r>
-    const regex = /<w:r>(<w:rPr>([\s\S]*?)<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g;
-
-    xmlContent = xmlContent.replace(regex, (match, rPrContent, rPrInner, textContent) => {
-      // 检查是否包含目标文本
-      if (!textContent || !textContent.includes(formatText)) {
-        return match;
-      }
-
-      const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
-      const hasBold = format.bold && format.bold.length > 0;
-      const hasFonts = format.fonts && format.fonts.length > 0;
-      const hasIndent = format.indent;
-
-      // 如果没有特殊格式，只设置默认字体
-      if (!hasBold && !hasFonts && !hasIndent) {
-        // 添加/更新 rPr 中的字体设置
-        let newRPr = rPrContent || '<w:rPr></w:rPr>';
-        if (!newRPr.includes('<w:rFonts')) {
-          newRPr = newRPr.replace('</w:rPr>', `<w:rFonts w:ascii="${defaultFont.name}" w:eastAsia="${defaultFont.name}" w:hAnsi="${defaultFont.name}"/></w:rPr>`);
-        }
-        if (!newRPr.includes('<w:sz')) {
-          newRPr = newRPr.replace('</w:rPr>', `<w:sz w:val="${defaultFont.size * 2}"/></w:rPr>`);
-        }
-        return `<w:r>${newRPr}<w:t>${textContent}</w:t></w:r>`;
-      }
-
-      // 处理首行缩进（需要修改父段落 <w:p>）
-      // 这需要在更外层处理，暂时跳过，在后续步骤处理
-
-      // 处理加粗和字体混排：拆分成多个 <w:r>
-      if (hasBold || hasFonts) {
-        const segments = splitTextByFormat(textContent, format);
-
-        const runs = segments.map(seg => {
-          let runXml = '<w:r><w:rPr>';
-
-          // 设置字体
-          runXml += `<w:rFonts w:ascii="${seg.fontName}" w:eastAsia="${seg.fontName}" w:hAnsi="${seg.fontName}"/>`;
-
-          // 设置字号（pt -> half-points）
-          runXml += `<w:sz w:val="${seg.fontSize * 2}"/>`;
-          runXml += `<w:szCs w:val="${seg.fontSize * 2}"/>`;
-
-          // 设置加粗
-          if (seg.bold) {
-            runXml += '<w:b/>';
-          }
-
-          runXml += '</w:rPr>';
-
-          // 创建文本节点
-          const spaceAttr = (seg.text.startsWith(' ') || seg.text.endsWith(' ')) ? ' xml:space="preserve"' : '';
-          runXml += `<w:t${spaceAttr}>${escapeXml(seg.text)}</w:t>`;
-          runXml += '</w:r>';
-
-          return runXml;
-        });
-
-        return runs.join('');
-      }
-
-      return match;
-    });
-
-    // 处理首行缩进：在包含该文本的段落中添加 <w:ind w:firstLine="640"/>
-    if (format.indent) {
-      // 找到包含该文本的段落并添加缩进
-      const indentRegex = /<w:p>([\s\S]*?)<\/w:p>/g;
-      xmlContent = xmlContent.replace(indentRegex, (match, pContent) => {
-        if (!pContent.includes(formatText)) {
-          return match;
-        }
-
-        // 检查是否已有 pPr
-        if (pContent.includes('<w:pPr>')) {
-          // 在 pPr 中添加/更新 ind
-          if (!pContent.includes('<w:ind')) {
-            return match.replace('<w:pPr>', '<w:pPr><w:ind w:firstLine="640"/>');
-          }
-        } else {
-          // 添加 pPr 和 ind
-          return `<w:p><w:pPr><w:ind w:firstLine="640"/></w:pPr>${pContent}</w:p>`;
-        }
-
-        return match;
-      });
-    }
-  }
-
-  return xmlContent;
-}
-
-/**
  * 处理富文本格式：**加粗**、[f:字体,s:字号]文字、>首行缩进
- * 保留旧函数以兼容旧代码，但新代码应使用 applyDocxFormatting
  */
 function processRichTextFormatting(xml: string): string {
   // 找到所有包含 ** 或 [f: 的 <w:r> 元素，并替换其中的内容
@@ -512,7 +212,6 @@ export interface GovOutputFile {
 export interface GovHelper {
   log(msg: string): void;
   showTable(data: any[]): void;
-  getDefaultFont(): { name: string; size: number };
   getDbType(): string;
   getDatabases(): Array<{ id: string; name: string; type: string }>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -523,7 +222,7 @@ export interface GovHelper {
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
-  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont?: { name: string; size: number }): Promise<void>;
+  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
   fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   writeCSV(filename: string, data: any[][]): void;
@@ -725,24 +424,12 @@ export function createGovHelper(
       return data.content || '';
     },
 
-    getDefaultFont(): { name: string; size: number } {
-      // 返回默认字体配置，可在代码中覆盖
-      return { name: '仿宋_GB2312', size: 16 };
-    },
-
-    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont?: { name: string; size: number }) {
+    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string) {
       if (!templateFile) throw new Error('未提供模板文件');
-      
-      // 使用传入的 defaultFont 或默认值
-      const effectiveDefaultFont = defaultFont || { name: '仿宋_GB2312', size: 16 };
-      
-      // 预处理数据：清理格式标记，建立 formatMap
-      const { data: processedData, formatMap } = processFormatData(data, effectiveDefaultFont);
-      
       const buf = Buffer.from(await templateFile.arrayBuffer());
       const zip = new PizZip(buf);
       const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-      doc.setData(processedData || {});
+      doc.setData(data || {});
       doc.render();
       
       // 获取生成的文档内容
@@ -750,13 +437,8 @@ export function createGovHelper(
       let documentXml = generatedZip.file('word/document.xml')?.asText();
       
       if (documentXml) {
-        // 使用新的格式化函数（基于 formatMap）
-        if (Object.keys(formatMap).length > 0) {
-          documentXml = applyDocxFormatting(documentXml, formatMap);
-        } else {
-          // 没有格式标记，使用旧的兼容函数
-          documentXml = processRichTextFormatting(documentXml);
-        }
+        // 处理富文本格式
+        documentXml = processRichTextFormatting(documentXml);
         
         // 更新 zip 中的 document.xml
         generatedZip.file('word/document.xml', documentXml);
