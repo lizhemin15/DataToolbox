@@ -202,18 +202,27 @@ async function runFromCLI() {
 
 // ==================== 入口 ====================
 
-if (process.env.GOV_RUNNER_CLI === 'true' || process.argv.length > 2) {
-  runFromCLI().catch(err => {
-    console.log(JSON.stringify({ success: false, output: [], error: err.message || String(err) }));
-    process.exit(0);
-  });
-} else {
-  // HTTP 服务模式
-  console.log(`gov-runner HTTP 服务启动，端口 ${PORT}`);
-  console.log(`API_BASE: ${API_BASE}`);
-  
-  Bun.serve({
-    port: PORT,
-    fetch: handleRequest,
-  });
+async function main() {
+  if (process.env.GOV_RUNNER_CLI === 'true' || process.argv.length > 2) {
+    try {
+      await runFromCLI();
+    } catch (err: any) {
+      console.log(JSON.stringify({ success: false, output: [], error: err.message || String(err) }));
+      process.exit(0);
+    }
+  } else {
+    // HTTP 服务模式
+    console.log(`gov-runner HTTP 服务启动，端口 ${PORT}`);
+    console.log(`API_BASE: ${API_BASE}`);
+    
+    Bun.serve({
+      port: PORT,
+      fetch: handleRequest,
+    });
+  }
 }
+
+main().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
