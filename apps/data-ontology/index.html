@@ -1893,10 +1893,10 @@
                         <div class="gov-share-link-row" id="govShareLinkRow" style="display:none;">
                             <label>分享链接</label>
                             <div class="gov-share-link-box">
-                                <input type="text" id="govShareLinkInput" readonly>
+                                <input type="text" id="govShareLinkInput" placeholder="https://your-domain/share/abc123" onchange="onShareLinkChange()" oninput="onShareLinkChange()">
                                 <button type="button" class="btn btn-sm btn-secondary" onclick="copyGovShareLink()">复制</button>
                             </div>
-                            <small>分享链接可让他人免登录访问并执行任务</small>
+                            <small>分享链接可让他人免登录访问并执行任务，可自定义 token 部分</small>
                         </div>
                         <div id="govShareLinkPlaceholder">
                             <small class="text-muted">保存任务后可获取分享链接</small>

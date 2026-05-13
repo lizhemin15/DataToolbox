@@ -7705,13 +7705,61 @@ function extractShareToken() {
     }
     
     // 从链接中提取：/share/xxxxxxxx
-    const match = link.match(/\/share\/([a-z0-9]+)/);
+    const match = link.match(/\/share\/([a-z0-9-]+)/);
     if (match) {
         return match[1];
     }
     
     // 如果链接格式不对，尝试直接作为 token
     return link;
+}
+
+// 分享链接变化时更新 dataset.token
+function onShareLinkChange() {
+    const linkInput = document.getElementById('govShareLinkInput');
+    const link = linkInput.value.trim();
+    
+    // 从链接中提取 token
+    const match = link.match(/\/share\/([a-z0-9-]+)/);
+    if (match) {
+        linkInput.dataset.token = match[1];
+    } else if (link) {
+        // 直接作为 token
+        linkInput.dataset.token = link;
+    }
+}
+
+// 检查路径冲突
+function checkPathConflicts(shareToken, apiPath, currentTaskId) {
+    const conflicts = [];
+    
+    if (shareToken) {
+        for (const task of govTasks) {
+            if (task.id === currentTaskId) continue;
+            if (task.share_token === shareToken) {
+                conflicts.push({
+                    type: 'share_token',
+                    value: shareToken,
+                    taskName: task.name
+                });
+            }
+        }
+    }
+    
+    if (apiPath) {
+        for (const task of govTasks) {
+            if (task.id === currentTaskId) continue;
+            if (task.api_path === apiPath) {
+                conflicts.push({
+                    type: 'api_path',
+                    value: apiPath,
+                    taskName: task.name
+                });
+            }
+        }
+    }
+    
+    return conflicts;
 }
 
 // 复制分享链接
@@ -8098,6 +8146,45 @@ async function handleGovTaskSubmit(e) {
     const openShare = document.getElementById('govOpenShare').checked;
     const openAPI = document.getElementById('govOpenAPI').checked;
     const runMode = document.getElementById('govRunModeSelect') ? document.getElementById('govRunModeSelect').value : (currentGovTask?.run_mode || 'backend');
+    
+    // 提取 share_token 和 api_path
+    let shareToken = openShare ? extractShareToken() : '';
+    let apiPath = openAPI ? document.getElementById('govAPIPathInput').value.trim() : '';
+    
+    // 冲突检测：自动重新生成直到不冲突
+    let attempts = 0;
+    const maxAttempts = 10;
+    while (attempts < maxAttempts) {
+        const conflicts = checkPathConflicts(shareToken, apiPath, editingGovTaskId);
+        if (conflicts.length === 0) break;
+        
+        attempts++;
+        for (const conflict of conflicts) {
+            if (conflict.type === 'share_token') {
+                // 自动重新生成 share_token
+                shareToken = generateShareToken();
+                const shareLink = `${window.location.origin}/share/${shareToken}`;
+                document.getElementById('govShareLinkInput').value = shareLink;
+                document.getElementById('govShareLinkInput').dataset.token = shareToken;
+                showToast(`分享 token 已冲突，自动重新生成: ${shareToken}`, 'info');
+            } else if (conflict.type === 'api_path') {
+                // 自动重新生成 api_path
+                const taskName = document.getElementById('govTaskNameInput').value.trim();
+                const initials = chineseToPinyinInitials(taskName);
+                apiPath = `/api/tasks/${initials}-${generateShareToken().substring(0, 4)}`;
+                document.getElementById('govAPIPathInput').value = apiPath;
+                updateAPIExample();
+                showToast(`API 路径已冲突，自动重新生成: ${apiPath}`, 'info');
+            }
+        }
+    }
+    
+    if (attempts >= maxAttempts) {
+        document.getElementById('govFormError').textContent = '无法生成唯一的路径，请手动修改';
+        document.getElementById('govFormError').classList.add('show');
+        return;
+    }
+    
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
         type: type,
@@ -8110,9 +8197,9 @@ async function handleGovTaskSubmit(e) {
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
         share_enabled: openShare,
-        share_token: openShare ? extractShareToken() : '',
+        share_token: shareToken,
         register_as_api: openAPI,
-        api_path: openAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
+        api_path: apiPath,
         api_method: openAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
         run_mode: runMode,
         execution_mode: runMode
