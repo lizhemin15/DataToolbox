@@ -15447,6 +15447,10 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 		if task.ShareEnabled && task.ShareToken == "" {
 			task.ShareToken = uuid.New().String()
 		}
+		// 处理 API 注册：如果 register_as_api=true，自动启用任务（否则 API 无法调用）
+		if task.RegisterAsAPI {
+			task.Enabled = true
+		}
 
 		dataOntologyMu.Lock()
 		governanceTasks[task.ID] = &task

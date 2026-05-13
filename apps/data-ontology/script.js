@@ -8073,7 +8073,15 @@ async function handleGovTaskSubmit(e) {
         const data = await response.json();
         if (data.success) {
             const savedId = data?.task?.id || data?.id || editingGovTaskId || null;
-            document.getElementById('govFormSuccess').textContent = isEditGovMode ? '已保存' : '已创建';
+            // 构建成功消息
+            let successMsg = isEditGovMode ? '已保存' : '已创建';
+            if (taskData.register_as_api && taskData.api_path) {
+                successMsg += `，API 已注册：${taskData.api_path}`;
+            }
+            if (taskData.share_enabled) {
+                successMsg += '，分享已开启';
+            }
+            document.getElementById('govFormSuccess').textContent = successMsg;
             document.getElementById('govFormSuccess').classList.add('show');
             setTimeout(async () => {
                 try {
