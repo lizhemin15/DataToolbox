@@ -1542,12 +1542,13 @@
                             <div>
                                 <label>检索策略</label>
                                 <select id="trStrategy" style="width:100%;padding:8px;border-radius:4px;border:1px solid #ddd;">
+                                    <option value="full" selected>全量检索 (Full)</option>
                                     <option value="keyword">关键词检索 (Keyword)</option>
                                     <option value="embedding">向量检索 (Embedding)</option>
                                     <option value="graph">关系检索 (Graph)</option>
-                                    <option value="hybrid" selected>混合检索 (Hybrid)</option>
+                                    <option value="hybrid">混合检索 (Hybrid)</option>
                                 </select>
-                                <small>混合检索同时使用多种策略，效果最佳</small>
+                                <small>全量检索将所有表结构传入上下文，适合表数量较少的场景</small>
                             </div>
                             <div>
                                 <label>最大返回表数</label>

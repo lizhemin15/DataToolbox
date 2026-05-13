@@ -921,7 +921,7 @@ type AIConfig struct {
 
 // TableRetrievalConfig 表检索配置
 type TableRetrievalConfig struct {
-	// 检索策略: "keyword" | "embedding" | "graph" | "hybrid"
+	// 检索策略: "full" | "keyword" | "embedding" | "graph" | "hybrid"
 	Strategy string `json:"strategy,omitempty"` // 默认 keyword
 	// 返回表数量上限
 	MaxTables int `json:"max_tables,omitempty"` // 默认 15
@@ -4164,6 +4164,22 @@ func retrieveRelevantTables(query string, dbConfig *DatabaseConfig, config *Tabl
 
 			// 三路合并（加权平均）
 			results = mergeRetrievalResults3(ftsResults, vectorResults, graphResults, keywordWeight, vectorWeight, graphWeight)
+
+		case "full":
+			// 全量检索：返回所有表，不进行筛选
+			tableInfos, err := getTableInfoList(dbConfig)
+			if err != nil {
+				return nil, err
+			}
+			results = make([]TableRelevanceResult, len(tableInfos))
+			for i, t := range tableInfos {
+				results[i] = TableRelevanceResult{
+					TableName:      t.Name,
+					RelevanceScore: 1.0, // 全量检索时所有表都相关
+					MatchReason:    "全量检索",
+				}
+			}
+			return results, nil
 
 		default: // "keyword"
 			ftsResults, err := manager.fts5RetrieveTables(query, dbConfig.ID, maxTables*2)
