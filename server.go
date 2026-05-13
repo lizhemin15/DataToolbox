@@ -15511,9 +15511,11 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 				task.ExecutionMode = task.RunMode
 			}
 		}
-		// 处理分享：如果前端传了 share_enabled=true，自动生成 share_token
-		if task.ShareEnabled && task.ShareToken == "" {
-			task.ShareToken = uuid.New().String()
+		// 处理分享：如果前端传了 share_enabled=true，使用前端传的 token 或自动生成
+		if task.ShareEnabled {
+			if task.ShareToken == "" {
+				task.ShareToken = uuid.New().String()
+			}
 		}
 		// 处理 API 注册：如果 register_as_api=true，自动启用任务（否则 API 无法调用）
 		if task.RegisterAsAPI {
@@ -15663,10 +15665,16 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		// APIPath/APIMethod 允许清空，直接赋值
 		task.APIPath = update.APIPath
 		task.APIMethod = update.APIMethod
-		// 分享字段 - 保留原有分享状态，除非明确关闭
+		// 分享字段 - 保留原有分享状态和 token，除非明确关闭或修改
 		// 只有通过 DELETE /share API 才能关闭分享，PUT 更新不应自动关闭
-		if update.ShareEnabled && task.ShareToken == "" {
-			task.ShareToken = uuid.New().String()
+		if update.ShareEnabled {
+			// 如果前端传了 share_token，使用前端的（允许自定义）
+			if update.ShareToken != "" {
+				task.ShareToken = update.ShareToken
+			} else if task.ShareToken == "" {
+				// 如果没有传且原来也没有，自动生成
+				task.ShareToken = uuid.New().String()
+			}
 			task.ShareEnabled = true
 		}
 		// 不自动关闭分享：如果前端没传 share_enabled 或传了 false，保持原状态

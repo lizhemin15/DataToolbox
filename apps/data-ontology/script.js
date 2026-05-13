@@ -7635,7 +7635,17 @@ function onGovOpenModeChange() {
     // 显示/隐藏 API 配置
     document.getElementById('govAPIConfig').style.display = openAPI ? '' : 'none';
     
-    // 如果启用 API，自动生成路径并更新示例
+    // 如果启用分享，自动生成分享链接（如果没有）
+    if (openShare && !document.getElementById('govShareLinkInput').value) {
+        const shareToken = generateShareToken();
+        const shareLink = `${window.location.origin}/share/${shareToken}`;
+        document.getElementById('govShareLinkInput').value = shareLink;
+        document.getElementById('govShareLinkInput').dataset.token = shareToken;
+        document.getElementById('govShareLinkRow').style.display = '';
+        document.getElementById('govShareLinkPlaceholder').style.display = 'none';
+    }
+    
+    // 如果启用 API，自动生成路径并更新示例（如果没有）
     if (openAPI && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
         if (taskName) {
@@ -7647,6 +7657,38 @@ function onGovOpenModeChange() {
     if (openAPI) {
         updateAPIExample();
     }
+}
+
+// 生成分享 token
+function generateShareToken() {
+    // 生成 8 位随机字符串
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let token = '';
+    for (let i = 0; i < 8; i++) {
+        token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return token;
+}
+
+// 从分享链接中提取 token
+function extractShareToken() {
+    const linkInput = document.getElementById('govShareLinkInput');
+    const link = linkInput.value.trim();
+    if (!link) return '';
+    
+    // 如果有 dataset.token，直接返回
+    if (linkInput.dataset.token) {
+        return linkInput.dataset.token;
+    }
+    
+    // 从链接中提取：/share/xxxxxxxx
+    const match = link.match(/\/share\/([a-z0-9]+)/);
+    if (match) {
+        return match[1];
+    }
+    
+    // 如果链接格式不对，尝试直接作为 token
+    return link;
 }
 
 // 复制分享链接
@@ -8045,6 +8087,7 @@ async function handleGovTaskSubmit(e) {
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
         share_enabled: openShare,
+        share_token: openShare ? extractShareToken() : '',
         register_as_api: openAPI,
         api_path: openAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
         api_method: openAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
