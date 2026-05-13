@@ -15584,14 +15584,13 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		task.AcceptExts = update.AcceptExts
 		task.FileBatchMode = update.FileBatchMode
 		task.Enabled = update.Enabled
-		// API 注册字段
+		// API 注册字段 - 只在明确传值时更新
+		// JSON 解码时未传的字段会是零值（bool 为 false），需要区分"未传"和"传了 false"
+		// 前端约定：更新时总是传完整数据，所以直接赋值
 		task.RegisterAsAPI = update.RegisterAsAPI
-		if update.APIPath != "" {
-			task.APIPath = update.APIPath
-		}
-		if update.APIMethod != "" {
-			task.APIMethod = update.APIMethod
-		}
+		// APIPath/APIMethod 允许清空，直接赋值
+		task.APIPath = update.APIPath
+		task.APIMethod = update.APIMethod
 		// 分享字段 - 保留原有分享状态，除非明确关闭
 		// 只有通过 DELETE /share API 才能关闭分享，PUT 更新不应自动关闭
 		if update.ShareEnabled && task.ShareToken == "" {
@@ -17030,8 +17029,15 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 		"database_id": dbID,
 		"db_type":     dbType,
 		"databases":   databases,
-		"input_text":  "",
+		"input_text":  "", // 默认空，下面会根据参数填充
 		"api_params":  params, // 传入 API 参数
+	}
+
+	// 将 api_params 序列化为 JSON 字符串注入到 INPUT_DATA
+	if len(params) > 0 {
+		if paramsJSON, err := json.Marshal(params); err == nil {
+			taskData["input_text"] = string(paramsJSON)
+		}
 	}
 
 	// 处理文件参数（如果有的话）
