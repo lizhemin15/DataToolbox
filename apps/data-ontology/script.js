@@ -7481,12 +7481,16 @@ function showAddGovTaskModal() {
     document.getElementById('govTaskForm').reset();
     document.getElementById('govEnabledInput').checked = true;
     document.getElementById('govEnabledLabel').textContent = '已启用';
-    // 重置 API 设置
-    document.getElementById('govRegisterAPIInput').checked = false;
-    document.getElementById('govRegisterAPILabel').textContent = '未注册';
+    // 重置开放方式
+    document.getElementById('govOpenShare').checked = false;
+    document.getElementById('govOpenAPI').checked = false;
     document.getElementById('govAPIPathInput').value = '';
     document.getElementById('govAPIMethodInput').value = 'POST';
-    document.getElementById('govAPIFields').style.display = 'none';
+    document.getElementById('govShareConfig').style.display = 'none';
+    document.getElementById('govAPIConfig').style.display = 'none';
+    document.getElementById('govShareLinkInput').value = '';
+    document.getElementById('govShareLinkRow').style.display = 'none';
+    document.getElementById('govShareLinkPlaceholder').style.display = '';
     const fbNew = document.getElementById('govFileBatchModeSelect');
     if (fbNew) fbNew.value = 'per_file';
     onGovTaskTypeChange();
@@ -7514,12 +7518,38 @@ function editGovTask() {
     document.getElementById('govAcceptExtsInput').value = (currentGovTask.accept_exts || []).join(',');
     const fb = document.getElementById('govFileBatchModeSelect');
     if (fb) fb.value = currentGovTask.file_batch_mode || 'per_file';
-    // API 设置
-    document.getElementById('govRegisterAPIInput').checked = currentGovTask.register_as_api || false;
-    document.getElementById('govRegisterAPILabel').textContent = currentGovTask.register_as_api ? '已注册' : '未注册';
+    
+    // 开放方式设置
+    const openShare = document.getElementById('govOpenShare');
+    const openAPI = document.getElementById('govOpenAPI');
+    if (openShare) openShare.checked = currentGovTask.share_enabled || false;
+    if (openAPI) openAPI.checked = currentGovTask.register_as_api || false;
+    
+    // API 配置
     document.getElementById('govAPIPathInput').value = currentGovTask.api_path || '';
     document.getElementById('govAPIMethodInput').value = currentGovTask.api_method || 'POST';
-    document.getElementById('govAPIFields').style.display = currentGovTask.register_as_api ? '' : 'none';
+    
+    // 分享链接
+    if (currentGovTask.share_token) {
+        const shareLink = `${window.location.origin}/share/${currentGovTask.share_token}`;
+        document.getElementById('govShareLinkInput').value = shareLink;
+        document.getElementById('govShareLinkRow').style.display = '';
+        document.getElementById('govShareLinkPlaceholder').style.display = 'none';
+    } else {
+        document.getElementById('govShareLinkInput').value = '';
+        document.getElementById('govShareLinkRow').style.display = 'none';
+        document.getElementById('govShareLinkPlaceholder').style.display = '';
+    }
+    
+    // 显示/隐藏配置面板
+    document.getElementById('govShareConfig').style.display = currentGovTask.share_enabled ? '' : 'none';
+    document.getElementById('govAPIConfig').style.display = currentGovTask.register_as_api ? '' : 'none';
+    
+    // 更新 API 示例
+    if (currentGovTask.register_as_api) {
+        updateAPIExample();
+    }
+    
     const currentRunMode = currentGovTask.run_mode || currentGovTask.execution_mode || currentGovTask.exec_mode || 'backend';
     const runModeSelect = document.getElementById('govRunModeSelect');
     if (runModeSelect) runModeSelect.value = currentRunMode;
@@ -7591,18 +7621,401 @@ function chineseToPinyinInitials(str) {
 }
 
 function onGovRegisterAPIChange() {
-    const checked = document.getElementById('govRegisterAPIInput').checked;
-    document.getElementById('govAPIFields').style.display = checked ? '' : 'none';
-    document.getElementById('govRegisterAPILabel').textContent = checked ? '启用' : '关闭';
+    // 已废弃，改用 onGovOpenModeChange
+}
+
+// 开放方式切换
+function onGovOpenModeChange() {
+    const openShare = document.getElementById('govOpenShare').checked;
+    const openAPI = document.getElementById('govOpenAPI').checked;
     
-    // 若启用 API 注册，则自动生成路径。
-    if (checked && !document.getElementById('govAPIPathInput').value) {
+    // 显示/隐藏分享配置
+    document.getElementById('govShareConfig').style.display = openShare ? '' : 'none';
+    
+    // 显示/隐藏 API 配置
+    document.getElementById('govAPIConfig').style.display = openAPI ? '' : 'none';
+    
+    // 如果启用 API，自动生成路径并更新示例
+    if (openAPI && !document.getElementById('govAPIPathInput').value) {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
         if (taskName) {
             const initials = chineseToPinyinInitials(taskName);
             document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
         }
     }
+    
+    if (openAPI) {
+        updateAPIExample();
+    }
+}
+
+// 复制分享链接
+function copyGovShareLink() {
+    const link = document.getElementById('govShareLinkInput').value;
+    if (!link) {
+        showToast('分享链接不存在', 'error');
+        return;
+    }
+    navigator.clipboard.writeText(link).then(() => {
+        showToast('分享链接已复制', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showToast('复制失败', 'error');
+    });
+}
+
+// API 示例相关函数
+let currentAPILang = 'curl';
+
+function switchAPILang(lang) {
+    currentAPILang = lang;
+    document.querySelectorAll('.gov-api-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.lang === lang);
+    });
+    updateAPIExample();
+}
+
+function updateAPIExample() {
+    const apiPath = document.getElementById('govAPIPathInput').value || '/api/tasks/my-task';
+    const method = document.getElementById('govAPIMethodInput').value || 'POST';
+    const inputType = document.getElementById('govInputTypeSelect')?.value || 'file';
+    const taskName = document.getElementById('govTaskNameInput').value || '我的任务';
+    
+    const code = generateAPIExampleCode(apiPath, method, inputType, taskName);
+    document.getElementById('govAPIExampleCode').textContent = code;
+}
+
+function generateAPIExampleCode(apiPath, method, inputType, taskName) {
+    const host = 'HOST';
+    const apiKey = 'API_KEY';
+    
+    const examples = {
+        curl: generateCurlExample(apiPath, method, inputType, host, apiKey),
+        python: generatePythonExample(apiPath, method, inputType, host, apiKey),
+        javascript: generateJavaScriptExample(apiPath, method, inputType, host, apiKey),
+        go: generateGoExample(apiPath, method, inputType, host, apiKey)
+    };
+    
+    return examples[currentAPILang] || examples.curl;
+}
+
+function generateCurlExample(apiPath, method, inputType, host, apiKey) {
+    let code = `# ${method} 请求调用任务\n`;
+    code += `curl -X ${method} "${host}${apiPath}" \\\n`;
+    code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
+    
+    if (method === 'POST') {
+        if (inputType === 'file' || inputType === 'both') {
+            code += `  -F "files=@/path/to/your/file.docx" \\\n`;
+            code += `  -F "files=@/path/to/another/file.xlsx"\n\n`;
+            code += `# JSON 参数方式（如果任务接受参数）\n`;
+            code += `curl -X POST "${host}${apiPath}" \\\n`;
+            code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
+            code += `  -H "Content-Type: application/json" \\\n`;
+            code += `  -d '{"param1": "value1", "param2": "value2"}'\n\n`;
+            code += `# 同时上传文件和参数\n`;
+            code += `curl -X POST "${host}${apiPath}" \\\n`;
+            code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
+            code += `  -F "files=@/path/to/file.docx" \\\n`;
+            code += `  -F "options={\"mode\":\"fast\",\"output\":\"pdf\"}"`;
+        } else {
+            code += `  -H "Content-Type: application/json" \\\n`;
+            code += `  -d '{"param1": "value1", "param2": "value2"}'`;
+        }
+    } else {
+        code += `  # GET 请求通过 URL 参数传递\n`;
+        code += `  "?param1=value1&param2=value2"`;
+    }
+    
+    return code;
+}
+
+function generatePythonExample(apiPath, method, inputType, host, apiKey) {
+    let code = `import requests\n\n`;
+    code += `API_KEY = "${apiKey}"\n`;
+    code += `HOST = "${host}"\n\n`;
+    
+    if (method === 'POST') {
+        if (inputType === 'file' || inputType === 'both') {
+            code += `# 上传文件调用任务\n`;
+            code += `def call_task_with_files(file_paths, params=None):\n`;
+            code += `    url = f"{HOST}${apiPath}"\n`;
+            code += `    headers = {"Authorization": f"Bearer {API_KEY}"}\n`;
+            code += `    \n`;
+            code += `    # 准备文件\n`;
+            code += `    files = [("files", open(fp, "rb")) for fp in file_paths]\n`;
+            code += `    \n`;
+            code += `    # 准备参数\n`;
+            code += `    data = {"options": str(params)} if params else None\n`;
+            code += `    \n`;
+            code += `    try:\n`;
+            code += `        response = requests.post(url, headers=headers, files=files, data=data)\n`;
+            code += `        return response.json()\n`;
+            code += `    finally:\n`;
+            code += `        for _, f in files:\n`;
+            code += `            f.close()\n\n`;
+            code += `# 使用示例\n`;
+            code += `result = call_task_with_files(\n`;
+            code += `    ["/path/to/file1.docx", "/path/to/file2.xlsx"],\n`;
+            code += `    {"mode": "fast"}\n`;
+            code += `)\n`;
+            code += `print(result)\n\n`;
+            code += `# JSON 参数方式（如果任务接受参数）\n`;
+            code += `def call_task_with_json(params):\n`;
+            code += `    url = f"{HOST}${apiPath}"\n`;
+            code += `    headers = {\n`;
+            code += `        "Authorization": f"Bearer {API_KEY}",\n`;
+            code += `        "Content-Type": "application/json"\n`;
+            code += `    }\n`;
+            code += `    response = requests.post(url, headers=headers, json=params)\n`;
+            code += `    return response.json()\n\n`;
+            code += `result = call_task_with_json({"param1": "value1"})\n`;
+            code += `print(result)`;
+        } else {
+            code += `# JSON 参数调用任务\n`;
+            code += `def call_task(params):\n`;
+            code += `    url = f"{HOST}${apiPath}"\n`;
+            code += `    headers = {\n`;
+            code += `        "Authorization": f"Bearer {API_KEY}",\n`;
+            code += `        "Content-Type": "application/json"\n`;
+            code += `    }\n`;
+            code += `    response = requests.post(url, headers=headers, json=params)\n`;
+            code += `    return response.json()\n\n`;
+            code += `result = call_task({"param1": "value1"})\n`;
+            code += `print(result)`;
+        }
+    } else {
+        code += `# GET 请求调用任务\n`;
+        code += `def call_task(params):\n`;
+        code += `    url = f"{HOST}${apiPath}"\n`;
+        code += `    headers = {"Authorization": f"Bearer {API_KEY}"}\n`;
+        code += `    response = requests.get(url, headers=headers, params=params)\n`;
+        code += `    return response.json()\n\n`;
+        code += `result = call_task({"param1": "value1"})\n`;
+        code += `print(result)`;
+    }
+    
+    return code;
+}
+
+function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
+    let code = `const API_KEY = '${apiKey}';\n`;
+    code += `const HOST = '${host}';\n\n`;
+    
+    if (method === 'POST') {
+        if (inputType === 'file' || inputType === 'both') {
+            code += `// 上传文件调用任务\n`;
+            code += `async function callTaskWithFiles(files, params = {}) {\n`;
+            code += `  const formData = new FormData();\n`;
+            code += `  \n`;
+            code += `  // 添加文件\n`;
+            code += `  for (const file of files) {\n`;
+            code += `    formData.append('files', file);\n`;
+            code += `  }\n`;
+            code += `  \n`;
+            code += `  // 添加参数\n`;
+            code += `  if (Object.keys(params).length > 0) {\n`;
+            code += `    formData.append('options', JSON.stringify(params));\n`;
+            code += `  }\n`;
+            code += `  \n`;
+            code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
+            code += `    method: 'POST',\n`;
+            code += `    headers: {\n`;
+            code += `      'Authorization': \`Bearer \${API_KEY}\`\n`;
+            code += `    },\n`;
+            code += `    body: formData\n`;
+            code += `  });\n`;
+            code += `  \n`;
+            code += `  return response.json();\n`;
+            code += `}\n\n`;
+            code += `// 使用示例（浏览器环境）\n`;
+            code += `const fileInput = document.querySelector('input[type="file"]');\n`;
+            code += `const result = await callTaskWithFiles(\n`;
+            code += `  fileInput.files,\n`;
+            code += `  { mode: 'fast' }\n`;
+            code += `);\n`;
+            code += `console.log(result);\n\n`;
+            code += `// Node.js 环境（使用 fs 和 fetch）\n`;
+            code += `// const fs = require('fs');\n`;
+            code += `// const file = fs.readFileSync('/path/to/file.docx');\n`;
+            code += `// const blob = new Blob([file]);\n`;
+            code += `// formData.append('files', blob, 'file.docx');\n\n`;
+            code += `// JSON 参数方式\n`;
+            code += `async function callTaskWithJson(params) {\n`;
+            code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
+            code += `    method: 'POST',\n`;
+            code += `    headers: {\n`;
+            code += `      'Authorization': \`Bearer \${API_KEY}\`,\n`;
+            code += `      'Content-Type': 'application/json'\n`;
+            code += `    },\n`;
+            code += `    body: JSON.stringify(params)\n`;
+            code += `  });\n`;
+            code += `  return response.json();\n`;
+            code += `}`;
+        } else {
+            code += `// JSON 参数调用任务\n`;
+            code += `async function callTask(params) {\n`;
+            code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
+            code += `    method: 'POST',\n`;
+            code += `    headers: {\n`;
+            code += `      'Authorization': \`Bearer \${API_KEY}\`,\n`;
+            code += `      'Content-Type': 'application/json'\n`;
+            code += `    },\n`;
+            code += `    body: JSON.stringify(params)\n`;
+            code += `  });\n`;
+            code += `  return response.json();\n`;
+            code += `}\n\n`;
+            code += `const result = await callTask({ param1: 'value1' });\n`;
+            code += `console.log(result);`;
+        }
+    } else {
+        code += `// GET 请求调用任务\n`;
+        code += `async function callTask(params) {\n`;
+        code += `  const url = new URL(\`\${HOST}${apiPath}\`);\n`;
+        code += `  Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));\n`;
+        code += `  \n`;
+        code += `  const response = await fetch(url, {\n`;
+        code += `    headers: {\n`;
+        code += `      'Authorization': \`Bearer \${API_KEY}\`\n`;
+        code += `    }\n`;
+        code += `  });\n`;
+        code += `  return response.json();\n`;
+        code += `}\n\n`;
+        code += `const result = await callTask({ param1: 'value1' });\n`;
+        code += `console.log(result);`;
+    }
+    
+    return code;
+}
+
+function generateGoExample(apiPath, method, inputType, host, apiKey) {
+    let code = `package main\n\n`;
+    code += `import (\n`;
+    code += `    "bytes"\n`;
+    code += `    "encoding/json"\n`;
+    code += `    "fmt"\n`;
+    code += `    "io"\n`;
+    code += `    "mime/multipart"\n`;
+    code += `    "net/http"\n`;
+    code += `    "os"\n`;
+    code += `)\n\n`;
+    code += `const (\n`;
+    code += `    apiKey = "${apiKey}"\n`;
+    code += `    host   = "${host}"\n`;
+    code += `)\n\n`;
+    
+    if (method === 'POST') {
+        if (inputType === 'file' || inputType === 'both') {
+            code += `// 上传文件调用任务\n`;
+            code += `func callTaskWithFiles(filePaths []string, params map[string]interface{}) (map[string]interface{}, error) {\n`;
+            code += `    var buf bytes.Buffer\n`;
+            code += `    writer := multipart.NewWriter(&buf)\n\n`;
+            code += `    // 添加文件\n`;
+            code += `    for _, path := range filePaths {\n`;
+            code += `        file, err := os.Open(path)\n`;
+            code += `        if err != nil {\n`;
+            code += `            return nil, err\n`;
+            code += `        }\n`;
+            code += `        defer file.Close()\n\n`;
+            code += `        part, err := writer.CreateFormFile("files", path)\n`;
+            code += `        if err != nil {\n`;
+            code += `            return nil, err\n`;
+            code += `        }\n`;
+            code += `        io.Copy(part, file)\n`;
+            code += `    }\n\n`;
+            code += `    // 添加参数\n`;
+            code += `    if len(params) > 0 {\n`;
+            code += `        paramsJSON, _ := json.Marshal(params)\n`;
+            code += `        writer.WriteField("options", string(paramsJSON))\n`;
+            code += `    }\n\n`;
+            code += `    writer.Close()\n\n`;
+            code += `    req, _ := http.NewRequest("POST", host+"${apiPath}", &buf)\n`;
+            code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n`;
+            code += `    req.Header.Set("Content-Type", writer.FormDataContentType())\n\n`;
+            code += `    resp, err := http.DefaultClient.Do(req)\n`;
+            code += `    if err != nil {\n`;
+            code += `        return nil, err\n`;
+            code += `    }\n`;
+            code += `    defer resp.Body.Close()\n\n`;
+            code += `    var result map[string]interface{}\n`;
+            code += `    json.NewDecoder(resp.Body).Decode(&result)\n`;
+            code += `    return result, nil\n`;
+            code += `}\n\n`;
+            code += `// 使用示例\n`;
+            code += `func main() {\n`;
+            code += `    result, err := callTaskWithFiles(\n`;
+            code += `        []string{"/path/to/file1.docx", "/path/to/file2.xlsx"},\n`;
+            code += `        map[string]interface{}{"mode": "fast"},\n`;
+            code += `    )\n`;
+            code += `    if err != nil {\n`;
+            code += `        panic(err)\n`;
+            code += `    }\n`;
+            code += `    fmt.Printf("%+v\\n", result)\n`;
+            code += `}`;
+        } else {
+            code += `// JSON 参数调用任务\n`;
+            code += `func callTask(params map[string]interface{}) (map[string]interface{}, error) {\n`;
+            code += `    body, _ := json.Marshal(params)\n`;
+            code += `    req, _ := http.NewRequest("POST", host+"${apiPath}", bytes.NewReader(body))\n`;
+            code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n`;
+            code += `    req.Header.Set("Content-Type", "application/json")\n\n`;
+            code += `    resp, err := http.DefaultClient.Do(req)\n`;
+            code += `    if err != nil {\n`;
+            code += `        return nil, err\n`;
+            code += `    }\n`;
+            code += `    defer resp.Body.Close()\n\n`;
+            code += `    var result map[string]interface{}\n`;
+            code += `    json.NewDecoder(resp.Body).Decode(&result)\n`;
+            code += `    return result, nil\n`;
+            code += `}\n\n`;
+            code += `func main() {\n`;
+            code += `    result, _ := callTask(map[string]interface{}{"param1": "value1"})\n`;
+            code += `    fmt.Printf("%+v\\n", result)\n`;
+            code += `}`;
+        }
+    } else {
+        code += `// GET 请求调用任务\n`;
+        code += `func callTask(params map[string]string) (map[string]interface{}, error) {\n`;
+        code += `    req, _ := http.NewRequest("GET", host+"${apiPath}", nil)\n`;
+        code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n\n`;
+        code += `    q := req.URL.Query()\n`;
+        code += `    for k, v := range params {\n`;
+        code += `        q.Add(k, v)\n`;
+        code += `    }\n`;
+        code += `    req.URL.RawQuery = q.Encode()\n\n`;
+        code += `    resp, err := http.DefaultClient.Do(req)\n`;
+        code += `    if err != nil {\n`;
+        code += `        return nil, err\n`;
+        code += `    }\n`;
+        code += `    defer resp.Body.Close()\n\n`;
+        code += `    var result map[string]interface{}\n`;
+        code += `    json.NewDecoder(resp.Body).Decode(&result)\n`;
+        code += `    return result, nil\n`;
+        code += `}\n\n`;
+        code += `func main() {\n`;
+        code += `    result, _ := callTask(map[string]string{"param1": "value1"})\n`;
+        code += `    fmt.Printf("%+v\\n", result)\n`;
+        code += `}`;
+    }
+    
+    return code;
+}
+
+function copyAPIExample() {
+    const code = document.getElementById('govAPIExampleCode').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        // 降级方案
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('已复制到剪贴板', 'success');
+    });
 }
 
 function populateGovDbSelect() {
@@ -7617,7 +8030,8 @@ async function handleGovTaskSubmit(e) {
     e.preventDefault();
     const type = document.getElementById('govTaskTypeInput').value;
     const extsStr = document.getElementById('govAcceptExtsInput').value.trim();
-    const registerAsAPI = document.getElementById('govRegisterAPIInput').checked;
+    const openShare = document.getElementById('govOpenShare').checked;
+    const openAPI = document.getElementById('govOpenAPI').checked;
     const runMode = document.getElementById('govRunModeSelect') ? document.getElementById('govRunModeSelect').value : (currentGovTask?.run_mode || 'backend');
     const taskData = {
         name: document.getElementById('govTaskNameInput').value.trim(),
@@ -7630,9 +8044,10 @@ async function handleGovTaskSubmit(e) {
         input_type: type === 'interactive' ? document.getElementById('govInputTypeSelect').value : '',
         accept_exts: type === 'interactive' && extsStr ? extsStr.split(',').map(s => s.trim()).filter(Boolean) : [],
         file_batch_mode: type === 'interactive' && document.getElementById('govFileBatchModeSelect') ? document.getElementById('govFileBatchModeSelect').value : '',
-        register_as_api: registerAsAPI,
-        api_path: registerAsAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
-        api_method: registerAsAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
+        share_enabled: openShare,
+        register_as_api: openAPI,
+        api_path: openAPI ? document.getElementById('govAPIPathInput').value.trim() : '',
+        api_method: openAPI ? document.getElementById('govAPIMethodInput').value : 'POST',
         run_mode: runMode,
         execution_mode: runMode
     };

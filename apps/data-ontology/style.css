@@ -6945,3 +6945,206 @@ body.embed-mode .embed-settings-btn {
 .dropdown-item:active {
     background-color: #e0e0e0;
 }
+
+/* API 调用示例面板 */
+.gov-api-example-panel {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.gov-api-example-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.gov-api-example-header small {
+    font-weight: 400;
+    color: #64748b;
+    margin-left: 8px;
+}
+
+.gov-api-example-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.gov-api-tab {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #64748b;
+    transition: all 0.2s;
+}
+
+.gov-api-tab:hover {
+    background: #e2e8f0;
+}
+
+.gov-api-tab.active {
+    background: #3b82f6;
+    color: white;
+}
+
+.gov-api-example-content {
+    position: relative;
+    padding: 16px;
+    background: #1e293b;
+    border-radius: 0 0 8px 8px;
+}
+
+.gov-api-example-content pre {
+    margin: 0;
+    padding: 0;
+    color: #e2e8f0;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.gov-api-example-note {
+    padding: 12px 16px;
+    background: #fffbeb;
+    border-top: 1px solid #fcd34d;
+    border-radius: 0 0 8px 8px;
+    font-size: 13px;
+    color: #92400e;
+}
+
+.gov-api-example-note ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+}
+
+.gov-api-example-note li {
+    margin: 4px 0;
+}
+
+.gov-api-example-note code {
+    background: #fef3c7;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* 开放方式配置 */
+.gov-open-modes {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.gov-open-mode-item {
+    position: relative;
+    cursor: pointer;
+}
+
+.gov-open-mode-item input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.gov-open-mode-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 20px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    transition: all 0.2s;
+    min-width: 140px;
+}
+
+.gov-open-mode-item input:checked + .gov-open-mode-box {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.gov-open-mode-item input:disabled + .gov-open-mode-box {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+    cursor: default;
+}
+
+.gov-open-mode-item:hover .gov-open-mode-box {
+    border-color: #3b82f6;
+}
+
+.gov-open-mode-item input:disabled:hover + .gov-open-mode-box {
+    border-color: #94a3b8;
+}
+
+.gov-open-mode-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.gov-open-mode-title {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.gov-open-mode-desc {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* 配置面板 */
+.gov-open-config {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.gov-config-header {
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.gov-config-body {
+    padding: 16px;
+}
+
+.gov-share-link-row {
+    margin-bottom: 12px;
+}
+
+.gov-share-link-box {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.gov-share-link-box input {
+    flex: 1;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.text-muted {
+    color: #94a3b8;
+}

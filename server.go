@@ -15443,6 +15443,10 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 				task.ExecutionMode = task.RunMode
 			}
 		}
+		// 处理分享：如果前端传了 share_enabled=true，自动生成 share_token
+		if task.ShareEnabled && task.ShareToken == "" {
+			task.ShareToken = uuid.New().String()
+		}
 
 		dataOntologyMu.Lock()
 		governanceTasks[task.ID] = &task

@@ -1097,7 +1097,18 @@
                         setTimeout(pollProgress, 300);
                     }
                 } else {
-                    showError('查询失败', '无法获取任务进度：' + (data.message || '未知错误'));
+                    // 查询失败时静默处理，不弹窗打扰用户
+                    console.warn('查询进度失败:', data.message);
+                    // 如果是"不存在"类错误，清理缓存并停止轮询
+                    if (data.message && (data.message.includes('不存在') || data.message.includes('未找到'))) {
+                        sessionStorage.removeItem('share_' + shareToken + '_runId');
+                        currentRunId = null;
+                        document.getElementById('progressContainer').style.display = 'none';
+                        document.getElementById('runBtn').disabled = false;
+                    } else {
+                        // 其他错误继续轮询
+                        setTimeout(pollProgress, 2000);
+                    }
                 }
             } catch (error) {
                 console.error('查询进度失败:', error);
@@ -1134,6 +1145,11 @@
             sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
             // 刷新历史记录
             loadHistory();
+            
+            // 清空上传文件列表
+            selectedFiles = [];
+            updateFileList();
+            document.getElementById('runBtn').disabled = true;
         }
 
         // 加载历史记录

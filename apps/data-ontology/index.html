@@ -1829,7 +1829,7 @@
                     <div class="form-row">
                         <div class="form-group form-group-half">
                             <label for="govInputTypeSelect">输入方式</label>
-                            <select id="govInputTypeSelect">
+                            <select id="govInputTypeSelect" onchange="updateAPIExample()">
                                 <option value="file">文件上传</option>
                                 <option value="text">文本输入</option>
                                 <option value="both">文件+文本</option>
@@ -1852,40 +1852,115 @@
                         </div>
                     </div>
                 </div>
+                <!-- 开放方式统一配置 -->
                 <div class="form-group">
-                    <label>注册为 API 接口</label>
-                    <div class="gov-toggle-wrap">
-                        <label class="gov-switch">
-                            <input type="checkbox" id="govRegisterAPIInput" onchange="onGovRegisterAPIChange()">
-                            <span class="gov-slider"></span>
+                    <label>开放方式</label>
+                    <div class="gov-open-modes">
+                        <label class="gov-open-mode-item">
+                            <input type="checkbox" id="govOpenLocal" checked disabled>
+                            <span class="gov-open-mode-box">
+                                <span class="gov-open-mode-icon">🖥️</span>
+                                <span class="gov-open-mode-title">本页面运行</span>
+                                <span class="gov-open-mode-desc">在任务列表中直接执行</span>
+                            </span>
                         </label>
-                        <span id="govRegisterAPILabel">未注册</span>
-                    </div>
-                    <small>启用后，该任务可通过 API 接口调用执行</small>
-                </div>
-                <div id="govAPIFields" style="display:none;">
-                    <div class="form-row">
-                        <div class="form-group form-group-half">
-                            <label for="govAPIPathInput">API 路径</label>
-                            <input type="text" id="govAPIPathInput" placeholder="/api/tasks/my-task">
-                            <small>以 /api/ 开头的路径</small>
-                        </div>
-                        <div class="form-group form-group-half">
-                            <label for="govAPIMethodInput">请求方法</label>
-                            <select id="govAPIMethodInput">
-                                <option value="POST">POST</option>
-                                <option value="GET">GET</option>
-                            </select>
-                        </div>
+                        <label class="gov-open-mode-item">
+                            <input type="checkbox" id="govOpenShare" onchange="onGovOpenModeChange()">
+                            <span class="gov-open-mode-box">
+                                <span class="gov-open-mode-icon">🔗</span>
+                                <span class="gov-open-mode-title">分享页面运行</span>
+                                <span class="gov-open-mode-desc">生成免登录分享链接</span>
+                            </span>
+                        </label>
+                        <label class="gov-open-mode-item">
+                            <input type="checkbox" id="govOpenAPI" onchange="onGovOpenModeChange()">
+                            <span class="gov-open-mode-box">
+                                <span class="gov-open-mode-icon">🔌</span>
+                                <span class="gov-open-mode-title">注册为 API</span>
+                                <span class="gov-open-mode-desc">通过 API 接口调用</span>
+                            </span>
+                        </label>
                     </div>
                 </div>
+                
+                <!-- 分享配置（勾选"分享页面运行"时显示） -->
+                <div id="govShareConfig" class="gov-open-config" style="display:none;">
+                    <div class="gov-config-header">
+                        <span>🔗 分享配置</span>
+                    </div>
+                    <div class="gov-config-body">
+                        <div class="gov-share-link-row" id="govShareLinkRow" style="display:none;">
+                            <label>分享链接</label>
+                            <div class="gov-share-link-box">
+                                <input type="text" id="govShareLinkInput" readonly>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="copyGovShareLink()">复制</button>
+                            </div>
+                            <small>分享链接可让他人免登录访问并执行任务</small>
+                        </div>
+                        <div id="govShareLinkPlaceholder">
+                            <small class="text-muted">保存任务后可获取分享链接</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- API 配置（勾选"注册为 API"时显示） -->
+                <div id="govAPIConfig" class="gov-open-config" style="display:none;">
+                    <div class="gov-config-header">
+                        <span>🔌 API 配置</span>
+                    </div>
+                    <div class="gov-config-body">
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="govAPIPathInput">API 路径</label>
+                                <input type="text" id="govAPIPathInput" placeholder="/api/tasks/my-task" onchange="updateAPIExample()" oninput="updateAPIExample()">
+                                <small>以 /api/ 开头的路径</small>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="govAPIMethodInput">请求方法</label>
+                                <select id="govAPIMethodInput" onchange="updateAPIExample()">
+                                    <option value="POST">POST</option>
+                                    <option value="GET">GET</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- API 调用示例面板 -->
+                        <div id="govAPIExamplePanel" class="gov-api-example-panel">
+                            <div class="gov-api-example-header">
+                                <span>API 调用示例</span>
+                                <small>（复制代码直接使用）</small>
+                            </div>
+                            <div class="gov-api-example-tabs">
+                                <button class="gov-api-tab active" data-lang="curl" onclick="switchAPILang('curl')">cURL</button>
+                                <button class="gov-api-tab" data-lang="python" onclick="switchAPILang('python')">Python</button>
+                                <button class="gov-api-tab" data-lang="javascript" onclick="switchAPILang('javascript')">JavaScript</button>
+                                <button class="gov-api-tab" data-lang="go" onclick="switchAPILang('go')">Go</button>
+                            </div>
+                            <div class="gov-api-example-content">
+                                <pre id="govAPIExampleCode"></pre>
+                                <button class="btn btn-sm btn-secondary" onclick="copyAPIExample()" style="position:absolute;top:8px;right:8px;">复制</button>
+                            </div>
+                            <div class="gov-api-example-note">
+                                <strong>说明：</strong>
+                                <ul>
+                                    <li><code>API_KEY</code> 替换为你的 API Key（在「用户管理」中生成）</li>
+                                    <li><code>HOST</code> 替换为实际服务地址</li>
+                                    <li>文件上传任务：使用 <code>multipart/form-data</code> 格式</li>
+                                    <li>参数传递：GET 请求用 URL 参数，POST 请求用 JSON body</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 运行位置（执行环境） -->
                 <div class="form-group">
-                    <label for="govRunModeSelect">运行位置</label>
+                    <label for="govRunModeSelect">执行环境</label>
                     <select id="govRunModeSelect">
-                        <option value="backend">后端运行</option>
-                        <option value="frontend">前端运行</option>
+                        <option value="backend">后端运行（适合数据库操作、文件处理）</option>
+                        <option value="frontend">前端运行（适合纯浏览器逻辑、表格展示）</option>
                     </select>
-                    <small>后端运行适合连接数据库、文件处理；前端运行适合纯浏览器逻辑和表格展示</small>
+                    <small>执行环境影响脚本运行位置，与开放方式独立</small>
                 </div>
                 <div class="form-group">
                     <div class="gov-codegen-toggle" onclick="toggleCodeGen()">
