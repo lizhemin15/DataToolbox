@@ -11176,22 +11176,45 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// 使用检索结果
-			log.Printf("[表检索] 检索到 %d 张相关表", len(relevantTables))
-			for _, result := range relevantTables {
-				tableName := result.TableName
-				columns, err := getTableColumns(dbConfig, tableName)
-				if err != nil {
-					log.Printf("获取表 %s 字段失败: %v", tableName, err)
+			if len(relevantTables) == 0 {
+				// 检索结果为空，降级使用所有表
+				log.Printf("[表检索] 未检索到相关表，降级使用前 %d 张表", defaultMaxTables)
+				if len(tables) > defaultMaxTables {
+					tables = tables[:defaultMaxTables]
+				}
+				for _, tableName := range tables {
+					columns, err := getTableColumns(dbConfig, tableName)
+					if err != nil {
+						log.Printf("获取表 %s 字段失败: %v", tableName, err)
+						tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+							"name":    tableName,
+							"columns": []map[string]interface{}{},
+						})
+						continue
+					}
 					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
 						"name":    tableName,
-						"columns": []map[string]interface{}{},
+						"columns": columns,
 					})
-					continue
 				}
-				tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
-					"name":    tableName,
-					"columns": columns,
-				})
+			} else {
+				log.Printf("[表检索] 检索到 %d 张相关表", len(relevantTables))
+				for _, result := range relevantTables {
+					tableName := result.TableName
+					columns, err := getTableColumns(dbConfig, tableName)
+					if err != nil {
+						log.Printf("获取表 %s 字段失败: %v", tableName, err)
+						tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+							"name":    tableName,
+							"columns": []map[string]interface{}{},
+						})
+						continue
+					}
+					tablesWithColumns = append(tablesWithColumns, map[string]interface{}{
+						"name":    tableName,
+						"columns": columns,
+					})
+				}
 			}
 		}
 
