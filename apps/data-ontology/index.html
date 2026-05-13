@@ -1905,12 +1905,13 @@
                     </div><!-- gov-collapsible-body -->
                 </div><!-- gov-collapsible -->
                 
-                <!-- 分享配置（勾选"分享页面运行"时显示） -->
-                <div id="govShareConfig" class="gov-open-config" style="display:none;">
-                    <div class="gov-config-header">
+<!-- 分享配置（勾选"分享页面运行"时显示） -->
+                <div id="govShareConfig" class="gov-collapsible" style="display:none;">
+                    <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>🔗 分享配置</span>
+                        <span class="gov-collapsible-arrow">▼</span>
                     </div>
-                    <div class="gov-config-body">
+                    <div class="gov-collapsible-body">
                         <div class="gov-share-link-row" id="govShareLinkRow" style="display:none;">
                             <label>分享链接</label>
                             <div class="gov-share-link-box">
@@ -1926,11 +1927,12 @@
                 </div>
                 
                 <!-- API 配置（勾选"注册为 API"时显示） -->
-                <div id="govAPIConfig" class="gov-open-config" style="display:none;">
-                    <div class="gov-config-header">
+                <div id="govAPIConfig" class="gov-collapsible" style="display:none;">
+                    <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>🔌 API 配置</span>
+                        <span class="gov-collapsible-arrow">▼</span>
                     </div>
-                    <div class="gov-config-body">
+                    <div class="gov-collapsible-body">
                         <div class="form-row">
                             <div class="form-group form-group-half">
                                 <label for="govAPIPathInput">API 路径</label>
