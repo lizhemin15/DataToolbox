@@ -7461,8 +7461,14 @@ func handleTableRetrievalSearch(w http.ResponseWriter, r *http.Request) {
 	databaseID := r.URL.Query().Get("database_id")
 	query := r.URL.Query().Get("query")
 	strategy := r.URL.Query().Get("strategy")
+	
+	// 如果 URL 没有指定策略，从全局配置读取
 	if strategy == "" {
-		strategy = "hybrid"
+		if dataOntologyAIConfig != nil && dataOntologyAIConfig.TableRetrieval != nil && dataOntologyAIConfig.TableRetrieval.Strategy != "" {
+			strategy = dataOntologyAIConfig.TableRetrieval.Strategy
+		} else {
+			strategy = "full" // 默认使用全量检索
+		}
 	}
 
 	if databaseID == "" || query == "" {
