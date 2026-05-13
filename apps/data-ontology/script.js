@@ -104,13 +104,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=4.2.97');
-    await loadLazyScript('gov-api.js?v=4.2.97');
-    await loadLazyScript('governance.js?v=4.2.97');
+    await loadLazyScript('gov-shared.js?v=2026.05.13.1450.1450');
+    await loadLazyScript('gov-api.js?v=2026.05.13.1450.1450');
+    await loadLazyScript('governance.js?v=2026.05.13.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=4.2.97');
+    await loadLazyScript('quality-audit.js?v=2026.05.13.1450.1450');
 }
 
 
@@ -1818,7 +1818,7 @@ function renderDatabaseList() {
     listEl.innerHTML = sortedDatabases.map(db => {
         const typeIcon = dbTypeIcons[db.type] || '🗃️';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
-        const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+        const info = isFileDb ? (db.path || '未配置') : `${db.host || ''}:${db.port || ''}`;
         
         const isActive = !userMgmtMode && currentDb && currentDb.id === db.id;
         const safeDbId = escapeHtml(db.id);
