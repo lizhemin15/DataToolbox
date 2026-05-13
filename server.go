@@ -15515,11 +15515,38 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 		if task.ShareEnabled {
 			if task.ShareToken == "" {
 				task.ShareToken = uuid.New().String()
+			} else {
+				// 检查 share_token 是否冲突
+				for id, existing := range governanceTasks {
+					if id == task.ID {
+						continue
+					}
+					if existing.ShareToken == task.ShareToken {
+						// 冲突，自动重新生成
+						task.ShareToken = uuid.New().String()
+						log.Printf("[治理任务] share_token 冲突，自动重新生成: %s", task.ShareToken)
+						break
+					}
+				}
 			}
 		}
 		// 处理 API 注册：如果 register_as_api=true，自动启用任务（否则 API 无法调用）
 		if task.RegisterAsAPI {
 			task.Enabled = true
+			// 检查 api_path 是否冲突
+			if task.APIPath != "" {
+				for id, existing := range governanceTasks {
+					if id == task.ID {
+						continue
+					}
+					if existing.APIPath == task.APIPath {
+						// 冲突，自动重新生成
+						task.APIPath = task.APIPath + "-" + uuid.New().String()[:8]
+						log.Printf("[治理任务] api_path 冲突，自动重新生成: %s", task.APIPath)
+						break
+					}
+				}
+			}
 		}
 
 		dataOntologyMu.Lock()
@@ -15670,12 +15697,49 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if update.ShareEnabled {
 			// 如果前端传了 share_token，使用前端的（允许自定义）
 			if update.ShareToken != "" {
-				task.ShareToken = update.ShareToken
+				// 检查是否冲突
+				conflict := false
+				for id, existing := range governanceTasks {
+					if id == taskID {
+						continue
+					}
+					if existing.ShareToken == update.ShareToken {
+						conflict = true
+						break
+					}
+				}
+				if conflict {
+					// 冲突，自动重新生成
+					task.ShareToken = uuid.New().String()
+					log.Printf("[治理任务] share_token 冲突，自动重新生成: %s", task.ShareToken)
+				} else {
+					task.ShareToken = update.ShareToken
+				}
 			} else if task.ShareToken == "" {
 				// 如果没有传且原来也没有，自动生成
 				task.ShareToken = uuid.New().String()
 			}
 			task.ShareEnabled = true
+		}
+		// API 路径冲突检测
+		if update.RegisterAsAPI && update.APIPath != "" {
+			conflict := false
+			for id, existing := range governanceTasks {
+				if id == taskID {
+					continue
+				}
+				if existing.APIPath == update.APIPath {
+					conflict = true
+					break
+				}
+			}
+			if conflict {
+				// 冲突，自动重新生成
+				task.APIPath = update.APIPath + "-" + uuid.New().String()[:8]
+				log.Printf("[治理任务] api_path 冲突，自动重新生成: %s", task.APIPath)
+			} else {
+				task.APIPath = update.APIPath
+			}
 		}
 		// 不自动关闭分享：如果前端没传 share_enabled 或传了 false，保持原状态
 		task.UpdatedAt = time.Now().Format(time.RFC3339)
