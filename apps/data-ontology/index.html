@@ -2252,5 +2252,10 @@
     <script src="/lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
     <script src="/apps/data-ontology/script.js?v=202605051920a"></script>
+    <!-- 版本号显示 -->
+    <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#aaa;z-index:9999;pointer-events:none;user-select:none;"></div>
+    <script>
+    fetch('/api/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
+    </script>
 </body>
 </html>

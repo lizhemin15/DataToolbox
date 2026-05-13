@@ -177,12 +177,12 @@ jobs:
           # Linux ARM64 如果 gov-runner 编译失败也使用 nogov tag
           # 其他平台嵌入 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
+            go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
           elif [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ] && [ ! -f "gov-runner" ]; then
             echo "gov-runner not available for Linux ARM64, using nogov tag"
-            go build -tags release,nogov -ldflags="-s -w" -o ${{ matrix.output }} .
+            go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
           else
-            go build -tags release -ldflags="-s -w" -o ${{ matrix.output }} .
+            go build -tags release -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
           fi
 
       - name: Verify gov-runner architecture

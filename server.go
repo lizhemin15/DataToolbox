@@ -47,6 +47,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// 版本号（通过 ldflags 注入，格式：2026.05.13.2130）
+var Version = "dev"
+
 //go:embed examples/governance scripts
 var governanceExamplesFS embed.FS
 
@@ -20018,6 +20021,12 @@ func main() {
 	mux.HandleFunc("/api/ops/sftp/mkdir", handleSFTPMkdir)
 	mux.HandleFunc("/api/ops/sftp/delete", handleSFTPDelete)
 	mux.HandleFunc("/api/ops/sftp/rename", handleSFTPRename)
+
+	// 版本号 API（无需鉴权）
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"version": Version})
+	})
 
 	// 数据本体池API路由
 	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)

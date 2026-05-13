@@ -47,9 +47,9 @@ jobs:
           CGO_ENABLED: 0
         run: |
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            go build -ldflags="-s -w" -tags=nogov -o datatoolbox-server.exe .
+            go build -ldflags="-s -w -X main.Version=dev-$(echo ${{ github.sha }} | cut -c1-7)" -tags=nogov -o datatoolbox-server.exe .
           else
-            go build -ldflags="-s -w" -tags=nogov -o datatoolbox-server .
+            go build -ldflags="-s -w -X main.Version=dev-$(echo ${{ github.sha }} | cut -c1-7)" -tags=nogov -o datatoolbox-server .
           fi
 
       - name: Test build success
