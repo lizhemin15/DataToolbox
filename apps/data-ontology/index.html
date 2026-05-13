@@ -1808,12 +1808,12 @@
                     <small>关联后可通过 gov.querySQL / gov.executeSQL 操作该数据库</small>
                 </div>
                 <div id="govScheduledFields">
-                    <div class="gov-collapsible">
+                    <div class="gov-collapsible gov-collapsible-collapsed">
                         <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                             <span>⏰ 定时任务配置</span>
-                            <span class="gov-collapsible-arrow">▼</span>
+                            <span class="gov-collapsible-arrow">▶</span>
                         </div>
-                        <div class="gov-collapsible-body">
+                        <div class="gov-collapsible-body" style="display:none;">
                             <div class="form-row">
                                 <div class="form-group form-group-half">
                                     <label for="govCronInput">Cron 表达式</label>
@@ -1835,12 +1835,12 @@
                     </div>
                 </div>
                 <div id="govInteractiveFields" style="display:none;">
-                    <div class="gov-collapsible">
+                    <div class="gov-collapsible gov-collapsible-collapsed">
                         <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                             <span>📥 交互任务配置</span>
-                            <span class="gov-collapsible-arrow">▼</span>
+                            <span class="gov-collapsible-arrow">▶</span>
                         </div>
-                        <div class="gov-collapsible-body">
+                        <div class="gov-collapsible-body" style="display:none;">
                             <div class="form-row">
                                 <div class="form-group form-group-half">
                                     <label for="govInputTypeSelect">输入方式</label>
@@ -1870,12 +1870,12 @@
                     </div>
                 </div>
                 <!-- 开放方式统一配置 -->
-                <div class="gov-collapsible">
+                <div class="gov-collapsible gov-collapsible-collapsed">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>🌐 开放方式</span>
-                        <span class="gov-collapsible-arrow">▼</span>
+                        <span class="gov-collapsible-arrow">▶</span>
                     </div>
-                    <div class="gov-collapsible-body">
+                    <div class="gov-collapsible-body" style="display:none;">
                         <div class="gov-open-modes">
                         <label class="gov-open-mode-item">
                             <input type="checkbox" id="govOpenLocal" checked disabled>
@@ -1906,12 +1906,12 @@
                 </div><!-- gov-collapsible -->
                 
 <!-- 分享配置（勾选"分享页面运行"时显示） -->
-                <div id="govShareConfig" class="gov-collapsible" style="display:none;">
+                <div id="govShareConfig" class="gov-collapsible gov-collapsible-collapsed" style="display:none;">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>🔗 分享配置</span>
-                        <span class="gov-collapsible-arrow">▼</span>
+                        <span class="gov-collapsible-arrow">▶</span>
                     </div>
-                    <div class="gov-collapsible-body">
+                    <div class="gov-collapsible-body" style="display:none;">
                         <div class="gov-share-link-row" id="govShareLinkRow" style="display:none;">
                             <label>分享链接</label>
                             <div class="gov-share-link-box">
@@ -1927,12 +1927,12 @@
                 </div>
                 
                 <!-- API 配置（勾选"注册为 API"时显示） -->
-                <div id="govAPIConfig" class="gov-collapsible" style="display:none;">
+                <div id="govAPIConfig" class="gov-collapsible gov-collapsible-collapsed" style="display:none;">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>🔌 API 配置</span>
-                        <span class="gov-collapsible-arrow">▼</span>
+                        <span class="gov-collapsible-arrow">▶</span>
                     </div>
-                    <div class="gov-collapsible-body">
+                    <div class="gov-collapsible-body" style="display:none;">
                         <div class="form-row">
                             <div class="form-group form-group-half">
                                 <label for="govAPIPathInput">API 路径</label>
@@ -1995,10 +1995,10 @@
                     </div>
                 </div>
 
-                <div class="gov-collapsible">
+                <div class="gov-collapsible gov-collapsible-collapsed">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
                         <span>📝 任务代码 (JavaScript)</span>
-                        <span class="gov-collapsible-arrow">▼</span>
+                        <span class="gov-collapsible-arrow">▶</span>
                         <button type="button" class="btn btn-sm" onclick="event.stopPropagation();openGovApiHelp()" style="font-size:12px;margin-left:auto;">📖 API 参考</button>
                     </div>
                     <div class="gov-collapsible-body">
