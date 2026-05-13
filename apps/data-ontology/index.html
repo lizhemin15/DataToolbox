@@ -1808,55 +1808,75 @@
                     <small>关联后可通过 gov.querySQL / gov.executeSQL 操作该数据库</small>
                 </div>
                 <div id="govScheduledFields">
-                    <div class="form-row">
-                        <div class="form-group form-group-half">
-                            <label for="govCronInput">Cron 表达式</label>
-                            <input type="text" id="govCronInput" placeholder="分 时 日 月 周，例如: 0 2 * * *">
-                            <small>格式: 分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6, 0=周日)</small>
+                    <div class="gov-collapsible">
+                        <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
+                            <span>⏰ 定时任务配置</span>
+                            <span class="gov-collapsible-arrow">▼</span>
                         </div>
-                        <div class="form-group form-group-half">
-                            <label>启用调度</label>
-                            <div class="gov-toggle-wrap">
-                                <label class="gov-switch">
-                                    <input type="checkbox" id="govEnabledInput" checked>
-                                    <span class="gov-slider"></span>
-                                </label>
-                                <span id="govEnabledLabel">已启用</span>
+                        <div class="gov-collapsible-body">
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="govCronInput">Cron 表达式</label>
+                                    <input type="text" id="govCronInput" placeholder="分 时 日 月 周，例如: 0 2 * * *">
+                                    <small>格式: 分(0-59) 时(0-23) 日(1-31) 月(1-12) 周(0-6, 0=周日)</small>
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label>启用调度</label>
+                                    <div class="gov-toggle-wrap">
+                                        <label class="gov-switch">
+                                            <input type="checkbox" id="govEnabledInput" checked>
+                                            <span class="gov-slider"></span>
+                                        </label>
+                                        <span id="govEnabledLabel">已启用</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div id="govInteractiveFields" style="display:none;">
-                    <div class="form-row">
-                        <div class="form-group form-group-half">
-                            <label for="govInputTypeSelect">输入方式</label>
-                            <select id="govInputTypeSelect" onchange="updateAPIExample()">
-                                <option value="file">文件上传</option>
-                                <option value="text">文本输入</option>
-                                <option value="both">文件+文本</option>
-                            </select>
+                    <div class="gov-collapsible">
+                        <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
+                            <span>📥 交互任务配置</span>
+                            <span class="gov-collapsible-arrow">▼</span>
                         </div>
-                        <div class="form-group form-group-half">
-                            <label for="govAcceptExtsInput">接受文件类型</label>
-                            <input type="text" id="govAcceptExtsInput" placeholder=".xlsx,.csv,.docx,.txt">
-                            <small>逗号分隔，留空则接受所有类型</small>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group form-group-half">
-                            <label for="govFileBatchModeSelect">多文件执行</label>
-                            <select id="govFileBatchModeSelect">
-                                <option value="per_file">每个文件单独执行</option>
-                                <option value="single">合并为一次执行（INPUT_FILES）</option>
-                                <option value="multi">多文件合并执行（INPUT_FILES）</option>
-                            </select>
+                        <div class="gov-collapsible-body">
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="govInputTypeSelect">输入方式</label>
+                                    <select id="govInputTypeSelect" onchange="updateAPIExample()">
+                                        <option value="file">文件上传</option>
+                                        <option value="text">文本输入</option>
+                                        <option value="both">文件+文本</option>
+                                    </select>
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label for="govAcceptExtsInput">接受文件类型</label>
+                                    <input type="text" id="govAcceptExtsInput" placeholder=".xlsx,.csv,.docx,.txt">
+                                    <small>逗号分隔，留空则接受所有类型</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="govFileBatchModeSelect">多文件执行</label>
+                                    <select id="govFileBatchModeSelect">
+                                        <option value="per_file">每个文件单独执行</option>
+                                        <option value="single">合并为一次执行（INPUT_FILES）</option>
+                                        <option value="multi">多文件合并执行（INPUT_FILES）</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <!-- 开放方式统一配置 -->
-                <div class="form-group">
-                    <label>开放方式</label>
-                    <div class="gov-open-modes">
+                <div class="gov-collapsible">
+                    <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
+                        <span>🌐 开放方式</span>
+                        <span class="gov-collapsible-arrow">▼</span>
+                    </div>
+                    <div class="gov-collapsible-body">
+                        <div class="gov-open-modes">
                         <label class="gov-open-mode-item">
                             <input type="checkbox" id="govOpenLocal" checked disabled>
                             <span class="gov-open-mode-box">
@@ -1882,7 +1902,8 @@
                             </span>
                         </label>
                     </div>
-                </div>
+                    </div><!-- gov-collapsible-body -->
+                </div><!-- gov-collapsible -->
                 
                 <!-- 分享配置（勾选"分享页面运行"时显示） -->
                 <div id="govShareConfig" class="gov-open-config" style="display:none;">
@@ -1955,21 +1976,31 @@
                 </div>
                 
                 <!-- 运行位置（执行环境） -->
-                <div class="form-group">
-                    <label for="govRunModeSelect">执行环境</label>
-                    <select id="govRunModeSelect">
-                        <option value="backend">后端运行（适合数据库操作、文件处理）</option>
-                        <option value="frontend">前端运行（适合纯浏览器逻辑、表格展示）</option>
-                    </select>
-                    <small>执行环境影响脚本运行位置，与开放方式独立</small>
+                <div class="gov-collapsible gov-collapsible-collapsed">
+                    <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
+                        <span>⚙️ 执行环境</span>
+                        <span class="gov-collapsible-arrow">▶</span>
+                    </div>
+                    <div class="gov-collapsible-body" style="display:none;">
+                        <div class="form-group">
+                            <label for="govRunModeSelect">执行环境</label>
+                            <select id="govRunModeSelect">
+                                <option value="backend">后端运行（适合数据库操作、文件处理）</option>
+                                <option value="frontend">前端运行（适合纯浏览器逻辑、表格展示）</option>
+                            </select>
+                            <small>执行环境影响脚本运行位置，与开放方式独立</small>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="govCodeInput" style="display:flex;align-items:center;justify-content:space-between;">
-                        <span>任务代码 (JavaScript)</span>
-                        <button type="button" class="btn btn-sm" onclick="openGovApiHelp()" style="font-size:12px;">📖 API 参考</button>
-                    </label>
-                    <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
+                <div class="gov-collapsible">
+                    <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
+                        <span>📝 任务代码 (JavaScript)</span>
+                        <span class="gov-collapsible-arrow">▼</span>
+                        <button type="button" class="btn btn-sm" onclick="event.stopPropagation();openGovApiHelp()" style="font-size:12px;margin-left:auto;">📖 API 参考</button>
+                    </div>
+                    <div class="gov-collapsible-body">
+                        <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
 // --- Word 富文本格式 ---
 // **文字**       加粗（支持混排，重点**加粗**普通）
 // >文字          首行缩进2字符
@@ -2005,7 +2036,8 @@
 //   }
 //   gov.log(db.name + ' 写入 ' + n + ' 行');
 // }" required style="font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; line-height: 1.5; tab-size: 4;"></textarea>
-                </div>
+                    </div><!-- gov-collapsible-body -->
+                </div><!-- gov-collapsible -->
                 <div class="modal-footer">
                     <button type="submit" class="btn btn-primary">保存</button>
                 </div>

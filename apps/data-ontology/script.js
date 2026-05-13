@@ -7575,6 +7575,21 @@ function onGovTaskTypeChange() {
     }
 }
 
+// 折叠块切换
+function toggleGovCollapsible(headerEl) {
+    const collapsible = headerEl.parentElement;
+    const arrow = headerEl.querySelector('.gov-collapsible-arrow');
+    if (collapsible.classList.contains('gov-collapsible-collapsed')) {
+        collapsible.classList.remove('gov-collapsible-collapsed');
+        collapsible.querySelector('.gov-collapsible-body').style.display = '';
+        if (arrow) arrow.textContent = '▼';
+    } else {
+        collapsible.classList.add('gov-collapsible-collapsed');
+        collapsible.querySelector('.gov-collapsible-body').style.display = 'none';
+        if (arrow) arrow.textContent = '▶';
+    }
+}
+
 // 提取中文拼音首字母。
 function chineseToPinyinInitials(str) {
     // 常用汉字拼音首字母映射
