@@ -4324,6 +4324,7 @@ func getColumnComments(db *sql.DB, config *DatabaseConfig, tableName string) map
 				if colName.Valid && colComment.Valid && colComment.String != "" {
 					comments[colName.String] = colComment.String
 				}
+			} else {
 			}
 		}
 	case "sqlserver":
@@ -20467,6 +20468,7 @@ func (m *FTS5Manager) initSchema() error {
 
 	// FTS5 虚拟表：全文索引
 	// 检查当前 FTS5 表结构是否包含 column_comments，如果不包含则重建
+	// 也检查 tokenizer 是否为 trigram（支持中文），如果还是 unicode61 则重建
 	var ftsNeedsRebuild bool
 	var ftsColCount int
 	err = m.db.QueryRow(`SELECT count(*) FROM pragma_table_info('tables_fts') WHERE name = 'column_comments'`).Scan(&ftsColCount)
@@ -20476,6 +20478,16 @@ func (m *FTS5Manager) initSchema() error {
 	} else if ftsColCount == 0 {
 		// FTS5 表存在但缺少 column_comments 列，需要重建
 		ftsNeedsRebuild = true
+	}
+
+	// 检查 tokenizer 是否为 trigram（支持中文搜索）
+	if !ftsNeedsRebuild {
+		var ftsSQL string
+		err2 := m.db.QueryRow("SELECT sql FROM sqlite_master WHERE name = 'tables_fts'").Scan(&ftsSQL)
+		if err2 == nil && strings.Contains(ftsSQL, "unicode61") {
+			log.Printf("[FTS5] 检测到 tokenizer 为 unicode61（不支持中文），需要重建为 trigram")
+			ftsNeedsRebuild = true
+		}
 	}
 
 	if ftsNeedsRebuild {
@@ -20495,7 +20507,7 @@ func (m *FTS5Manager) initSchema() error {
 			column_comments,
 			content='tables',
 			content_rowid='id',
-			tokenize='unicode61'
+			tokenize='trigram'
 		);
 	`)
 	if err != nil {
@@ -20590,6 +20602,11 @@ func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit 
 		return nil, sql.ErrConnDone
 	}
 
+	// trigram tokenizer 要求查询至少3个字符，短查询直接降级到 LIKE
+	if len(query) < 3 {
+		return m.likeRetrieveTables(query, databaseID, limit)
+	}
+
 	// 构建搜索条件：表名、注释、字段名任一匹配，使用 BM25 排序
 	sqlStr := `
 		SELECT 
@@ -20652,13 +20669,14 @@ func (m *FTS5Manager) likeRetrieveTables(query string, databaseID string, limit 
 		WHERE database_id = ? AND (
 			table_name LIKE ? OR
 			table_comment LIKE ? OR
-			column_names LIKE ?
+			column_names LIKE ? OR
+			column_comments LIKE ?
 		)
 		LIMIT ?
 	`
 
 	likePattern := "%" + query + "%"
-	rows, err := m.db.Query(sqlStr, databaseID, likePattern, likePattern, likePattern, limit)
+	rows, err := m.db.Query(sqlStr, databaseID, likePattern, likePattern, likePattern, likePattern, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -79,7 +79,7 @@ if [[ -f "$TMP_DIR/gov-runner" ]]; then
 fi
 
 # 3. 更新前端文件（关键！）
-# 注意：apps/data-ontology/data-store.json 和 data-store.db 是运行时数据，必须保留！
+# 注意：apps/data-ontology/data-store.json 是运行时配置，必须保留！
 for item in index.html css js lib; do
     if [[ -e "$TMP_DIR/$item" ]]; then
         rm -rf "$INSTALL_DIR/$item"
