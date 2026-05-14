@@ -13404,12 +13404,17 @@ func isValidApiPath(path string) bool {
 	if !strings.HasPrefix(path, "/api/") {
 		return false
 	}
-	// 去掉 /api/ 前缀后，必须有两级路径（xxx/yyy）
+	// 去掉 /api/ 前缀后，必须有2-3级路径（xxx/yyy 或 xxx/yyy/zzz）
 	rest := strings.TrimPrefix(path, "/api/")
 	parts := strings.Split(rest, "/")
-	// 必须有两部分，且每部分不为空
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	// 必须有2-3部分，且每部分不为空
+	if len(parts) < 2 || len(parts) > 3 {
 		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
 	}
 	return true
 }
@@ -14102,10 +14107,10 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 
 		// 校验路径格式
 		if !isValidApiPath(pathStr) {
-			log.Printf("路径格式校验失败（第%d次尝试）: %s 不是有效的两级路径", attempt, pathStr)
+			log.Printf("路径格式校验失败（第%d次尝试）: %s 不是有效路径", attempt, pathStr)
 			if attempt < maxRetries {
 				prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis,
-					fmt.Sprintf("接口路径格式错误: '%s' 不是有效的两级路径格式。必须是 /api/xxx/yyy 格式，例如 /api/users/list", pathStr), aiResponse)
+					fmt.Sprintf("接口路径格式错误: '%s' 不是有效的路径格式。必须是 /api/xxx/yyy 或 /api/xxx/yyy/zzz 格式，例如 /api/users/list 或 /api/logistics/shipment/status", pathStr), aiResponse)
 				continue
 			}
 			sendSSE(w, "error", map[string]interface{}{
@@ -14182,22 +14187,24 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 				validExec, execError := validateSQLByExecution(sqlStr, dbID)
 				if !validExec {
 					log.Printf("SQL执行校验失败（第%d次尝试）: %s", attempt, execError)
+					// 执行校验失败，构建增强的错误信息（包含不存在的字段名和可用字段列表）
+					enhancedError := buildMissingFieldsErrorMessage(execError, sqlStr, dbSchemas)
 					// 执行校验失败，构建重试提示词
 					if attempt < maxRetries {
-						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, execError, aiResponse)
+						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, enhancedError, aiResponse)
 						continue
 					}
 					// 最后一次尝试仍然失败
 					sendSSE(w, "sql_validation_error", map[string]interface{}{
-						"message":  "SQL执行校验失败（已重试" + fmt.Sprintf("%d", maxRetries) + "次）: " + execError,
+						"message":  "SQL执行校验失败（已重试" + fmt.Sprintf("%d", maxRetries) + "次）: " + enhancedError,
 						"sql":      sqlStr,
 						"response": aiResponse,
 					})
 					sendSSE(w, "done", map[string]interface{}{})
-				flusher.Flush()
-				return
-			}
-			log.Printf("SQL执行校验成功（第%d次尝试）", attempt)
+					flusher.Flush()
+					return
+				}
+				log.Printf("SQL执行校验成功（第%d次尝试）", attempt)
 			}
 		}
 
@@ -14437,6 +14444,17 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 
 	prompt += "【错误信息】\n"
 	prompt += errorMsg + "\n\n"
+
+	// 检测是否为字段不存在错误（执行校验失败且包含缺失字段信息）
+	isMissingFieldsError := strings.Contains(errorMsg, "不存在的字段") || strings.Contains(errorMsg, "无效的列名")
+	if isMissingFieldsError {
+		prompt += "【严重错误 — 字段不存在】\n"
+		prompt += "你使用的某些字段在数据库表中不存在！这是最严重的错误，必须修正！\n"
+		prompt += "请仔细查看上方【错误信息】中列出的不存在的字段名，以及各表的实际字段列表。\n"
+		prompt += "你只能使用【各表的实际字段列表】中列出的字段名，绝对不能编造或猜测字段名！\n"
+		prompt += "如果不确定某个字段名，宁可不使用该字段，也不要编造一个可能不存在的字段名。\n\n"
+	}
+
 	prompt += "【你之前的响应】\n"
 	prompt += lastResponse + "\n\n"
 
@@ -15078,18 +15096,25 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 			tableName = field[:idx]
 			fieldName = field[idx+1:]
 		} else {
-			// 没有 table 前缀，检查所有表
+			// 没有 table 前缀，检查SQL中使用的表是否有该字段
 			fieldName = field
 			// 跳过伪列
 			if pseudoColumns[strings.ToUpper(fieldName)] {
 				continue
 			}
 			found := false
-			for _, columns := range tableColumnsMap {
-				for _, col := range columns {
-					if strings.EqualFold(col, fieldName) {
-						found = true
-						break
+			// 只检查SQL中实际使用的表，而不是所有表
+			for _, tbl := range tables {
+				tblName := tbl
+				if idx := strings.Index(tbl, "."); idx >= 0 {
+					tblName = tbl[idx+1:]
+				}
+				if columns, ok := tableColumnsMap[strings.ToLower(tblName)]; ok {
+					for _, col := range columns {
+						if strings.EqualFold(col, fieldName) {
+							found = true
+							break
+						}
 					}
 				}
 				if found {
@@ -15149,6 +15174,137 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 
 	log.Printf("SQL校验成功 - 所有表名和字段名均有效")
 	return true, ""
+}
+
+// extractInvalidColumnsFromError 从数据库执行错误信息中提取不存在的字段名
+// 支持的格式：
+//   - DM: "无效的列名[FIELDNAME]" 或 "无效的列名 [FIELDNAME]"
+//   - 通用: "column 'FIELDNAME' does not exist" / "Unknown column 'FIELDNAME'"
+//   - Oracle: "invalid identifier" 后跟字段名
+func extractInvalidColumnsFromError(errMsg string) []string {
+	var invalidColumns []string
+	seen := make(map[string]bool)
+
+	// DM格式: 无效的列名[FIELDNAME]
+	dmPattern := regexp.MustCompile(`无效的列名\s*\[([^\]]+)\]`)
+	for _, match := range dmPattern.FindAllStringSubmatch(errMsg, -1) {
+		col := strings.TrimSpace(match[1])
+		if col != "" && !seen[strings.ToUpper(col)] {
+			invalidColumns = append(invalidColumns, col)
+			seen[strings.ToUpper(col)] = true
+		}
+	}
+
+	// 通用格式: column "FIELDNAME" does not exist / Unknown column 'FIELDNAME'
+	genericPatterns := []string{
+		`column ["']([^"']+)["'] does not exist`,
+		`Unknown column ["']([^"']+)["']`,
+		`invalid identifier.*?["'](\w+)["']`,
+		`列名\s*["']([^"']+)["']\s*无效`,
+	}
+	for _, pat := range genericPatterns {
+		re := regexp.MustCompile(pat)
+		for _, match := range re.FindAllStringSubmatch(errMsg, -1) {
+			col := strings.TrimSpace(match[1])
+			if col != "" && !seen[strings.ToUpper(col)] {
+				invalidColumns = append(invalidColumns, col)
+				seen[strings.ToUpper(col)] = true
+			}
+		}
+	}
+
+	return invalidColumns
+}
+
+// findTableColumnsFromDBSchemas 从dbSchemas中查找指定表的字段列表
+// 返回 map[tableName][]columnName
+func findTableColumnsFromDBSchemas(dbSchemas []map[string]interface{}, tableNames []string) map[string][]string {
+	result := make(map[string][]string)
+	tableNameSet := make(map[string]bool)
+	for _, t := range tableNames {
+		tableNameSet[strings.ToLower(t)] = true
+	}
+
+	for _, schema := range dbSchemas {
+		if tablesWithColumns, ok := schema["tables"].([]map[string]interface{}); ok {
+			for _, table := range tablesWithColumns {
+				tableName, _ := table["name"].(string)
+				// 如果指定了表名列表，只查找这些表；否则查找所有表
+				if len(tableNameSet) > 0 && !tableNameSet[strings.ToLower(tableName)] {
+					continue
+				}
+				var columnNames []string
+				if columns, ok := table["columns"].([]map[string]interface{}); ok {
+					for _, col := range columns {
+						if colName, ok := col["name"].(string); ok {
+							columnNames = append(columnNames, colName)
+						}
+					}
+				}
+				if len(columnNames) > 0 {
+					result[tableName] = columnNames
+				}
+			}
+		}
+	}
+	return result
+}
+
+// buildMissingFieldsErrorMessage 构建包含缺失字段和可用字段列表的详细错误信息
+func buildMissingFieldsErrorMessage(execError string, sqlStr string, dbSchemas []map[string]interface{}) string {
+	msg := execError
+
+	// 从错误信息中提取不存在的字段名
+	invalidColumns := extractInvalidColumnsFromError(execError)
+	if len(invalidColumns) == 0 {
+		// 无法从错误信息中提取字段名，返回原始错误
+		return msg
+	}
+
+	// 提取SQL中使用的表名
+	tables := extractTablesFromSQL(sqlStr)
+
+	// 查找这些表的字段列表
+	tableColumns := findTableColumnsFromDBSchemas(dbSchemas, tables)
+
+	// 构建详细的错误信息
+	msg += "\n\n【不存在的字段】\n"
+	for _, col := range invalidColumns {
+		// 尝试找到该字段可能属于哪个表
+		foundInTable := ""
+		for _, t := range tables {
+			tableName := t
+			if idx := strings.Index(t, "."); idx >= 0 {
+				tableName = t[idx+1:]
+			}
+			if cols, ok := tableColumns[tableName]; ok {
+				for _, c := range cols {
+					if strings.EqualFold(c, col) {
+						foundInTable = tableName
+						break
+					}
+				}
+			}
+			if foundInTable != "" {
+				break
+			}
+		}
+		if foundInTable != "" {
+			msg += fmt.Sprintf("- 字段 %s 不存在于表 %s 中\n", col, foundInTable)
+		} else {
+			msg += fmt.Sprintf("- 字段 %s 在所有相关表中均不存在\n", col)
+		}
+	}
+
+	// 添加可用字段列表
+	if len(tableColumns) > 0 {
+		msg += "\n【各表的实际字段列表（请只使用这些字段）】\n"
+		for tableName, cols := range tableColumns {
+			msg += fmt.Sprintf("表 %s 的字段: %s\n", tableName, strings.Join(cols, ", "))
+		}
+	}
+
+	return msg
 }
 
 // validateSQLByExecution 通过实际执行SQL来校验语法、权限和运行时错误
