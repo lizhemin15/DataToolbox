@@ -14782,6 +14782,9 @@ func extractFieldsFromSQL(sql string) []string {
 	// 移除字符串常量，避免误匹配
 	cleanedSQL := removeStringLiterals(sql)
 
+	// 移除 FETCH FIRST N ROWS ONLY 子句（避免关键字被误识别为字段名）
+	cleanedSQL = regexp.MustCompile(`(?i)\bFETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY\b`).ReplaceAllString(cleanedSQL, "")
+
 	// 匹配 SELECT ... FROM 之间的字段
 	selectPattern := regexp.MustCompile(`(?i)\bSELECT\s+(.+?)\s+FROM`)
 	selectMatch := selectPattern.FindStringSubmatch(cleanedSQL)
@@ -14927,9 +14930,35 @@ func extractFieldName(expr string) string {
 // isSQLKeyword 判断是否是 SQL 关键字
 func isSQLKeyword(word string) bool {
 	keywords := map[string]bool{
-		"FROM": true, "WHERE": true, "AND": true, "OR": true, "NOT": true,
+		// 基本关键字
+		"SELECT": true, "FROM": true, "WHERE": true, "AND": true, "OR": true, "NOT": true,
 		"IN": true, "LIKE": true, "BETWEEN": true, "IS": true, "NULL": true,
 		"ASC": true, "DESC": true, "LIMIT": true, "OFFSET": true,
+		"AS": true, "ON": true, "SET": true, "INTO": true, "VALUES": true,
+		"DISTINCT": true, "ALL": true, "EXISTS": true, "CASE": true, "WHEN": true, "THEN": true, "ELSE": true, "END": true,
+		// JOIN 关键字
+		"JOIN": true, "LEFT": true, "RIGHT": true, "INNER": true, "OUTER": true, "CROSS": true, "FULL": true, "NATURAL": true,
+		// GROUP/ORDER/HAVING
+		"GROUP": true, "ORDER": true, "BY": true, "HAVING": true,
+		// UNION
+		"UNION": true, "INTERSECT": true, "EXCEPT": true,
+		// FETCH FIRST ROWS ONLY (DM/Oracle/PG 分页)
+		"FETCH": true, "FIRST": true, "ROWS": true, "ONLY": true, "NEXT": true,
+		// ROWNUM/TOP
+		"ROWNUM": true, "TOP": true,
+		// 聚合函数
+		"COUNT": true, "SUM": true, "AVG": true, "MIN": true, "MAX": true,
+		// 日期/时间关键字
+		"INTERVAL": true, "DAY": true, "MONTH": true, "YEAR": true, "HOUR": true, "MINUTE": true, "SECOND": true,
+		"DATE": true, "TIME": true, "TIMESTAMP": true, "DATETIME": true,
+		// 其他常见关键字
+		"WITH": true, "RECURSIVE": true, "OVER": true, "PARTITION": true, "WINDOW": true,
+		"CAST": true, "CONVERT": true, "COALESCE": true, "IFNULL": true, "ISNULL": true,
+		"TRUE": true, "FALSE": true, "DEFAULT": true, "PRIMARY": true, "KEY": true,
+		"CREATE": true, "DROP": true, "ALTER": true, "INSERT": true, "UPDATE": true, "DELETE": true,
+		"TABLE": true, "INDEX": true, "VIEW": true, "TRIGGER": true, "PROCEDURE": true, "FUNCTION": true,
+		"GRANT": true, "REVOKE": true, "COMMIT": true, "ROLLBACK": true, "BEGIN": true, "TRANSACTION": true,
+		"FOR": true, "TO": true, "OF": true, "AT": true, "USING": true, "RETURN": true, "RETURNS": true,
 	}
 	return keywords[strings.ToUpper(word)]
 }
@@ -15035,7 +15064,12 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 
 	log.Printf("SQL校验 - 提取到的字段名: %v", fields)
 
-	// 校验字段名是否存在
+	// 校验字段名是否存在（排除数据库伪列）
+	pseudoColumns := map[string]bool{
+		"ROWNUM": true, "ROWID": true, "OID": true, "CTID": true,
+		"XMIN": true, "XMAX": true, "TABLEOID": true,
+		"_ROWID_": true, "DB_ROW_ID": true,
+	}
 	var missingFields []string
 	for _, field := range fields {
 		// 处理 table.field 格式
@@ -15044,8 +15078,12 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 			tableName = field[:idx]
 			fieldName = field[idx+1:]
 		} else {
-			// 没有 table 前缀，需要检查所有表
+			// 没有 table 前缀，检查所有表
 			fieldName = field
+			// 跳过伪列
+			if pseudoColumns[strings.ToUpper(fieldName)] {
+				continue
+			}
 			found := false
 			for _, columns := range tableColumnsMap {
 				for _, col := range columns {
@@ -15066,6 +15104,10 @@ func validateSQLTablesAndFields(sql string, dbSchemas []map[string]interface{}) 
 
 		// 有 table 前缀，检查指定表的字段
 		tableNameLower := strings.ToLower(tableName)
+		// 跳过伪列
+		if pseudoColumns[strings.ToUpper(fieldName)] {
+			continue
+		}
 		columns, exists := tableColumnsMap[tableNameLower]
 		if !exists {
 			// 表名不存在（前面已校验过，这里应该不会发生）
@@ -20719,7 +20761,7 @@ func main() {
 type FTS5Manager struct {
 	dbPath string
 	db     *sql.DB
-	mu     sync.RWMutex
+	mu     sync.Mutex // 改为互斥锁，读写都需要独占（SQLite 单写要求）
 }
 
 var (
@@ -20740,15 +20782,17 @@ func getFTS5Manager() *FTS5Manager {
 			return
 		}
 
-		db, err := sql.Open("sqlite", dbPath)
+		db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)")
 		if err != nil {
 			log.Printf("[表检索] 打开 SQLite 失败: %v", err)
 			return
 		}
 
-		// 设置连接池
-		db.SetMaxOpenConns(5)
-		db.SetMaxIdleConns(2)
+		// SQLite 单写模型：限制最大连接数为 1，避免并发写入导致损坏
+		// WAL 模式允许同时有一个写者和多个读者，但 Go 的 sql.DB 连接池
+		// 在多连接时可能交叉使用连接，导致事务状态混乱
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
 
 		manager := &FTS5Manager{
 			dbPath: dbPath,
@@ -20814,21 +20858,21 @@ func (m *FTS5Manager) initSchema() error {
 
 	if ftsNeedsRebuild {
 		// SQLite FTS5 不支持 ALTER TABLE 添加列，必须 DROP 后重建
-		log.Printf("[FTS5] 检测到 FTS5 索引缺少 column_comments，正在重建...")
+		log.Printf("[FTS5] 检测到 FTS5 索引需要重建（缺少列或 tokenizer 过时）...")
 		_, _ = m.db.Exec(`DROP TABLE IF EXISTS tables_fts`)
 		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ai`)
 		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ad`)
 		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_au`)
 	}
 
+	// 创建 FTS5 虚拟表（不使用 content= 同步模式，避免触发器与 INSERT OR REPLACE 冲突导致索引损坏）
+	// 改为独立内容模式：FTS5 自己存储数据，由 syncTablesToSQLite 手动重建索引
 	_, err = m.db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS tables_fts USING fts5(
 			table_name,
 			table_comment,
 			column_names,
 			column_comments,
-			content='tables',
-			content_rowid='id',
 			tokenize='trigram'
 		);
 	`)
@@ -20845,7 +20889,7 @@ func (m *FTS5Manager) initSchema() error {
 		`)
 		if err != nil {
 			log.Printf("[FTS5] 重新填充 FTS5 索引失败: %v", err)
-			// 不返回错误，继续执行，后续触发器会逐步同步
+			// 不返回错误，继续执行，后续同步会逐步修复
 		} else {
 			log.Printf("[FTS5] FTS5 索引重建并填充完成")
 		}
@@ -20889,26 +20933,40 @@ func (m *FTS5Manager) initSchema() error {
 		return err
 	}
 
-	// 触发器：保持 FTS 索引同步
-	triggers := []string{
-		`CREATE TRIGGER IF NOT EXISTS tables_ai AFTER INSERT ON tables BEGIN
-			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
-			VALUES (new.id, new.table_name, new.table_comment, new.column_names, new.column_comments);
-		END;`,
-		`CREATE TRIGGER IF NOT EXISTS tables_ad AFTER DELETE ON tables BEGIN
-			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names, column_comments)
-			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names, old.column_comments);
-		END;`,
-		`CREATE TRIGGER IF NOT EXISTS tables_au AFTER UPDATE ON tables BEGIN
-			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names, column_comments)
-			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names, old.column_comments);
-			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
-			VALUES (new.id, new.table_name, new.table_comment, new.column_names, new.column_comments);
-		END;`,
-	}
-	for _, trigger := range triggers {
-		if _, err := m.db.Exec(trigger); err != nil {
-			return err
+	// 移除旧的 FTS5 content 同步触发器（不再需要，改为手动重建索引）
+	// 旧版使用 content='tables' + 触发器同步，INSERT OR REPLACE 与触发器冲突导致 FTS5 索引损坏
+	_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ai`)
+	_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ad`)
+	_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_au`)
+
+	// 检查是否需要从 content= 模式迁移到独立内容模式
+	var ftsSQL string
+	err2 := m.db.QueryRow("SELECT sql FROM sqlite_master WHERE name = 'tables_fts'").Scan(&ftsSQL)
+	if err2 == nil && strings.Contains(ftsSQL, "content='tables'") {
+		// 旧版 content= 模式，需要重建为独立内容模式
+		log.Printf("[FTS5] 检测到旧版 content= 同步模式，正在迁移为独立内容模式...")
+		_, _ = m.db.Exec(`DROP TABLE IF EXISTS tables_fts`)
+		_, err = m.db.Exec(`
+			CREATE VIRTUAL TABLE tables_fts USING fts5(
+				table_name,
+				table_comment,
+				column_names,
+				column_comments,
+				tokenize='trigram'
+			);
+		`)
+		if err != nil {
+			log.Printf("[FTS5] 迁移 FTS5 表失败: %v", err)
+		} else {
+			_, err = m.db.Exec(`
+				INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
+				SELECT id, table_name, table_comment, column_names, column_comments FROM tables;
+			`)
+			if err != nil {
+				log.Printf("[FTS5] 迁移后填充数据失败: %v", err)
+			} else {
+				log.Printf("[FTS5] 迁移完成，已从 content= 模式切换为独立内容模式")
+			}
 		}
 	}
 
@@ -20917,19 +20975,34 @@ func (m *FTS5Manager) initSchema() error {
 
 // fts5RetrieveTables 使用 FTS5 进行关键词检索
 func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit int) ([]TableRelevanceResult, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return nil, sql.ErrConnDone
 	}
 
+	// 清理查询：去掉 @ 引用标记、模块名等非搜索内容
+	cleanedQuery := query
+	// 去掉 @xxx 引用（如 @接口制作）
+	if atIdx := strings.Index(cleanedQuery, "@"); atIdx >= 0 {
+		// 找到 @ 后面的词（到空格为止）
+		rest := cleanedQuery[atIdx+1:]
+		if spaceIdx := strings.Index(rest, " "); spaceIdx >= 0 {
+			cleanedQuery = cleanedQuery[:atIdx] + rest[spaceIdx+1:]
+		} else {
+			cleanedQuery = cleanedQuery[:atIdx]
+		}
+	}
+	cleanedQuery = strings.TrimSpace(cleanedQuery)
+
 	// trigram tokenizer 要求查询至少3个字符，短查询直接降级到 LIKE
-	if len(query) < 3 {
-		return m.likeRetrieveTables(query, databaseID, limit)
+	if len(cleanedQuery) < 3 {
+		return m.likeRetrieveTables(cleanedQuery, databaseID, limit)
 	}
 
 	// 构建搜索条件：表名、注释、字段名任一匹配，使用 BM25 排序
+	// 独立内容模式下 FTS5 自存数据，仍通过 rowid JOIN tables 获取 database_id 过滤
 	sqlStr := `
 		SELECT 
 			t.table_name,
@@ -20942,11 +21015,11 @@ func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit 
 		LIMIT ?
 	`
 
-	rows, err := m.db.Query(sqlStr, query, databaseID, limit)
+	rows, err := m.db.Query(sqlStr, cleanedQuery, databaseID, limit)
 	if err != nil {
 		// FTS5 MATCH 失败（如中文分词问题），降级为 LIKE 模糊匹配
 		log.Printf("[表检索] FTS5 MATCH 失败，降级为 LIKE 匹配: %v", err)
-		return m.likeRetrieveTables(query, databaseID, limit)
+		return m.likeRetrieveTables(cleanedQuery, databaseID, limit)
 	}
 	defer rows.Close()
 
@@ -20983,22 +21056,26 @@ func (m *FTS5Manager) fts5RetrieveTables(query string, databaseID string, limit 
 // likeRetrieveTables LIKE 模糊匹配检索（FTS5 降级方案）
 func (m *FTS5Manager) likeRetrieveTables(query string, databaseID string, limit int) ([]TableRelevanceResult, error) {
 	// 使用 LIKE 模糊匹配表名、注释、字段名
-	sqlStr := `
-		SELECT 
-			table_name,
-			table_comment
-		FROM tables
-		WHERE database_id = ? AND (
-			table_name LIKE ? OR
-			table_comment LIKE ? OR
-			column_names LIKE ? OR
-			column_comments LIKE ?
-		)
-		LIMIT ?
-	`
+	// 将查询拆分为关键词，每个关键词单独匹配，取并集
+	keywords := extractSearchKeywords(query)
+	if len(keywords) == 0 {
+		return nil, nil
+	}
 
-	likePattern := "%" + query + "%"
-	rows, err := m.db.Query(sqlStr, databaseID, likePattern, likePattern, likePattern, likePattern, limit)
+	// 构建动态 SQL：每个关键词匹配一次，取并集
+	// 使用子查询去重
+	placeholderParts := make([]string, len(keywords))
+	args := []interface{}{}
+	for i, kw := range keywords {
+		placeholderParts[i] = "SELECT table_name, table_comment FROM tables WHERE database_id = ? AND (table_name LIKE ? OR table_comment LIKE ? OR column_names LIKE ? OR column_comments LIKE ?)"
+		likePattern := "%" + kw + "%"
+		args = append(args, databaseID, likePattern, likePattern, likePattern, likePattern)
+	}
+
+	sqlStr := "SELECT DISTINCT table_name, table_comment FROM (" + strings.Join(placeholderParts, " UNION ") + ") LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := m.db.Query(sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -21020,6 +21097,59 @@ func (m *FTS5Manager) likeRetrieveTables(query string, databaseID string, limit 
 	}
 
 	return results, nil
+}
+
+// extractSearchKeywords 从查询中提取搜索关键词
+func extractSearchKeywords(query string) []string {
+	// 去掉常见动词/助词
+	stopWords := map[string]bool{
+		"查询": true, "获取": true, "查找": true, "搜索": true, "列出": true,
+		"统计": true, "计算": true, "分析": true, "展示": true, "显示": true,
+		"的": true, "了": true, "和": true, "与": true, "或": true,
+		"所有": true, "全部": true, "各个": true, "每个": true,
+		"请": true, "帮": true, "我": true, "要": true, "想": true,
+	}
+
+	// 简单分词：尝试2-4字滑动窗口
+	var keywords []string
+	seen := make(map[string]bool)
+
+	// 先尝试整体
+	if len(query) >= 2 && len(query) <= 8 && !stopWords[query] {
+		if !seen[query] {
+			keywords = append(keywords, query)
+			seen[query] = true
+		}
+	}
+
+	// 2字窗口
+	for i := 0; i <= len(query)-2; i++ {
+		w := query[i : i+2]
+		if !stopWords[w] && !seen[w] {
+			keywords = append(keywords, w)
+			seen[w] = true
+		}
+	}
+
+	// 3字窗口
+	for i := 0; i <= len(query)-3; i++ {
+		w := query[i : i+3]
+		if !stopWords[w] && !seen[w] {
+			keywords = append(keywords, w)
+			seen[w] = true
+		}
+	}
+
+	// 4字窗口
+	for i := 0; i <= len(query)-4; i++ {
+		w := query[i : i+4]
+		if !stopWords[w] && !seen[w] {
+			keywords = append(keywords, w)
+			seen[w] = true
+		}
+	}
+
+	return keywords
 }
 
 // syncTablesToSQLite 同步单个数据库的表信息到 SQLite
@@ -21100,7 +21230,7 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 		return nil
 	}
 
-	log.Printf("[表检索] 数据库 %s 增量同步表: 删除 %d 个, 新增 %d 个", dbConfig.Name, len(toDelete), len(toSync))
+	log.Printf("[表检索] 数据库 %s 增量同步表: 删除 %d 个, 新增/更新 %d 个", dbConfig.Name, len(toDelete), len(toSync))
 
 	tx, err := m.db.Begin()
 	if err != nil {
@@ -21125,10 +21255,18 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 	}
 
 	// 新增/更新表
+	// 使用 INSERT ... ON CONFLICT DO UPDATE 替代 INSERT OR REPLACE
+	// INSERT OR REPLACE 会先 DELETE 再 INSERT，导致 rowid 变化，破坏 FTS5 rowid 映射
 	if len(toSync) > 0 {
 		stmt, err := tx.Prepare(`
-			INSERT OR REPLACE INTO tables (database_id, table_name, table_comment, column_names, column_comments, row_count, updated_at)
+			INSERT INTO tables (database_id, table_name, table_comment, column_names, column_comments, row_count, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(database_id, table_name) DO UPDATE SET
+				table_comment = excluded.table_comment,
+				column_names = excluded.column_names,
+				column_comments = excluded.column_comments,
+				row_count = excluded.row_count,
+				updated_at = excluded.updated_at
 		`)
 		if err != nil {
 			return err
@@ -21152,7 +21290,45 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 		}
 	}
 
-	return tx.Commit()
+	// 提交 tables 表事务
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 事务提交后，重建该数据库的 FTS5 索引
+	// 独立内容模式下不使用触发器同步，改为删除旧索引后重新填充
+	if len(toDelete) > 0 || len(toSync) > 0 {
+		if err := m.rebuildFTS5ForDatabase(dbConfig.ID); err != nil {
+			log.Printf("[表检索] 重建数据库 %s 的 FTS5 索引失败: %v", dbConfig.Name, err)
+			// 不返回错误，FTS5 索引缺失不影响主流程，下次同步会重试
+		}
+	}
+
+	return nil
+}
+
+// rebuildFTS5ForDatabase 重建指定数据库的 FTS5 索引
+func (m *FTS5Manager) rebuildFTS5ForDatabase(databaseID string) error {
+	// 先删除该数据库对应的旧 FTS5 条目
+	_, err := m.db.Exec(`
+		DELETE FROM tables_fts WHERE rowid IN (
+			SELECT id FROM tables WHERE database_id = ?
+		)
+	`, databaseID)
+	if err != nil {
+		return fmt.Errorf("删除旧 FTS5 索引失败: %w", err)
+	}
+
+	// 重新从 tables 表填充 FTS5 索引
+	_, err = m.db.Exec(`
+		INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
+		SELECT id, table_name, table_comment, column_names, column_comments FROM tables WHERE database_id = ?
+	`, databaseID)
+	if err != nil {
+		return fmt.Errorf("填充 FTS5 索引失败: %w", err)
+	}
+
+	return nil
 }
 
 // syncAllDatabases 同步所有数据库的表信息
@@ -21189,8 +21365,8 @@ func (m *FTS5Manager) syncAllDatabases() error {
 
 // getStats 获取索引统计信息
 func (m *FTS5Manager) getStats() (int, map[string]int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return 0, nil, sql.ErrConnDone
@@ -21686,8 +21862,8 @@ func calculatePrefixConsistency(table1, table2 string) float64 {
 
 // getVectorList 获取向量列表
 func (m *FTS5Manager) getVectorList(databaseID string) ([]map[string]interface{}, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return nil, sql.ErrConnDone
@@ -21883,8 +22059,8 @@ func (m *FTS5Manager) vectorRetrieveTables(query string, databaseID string, limi
 		return nil, fmt.Errorf("生成查询向量失败: %w", err)
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// 2. 从 vectors 表读取所有向量（按 dbID 过滤）
 	rows, err := m.db.Query("SELECT table_name, embedding FROM vectors WHERE database_id = ?", databaseID)
@@ -21941,8 +22117,8 @@ func (m *FTS5Manager) vectorRetrieveTables(query string, databaseID string, limi
 
 // getVectorStats 获取向量索引统计信息
 func (m *FTS5Manager) getVectorStats() (int, map[string]int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return 0, nil, sql.ErrConnDone
@@ -22119,8 +22295,8 @@ func (m *FTS5Manager) graphRetrieveTables(seedTables []string, databaseID string
 		return nil, sql.ErrConnDone
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// 已访问表集合
 	visited := make(map[string]bool)
@@ -22222,8 +22398,8 @@ func (m *FTS5Manager) graphRetrieveTables(seedTables []string, databaseID string
 
 // getRelationStats 获取关系索引统计信息
 func (m *FTS5Manager) getRelationStats() (int, map[string]int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return 0, nil, sql.ErrConnDone
@@ -22280,8 +22456,8 @@ type RelationInfo struct {
 
 // listVectors 获取向量列表（分页）
 func (m *FTS5Manager) listVectors(databaseID string, page, pageSize int) ([]VectorInfo, int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return nil, 0, sql.ErrConnDone
@@ -22340,8 +22516,8 @@ type listRelationsParams struct {
 
 // listRelations 获取关系列表（支持筛选）
 func (m *FTS5Manager) listRelations(params listRelationsParams) ([]RelationInfo, int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return nil, 0, sql.ErrConnDone
@@ -22407,8 +22583,8 @@ func (m *FTS5Manager) listRelations(params listRelationsParams) ([]RelationInfo,
 
 // getMatchTypes 获取所有匹配类型（用于筛选下拉）
 func (m *FTS5Manager) getMatchTypes(databaseID string) ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.db == nil {
 		return nil, sql.ErrConnDone
