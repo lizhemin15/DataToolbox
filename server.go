@@ -16419,8 +16419,8 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		// APIPath/APIMethod 允许清空，直接赋值
 		task.APIPath = update.APIPath
 		task.APIMethod = update.APIMethod
-		// 分享字段 - 保留原有分享状态和 token，除非明确关闭或修改
-		// 只有通过 DELETE /share API 才能关闭分享，PUT 更新不应自动关闭
+		// 分享字段 - 与编辑界面的 checkbox 和外面的分享按钮共用同一状态
+		// 任意一处开启/关闭，另一处也要同步
 		if update.ShareEnabled {
 			// 如果前端传了 share_token，使用前端的（允许自定义）
 			if update.ShareToken != "" {
@@ -16447,6 +16447,10 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 				task.ShareToken = uuid.New().String()
 			}
 			task.ShareEnabled = true
+		} else {
+			// 前端明确关闭分享：清除 token，与 DELETE /share API 行为一致
+			task.ShareEnabled = false
+			task.ShareToken = ""
 		}
 		// API 路径冲突检测
 		if update.RegisterAsAPI && update.APIPath != "" {

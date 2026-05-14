@@ -7341,7 +7341,7 @@ function showGovTaskDetail(task) {
     const shareStatusEl = document.getElementById('govTaskShareStatus');
     const copyLinkBtn = document.getElementById('govCopyShareLinkBtn');
     const shareBtn = document.getElementById('shareGovTaskBtn');
-    if (task.share_enabled && task.share_token) {
+    if (task.share_enabled) {
         shareItem.style.display = '';
         shareStatusEl.textContent = '已开启';
         shareStatusEl.style.color = '#28a745';
@@ -8335,7 +8335,7 @@ async function toggleShareGovTask() {
     shareBtn.disabled = true;
     
     try {
-        const isShared = currentGovTask.share_enabled && currentGovTask.share_token;
+        const isShared = currentGovTask.share_enabled;
         const method = isShared ? 'DELETE' : 'POST';
         const response = await fetchWithAuth(
             `${API_BASE}/api/data-ontology/governance/tasks/${currentGovTask.id}/share`,
@@ -8346,6 +8346,12 @@ async function toggleShareGovTask() {
             currentGovTask.share_enabled = !isShared;
             currentGovTask.share_token = data.share_token || '';
             showGovTaskDetail(currentGovTask);
+            // 同步编辑界面的 checkbox 状态
+            const openShare = document.getElementById('govOpenShare');
+            if (openShare) openShare.checked = currentGovTask.share_enabled;
+            // 同步编辑界面的分享配置面板显示
+            const shareConfig = document.getElementById('govShareConfig');
+            if (shareConfig) shareConfig.style.display = currentGovTask.share_enabled ? '' : 'none';
             showToast(isShared ? '已关闭分享' : '已开启分享', 'success');
         } else {
             showToast(data.message || '操作失败', 'error');
