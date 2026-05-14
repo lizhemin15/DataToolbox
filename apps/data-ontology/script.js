@@ -4497,6 +4497,7 @@ function renderPrimitiveValue(value) {
 
 // HTML 转义
 function escapeHtml(text) {
+    if (text == null) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -5325,7 +5326,7 @@ function showDbSuggestions(searchTerm) {
         html += matchedDbs.map(db => {
             const typeIcon = dbTypeIcons[db.type] || '🗃️';
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
-            const info = isFileDb ? db.path : `${db.host}:${db.port}`;
+            const info = isFileDb ? (db.path || '未配置路径') : (db.host && db.port ? `${db.host}:${db.port}` : (db.host || '未配置连接'));
             const safeDbId = escapeHtml(db.id);
             const safeDbName = escapeHtml(db.name);
             const safeInfo = escapeHtml(info);
@@ -6557,6 +6558,7 @@ function showAiError(message) {
 
 // HTML 转义。
 function escapeHtml(text) {
+    if (text == null) return '';
     const map = {
         '&': '&amp;',
         '<': '&lt;',
@@ -6564,7 +6566,7 @@ function escapeHtml(text) {
         '"': '&quot;',
         "'": '&#039;'
     };
-    return text.replace(/[&<>"']/g, m => map[m]);
+    return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
 // Render gov.showTable() output as HTML table
