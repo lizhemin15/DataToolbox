@@ -1,8 +1,8 @@
 // 应用分区配置
 const appCategories = [
     { id: "all", name: "全部", icon: "📋" },
-    { id: "tool", name: "效率工具", icon: "⚡" },
     { id: "online", name: "联机", icon: "🌐" },
+    { id: "tool", name: "效率工具", icon: "⚡" },
     { id: "learn", name: "教学", icon: "🎓" }
 ];
 
