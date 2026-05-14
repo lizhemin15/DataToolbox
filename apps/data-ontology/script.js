@@ -106,13 +106,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=2026.05.14.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=2026.05.14.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=2026.05.14.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=2026.05.14.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
 }
 
 

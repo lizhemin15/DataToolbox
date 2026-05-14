@@ -14194,21 +14194,59 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 						"response": aiResponse,
 					})
 					sendSSE(w, "done", map[string]interface{}{})
-					flusher.Flush()
-					return
+				flusher.Flush()
+				return
+			}
+			log.Printf("SQL执行校验成功（第%d次尝试）", attempt)
+			}
+		}
+
+		// 从数据库表中查询实际值填充 default_params
+		if len(dbSchemas) > 0 {
+			dbID, _ := dbSchemas[0]["id"].(string)
+			populateDefaultParamsFromDB(apiConfig, dbID)
+
+			// 端到端验证：用 default_params 实际执行 SQL，验证能否返回数据
+			sqlStr, _ := apiConfig["sql"].(string)
+			defaultParams, _ := apiConfig["default_params"].(map[string]interface{})
+			if sqlStr != "" && len(defaultParams) > 0 {
+				sendSSE(w, "thinking", map[string]interface{}{
+					"message": "正在验证默认参数是否能返回数据...",
+				})
+				flusher.Flush()
+
+				e2eValid, e2eError, e2eResults := validateSQLWithDefaultParams(sqlStr, defaultParams, dbID)
+				if !e2eValid {
+					log.Printf("端到端验证失败（第%d次尝试）: %s", attempt, e2eError)
+					// 端到端验证失败，构建重试提示词
+					if attempt < maxRetries {
+						// 构建更详细的错误信息，包含查询结果示例
+						retryMsg := fmt.Sprintf("端到端验证失败: %s。你生成的SQL使用default_params执行后没有返回数据，这意味着default_params中的参数值在数据库中不存在。请调整SQL或default_params，确保使用数据库中实际存在的值。", e2eError)
+						// 如果有部分结果（虽然当前为空），可以附加提示
+						if e2eResults != nil && len(e2eResults) > 0 {
+							retryMsg += fmt.Sprintf(" 部分查询结果: %v", e2eResults)
+						}
+						prompt = buildCreateApiRetryPrompt(queryReq.Message, dbSchemas, existingApis, retryMsg, aiResponse)
+						continue
+					}
+					// 最后一次尝试仍然失败，仍然返回配置（但标记警告）
+					log.Printf("端到端验证失败（已重试%d次），仍返回配置", maxRetries)
+					// 在配置中添加警告信息
+					if apiConfig != nil {
+						apiConfig["_e2e_warning"] = e2eError
+					}
+				} else {
+					log.Printf("端到端验证成功（第%d次尝试），返回 %d 行数据", attempt, len(e2eResults))
+					// 将验证结果存入配置，供前端展示
+					if apiConfig != nil && len(e2eResults) > 0 {
+						apiConfig["_e2e_sample"] = e2eResults[0]
+					}
 				}
-				log.Printf("SQL执行校验成功（第%d次尝试）", attempt)
 			}
 		}
 
 		// 验证成功，跳出重试循环
 		break
-	}
-
-	// 从数据库表中查询实际值填充 default_params
-	if len(dbSchemas) > 0 {
-		dbID, _ := dbSchemas[0]["id"].(string)
-		populateDefaultParamsFromDB(apiConfig, dbID)
 	}
 
 	// 返回接口配置供用户确认
@@ -14223,6 +14261,44 @@ func handleAICreateApi(w http.ResponseWriter, flusher http.Flusher, queryReq *AI
 // buildCreateApiPrompt 构建创建接口的提示词
 func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}, existingApis []map[string]interface{}) string {
 	prompt := "你是一个API接口设计专家。用户需要创建一个数据库查询接口，请根据用户需求和以下真实数据库结构生成接口配置。\n\n"
+
+	// 收集数据库类型信息，生成语法提示
+	dbTypes := make(map[string]bool)
+	for _, schema := range dbSchemas {
+		if t, ok := schema["type"].(string); ok && t != "" {
+			dbTypes[t] = true
+		}
+	}
+	if len(dbTypes) > 0 {
+		prompt += "【数据库类型与SQL语法要点】\n"
+		prompt += "请根据以下数据库类型注意SQL语法差异，特别是分页写法：\n"
+		for dbType := range dbTypes {
+			switch strings.ToUpper(dbType) {
+			case "DM", "ORACLE", "ORACLE12C":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页请使用 WHERE ROWNUM <= N 或 FETCH FIRST N ROWS ONLY，不要使用 LIMIT\n", dbType)
+				prompt += "  示例: SELECT * FROM TABLE_NAME WHERE ROWNUM <= 10\n"
+				prompt += "  示例: SELECT * FROM TABLE_NAME FETCH FIRST 10 ROWS ONLY\n"
+				prompt += "  注意: DM/Oracle 不支持 LIMIT 语法，使用 LIMIT 会导致SQL执行失败\n"
+			case "MYSQL", "MARIADB":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N OFFSET M 语法\n", dbType)
+				prompt += "  示例: SELECT * FROM TABLE_NAME LIMIT 10 OFFSET 0\n"
+			case "POSTGRESQL", "PG":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N OFFSET M 语法\n", dbType)
+				prompt += "  示例: SELECT * FROM TABLE_NAME LIMIT 10 OFFSET 0\n"
+			case "SQLSERVER", "MSSQL":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 TOP N 或 OFFSET-FETCH 语法\n", dbType)
+				prompt += "  示例: SELECT TOP 10 * FROM TABLE_NAME\n"
+				prompt += "  示例: SELECT * FROM TABLE_NAME ORDER BY ID OFFSET 0 ROWS FETCH FIRST 10 ROWS ONLY\n"
+			case "CLICKHOUSE":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N 语法\n", dbType)
+				prompt += "  示例: SELECT * FROM TABLE_NAME LIMIT 10\n"
+			default:
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，请使用该数据库兼容的分页语法\n", dbType)
+			}
+		}
+		prompt += "\n"
+	}
+
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段生成SQL：\n\n"
 
 	for _, schema := range dbSchemas {
@@ -14300,20 +14376,19 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
 	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格，全部小写）\n"
 	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE，全部大写）\n"
-	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
+	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数，必须使用与数据库类型匹配的语法）\n"
 	prompt += "5. description: 接口描述\n"
-	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
+	prompt += "6. default_params: 默认参数值（用于测试，JSON对象，值必须是数据库中实际存在的数据）\n\n"
 	prompt += "请按以下JSON格式返回：\n"
 	prompt += "```json\n"
 	prompt += "{\n"
-	prompt += "  \"name\": \"获取用户列表\",\n"
-	prompt += "  \"path\": \"/api/users\",\n"
+	prompt += "  \"name\": \"查询员工薪资\",\n"
+	prompt += "  \"path\": \"/api/hr/salary\",\n"
 	prompt += "  \"method\": \"GET\",\n"
-	prompt += "  \"sql\": \"SELECT * FROM users WHERE status = #{status} LIMIT #{limit}\",\n"
-	prompt += "  \"description\": \"查询指定状态的用户列表\",\n"
+	prompt += "  \"sql\": \"SELECT he.EMP_NAME, hsr.BASE_SALARY, hsr.BONUS, hsr.ACTUAL_PAY FROM HR_EMPLOYEE he JOIN HR_SALARY_RECORD hsr ON he.EMP_ID = hsr.EMP_ID WHERE hsr.YEAR_MONTH = #{year_month}\",\n"
+	prompt += "  \"description\": \"查询指定月份的员工薪资信息\",\n"
 	prompt += "  \"default_params\": {\n"
-	prompt += "    \"status\": \"active\",\n"
-	prompt += "    \"limit\": 10\n"
+	prompt += "    \"year_month\": \"2024-01\"\n"
 	prompt += "  }\n"
 	prompt += "}\n"
 	prompt += "```\n\n"
@@ -14323,11 +14398,18 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "3. 接口路径要符合RESTful规范（如 /api/users, /api/products/list）\n"
 	prompt += "4. 根据操作类型选择正确的HTTP方法（查询用GET，创建用POST，更新用PUT，删除用DELETE）\n"
 	prompt += "5. **必须使用上面列出的真实表名和字段名**，不要使用不存在的表或字段\n"
-	prompt += "6. 必须为SQL中的每个参数提供合理的默认值用于测试\n"
-	prompt += "7. 默认值要符合字段类型和实际使用场景：\n"
-	prompt += "   - 数字类型(int/bigint)：id一般为1，limit一般为10，page一般为1\n"
-	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
-	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
+	prompt += "6. **SQL语法必须与数据库类型匹配**，特别是分页语法（见上方【数据库类型与SQL语法要点】）\n"
+	prompt += "7. 必须为SQL中的每个参数提供默认值用于测试\n\n"
+	prompt += "【default_params 规则 — 极其重要】：\n"
+	prompt += "default_params 的值必须是数据库中实际存在的数据值，不能是假设值或随意编造的值！\n"
+	prompt += "系统会用 default_params 实际执行SQL来验证，如果查不到数据则验证失败。\n"
+	prompt += "- 对于 WHERE 条件中的参数，必须使用表中真实存在的值（如字段有注释说明取值范围，按注释选择）\n"
+	prompt += "- 对于 id 类参数，使用最小的 id 值（通常是1）\n"
+	prompt += "- 对于 status/类型 类参数，使用最常见的状态值（如状态字段有注释，按注释选择最通用的值）\n"
+	prompt += "- 对于日期参数，使用最近的日期（如 \"2024-01-01\" 或 \"2024-01\"）\n"
+	prompt += "- 对于 limit/count 类参数，使用较小的值（如 10）\n"
+	prompt += "- 如果不确定某个参数的实际值，宁可去掉该 WHERE 条件，也不要使用可能不存在的值\n"
+	prompt += "- 优先选择范围更宽的默认值（如不限定 status 比限定某个具体 status 更安全）\n"
 	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询"
 
 	return prompt
@@ -14336,10 +14418,58 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 // buildCreateApiRetryPrompt 构建重试提示词，告知AI之前的错误
 func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interface{}, existingApis []map[string]interface{}, errorMsg string, lastResponse string) string {
 	prompt := "你之前的接口配置存在问题，请根据以下错误信息重新生成。\n\n"
+
+	// 检测是否为E2E验证失败（默认参数返回空结果）
+	isE2EFailure := strings.Contains(errorMsg, "端到端验证失败") || strings.Contains(errorMsg, "返回空结果") || strings.Contains(errorMsg, "default_params") || strings.Contains(errorMsg, "参数值在数据库中不存在")
+
+	if isE2EFailure {
+		prompt += "【严重错误 — E2E验证失败】\n"
+		prompt += "你之前生成的 default_params 在数据库中查不到数据！\n"
+		prompt += "系统用你提供的 default_params 实际执行了SQL，结果返回0行数据。\n"
+		prompt += "这意味着你的 default_params 中的参数值在数据库中不存在。\n\n"
+		prompt += "【必须采取的修正措施】：\n"
+		prompt += "1. 使用更宽松的默认值 — 选择数据库中最可能存在的值\n"
+		prompt += "2. 去掉过于严格的 WHERE 条件 — 如果某个条件导致查不到数据，考虑移除该条件或改为可选参数\n"
+		prompt += "3. 不要使用假设值 — default_params 必须是数据库中真实存在的数据\n"
+		prompt += "4. 优先减少 WHERE 条件数量 — 条件越少，越容易匹配到数据\n"
+		prompt += "5. 如果必须保留 WHERE 条件，使用最通用的值（如 status 用最常见的状态，日期用最近的日期）\n\n"
+	}
+
 	prompt += "【错误信息】\n"
 	prompt += errorMsg + "\n\n"
 	prompt += "【你之前的响应】\n"
 	prompt += lastResponse + "\n\n"
+
+	// 收集数据库类型信息，生成语法提示
+	dbTypes := make(map[string]bool)
+	for _, schema := range dbSchemas {
+		if t, ok := schema["type"].(string); ok && t != "" {
+			dbTypes[t] = true
+		}
+	}
+	if len(dbTypes) > 0 {
+		prompt += "【数据库类型与SQL语法要点】\n"
+		prompt += "请根据以下数据库类型注意SQL语法差异，特别是分页写法：\n"
+		for dbType := range dbTypes {
+			switch strings.ToUpper(dbType) {
+			case "DM", "ORACLE", "ORACLE12C":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页请使用 WHERE ROWNUM <= N 或 FETCH FIRST N ROWS ONLY，不要使用 LIMIT\n", dbType)
+				prompt += "  注意: DM/Oracle 不支持 LIMIT 语法，使用 LIMIT 会导致SQL执行失败\n"
+			case "MYSQL", "MARIADB":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N OFFSET M 语法\n", dbType)
+			case "POSTGRESQL", "PG":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N OFFSET M 语法\n", dbType)
+			case "SQLSERVER", "MSSQL":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 TOP N 或 OFFSET-FETCH 语法\n", dbType)
+			case "CLICKHOUSE":
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，分页使用 LIMIT N 语法\n", dbType)
+			default:
+				prompt += fmt.Sprintf("- 当前数据库类型为 %s，请使用该数据库兼容的分页语法\n", dbType)
+			}
+		}
+		prompt += "\n"
+	}
+
 	prompt += "【重要】以下是真实的数据库结构信息，请严格基于这些表和字段重新生成SQL：\n\n"
 
 	for _, schema := range dbSchemas {
@@ -14417,20 +14547,19 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 	prompt += "1. name: 接口名称（中文，简洁明了）\n"
 	prompt += "2. path: 接口路径（以/api/开头，使用RESTful风格，全部小写）\n"
 	prompt += "3. method: 请求方法（GET/POST/PUT/DELETE，全部大写）\n"
-	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数）\n"
+	prompt += "4. sql: SQL查询语句（支持MyBatis语法，使用#{param}表示参数，必须使用与数据库类型匹配的语法）\n"
 	prompt += "5. description: 接口描述\n"
-	prompt += "6. default_params: 默认参数值（用于测试，JSON对象）\n\n"
+	prompt += "6. default_params: 默认参数值（用于测试，JSON对象，值必须是数据库中实际存在的数据）\n\n"
 	prompt += "请按以下JSON格式返回：\n"
 	prompt += "```json\n"
 	prompt += "{\n"
-	prompt += "  \"name\": \"获取用户列表\",\n"
-	prompt += "  \"path\": \"/api/users\",\n"
+	prompt += "  \"name\": \"查询员工薪资\",\n"
+	prompt += "  \"path\": \"/api/hr/salary\",\n"
 	prompt += "  \"method\": \"GET\",\n"
-	prompt += "  \"sql\": \"SELECT * FROM users WHERE status = #{status} LIMIT #{limit}\",\n"
-	prompt += "  \"description\": \"查询指定状态的用户列表\",\n"
+	prompt += "  \"sql\": \"SELECT he.EMP_NAME, hsr.BASE_SALARY, hsr.BONUS, hsr.ACTUAL_PAY FROM HR_EMPLOYEE he JOIN HR_SALARY_RECORD hsr ON he.EMP_ID = hsr.EMP_ID WHERE hsr.YEAR_MONTH = #{year_month}\",\n"
+	prompt += "  \"description\": \"查询指定月份的员工薪资信息\",\n"
 	prompt += "  \"default_params\": {\n"
-	prompt += "    \"status\": \"active\",\n"
-	prompt += "    \"limit\": 10\n"
+	prompt += "    \"year_month\": \"2024-01\"\n"
 	prompt += "  }\n"
 	prompt += "}\n"
 	prompt += "```\n\n"
@@ -14440,13 +14569,27 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 	prompt += "3. 接口路径要符合RESTful规范（如 /api/users, /api/products/list）\n"
 	prompt += "4. 根据操作类型选择正确的HTTP方法（查询用GET，创建用POST，更新用PUT，删除用DELETE）\n"
 	prompt += "5. **必须使用上面列出的真实表名和字段名**，不要使用不存在的表或字段\n"
-	prompt += "6. 必须为SQL中的每个参数提供合理的默认值用于测试\n"
-	prompt += "7. 默认值要符合字段类型和实际使用场景：\n"
-	prompt += "   - 数字类型(int/bigint)：id一般为1，limit一般为10，page一般为1\n"
-	prompt += "   - 字符串类型(varchar/text)：status一般为\"active\"，keyword为\"test\"\n"
-	prompt += "   - 日期类型：使用\"2024-01-01\"格式\n"
-	prompt += "8. 如果用户需求模糊，选择最相关的表和字段生成合理的查询\n"
-	prompt += "9. **仔细检查你的SQL，确保所有表名和字段名都存在于上面的列表中**"
+	prompt += "6. **SQL语法必须与数据库类型匹配**，特别是分页语法（见上方【数据库类型与SQL语法要点】）\n"
+	prompt += "7. 必须为SQL中的每个参数提供默认值用于测试\n"
+	prompt += "8. **仔细检查你的SQL，确保所有表名和字段名都存在于上面的列表中**\n\n"
+	prompt += "【default_params 规则 — 极其重要】：\n"
+	prompt += "default_params 的值必须是数据库中实际存在的数据值，不能是假设值或随意编造的值！\n"
+	prompt += "系统会用 default_params 实际执行SQL来验证，如果查不到数据则验证失败。\n"
+	prompt += "- 对于 WHERE 条件中的参数，必须使用表中真实存在的值（如字段有注释说明取值范围，按注释选择）\n"
+	prompt += "- 对于 id 类参数，使用最小的 id 值（通常是1）\n"
+	prompt += "- 对于 status/类型 类参数，使用最常见的状态值（如状态字段有注释，按注释选择最通用的值）\n"
+	prompt += "- 对于日期参数，使用最近的日期（如 \"2024-01-01\" 或 \"2024-01\"）\n"
+	prompt += "- 对于 limit/count 类参数，使用较小的值（如 10）\n"
+	prompt += "- 如果不确定某个参数的实际值，宁可去掉该 WHERE 条件，也不要使用可能不存在的值\n"
+	prompt += "- 优先选择范围更宽的默认值（如不限定 status 比限定某个具体 status 更安全）\n"
+
+	if isE2EFailure {
+		prompt += "\n【再次强调 — E2E验证失败修正要点】：\n"
+		prompt += "你之前的 default_params 导致SQL查询返回0行数据！请务必：\n"
+		prompt += "- 减少不必要的 WHERE 条件，让查询更容易匹配到数据\n"
+		prompt += "- 使用更宽松、更通用的默认参数值\n"
+		prompt += "- 如果某个 WHERE 条件过于严格，直接移除它\n"
+	}
 
 	return prompt
 }
@@ -15258,6 +15401,185 @@ func populateDefaultParamsFromDB(apiConfig map[string]interface{}, dbID string) 
 			defaultParams[paramName] = actualValue
 			log.Printf("参数 %s 已填充实际值: %v (表: %s, 字段: %s)", paramName, actualValue, tableName, fieldName)
 		}
+	}
+}
+
+// validateSQLWithDefaultParams 用 default_params 实际执行 SQL，验证能否返回数据
+// 返回 (是否成功, 错误信息, 查询结果)
+func validateSQLWithDefaultParams(sqlStr string, defaultParams map[string]interface{}, dbID string) (bool, string, []map[string]interface{}) {
+	// 获取数据库配置
+	dataOntologyMu.RLock()
+	dbConfig, exists := dataOntologyDatabases[dbID]
+	dataOntologyMu.RUnlock()
+
+	if !exists {
+		return false, "数据库配置不存在", nil
+	}
+
+	// NoSQL 数据库不支持端到端验证
+	if dbConfig.Type == "mongodb" || dbConfig.Type == "redis" || dbConfig.Type == "neo4j" ||
+		dbConfig.Type == "elasticsearch" || dbConfig.Type == "influxdb" || dbConfig.Type == "memcached" ||
+		dbConfig.Type == "cassandra" || dbConfig.Type == "hbase" {
+		log.Printf("端到端验证：数据库类型 %s 不支持，跳过验证", dbConfig.Type)
+		return true, "", nil
+	}
+
+	// 获取数据库连接
+	db, err := getDBFromPool(dbConfig)
+	if err != nil {
+		return false, fmt.Sprintf("数据库连接失败: %v", err), nil
+	}
+
+	// 将 #{param} 和 ${param} 替换为 default_params 中的实际值
+	execSQL := replaceMyBatisParamsWithValues(sqlStr, defaultParams)
+
+	// 如果 SQL 中没有 LIMIT，添加 LIMIT 1（避免返回大量数据）
+	upperSQL := strings.ToUpper(execSQL)
+	if !strings.Contains(upperSQL, " LIMIT ") && !strings.Contains(upperSQL, "ROWNUM") && !strings.Contains(upperSQL, "TOP ") {
+		switch dbConfig.Type {
+		case "oracle", "dm":
+			// Oracle/DM: 使用 ROWNUM <= 1
+			upperExec := strings.ToUpper(execSQL)
+			if strings.Contains(upperExec, " WHERE ") {
+				// 有 WHERE 子句，在 WHERE 后添加 ROWNUM 条件
+				// 使用大小写不敏感的替换
+				whereRegex := regexp.MustCompile(`(?i)\bWHERE\b`)
+				execSQL = whereRegex.ReplaceAllStringFunc(execSQL, func(match string) string {
+					return match + " ROWNUM <= 1 AND"
+				})
+			} else {
+				// 没有 WHERE 子句，需要添加 WHERE ROWNUM <= 1
+				// 在 ORDER BY / GROUP BY / HAVING 之前插入，或在末尾添加
+				inserted := false
+				for _, keyword := range []string{" ORDER ", " GROUP ", " HAVING "} {
+					if idx := strings.LastIndex(upperExec, keyword); idx != -1 {
+						execSQL = execSQL[:idx] + " WHERE ROWNUM <= 1" + execSQL[idx:]
+						inserted = true
+						break
+					}
+				}
+				if !inserted {
+					execSQL += " WHERE ROWNUM <= 1"
+				}
+			}
+		case "sqlserver":
+			// SQL Server: 使用 TOP 1
+			execSQL = regexp.MustCompile(`(?i)^\s*SELECT\s+`).ReplaceAllString(execSQL, "SELECT TOP 1 ")
+		default:
+			execSQL += " LIMIT 1"
+		}
+	}
+
+	log.Printf("端到端验证SQL: %s", execSQL)
+
+	// 执行查询
+	rows, err := db.Query(execSQL)
+	if err != nil {
+		return false, fmt.Sprintf("SQL执行失败: %v", err), nil
+	}
+	defer rows.Close()
+
+	// 读取列信息
+	columns, err := rows.Columns()
+	if err != nil {
+		return false, fmt.Sprintf("读取列信息失败: %v", err), nil
+	}
+
+	// 读取结果
+	var results []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return false, fmt.Sprintf("读取数据失败: %v", err), nil
+		}
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			// 处理 []byte 类型，转为字符串
+			if b, ok := val.([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return false, fmt.Sprintf("遍历结果集失败: %v", err), nil
+	}
+
+	if len(results) == 0 {
+		return false, "使用默认参数执行SQL返回空结果，请检查default_params中的参数值是否在数据库中存在", nil
+	}
+
+	log.Printf("端到端验证成功，返回 %d 行数据", len(results))
+	return true, "", results
+}
+
+// replaceMyBatisParamsWithValues 将 MyBatis 参数占位符替换为 default_params 中的实际值
+func replaceMyBatisParamsWithValues(sqlStr string, defaultParams map[string]interface{}) string {
+	result := sqlStr
+
+	// 替换 ${param} 为实际值（直接替换，不加引号）
+	dollarPattern := `\$\{([^}]+)\}`
+	result = replaceWithRegex(result, dollarPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			paramName = strings.TrimSpace(paramName[:colonIdx])
+		}
+		if val, ok := defaultParams[paramName]; ok {
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+	})
+
+	// 替换 #{param} 为实际值（字符串加引号，数字直接用）
+	hashPattern := `#\{([^}]+)\}`
+	result = replaceWithRegex(result, hashPattern, func(match string) string {
+		paramName := strings.TrimSpace(match[2 : len(match)-1])
+		// 支持参数名:默认值格式
+		if colonIdx := strings.Index(paramName, ":"); colonIdx != -1 {
+			paramName = strings.TrimSpace(paramName[:colonIdx])
+		}
+		if val, ok := defaultParams[paramName]; ok {
+			return formatParamValue(val)
+		}
+		return "NULL"
+	})
+
+	return result
+}
+
+// formatParamValue 将参数值格式化为 SQL 值（字符串加引号，数字直接用）
+func formatParamValue(val interface{}) string {
+	switch v := val.(type) {
+	case float64:
+		// JSON 数字默认解析为 float64，如果是整数则去掉小数点
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%v", v)
+	case int, int64, int32, int16, int8:
+		return fmt.Sprintf("%d", v)
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
+	case nil:
+		return "NULL"
+	default:
+		// 字符串类型加引号
+		strVal := fmt.Sprintf("%v", v)
+		// 转义单引号，防止 SQL 注入
+		strVal = strings.ReplaceAll(strVal, "'", "''")
+		return fmt.Sprintf("'%s'", strVal)
 	}
 }
 
@@ -20745,7 +21067,7 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 		}
 	}
 
-	// 4. 找出需要新增/更新的表
+	// 4. 找出需要新增/更新的表（包括注释变更的已有表）
 	type tableToSync struct {
 		name           string
 		comment        string
@@ -20754,17 +21076,21 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 	}
 	var toSync []tableToSync
 	for _, ti := range tableInfos {
+		comment := ti.Comment
+		if comment == "" {
+			comment = ti.Name
+		}
+		columnComments := make(map[string]string)
+		for _, col := range ti.Columns {
+			if col.Comment != "" {
+				columnComments[col.Name] = col.Comment
+			}
+		}
 		if _, exists := existingTables[ti.Name]; !exists {
-			comment := ti.Comment
-			if comment == "" {
-				comment = ti.Name
-			}
-			columnComments := make(map[string]string)
-			for _, col := range ti.Columns {
-				if col.Comment != "" {
-					columnComments[col.Name] = col.Comment
-				}
-			}
+			// 新表，需要同步
+			toSync = append(toSync, tableToSync{name: ti.Name, comment: comment, columnNames: ti.ColumnNames, columnComments: columnComments})
+		} else {
+			// 已有表，检查注释是否变更，如果变更也需要更新
 			toSync = append(toSync, tableToSync{name: ti.Name, comment: comment, columnNames: ti.ColumnNames, columnComments: columnComments})
 		}
 	}
