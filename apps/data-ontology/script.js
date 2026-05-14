@@ -58,10 +58,12 @@ let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
 const aiModules = [
-    { id: 'db-manage', name: '数据库管理', icon: '🗄️', description: '管理数据库连接与表结构' },
-    { id: 'api-dispatch', name: '接口分发', icon: '🔌', description: '统一分发和调用数据接口' },
-    { id: 'data-governance', name: '数据治理', icon: '🧭', description: '治理规则、质量与权限管理' },
-    { id: 'ontology', name: '本体论抽象', icon: '📐', description: '从数据中抽象业务本体' },
+    { id: 'db-manage', name: '通用提问', icon: '💬', description: '查询数据、统计信息、了解表结构等', aliases: ['数据库管理', '数据库', '查询', '提问', '问答'] },
+    { id: 'api-dispatch', name: '接口制作', icon: '🔌', description: '创建 API 接口、生成数据服务', aliases: ['接口分发', '接口', 'API', 'api', '创建接口', '制作接口'] },
+    { id: 'data-governance', name: '数据治理', icon: '⚙️', description: '创建定时任务、数据导入导出', aliases: ['治理', '定时任务', '导入', '导出', '任务'] },
+    { id: 'quality-audit', name: '质量审计', icon: '✅', description: '数据质量检查、校验规则', aliases: ['质量', '审计', '校验', '检查'] },
+    { id: 'ontology', name: '本体查询', icon: '🧠', description: '概念关系、语义分析', aliases: ['本体论', '本体', '语义', '概念'] },
+    { id: 'small-model', name: '小模型', icon: '🤖', description: '小模型相关、本地模型、离线推理', aliases: ['小模型', '本地模型', '离线'] },
 ];
 
 let aiSessionContext = {
@@ -5285,7 +5287,9 @@ function handleAiInputChange(e) {
 // 显示 @ 联想建议。
 function showDbSuggestions(searchTerm) {
     const matchedModules = aiModules.filter(m =>
-        m.name.toLowerCase().includes(searchTerm)
+        m.name.toLowerCase().includes(searchTerm) ||
+        m.id.toLowerCase().includes(searchTerm) ||
+        (m.aliases && m.aliases.some(a => a.toLowerCase().includes(searchTerm)))
     );
     const matchedDbs = databases.filter(db =>
         db.name.toLowerCase().includes(searchTerm)
@@ -5442,22 +5446,27 @@ async function handleSendAiMessage() {
 
     for (const match of allMatches) {
         const refName = match[1];
-        const mod = aiModules.find(m => m.name === refName);
+        // 模块匹配：优先精确匹配 name，再匹配 aliases，再匹配 id（忽略大小写）
+        const refNameLower = refName.toLowerCase();
+        let mod = aiModules.find(m => m.name === refName);
+        if (!mod) mod = aiModules.find(m => m.aliases && m.aliases.some(a => a === refName));
+        if (!mod) mod = aiModules.find(m => m.name.toLowerCase() === refNameLower);
+        if (!mod) mod = aiModules.find(m => m.aliases && m.aliases.some(a => a.toLowerCase() === refNameLower));
+        if (!mod) mod = aiModules.find(m => m.id === refName || m.id.toLowerCase() === refNameLower);
         if (mod) {
             moduleReferences.push(mod);
             continue;
         }
-        // 改进数据库匹配：支持精确匹配、忽略大小写、部分匹配、ID匹配
-        const refNameLower = refName.toLowerCase();
-        let db = databases.find(d => d.name === refName); // 精确匹配
+        // 数据库匹配：精确匹配、忽略大小写、部分匹配、ID匹配
+        let db = databases.find(d => d.name === refName);
         if (!db) {
-            db = databases.find(d => d.name.toLowerCase() === refNameLower); // 忽略大小写
+            db = databases.find(d => d.name.toLowerCase() === refNameLower);
         }
         if (!db) {
-            db = databases.find(d => d.name.toLowerCase().includes(refNameLower)); // 部分匹配
+            db = databases.find(d => d.name.toLowerCase().includes(refNameLower));
         }
         if (!db) {
-            db = databases.find(d => d.id === refName); // ID匹配
+            db = databases.find(d => d.id === refName);
         }
         if (db) {
             dbReferences.push(db);

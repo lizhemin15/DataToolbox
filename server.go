@@ -11317,6 +11317,7 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 					{"id": "data-governance", "name": "数据治理", "description": "创建定时任务、数据导入导出", "icon": "⚙️"},
 					{"id": "quality-audit", "name": "质量审计", "description": "数据质量检查、校验规则", "icon": "✅"},
 					{"id": "ontology", "name": "本体查询", "description": "概念关系、语义分析", "icon": "🧠"},
+					{"id": "small-model", "name": "小模型", "description": "小模型相关、本地模型、离线推理", "icon": "🤖"},
 				}
 
 				sendSSE(w, "intent_selection_required", map[string]interface{}{
@@ -13312,6 +13313,52 @@ type IntentInfo struct {
 func detectUserIntent(message string) IntentInfo {
 	lowerMsg := strings.ToLower(message)
 
+	// 检测 @ 模块引用（最高优先级，直接路由）
+	moduleNames := map[string]string{
+		"通用提问": "db-manage", "数据库管理": "db-manage", "接口制作": "api-dispatch", "接口分发": "api-dispatch",
+		"数据治理": "data-governance", "质量审计": "quality-audit", "本体查询": "ontology", "本体论": "ontology",
+		"小模型": "small-model",
+	}
+	moduleIDs := map[string]string{
+		"db-manage": "db-manage", "api-dispatch": "api-dispatch", "data-governance": "data-governance",
+		"quality-audit": "quality-audit", "ontology": "ontology", "small-model": "small-model",
+	}
+	// 合并别名
+	moduleAliases := map[string]string{
+		"接口": "api-dispatch", "api": "api-dispatch", "创建接口": "api-dispatch",
+		"治理": "data-governance", "定时任务": "data-governance", "导入": "data-governance",
+		"质量": "quality-audit", "审计": "quality-audit", "校验": "quality-audit",
+		"本体": "ontology", "语义": "ontology", "概念": "ontology",
+		"本地模型": "small-model", "离线": "small-model",
+		"查询": "db-manage", "提问": "db-manage", "问答": "db-manage",
+	}
+	atMatches := regexp.MustCompile(`@(\S+)`).FindAllStringSubmatch(message, -1)
+	for _, m := range atMatches {
+		if len(m) < 2 {
+			continue
+		}
+		ref := m[1]
+		refLower := strings.ToLower(ref)
+		// 精确匹配模块名
+		if mod, ok := moduleNames[ref]; ok {
+			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
+		}
+		// 匹配模块 ID
+		if mod, ok := moduleIDs[refLower]; ok {
+			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
+		}
+		// 匹配别名
+		if mod, ok := moduleAliases[ref]; ok {
+			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
+		}
+		// 模糊匹配模块名（忽略大小写）
+		for name, mod := range moduleNames {
+			if strings.Contains(strings.ToLower(name), refLower) {
+				return IntentInfo{DetectedModule: mod, Confidence: 0.95, Reason: "用户通过 @" + ref + " 指定意图（模糊匹配）"}
+			}
+		}
+	}
+
 	// 接口创建关键词（高置信度）
 	apiKeywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "生成api", "创建api", "添加api"}
 	for _, kw := range apiKeywords {
@@ -13418,14 +13465,37 @@ confidence 范围 0-1，表示置信度。如果不确定，confidence 设为较
 	}
 
 	var result struct {
-		Module     string  `json:"module"`
-		Confidence float64 `json:"confidence"`
-		Reason     string  `json:"reason"`
+		Module     string      `json:"module"`
+		Confidence interface{} `json:"confidence"`
+		Reason     string      `json:"reason"`
 	}
 
 	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		log.Printf("[AI Intent] JSON 解析失败: %v, response: %s", err, response)
-		return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "JSON 解析失败"}
+		// 尝试提取 JSON 对象
+		objStart := strings.Index(response, "{")
+		objEnd := strings.LastIndex(response, "}")
+		if objStart != -1 && objEnd > objStart {
+			if err2 := json.Unmarshal([]byte(response[objStart:objEnd+1]), &result); err2 != nil {
+				log.Printf("[AI Intent] JSON 解析失败: %v, response: %s", err2, response)
+				return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "JSON 解析失败"}
+			}
+		} else {
+			log.Printf("[AI Intent] JSON 解析失败: %v, response: %s", err, response)
+			return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "JSON 解析失败"}
+		}
+	}
+
+	// 将 confidence 转换为 float64（容错：可能是字符串、整数等）
+	var confidence float64
+	switch v := result.Confidence.(type) {
+	case float64:
+		confidence = v
+	case string:
+		confidence, _ = strconv.ParseFloat(v, 64)
+	case int:
+		confidence = float64(v)
+	default:
+		confidence = 0.5
 	}
 
 	// 验证模块是否有效
@@ -13443,10 +13513,10 @@ confidence 范围 0-1，表示置信度。如果不确定，confidence 设为较
 		return IntentInfo{DetectedModule: "", Confidence: 0.0, Reason: "无效模块: " + result.Module}
 	}
 
-	log.Printf("[AI Intent] AI 分类结果: module=%s, confidence=%.2f, reason=%s", result.Module, result.Confidence, result.Reason)
+	log.Printf("[AI Intent] AI 分类结果: module=%s, confidence=%.2f, reason=%s", result.Module, confidence, result.Reason)
 	return IntentInfo{
 		DetectedModule: result.Module,
-		Confidence:     result.Confidence,
+		Confidence:     confidence,
 		Reason:         result.Reason,
 	}
 }
