@@ -2286,6 +2286,39 @@
     <script src="/lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
     <script src="/apps/data-ontology/script.js?v=202605051920a"></script>
+    <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG -->
+    <script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js" crossorigin="anonymous"></script>
+    <script>
+    // 全局 emoji 解析函数，在 DOM 更新后调用
+    function parseEmoji(el) {
+        if (typeof twemoji === 'undefined') return;
+        try { twemoji.parse(el || document.body, { base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/' }); } catch(e) {}
+    }
+    // 页面加载完成后首次解析 + MutationObserver 自动解析新增 emoji（带防抖）
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(parseEmoji, 200);
+        if (typeof MutationObserver !== 'undefined') {
+            var _emojiTimer = null;
+            var emojiObserver = new MutationObserver(function(mutations) {
+                if (_emojiTimer) return; // 防抖：已排队则跳过
+                _emojiTimer = setTimeout(function() {
+                    _emojiTimer = null;
+                    // 只解析新增节点，避免全量扫描
+                    for (var i = 0; i < mutations.length; i++) {
+                        var added = mutations[i].addedNodes;
+                        for (var j = 0; j < added.length; j++) {
+                            var node = added[j];
+                            if (node.nodeType === 1) { // Element node
+                                try { twemoji.parse(node, { base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/' }); } catch(e) {}
+                            }
+                        }
+                    }
+                }, 80);
+            });
+            emojiObserver.observe(document.body, { childList: true, subtree: true });
+        }
+    });
+    </script>
     <!-- 版本号显示 -->
     <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#aaa;z-index:9999;pointer-events:none;user-select:none;"></div>
     <script>

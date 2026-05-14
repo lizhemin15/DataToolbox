@@ -7087,3 +7087,12 @@ body.embed-mode .embed-settings-btn {
 .gov-collapsible.gov-collapsible-collapsed .gov-collapsible-body {
     display: none;
 }
+
+/* Twemoji SVG 图标样式 - 保持与 emoji 一致的大小和对齐 */
+img.emoji {
+    height: 1em;
+    width: 1em;
+    margin: 0 0.05em 0 0.1em;
+    vertical-align: -0.1em;
+    display: inline-block;
+}
