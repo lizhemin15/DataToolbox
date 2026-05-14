@@ -10421,7 +10421,7 @@ func replaceWithRegex(input, pattern string, replacer func(string) string) strin
 // isWriteOperation 检测SQL是否为写操作（INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/TRUNCATE等）
 func isWriteOperation(sql string) bool {
 	trimmed := strings.TrimSpace(strings.ToUpper(sql))
-	writeKeywords := []string{"INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "REPLACE", "MERGE", "GRANT", "REVOKE", "RENAME"}
+	writeKeywords := []string{"INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "REPLACE", "MERGE", "GRANT", "REVOKE", "RENAME", "COMMENT"}
 	for _, kw := range writeKeywords {
 		if strings.HasPrefix(trimmed, kw) {
 			return true
