@@ -4542,17 +4542,17 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 	switch config.Type {
 	case "mysql", "mariadb", "tidb":
 		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
-		query = fmt.Sprintf("SHOW COLUMNS FROM %s", quotedTable)
+		query = fmt.Sprintf("SHOW FULL COLUMNS FROM %s", quotedTable)
 	case "postgresql", "timescaledb", "cockroachdb":
-		// 使用参数化查询代替字符串拼接
-		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position"
+		// 使用参数化查询代替字符串拼接，包含注释
+		query = "SELECT column_name, data_type, col_description((SELECT oid FROM pg_class WHERE relname = $1), ordinal_position) AS comment FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position"
 	case "sqlserver":
-		query = "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @p1 ORDER BY ORDINAL_POSITION"
+		query = "SELECT COLUMN_NAME, DATA_TYPE, CAST(ep.value AS NVARCHAR(500)) AS COMMENT FROM INFORMATION_SCHEMA.COLUMNS c LEFT JOIN sys.extended_properties ep ON ep.major_id = OBJECT_ID(c.TABLE_NAME) AND ep.minor_id = c.ORDINAL_POSITION AND ep.name = 'MS_Description' WHERE c.TABLE_NAME = @p1 ORDER BY c.ORDINAL_POSITION"
 	case "sqlite", "duckdb":
 		quotedTable, _ := safeQuoteIdentifier(tableName, config.Type)
 		query = fmt.Sprintf("PRAGMA table_info(%s)", quotedTable)
 	case "oracle":
-		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
+		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列；注释从 ALL_COL_COMMENTS 获取
 		tbl := tableName
 		if idx := strings.Index(tbl, "."); idx >= 0 {
 			tbl = tbl[idx+1:]
@@ -4597,12 +4597,12 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 			continue
 		}
 
-		var colName, colType string
+		var colName, colType, colComment string
 
 		// 根据不同数据库类型解析列信息
 		switch config.Type {
 		case "mysql", "mariadb", "tidb":
-			// SHOW COLUMNS: Field, Type, Null, Key, Default, Extra
+			// SHOW FULL COLUMNS: Field, Type, Collation, Null, Key, Default, Extra, Privileges, Comment
 			if len(values) >= 2 {
 				if v, ok := values[0].([]byte); ok {
 					colName = string(v)
@@ -4612,15 +4612,23 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 				}
 			}
 			// 提取 Extra 字段中的 auto_increment 标记
-			if len(values) >= 6 {
+			if len(values) >= 7 {
 				extra := ""
-				if v, ok := values[5].([]byte); ok {
+				if v, ok := values[6].([]byte); ok {
 					extra = string(v)
-				} else if v, ok := values[5].(string); ok {
+				} else if v, ok := values[6].(string); ok {
 					extra = v
 				}
 				if strings.Contains(strings.ToLower(extra), "auto_increment") {
 					colType += " [AUTO_INCREMENT]"
+				}
+			}
+			// 提取 Comment 字段（SHOW FULL COLUMNS 第9列，索引8）
+			if len(values) >= 9 {
+				if v, ok := values[8].([]byte); ok {
+					colComment = string(v)
+				} else if v, ok := values[8].(string); ok {
+					colComment = v
 				}
 			}
 		case "sqlite", "duckdb":
@@ -4637,8 +4645,8 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 					colType = string(v)
 				}
 			}
-		default:
-			// information_schema.columns / user_tab_columns
+		case "clickhouse":
+			// DESCRIBE TABLE: name, type, default_type, default_expression, comment, codec_expression, ttl_expression
 			if len(values) >= 2 {
 				if v, ok := values[0].(string); ok {
 					colName = v
@@ -4651,6 +4659,36 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 					colType = string(v)
 				}
 			}
+			// 提取 comment 字段（第5列，索引4）
+			if len(values) >= 5 {
+				if v, ok := values[4].(string); ok {
+					colComment = v
+				} else if v, ok := values[4].([]byte); ok {
+					colComment = string(v)
+				}
+			}
+		default:
+			// information_schema.columns / user_tab_columns（可能含第3列 comment）
+			if len(values) >= 2 {
+				if v, ok := values[0].(string); ok {
+					colName = v
+				} else if v, ok := values[0].([]byte); ok {
+					colName = string(v)
+				}
+				if v, ok := values[1].(string); ok {
+					colType = v
+				} else if v, ok := values[1].([]byte); ok {
+					colType = string(v)
+				}
+			}
+			// 提取 comment 字段（PostgreSQL/SQLServer 查询的第3列）
+			if len(values) >= 3 {
+				if v, ok := values[2].(string); ok {
+					colComment = v
+				} else if v, ok := values[2].([]byte); ok {
+					colComment = string(v)
+				}
+			}
 		}
 
 		if colName != "" {
@@ -4658,8 +4696,12 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 				"name": colName,
 				"type": colType,
 			}
-			// 解析 nullable（第3列，DM/Oracle 返回 'Y'/'N'）
-			if len(values) >= 3 {
+			if colComment != "" {
+				colInfo["comment"] = colComment
+			}
+			// 解析 nullable（Oracle/DM 返回 'Y'/'N'，但含 comment 时 nullable 位置会变）
+			// 仅对 Oracle/DM 且不含 comment 列的情况解析 nullable
+			if (config.Type == "oracle" || config.Type == "dm") && len(values) >= 3 && colComment == "" {
 				nullable := ""
 				if v, ok := values[2].(string); ok {
 					nullable = v
@@ -4676,6 +4718,34 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 
 	if columns == nil {
 		columns = []map[string]interface{}{}
+	}
+
+	// Oracle/DM: 单独查询列注释并合并
+	if config.Type == "oracle" || config.Type == "dm" {
+		tbl := tableName
+		if idx := strings.Index(tbl, "."); idx >= 0 {
+			tbl = tbl[idx+1:]
+		}
+		commentQuery := fmt.Sprintf("SELECT COLUMN_NAME, COMMENTS FROM USER_COL_COMMENTS WHERE TABLE_NAME = '%s'", oracleEscapeIdentifier(tbl))
+		commentRows, err := db.Query(commentQuery)
+		if err == nil {
+			defer commentRows.Close()
+			commentMap := make(map[string]string)
+			for commentRows.Next() {
+				var colName, comment string
+				if err := commentRows.Scan(&colName, &comment); err == nil && comment != "" {
+					commentMap[colName] = comment
+				}
+			}
+			for i, col := range columns {
+				if name, ok := col["name"].(string); ok {
+					if c, ok := commentMap[name]; ok {
+						col["comment"] = c
+						columns[i] = col
+					}
+				}
+			}
+		}
 	}
 
 	return columns, nil
@@ -14169,7 +14239,11 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 					for _, col := range columns {
 						colName := col["name"]
 						colType := col["type"]
-						prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+						if colComment, ok := col["comment"].(string); ok && colComment != "" {
+							prompt += fmt.Sprintf("  - %s (%s) — %s\n", colName, colType, colComment)
+						} else {
+							prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+						}
 					}
 				} else {
 					prompt += "  （无法获取字段信息）\n"
@@ -14282,7 +14356,11 @@ func buildCreateApiRetryPrompt(userMessage string, dbSchemas []map[string]interf
 					for _, col := range columns {
 						colName := col["name"]
 						colType := col["type"]
-						prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+						if colComment, ok := col["comment"].(string); ok && colComment != "" {
+							prompt += fmt.Sprintf("  - %s (%s) — %s\n", colName, colType, colComment)
+						} else {
+							prompt += fmt.Sprintf("  - %s (%s)\n", colName, colType)
+						}
 					}
 				} else {
 					prompt += "  （无法获取字段信息）\n"
@@ -20388,11 +20466,33 @@ func (m *FTS5Manager) initSchema() error {
 	}
 
 	// FTS5 虚拟表：全文索引
+	// 检查当前 FTS5 表结构是否包含 column_comments，如果不包含则重建
+	var ftsNeedsRebuild bool
+	var ftsColCount int
+	err = m.db.QueryRow(`SELECT count(*) FROM pragma_table_info('tables_fts') WHERE name = 'column_comments'`).Scan(&ftsColCount)
+	if err != nil {
+		// 表可能不存在，标记需要重建
+		ftsNeedsRebuild = true
+	} else if ftsColCount == 0 {
+		// FTS5 表存在但缺少 column_comments 列，需要重建
+		ftsNeedsRebuild = true
+	}
+
+	if ftsNeedsRebuild {
+		// SQLite FTS5 不支持 ALTER TABLE 添加列，必须 DROP 后重建
+		log.Printf("[FTS5] 检测到 FTS5 索引缺少 column_comments，正在重建...")
+		_, _ = m.db.Exec(`DROP TABLE IF EXISTS tables_fts`)
+		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ai`)
+		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_ad`)
+		_, _ = m.db.Exec(`DROP TRIGGER IF EXISTS tables_au`)
+	}
+
 	_, err = m.db.Exec(`
 		CREATE VIRTUAL TABLE IF NOT EXISTS tables_fts USING fts5(
 			table_name,
 			table_comment,
 			column_names,
+			column_comments,
 			content='tables',
 			content_rowid='id',
 			tokenize='unicode61'
@@ -20400,6 +20500,21 @@ func (m *FTS5Manager) initSchema() error {
 	`)
 	if err != nil {
 		return err
+	}
+
+	// 如果重建了 FTS5 表，需要从 tables 表重新填充数据
+	if ftsNeedsRebuild {
+		log.Printf("[FTS5] 正在从 tables 表重新填充 FTS5 索引...")
+		_, err = m.db.Exec(`
+			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
+			SELECT id, table_name, table_comment, column_names, column_comments FROM tables;
+		`)
+		if err != nil {
+			log.Printf("[FTS5] 重新填充 FTS5 索引失败: %v", err)
+			// 不返回错误，继续执行，后续触发器会逐步同步
+		} else {
+			log.Printf("[FTS5] FTS5 索引重建并填充完成")
+		}
 	}
 
 	// 向量表：存储 embedding 向量
@@ -20443,18 +20558,18 @@ func (m *FTS5Manager) initSchema() error {
 	// 触发器：保持 FTS 索引同步
 	triggers := []string{
 		`CREATE TRIGGER IF NOT EXISTS tables_ai AFTER INSERT ON tables BEGIN
-			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names)
-			VALUES (new.id, new.table_name, new.table_comment, new.column_names);
+			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
+			VALUES (new.id, new.table_name, new.table_comment, new.column_names, new.column_comments);
 		END;`,
 		`CREATE TRIGGER IF NOT EXISTS tables_ad AFTER DELETE ON tables BEGIN
-			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names)
-			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names);
+			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names, column_comments)
+			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names, old.column_comments);
 		END;`,
 		`CREATE TRIGGER IF NOT EXISTS tables_au AFTER UPDATE ON tables BEGIN
-			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names)
-			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names);
-			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names)
-			VALUES (new.id, new.table_name, new.table_comment, new.column_names);
+			INSERT INTO tables_fts(tables_fts, rowid, table_name, table_comment, column_names, column_comments)
+			VALUES ('delete', old.id, old.table_name, old.table_comment, old.column_names, old.column_comments);
+			INSERT INTO tables_fts(rowid, table_name, table_comment, column_names, column_comments)
+			VALUES (new.id, new.table_name, new.table_comment, new.column_names, new.column_comments);
 		END;`,
 	}
 	for _, trigger := range triggers {
@@ -20614,9 +20729,10 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 
 	// 4. 找出需要新增/更新的表
 	type tableToSync struct {
-		name        string
-		comment     string
-		columnNames []string
+		name           string
+		comment        string
+		columnNames    []string
+		columnComments map[string]string
 	}
 	var toSync []tableToSync
 	for _, ti := range tableInfos {
@@ -20625,7 +20741,13 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 			if comment == "" {
 				comment = ti.Name
 			}
-			toSync = append(toSync, tableToSync{name: ti.Name, comment: comment, columnNames: ti.ColumnNames})
+			columnComments := make(map[string]string)
+			for _, col := range ti.Columns {
+				if col.Comment != "" {
+					columnComments[col.Name] = col.Comment
+				}
+			}
+			toSync = append(toSync, tableToSync{name: ti.Name, comment: comment, columnNames: ti.ColumnNames, columnComments: columnComments})
 		}
 	}
 
@@ -20671,12 +20793,13 @@ func (m *FTS5Manager) syncTablesToSQLite(dbConfig *DatabaseConfig) error {
 
 		for _, ts := range toSync {
 			columnNamesJSON, _ := json.Marshal(ts.columnNames)
+			columnCommentsJSON, _ := json.Marshal(ts.columnComments)
 			if _, err := stmt.Exec(
 				dbConfig.ID,
 				ts.name,
 				ts.comment,
 				string(columnNamesJSON),
-				"{}",
+				string(columnCommentsJSON),
 				0,
 				now,
 			); err != nil {
