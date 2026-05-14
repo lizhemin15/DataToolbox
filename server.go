@@ -12342,10 +12342,30 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 	}
 	defer resp.Body.Close()
 
-	// 读取响应
+	// 读取响应（容错解析：先读取原始字节，再尝试多种解析方式）
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	// 尝试解析为 OpenAI 格式的 JSON 对象
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("解析响应失败: %v", err)
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		// 如果顶层不是对象，尝试解析为数组（某些 API 可能返回数组）
+		var arrResult []interface{}
+		if arrErr := json.Unmarshal(bodyBytes, &arrResult); arrErr == nil && len(arrResult) > 0 {
+			// 数组第一个元素作为结果
+			if first, ok := arrResult[0].(map[string]interface{}); ok {
+				result = first
+			} else {
+				// 数组元素不是对象，返回原始文本
+				return string(bodyBytes), nil
+			}
+		} else {
+			// 既不是对象也不是数组，返回原始文本让后续逻辑处理
+			log.Printf("[AI Service] JSON 解析失败: %v, 原始响应: %s", err, string(bodyBytes[:min(len(bodyBytes), 500)]))
+			return string(bodyBytes), nil
+		}
 	}
 
 	// 检查响应状态
@@ -13347,9 +13367,18 @@ func detectUserIntent(message string) IntentInfo {
 		if mod, ok := moduleIDs[refLower]; ok {
 			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
 		}
-		// 匹配别名
+		// 匹配别名（忽略大小写）
 		if mod, ok := moduleAliases[ref]; ok {
 			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
+		}
+		if mod, ok := moduleAliases[refLower]; ok {
+			return IntentInfo{DetectedModule: mod, Confidence: 0.99, Reason: "用户通过 @" + ref + " 明确指定意图"}
+		}
+		// 别名包含匹配
+		for alias, mod := range moduleAliases {
+			if strings.Contains(strings.ToLower(alias), refLower) || strings.Contains(refLower, strings.ToLower(alias)) {
+				return IntentInfo{DetectedModule: mod, Confidence: 0.95, Reason: "用户通过 @" + ref + " 指定意图（别名匹配）"}
+			}
 		}
 		// 模糊匹配模块名（忽略大小写）
 		for name, mod := range moduleNames {
@@ -13360,11 +13389,16 @@ func detectUserIntent(message string) IntentInfo {
 	}
 
 	// 接口创建关键词（高置信度）
-	apiKeywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "生成api", "创建api", "添加api"}
+	apiKeywords := []string{"创建接口", "新建接口", "生成接口", "添加接口", "帮我写接口", "生成api", "创建api", "添加api", "写接口", "做接口", "制作接口"}
 	for _, kw := range apiKeywords {
 		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
 			return IntentInfo{DetectedModule: "api-dispatch", Confidence: 0.95, Reason: "包含接口创建关键词: " + kw}
 		}
+	}
+
+	// "接口" 单独出现（中等偏高置信度，优先于通用查询关键词）
+	if strings.Contains(lowerMsg, "接口") || strings.Contains(lowerMsg, "api") {
+		return IntentInfo{DetectedModule: "api-dispatch", Confidence: 0.85, Reason: "包含接口/API关键词"}
 	}
 
 	// 数据治理关键词
