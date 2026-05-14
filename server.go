@@ -12285,6 +12285,27 @@ func callAIService(config *AIConfig, prompt string) (string, error) {
 }
 
 // callAIServiceWithCapabilities 根据能力自适应调用AI服务
+// getAIEndpoint 确保 AI 服务 URL 包含 /chat/completions 路径
+func getAIEndpoint(url string) string {
+	url = strings.TrimSpace(url)
+	if strings.HasSuffix(url, "/chat/completions") {
+		return url
+	}
+	// 移除末尾斜杠后拼接
+	url = strings.TrimRight(url, "/")
+	return url + "/chat/completions"
+}
+
+// getEmbeddingEndpoint 确保 embedding 服务 URL 包含 /embeddings 路径
+func getEmbeddingEndpoint(url string) string {
+	url = strings.TrimSpace(url)
+	if strings.HasSuffix(url, "/embeddings") {
+		return url
+	}
+	url = strings.TrimRight(url, "/")
+	return url + "/embeddings"
+}
+
 func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilities, prompt string) (string, error) {
 	// 构建请求体
 	requestBody := map[string]interface{}{
@@ -12320,7 +12341,7 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 	}
 
 	// 创建HTTP请求
-	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", getAIEndpoint(config.URL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("创建请求失败: %v", err)
 	}
@@ -12538,7 +12559,7 @@ func testBasicConnectivity(client *http.Client, config *AIConfig) (bool, error) 
 		return false, fmt.Errorf("构建请求失败: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", getAIEndpoint(config.URL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return false, fmt.Errorf("创建请求失败: %v", err)
 	}
@@ -12596,7 +12617,7 @@ func testFunctionCall(client *http.Client, config *AIConfig) (bool, error) {
 		return false, fmt.Errorf("构建请求失败: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", getAIEndpoint(config.URL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return false, fmt.Errorf("创建请求失败: %v", err)
 	}
@@ -12651,7 +12672,7 @@ func testStreaming(client *http.Client, config *AIConfig) (bool, error) {
 		return false, fmt.Errorf("构建请求失败: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", getAIEndpoint(config.URL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return false, fmt.Errorf("创建请求失败: %v", err)
 	}
@@ -12696,7 +12717,7 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 		return false, fmt.Errorf("构建请求失败: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", config.URL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", getAIEndpoint(config.URL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return false, fmt.Errorf("创建请求失败: %v", err)
 	}
@@ -20751,7 +20772,7 @@ func generateEmbedding(text string, config EmbeddingRetrievalConfig) ([]float32,
 		return nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", config.URL, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequest("POST", getEmbeddingEndpoint(config.URL), bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
