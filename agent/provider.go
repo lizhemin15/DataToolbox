@@ -99,7 +99,10 @@ func createPicoOpenAIProvider(cfg ProviderConfig) (picoclawproviders.LLMProvider
 		return nil, fmt.Errorf("create pico openai provider %q: %w", cfg.ModelID, err)
 	}
 
-	log.Printf("[provider] created pico openai provider: %s (base_url=%s)", cfg.ModelID, baseURL)
+	log.Printf("[provider] created pico openai provider: %s (base_url=%s, model=%s)", cfg.ModelID, baseURL, cfg.ModelID)
+	
+	// Debug: verify provider type
+	log.Printf("[provider] provider type: %T", provider)
 	return provider, nil
 }
 

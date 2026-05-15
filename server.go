@@ -13543,6 +13543,18 @@ func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
 	cfg.Tools.WriteFile.Enabled = true
 	cfg.Tools.AppendFile.Enabled = true
 
+	// 模型列表 — 必须注册，否则 ParseModelRef 会把 "Qwen/xxx" 拆成 provider=Qwen
+	cfg.ModelList = []*picoclawcfg.ModelConfig{
+		{
+			ModelName: "default",
+			Provider:  "openai",
+			Model:     aiConfig.Model,
+			APIBase:   strings.TrimSuffix(strings.TrimSuffix(aiConfig.URL, "/chat/completions"), "/completions"),
+			APIKeys:   picoclawcfg.SecureStrings{picoclawcfg.NewSecureString(aiConfig.APIKey)},
+			Enabled:   true,
+		},
+	}
+
 	return cfg
 }
 
