@@ -57,6 +57,13 @@ let aiMessages = [];
 let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
+// === Agent Cluster Mode ===
+let agentMode = 'fast'; // 'fast' | 'cluster'
+let clusterTraceData = []; // agent_trace bubbles for current session
+let mcpServersList = []; // MCP server list cache
+let skillsList = []; // Skill list cache
+// === Agent Cluster Mode End ===
+
 const aiModules = [
     { id: 'db-manage', name: '通用提问', icon: '💬', description: '查询数据、统计信息、了解表结构等', aliases: ['数据库管理', '数据库', '查询', '提问', '问答'] },
     { id: 'api-dispatch', name: '接口制作', icon: '🔌', description: '创建 API 接口、生成数据服务', aliases: ['接口分发', '接口', 'API', 'api', '创建接口', '制作接口'] },
@@ -14909,3 +14916,403 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
         showToast('下载失败: ' + e.message, 'error');
     }
 }
+
+// === Agent Cluster Mode Functions ===
+
+// Toggle between fast and cluster mode
+function toggleAgentMode() {
+    agentMode = agentMode === 'fast' ? 'cluster' : 'fast';
+    const sw = document.getElementById('agentModeSwitch');
+    if (sw) {
+        sw.classList.toggle('cluster', agentMode === 'cluster');
+    }
+    // Save mode preference
+    localStorage.setItem('agentMode', agentMode);
+    // Notify server
+    fetchWithAuth(`${API_BASE}/api/data-ontology/agent/mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: agentMode })
+    }).catch(() => {});
+    showToast(agentMode === 'cluster' ? '已切换到集群模式 🚀' : '已切换到极速模式 ⚡', 'info');
+}
+
+// Initialize agent mode from localStorage
+function initAgentMode() {
+    const saved = localStorage.getItem('agentMode');
+    if (saved === 'cluster') {
+        agentMode = 'cluster';
+        const sw = document.getElementById('agentModeSwitch');
+        if (sw) sw.classList.add('cluster');
+    }
+}
+
+// Send message via cluster mode (SSE)
+async function sendClusterQuery(message, databases, modules) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const streamId = addAiStreamMessage();
+    const streamEl = document.getElementById(streamId);
+    
+    clusterTraceData = [];
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/cluster/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: message,
+                databases: databases,
+                modules: modules,
+                mode: 'cluster'
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const dataStr = line.slice(6).trim();
+                if (!dataStr) continue;
+
+                try {
+                    const evt = JSON.parse(dataStr);
+                    handleClusterEvent(evt, streamEl, messagesEl);
+                    if (evt.type === 'text' && evt.data && evt.data.content) {
+                        fullText += evt.data.content;
+                    }
+                } catch (e) {
+                    // Try parsing as raw SSE with event type
+                    const eventMatch = line.match(/^event:\s*(\w+)/);
+                    if (eventMatch) continue;
+                }
+            }
+        }
+
+        // Finalize stream message
+        if (streamEl) {
+            streamEl.innerHTML = formatAiResponse(fullText);
+            streamEl.classList.remove('ai-streaming');
+        }
+
+    } catch (e) {
+        console.error('Cluster query error:', e);
+        if (streamEl) {
+            streamEl.innerHTML = `<div class="ai-error">集群模式请求失败: ${escapeHtml(e.message)}</div>`;
+            streamEl.classList.remove('ai-streaming');
+        }
+    }
+}
+
+// Handle individual cluster SSE events
+function handleClusterEvent(evt, streamEl, messagesEl) {
+    if (!evt || !evt.type) return;
+
+    switch (evt.type) {
+        case 'text':
+            if (evt.data && evt.data.content) {
+                // Append text to streaming message
+                if (streamEl) {
+                    const content = evt.data.partial ? evt.data.content : evt.data.content;
+                    streamEl.innerHTML = formatAiResponse(content);
+                }
+            }
+            break;
+
+        case 'tool_call':
+            addAgentTraceBubble(messagesEl, 'tool-call', evt.agent_name || 'Agent', 
+                `调用工具: ${evt.data ? evt.data.tool_name : '?'}`);
+            break;
+
+        case 'tool_result':
+            addAgentTraceBubble(messagesEl, 'tool-result', evt.agent_name || 'Agent',
+                `工具结果: ${evt.data ? evt.data.tool_name : '?'}`);
+            break;
+
+        case 'agent_switch':
+            addAgentTraceBubble(messagesEl, 'agent-switch', '', 
+                `${evt.data ? evt.data.from_agent : '?'} → ${evt.data ? evt.data.to_agent : '?'}`);
+            break;
+
+        case 'error':
+            addAgentTraceBubble(messagesEl, 'error-trace', 'Error',
+                evt.data ? evt.data.message : '未知错误');
+            break;
+
+        case 'done':
+            // Stream complete
+            break;
+    }
+}
+
+// Add agent trace bubble to chat
+function addAgentTraceBubble(messagesEl, className, agentName, action) {
+    if (!messagesEl) return;
+    const bubble = document.createElement('div');
+    bubble.className = `agent-trace-bubble ${className}`;
+    bubble.innerHTML = `<span class="agent-trace-name">${escapeHtml(agentName)}</span>` +
+                       `<span class="agent-trace-action">${escapeHtml(action)}</span>`;
+    messagesEl.appendChild(bubble);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    clusterTraceData.push({ agent: agentName, action: action, type: className, time: new Date().toISOString() });
+}
+
+// Show agent configuration panel
+function showAgentConfigPanel() {
+    // Remove existing panel
+    const existing = document.getElementById('agentConfigPanel');
+    if (existing) { existing.remove(); return; }
+
+    const panel = document.createElement('div');
+    panel.id = 'agentConfigPanel';
+    panel.className = 'agent-config-panel';
+    panel.innerHTML = `
+        <div class="agent-config-header">
+            <h3>🧩 智能体配置</h3>
+            <button class="agent-config-close" onclick="document.getElementById('agentConfigPanel').remove()">✕</button>
+        </div>
+        <div class="agent-config-tabs">
+            <button class="agent-config-tab active" onclick="switchAgentConfigTab('mcp', this)">MCP Server</button>
+            <button class="agent-config-tab" onclick="switchAgentConfigTab('skill', this)">Skill</button>
+            <button class="agent-config-tab" onclick="switchAgentConfigTab('status', this)">状态</button>
+        </div>
+        <div id="agentConfigContent" class="agent-config-content">
+            <div style="text-align:center;padding:20px;color:#718096;">加载中...</div>
+        </div>
+    `;
+    document.body.appendChild(panel);
+    loadAgentConfigTab('mcp');
+}
+
+// Switch config panel tab
+function switchAgentConfigTab(tab, btn) {
+    document.querySelectorAll('.agent-config-tab').forEach(t => t.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    loadAgentConfigTab(tab);
+}
+
+// Load config tab content
+async function loadAgentConfigTab(tab) {
+    const content = document.getElementById('agentConfigContent');
+    if (!content) return;
+
+    try {
+        if (tab === 'mcp') {
+            const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/mcp`);
+            const data = await resp.json();
+            renderMCPConfig(content, data.mcp_servers || []);
+        } else if (tab === 'skill') {
+            const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/skill`);
+            const data = await resp.json();
+            renderSkillConfig(content, data.skills || []);
+        } else if (tab === 'status') {
+            const resp = await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/status`);
+            const data = await resp.json();
+            renderAgentStatus(content, data);
+        }
+    } catch (e) {
+        content.innerHTML = `<div style="color:#e53e3e;padding:20px;">加载失败: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+// Render MCP Server config
+function renderMCPConfig(container, servers) {
+    if (!servers.length) {
+        container.innerHTML = '<div style="padding:20px;color:#718096;text-align:center;">暂无 MCP Server 配置<br><small>点击下方按钮添加</small></div>';
+    } else {
+        let html = '<table class="agent-config-table"><thead><tr><th>名称</th><th>传输</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+        for (const s of servers) {
+            const statusColor = s.status === 'running' ? '#48bb78' : s.status === 'error' ? '#e53e3e' : '#a0aec0';
+            html += `<tr>
+                <td>${escapeHtml(s.name)}</td>
+                <td>${escapeHtml(s.transport)}</td>
+                <td><span style="color:${statusColor}">● ${escapeHtml(s.status)}</span></td>
+                <td>
+                    ${s.status === 'running' 
+                        ? `<button class="btn btn-sm" onclick="toggleMCPServer('${s.id}', 'stop')">⏹ 停止</button>`
+                        : `<button class="btn btn-sm" onclick="toggleMCPServer('${s.id}', 'start')">▶ 启动</button>`
+                    }
+                    <button class="btn btn-sm" onclick="removeMCPServer('${s.id}')">🗑</button>
+                </td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+    container.innerHTML += `<button class="btn btn-primary" style="margin:10px" onclick="showAddMCPForm()">+ 添加 MCP Server</button>`;
+}
+
+// Render Skill config
+function renderSkillConfig(container, skills) {
+    if (!skills.length) {
+        container.innerHTML = '<div style="padding:20px;color:#718096;text-align:center;">暂无 Skill 配置<br><small>点击下方按钮添加</small></div>';
+    } else {
+        let html = '<table class="agent-config-table"><thead><tr><th>名称</th><th>描述</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+        for (const s of skills) {
+            html += `<tr>
+                <td>${escapeHtml(s.name)}</td>
+                <td>${escapeHtml(s.description || '-')}</td>
+                <td>${s.enabled ? '<span style="color:#48bb78">● 启用</span>' : '<span style="color:#a0aec0">● 禁用</span>'}</td>
+                <td>
+                    <button class="btn btn-sm" onclick="toggleSkill('${s.id}', ${!s.enabled})">${s.enabled ? '禁用' : '启用'}</button>
+                    <button class="btn btn-sm" onclick="reloadSkill('${s.id}')">🔄</button>
+                    <button class="btn btn-sm" onclick="removeSkill('${s.id}')">🗑</button>
+                </td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+    container.innerHTML += `<button class="btn btn-primary" style="margin:10px" onclick="showAddSkillForm()">+ 添加 Skill</button>`;
+}
+
+// Render agent status
+function renderAgentStatus(container, data) {
+    container.innerHTML = `
+        <div style="padding:15px;">
+            <h4>📊 集群状态</h4>
+            <div style="margin:10px 0;">
+                <strong>Providers:</strong> ${(data.providers || []).length} 个<br>
+                <strong>MCP Servers:</strong> ${(data.mcp_servers || []).length} 个<br>
+                <strong>Skills:</strong> ${(data.skills || []).length} 个<br>
+                <strong>当前模式:</strong> ${agentMode === 'cluster' ? '🚀 集群' : '⚡ 极速'}
+            </div>
+        </div>
+    `;
+}
+
+// MCP Server actions
+async function toggleMCPServer(id, action) {
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/mcp`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id, action: action })
+        });
+        loadAgentConfigTab('mcp');
+    } catch (e) { showToast('操作失败: ' + e.message, 'error'); }
+}
+
+async function removeMCPServer(id) {
+    if (!confirm('确定删除此 MCP Server?')) return;
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/mcp?id=${id}`, { method: 'DELETE' });
+        loadAgentConfigTab('mcp');
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+function showAddMCPForm() {
+    const name = prompt('MCP Server 名称:');
+    if (!name) return;
+    const transport = prompt('传输类型 (stdio/sse/streamable_http):', 'stdio');
+    const command = prompt('命令 (如: npx @modelcontextprotocol/server-sqlite):');
+    if (!command) return;
+    fetchWithAuth(`${API_BASE}/api/data-ontology/agent/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, transport: transport || 'stdio', command, enabled: true, auto_start: false })
+    }).then(() => loadAgentConfigTab('mcp')).catch(e => showToast('添加失败: ' + e.message, 'error'));
+}
+
+// Skill actions
+async function toggleSkill(id, enabled) {
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/skill`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, enabled })
+        });
+        loadAgentConfigTab('skill');
+    } catch (e) { showToast('操作失败: ' + e.message, 'error'); }
+}
+
+async function reloadSkill(id) {
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/skill`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, action: 'reload' })
+        });
+        loadAgentConfigTab('skill');
+        showToast('Skill 已重新加载', 'info');
+    } catch (e) { showToast('重载失败: ' + e.message, 'error'); }
+}
+
+async function removeSkill(id) {
+    if (!confirm('确定删除此 Skill?')) return;
+    try {
+        await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/skill?id=${id}`, { method: 'DELETE' });
+        loadAgentConfigTab('skill');
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+function showAddSkillForm() {
+    const name = prompt('Skill 名称:');
+    if (!name) return;
+    const sourcePath = prompt('SKILL.md 文件路径:');
+    if (!sourcePath) return;
+    fetchWithAuth(`${API_BASE}/api/data-ontology/agent/skill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, source_path: sourcePath, enabled: true })
+    }).then(() => loadAgentConfigTab('skill')).catch(e => showToast('添加失败: ' + e.message, 'error'));
+}
+
+// Override handleSendAiMessage to support cluster mode
+const _originalHandleSendAiMessage = handleSendAiMessage;
+handleSendAiMessage = async function() {
+    if (agentMode === 'cluster') {
+        const input = document.getElementById('aiInput');
+        const message = input.value.trim();
+        if (!message) return;
+        if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
+            showAiError('请先完成 AI 配置');
+            return;
+        }
+        // Extract @ references same as original
+        const allMatches = [...message.matchAll(/@([^\s]+)/g)];
+        const dbRefs = [];
+        const modRefs = [];
+        for (const match of allMatches) {
+            const ref = match[1];
+            const refL = ref.toLowerCase();
+            let mod = aiModules.find(m => m.name === ref || m.name.toLowerCase() === refL || m.id === ref);
+            if (mod) { modRefs.push(mod); continue; }
+            let db = databases.find(d => d.name === ref || d.name.toLowerCase() === refL || d.id === ref);
+            if (db) dbRefs.push(db);
+        }
+        if (modRefs.length > 0) aiSessionContext.modules = modRefs;
+        if (dbRefs.length > 0) aiSessionContext.databases = dbRefs;
+        else if (aiSessionContext.databases.length > 0) dbRefs.push(...aiSessionContext.databases);
+
+        addAiMessage('user', message);
+        input.value = '';
+        input.style.height = 'auto';
+        document.getElementById('aiSendBtn').disabled = true;
+
+        await sendClusterQuery(message, dbRefs.map(d => d.id), aiSessionContext.modules.map(m => m.id));
+
+        document.getElementById('aiSendBtn').disabled = false;
+    } else {
+        return _originalHandleSendAiMessage();
+    }
+};
+
+// Init on load
+document.addEventListener('DOMContentLoaded', initAgentMode);
+
+// === Agent Cluster Mode End ===

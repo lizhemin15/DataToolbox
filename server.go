@@ -45,6 +45,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	gossh "golang.org/x/crypto/ssh"
 	_ "modernc.org/sqlite"
+
+	"github.com/YOUR_USERNAME/DataToolbox/agent"
 )
 
 // 版本号（通过 ldflags 注入，格式：2026.05.13.2130）
@@ -1051,6 +1053,7 @@ type AIQueryRequest struct {
 	Databases []string                 `json:"databases"`
 	Modules   []string                 `json:"modules,omitempty"`
 	History   []map[string]interface{} `json:"history,omitempty"`
+	Mode      string                   `json:"mode,omitempty"` // "fast"(默认) 或 "cluster"
 }
 
 // AICodegenRequest 数据治理入库代码 AI 生成请求（与 AI 助手共用 url/api_key/model）
@@ -1147,6 +1150,12 @@ var (
 	llmModels      = make(map[string]*LLMModelConfig)
 	smallModels    = make(map[string]*SmallModelConfig)
 	dataOntologyMu sync.RWMutex
+	// 集群模式（Agent）
+	agentProviderRegistry *agent.ProviderRegistry
+	agentMCPSupervisor    *agent.MCPSupervisor
+	agentSkillRegistry    *agent.SkillRegistry
+	agentSessionModes     = make(map[string]string) // sessionID → "fast"|"cluster"
+	agentConfigPath       = "/opt/datatoolbox/agent-config.json"
 )
 
 // 数据治理任务队列
@@ -13346,6 +13355,458 @@ func handleAICompletion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "content": content})
 }
 
+// ==================== 集群模式（Agent）Handler ====================
+
+// agentClusterConfigJSON 是 agent-config.json 的顶层结构
+type agentClusterConfigJSON struct {
+	Providers []agent.ProviderConfig `json:"providers"`
+	MCP       []agent.MCPServerConfig `json:"mcp_servers"`
+	Skills    []agent.SkillConfig     `json:"skills"`
+}
+
+// loadAgentConfig 从 agent-config.json 加载集群模式配置
+func loadAgentConfig() {
+	data, err := os.ReadFile(agentConfigPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[agent] 读取配置文件失败: %v", err)
+		}
+		return
+	}
+	var cfg agentClusterConfigJSON
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		log.Printf("[agent] 解析配置文件失败: %v", err)
+		return
+	}
+	// 加载 providers
+	for _, p := range cfg.Providers {
+		agentProviderRegistry.Add(p)
+	}
+	// 加载 MCP
+	for _, m := range cfg.MCP {
+		agentMCPSupervisor.AddConfig(m)
+	}
+	// 加载 skills
+	for _, s := range cfg.Skills {
+		agentSkillRegistry.Add(s)
+	}
+	log.Printf("[agent] 已加载配置: %d providers, %d mcp_servers, %d skills",
+		len(cfg.Providers), len(cfg.MCP), len(cfg.Skills))
+}
+
+// saveAgentConfig 保存集群模式配置到 agent-config.json
+func saveAgentConfig() error {
+	providers := agentProviderRegistry.List()
+	mcpConfigs := agentMCPSupervisor.ListConfigs()
+	skills := agentSkillRegistry.List()
+	cfg := agentClusterConfigJSON{
+		Providers: providers,
+		MCP:       mcpConfigs,
+		Skills:    skills,
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal agent config: %w", err)
+	}
+	dir := filepath.Dir(agentConfigPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(agentConfigPath, data, 0644)
+}
+
+// initAgentSubsystem 初始化集群模式子系统
+func initAgentSubsystem() {
+	agentProviderRegistry = agent.NewProviderRegistry()
+	agentMCPSupervisor = agent.NewMCPSupervisor()
+	agentSkillRegistry = agent.NewSkillRegistry()
+	loadAgentConfig()
+	// 自动启动 MCP servers
+	agentMCPSupervisor.StartAll()
+}
+
+// handleAgentClusterQuery 集群模式查询入口（SSE流式响应）
+func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
+	// 设置流式响应头
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "未授权",
+		})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "只支持POST请求",
+		})
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "不支持流式传输",
+		})
+		return
+	}
+
+	// 解析请求
+	var queryReq AIQueryRequest
+	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "请求格式错误",
+		})
+		return
+	}
+
+	// 发送开始事件
+	sendSSE(w, "start", map[string]interface{}{
+		"message": "集群模式处理中...",
+	})
+	flusher.Flush()
+
+	// 获取 AI 配置
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	if aiConfig == nil || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": "请先配置AI设置（API Key、模型）",
+		})
+		return
+	}
+
+	// 用 ProviderRegistry 创建 Gemini model
+	providerCfg := agent.ProviderConfig{
+		ID:        "default",
+		Name:      "Default Gemini",
+		Type:      agent.ProviderTypeGemini,
+		APIKey:    aiConfig.APIKey,
+		BaseURL:   aiConfig.URL,
+		ModelID:   aiConfig.Model,
+		Enabled:   true,
+		IsDefault: true,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(aiConfig.Timeout)*time.Second)
+	defer cancel()
+
+	llm, err := agentProviderRegistry.CreateModel(ctx, providerCfg)
+	if err != nil {
+		// 如果 registry 创建失败，直接用 providerCfg 创建
+		llm, err = agent.NewProviderRegistry().CreateModel(ctx, providerCfg)
+		if err != nil {
+			sendSSE(w, "error", map[string]interface{}{
+				"message": fmt.Sprintf("创建AI模型失败: %v", err),
+			})
+			return
+		}
+	}
+
+	// 构建 OrchestratorConfig (root agent = single LLMAgent with tools)
+	agentCfg := agent.AgentConfig{
+		Name:        "datatoolbox-root",
+		Description: "DataToolbox 集群模式根Agent",
+		Instruction: "你是 DataToolbox 的AI助手，可以帮助用户查询数据库、分析数据、执行数据治理任务。请用中文回答。",
+		Model:       llm,
+		Mode:        agent.ModeSingle,
+	}
+
+	orchCfg := agent.OrchestratorConfig{
+		AppName:   "datatoolbox",
+		AgentTree: agentCfg,
+	}
+
+	orch, err := agent.NewOrchestrator(orchCfg)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": fmt.Sprintf("创建Orchestrator失败: %v", err),
+		})
+		return
+	}
+
+	// 生成 sessionID
+	sessionID := fmt.Sprintf("session-%s-%d", username, time.Now().UnixNano())
+
+	// 调用 Orchestrator.Run() 获取事件channel
+	eventCh, err := orch.Run(ctx, username, sessionID, queryReq.Message)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{
+			"message": fmt.Sprintf("Agent执行失败: %v", err),
+		})
+		return
+	}
+
+	// 遍历channel，用 sendSSE 推送事件到前端
+	for evt := range eventCh {
+		switch evt.Type {
+		case agent.EventTypeText:
+			sendSSE(w, "text", evt.Data)
+		case agent.EventTypeToolCall:
+			sendSSE(w, "tool_call", evt.Data)
+		case agent.EventTypeToolResult:
+			sendSSE(w, "tool_result", evt.Data)
+		case agent.EventTypeAgentSwitch:
+			sendSSE(w, "agent_switch", evt.Data)
+		case agent.EventTypeError:
+			sendSSE(w, "error", evt.Data)
+		case agent.EventTypeDone:
+			sendSSE(w, "done", evt.Data)
+		default:
+			sendSSE(w, string(evt.Type), evt.Data)
+		}
+		flusher.Flush()
+	}
+
+	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s", username, sessionID)
+}
+
+// handleAgentMCP MCP Server配置管理 (CRUD)
+func handleAgentMCP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 列出所有 MCP 配置
+		configs := agentMCPSupervisor.ListConfigs()
+		apiSuccess(w, configs)
+
+	case http.MethodPost:
+		// 新增 MCP 配置
+		var cfg agent.MCPServerConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if cfg.ID == "" {
+			cfg.ID = uuid.New().String()
+		}
+		agentMCPSupervisor.AddConfig(cfg)
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, cfg)
+
+	case http.MethodPut:
+		// 更新 MCP 配置
+		var cfg agent.MCPServerConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if cfg.ID == "" {
+			apiBadRequest(w, "缺少 id 字段")
+			return
+		}
+		agentMCPSupervisor.AddConfig(cfg)
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, cfg)
+
+	case http.MethodDelete:
+		// 删除 MCP 配置
+		var req struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if req.ID == "" {
+			apiBadRequest(w, "缺少 id 字段")
+			return
+		}
+		if err := agentMCPSupervisor.RemoveConfig(req.ID); err != nil {
+			apiInternalError(w, fmt.Sprintf("删除MCP配置失败: %v", err))
+			return
+		}
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, map[string]interface{}{"deleted": true})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的请求方法")
+	}
+}
+
+// handleAgentSkill Skill配置管理 (CRUD)
+func handleAgentSkill(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 列出所有 Skill
+		skills := agentSkillRegistry.List()
+		apiSuccess(w, skills)
+
+	case http.MethodPost:
+		// 新增 Skill
+		var cfg agent.SkillConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if cfg.ID == "" {
+			cfg.ID = uuid.New().String()
+		}
+		cfg.LoadedAt = time.Now().UTC().Format(time.RFC3339)
+		agentSkillRegistry.Add(cfg)
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, cfg)
+
+	case http.MethodPut:
+		// 更新 Skill
+		var cfg agent.SkillConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if cfg.ID == "" {
+			apiBadRequest(w, "缺少 id 字段")
+			return
+		}
+		cfg.LoadedAt = time.Now().UTC().Format(time.RFC3339)
+		agentSkillRegistry.Add(cfg)
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, cfg)
+
+	case http.MethodDelete:
+		// 删除 Skill
+		var req struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if req.ID == "" {
+			apiBadRequest(w, "缺少 id 字段")
+			return
+		}
+		agentSkillRegistry.Remove(req.ID)
+		if err := saveAgentConfig(); err != nil {
+			log.Printf("[agent] 保存配置失败: %v", err)
+		}
+		apiSuccess(w, map[string]interface{}{"deleted": true})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的请求方法")
+	}
+}
+
+// handleAgentMode 获取/设置当前会话模式
+func handleAgentMode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 获取当前模式
+		sessionID := r.URL.Query().Get("session_id")
+		mode := "fast" // 默认
+		if sessionID != "" {
+			if m, ok := agentSessionModes[sessionID]; ok {
+				mode = m
+			}
+		}
+		apiSuccess(w, map[string]interface{}{
+			"session_id": sessionID,
+			"mode":       mode,
+		})
+
+	case http.MethodPost:
+		// 设置当前模式
+		var req struct {
+			SessionID string `json:"session_id"`
+			Mode      string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+		if req.Mode != "fast" && req.Mode != "cluster" {
+			apiBadRequest(w, "mode 必须为 fast 或 cluster")
+			return
+		}
+		if req.SessionID == "" {
+			apiBadRequest(w, "缺少 session_id")
+			return
+		}
+		agentSessionModes[req.SessionID] = req.Mode
+		apiSuccess(w, map[string]interface{}{
+			"session_id": req.SessionID,
+			"mode":       req.Mode,
+		})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的请求方法")
+	}
+}
+
+// handleAgentStatus 集群模式状态
+func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		apiMethodNotAllowed(w, "只支持GET请求")
+		return
+	}
+
+	providers := agentProviderRegistry.List()
+	mcpConfigs := agentMCPSupervisor.ListConfigs()
+	skills := agentSkillRegistry.List()
+
+	// 统计活跃 agent 数量
+	activeAgents := 0
+	for _, p := range providers {
+		if p.Enabled {
+			activeAgents++
+		}
+	}
+
+	apiSuccess(w, map[string]interface{}{
+		"mode":           "cluster",
+		"active_agents":  activeAgents,
+		"providers":      providers,
+		"mcp_servers":    mcpConfigs,
+		"skills":         skills,
+		"tools_count":    len(skills),
+		"toolsets_count": len(mcpConfigs),
+	})
+}
+
 // handleGovernanceShareAICompletion 分享任务专用 AI 调用（免授权）
 func handleGovernanceShareAICompletion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -20714,6 +21175,8 @@ func main() {
 	initDataOntology()
 	// 初始化网页导航
 	initWebNav()
+	// 初始化集群模式（Agent）子系统
+	initAgentSubsystem()
 
 	// 初始化表检索 SQLite FTS5 索引并异步同步所有数据库
 	if manager := getFTS5Manager(); manager != nil {
@@ -20837,6 +21300,13 @@ func main() {
 	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
 	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
 	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
+
+	// 集群模式（Agent）API路由
+	mux.HandleFunc("/api/data-ontology/agent/cluster/query", handleAgentClusterQuery)
+	mux.HandleFunc("/api/data-ontology/agent/mcp", handleAgentMCP)
+	mux.HandleFunc("/api/data-ontology/agent/skill", handleAgentSkill)
+	mux.HandleFunc("/api/data-ontology/agent/mode", handleAgentMode)
+	mux.HandleFunc("/api/data-ontology/agent/status", handleAgentStatus)
 
 	// 模型管理API路由
 	mux.HandleFunc("/api/data-ontology/models/llm", handleLLMModels)

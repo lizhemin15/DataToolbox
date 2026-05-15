@@ -904,7 +904,17 @@
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
                         <h3>🤖 智能助手</h3>
-                        <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
+                        <div class="ai-header-controls">
+                            <div class="agent-mode-switch" id="agentModeSwitch" title="切换模式">
+                                <span class="agent-mode-label" data-mode="fast">极速</span>
+                                <div class="agent-mode-slider" id="agentModeSlider" onclick="toggleAgentMode()">
+                                    <div class="agent-mode-knob" id="agentModeKnob"></div>
+                                </div>
+                                <span class="agent-mode-label" data-mode="cluster">集群</span>
+                            </div>
+                            <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">🧩</button>
+                            <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
+                        </div>
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-welcome-message">
@@ -2324,5 +2334,44 @@
     <script>
     fetch('/api/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
     </script>
+
+    <!-- === Agent Cluster Mode: 智能体配置面板 === -->
+    <div id="agentConfigModal" class="modal" style="display:none;">
+        <div class="modal-backdrop" onclick="hideAgentConfigPanel()"></div>
+        <div class="agent-config-panel">
+            <div class="agent-config-header">
+                <h3>🧩 智能体配置</h3>
+                <button class="agent-config-close" onclick="hideAgentConfigPanel()">✕</button>
+            </div>
+            <div class="agent-config-tabs">
+                <button class="agent-config-tab active" data-config-tab="mcp" onclick="switchAgentConfigTab('mcp')">MCP Server</button>
+                <button class="agent-config-tab" data-config-tab="skill" onclick="switchAgentConfigTab('skill')">Skill</button>
+            </div>
+            <div class="agent-config-body">
+                <!-- MCP Tab -->
+                <div id="agentConfigMcpTab" class="agent-config-tab-content active">
+                    <div class="agent-config-toolbar">
+                        <button class="btn btn-sm btn-primary" onclick="addMcpServer()">+ 添加 MCP Server</button>
+                        <button class="btn btn-sm" onclick="loadMcpServers()">🔄 刷新</button>
+                    </div>
+                    <div id="mcpServerList" class="agent-config-list">
+                        <div class="agent-config-empty">加载中...</div>
+                    </div>
+                </div>
+                <!-- Skill Tab -->
+                <div id="agentConfigSkillTab" class="agent-config-tab-content" style="display:none;">
+                    <div class="agent-config-toolbar">
+                        <button class="btn btn-sm btn-primary" onclick="addSkill()">+ 添加 Skill</button>
+                        <button class="btn btn-sm" onclick="loadSkills()">🔄 刷新</button>
+                    </div>
+                    <div id="skillList" class="agent-config-list">
+                        <div class="agent-config-empty">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- === Agent Cluster Mode End === -->
+
 </body>
 </html>
