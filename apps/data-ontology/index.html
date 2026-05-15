@@ -901,6 +901,20 @@
         <div id="aiTab" class="tab-content">
             <div class="tab-content-wrap">
             <div class="ai-assistant-container">
+                <div class="ai-session-sidebar" id="aiSessionSidebar">
+                    <div class="ai-sidebar-toggle" id="aiSidebarToggle" onclick="toggleAISidebar()" title="折叠/展开会话栏">
+                        <span class="sidebar-toggle-icon" id="sidebarToggleIcon">◀</span>
+                    </div>
+                    <div class="ai-sidebar-body" id="aiSidebarBody">
+                        <div class="ai-new-session-bar">
+                            <button class="ai-new-session-btn" data-mode="fast" onclick="createNewSession('fast')" title="极速模式新会话">⚡</button>
+                            <button class="ai-new-session-btn" data-mode="cluster" onclick="createNewSession('cluster')" title="集群模式新会话">🚀</button>
+                        </div>
+                        <div class="ai-session-list" id="aiSessionList">
+                            <!-- 会话列表动态生成 -->
+                        </div>
+                    </div>
+                </div>
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
                         <h3>🤖 智能助手</h3>
