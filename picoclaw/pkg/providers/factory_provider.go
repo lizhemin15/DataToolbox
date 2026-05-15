@@ -65,29 +65,11 @@ var protocolMetaByName = map[string]protocolMeta{
 	"anthropic-messages":       {defaultAPIBase: "https://api.anthropic.com/v1"},
 }
 
-// createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
-func createClaudeAuthProvider() (LLMProvider, error) {
-	cred, err := getCredential("anthropic")
-	if err != nil {
-		return nil, fmt.Errorf("loading auth credentials: %w", err)
-	}
-	if cred == nil {
-		return nil, fmt.Errorf("no credentials for anthropic. Run: picoclaw auth login --provider anthropic")
-	}
-	return NewClaudeProviderWithTokenSource(cred.AccessToken, createClaudeTokenSource()), nil
-}
+// createClaudeAuthProvider — stub (auth removed for DataToolbox)
+// Original used OAuth credentials from auth store.
 
-// createCodexAuthProvider creates a Codex provider using OAuth credentials from auth store.
-func createCodexAuthProvider() (LLMProvider, error) {
-	cred, err := getCredential("openai")
-	if err != nil {
-		return nil, fmt.Errorf("loading auth credentials: %w", err)
-	}
-	if cred == nil {
-		return nil, fmt.Errorf("no credentials for openai. Run: picoclaw auth login --provider openai")
-	}
-	return NewCodexProviderWithTokenSource(cred.AccessToken, cred.AccountID, createCodexTokenSource()), nil
-}
+// createCodexAuthProvider — stub (auth removed for DataToolbox)
+// Original used OAuth credentials from auth store.
 
 // ExtractProtocol extracts the effective protocol and model identifier from a
 // model configuration.
@@ -371,7 +353,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		), modelID, cfg)
 
 	case "antigravity":
-		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
+		return finalizeProviderFromConfig(nil, modelID, cfg)
 
 	case "claude-cli", "claudecli":
 		workspace := cfg.Workspace
