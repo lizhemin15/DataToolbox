@@ -1155,9 +1155,9 @@ var (
 	agentProviderRegistry *agent.ProviderRegistry
 	agentMCPSupervisor    *agent.MCPSupervisor
 	agentSkillRegistry    *agent.SkillRegistry
-	agentOrchestrator     *agent.Orchestrator
+	agentOrchestrators    = make(map[string]*agent.Orchestrator) // username → Orchestrator（每用户独立workspace）
+	agentOrchestratorMu   sync.RWMutex
 	agentSessionModes     = make(map[string]string) // sessionID → "fast"|"cluster"
-	agentConfigPath       = "/opt/datatoolbox/agent-config.json"
 )
 
 // 数据治理任务队列
@@ -13386,9 +13386,15 @@ type agentClusterConfigJSON struct {
 	Skills    []agent.SkillConfig     `json:"skills"`
 }
 
+// agentConfigPath 返回 agent 配置文件路径（基于可执行文件位置）
+func agentConfigPath() string {
+	exePath, _ := os.Executable()
+	return filepath.Join(filepath.Dir(exePath), "agent-config.json")
+}
+
 // loadAgentConfig 从 agent-config.json 加载集群模式配置
 func loadAgentConfig() {
-	data, err := os.ReadFile(agentConfigPath)
+	data, err := os.ReadFile(agentConfigPath())
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("[agent] 读取配置文件失败: %v", err)
@@ -13430,11 +13436,11 @@ func saveAgentConfig() error {
 	if err != nil {
 		return fmt.Errorf("marshal agent config: %w", err)
 	}
-	dir := filepath.Dir(agentConfigPath)
+	dir := filepath.Dir(agentConfigPath())
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(agentConfigPath, data, 0644)
+	return os.WriteFile(agentConfigPath(), data, 0644)
 }
 
 // initAgentSubsystem 初始化集群模式子系统
@@ -13444,19 +13450,34 @@ func initAgentSubsystem() {
 	agentSkillRegistry = agent.NewSkillRegistry()
 	loadAgentConfig()
 
-	// 尝试初始化 Orchestrator（需要有效的 AI 配置）
-	initOrchestratorIfNeeded()
+	// Orchestrator 改为懒初始化（每用户首次查询时创建），无需启动时预创建
 }
 
-// initOrchestratorIfNeeded 当有有效 AI 配置时初始化 Orchestrator（PicoClaw 模式）
-func initOrchestratorIfNeeded() {
+// getOrchestratorForUser 获取指定用户的 Orchestrator（懒初始化）
+func getOrchestratorForUser(username string) *agent.Orchestrator {
+	agentOrchestratorMu.RLock()
+	orch, exists := agentOrchestrators[username]
+	agentOrchestratorMu.RUnlock()
+	if exists && orch != nil {
+		return orch
+	}
+
+	// 懒初始化：为该用户创建独立 Orchestrator
+	agentOrchestratorMu.Lock()
+	defer agentOrchestratorMu.Unlock()
+
+	// double-check
+	if agentOrchestrators[username] != nil {
+		return agentOrchestrators[username]
+	}
+
 	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
 	dataOntologyMu.RUnlock()
 
 	if aiConfig == nil || aiConfig.APIKey == "" || aiConfig.Model == "" {
-		log.Printf("[agent] AI config not ready, orchestrator will be initialized on first query")
-		return
+		log.Printf("[agent] AI config not ready for user=%s", username)
+		return nil
 	}
 
 	ctx := context.Background()
@@ -13480,24 +13501,24 @@ func initOrchestratorIfNeeded() {
 
 	picoProvider, err := agentProviderRegistry.CreatePicoProvider(ctx, providerCfg)
 	if err != nil {
-		log.Printf("[agent] failed to create PicoClaw provider: %v, will retry on first query", err)
-		return
+		log.Printf("[agent] failed to create PicoClaw provider for user=%s: %v", username, err)
+		return nil
 	}
 
-	// 2. 构建 PicoClaw Config
-	picoCfg := buildPicoClawConfig(aiConfig)
+	// 2. 构建 PicoClaw Config（每用户独立 workspace）
+	picoCfg := buildPicoClawConfig(aiConfig, username)
 
 	// 3. 创建 Orchestrator 并初始化
-	orch, err := agent.NewOrchestrator(agent.OrchestratorConfig{
+	orch, err = agent.NewOrchestrator(agent.OrchestratorConfig{
 		AppName: "datatoolbox",
 	})
 	if err != nil {
-		log.Printf("[agent] failed to create orchestrator: %v", err)
-		return
+		log.Printf("[agent] failed to create orchestrator for user=%s: %v", username, err)
+		return nil
 	}
 
-	// 4. 注册 DataToolbox 深度耦合工具 — agent 可直接调用系统 API
-	serverURL := "http://localhost:8080"
+	// 4. 注册 DataToolbox 深度耦合工具
+	serverURL := mcpLoopbackAddr
 	webNavMu.RLock()
 	authToken := webNavAdminToken
 	webNavMu.RUnlock()
@@ -13505,16 +13526,33 @@ func initOrchestratorIfNeeded() {
 	orch.SetDataToolboxTool(dtTool)
 
 	if err := orch.InitializeWithProvider(ctx, picoProvider, picoCfg); err != nil {
-		log.Printf("[agent] failed to initialize orchestrator: %v", err)
-		return
+		log.Printf("[agent] failed to initialize orchestrator for user=%s: %v", username, err)
+		return nil
 	}
 
-	agentOrchestrator = orch
-	log.Printf("[agent] orchestrator initialized successfully with PicoClaw + DataToolbox tools")
+	agentOrchestrators[username] = orch
+	log.Printf("[agent] orchestrator initialized for user=%s with workspace=%s", username, picoCfg.Agents.Defaults.Workspace)
+	return orch
 }
 
-// buildPicoClawConfig 构建 PicoClaw 配置
-func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
+// sanitizePathName 清理用户名用于路径，防止路径注入
+func sanitizePathName(name string) string {
+	// 只保留字母、数字、下划线、横线
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	result := b.String()
+	if result == "" {
+		return "default"
+	}
+	return result
+}
+
+// buildPicoClawConfig 构建 PicoClaw 配置（每用户独立 workspace）
+func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Config {
 	cfg := &picoclawcfg.Config{}
 
 	// 默认 agent 配置
@@ -13524,8 +13562,12 @@ func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
 	cfg.Agents.Defaults.Temperature = &temp
 	cfg.Agents.Defaults.MaxParallelTurns = 1
 
-	// 沙箱隔离 — agent workspace 限制在部署目录的子目录，不能访问部署根目录
-	agentWorkspace := filepath.Join(filepath.Dir(getDataOntologyStorePath()), "..", "agent_workspace")
+	// 沙箱隔离 — 每用户独立 workspace，限制在安装目录/agent-workspace/username/
+	// 路径从可执行文件位置推导，不硬编码
+	exePath, _ := os.Executable()
+	installDir := filepath.Dir(exePath)
+	safeUsername := sanitizePathName(username)
+	agentWorkspace := filepath.Join(installDir, "agent-workspace", safeUsername)
 	cfg.Agents.Defaults.Workspace = agentWorkspace
 	cfg.Agents.Defaults.RestrictToWorkspace = true
 	cfg.Agents.Defaults.SubTurn.MaxDepth = 3
@@ -13571,84 +13613,28 @@ func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
 }
 
 // handleAgentClusterQuery 集群模式查询入口（SSE流式响应）
+// 统一走 handleAIQuery，自动设置 mode=cluster
 func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
-	// 设置流式响应头
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	username, authOK := getDataOntologyUserFromRequest(r)
-	if !authOK {
-		sendSSE(w, "error", map[string]interface{}{"message": "未授权"})
-		return
+	// 读取请求体，注入 mode=cluster，然后转发给 handleAIQuery
+	if r.Method == http.MethodPost {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "读取请求失败", 400)
+			return
+		}
+		r.Body.Close()
+		// 注入 mode 字段
+		var reqMap map[string]interface{}
+		if err := json.Unmarshal(body, &reqMap); err == nil {
+			reqMap["mode"] = "cluster"
+			newBody, _ := json.Marshal(reqMap)
+			r.Body = io.NopCloser(bytes.NewReader(newBody))
+			r.ContentLength = int64(len(newBody))
+		} else {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
 	}
-
-	if r.Method != http.MethodPost {
-		sendSSE(w, "error", map[string]interface{}{"message": "只支持POST请求"})
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		sendSSE(w, "error", map[string]interface{}{"message": "不支持流式传输"})
-		return
-	}
-
-	// 解析请求
-	var queryReq AIQueryRequest
-	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
-		sendSSE(w, "error", map[string]interface{}{"message": "请求格式错误"})
-		return
-	}
-
-	// 发送开始事件
-	sendSSE(w, "start", map[string]interface{}{"message": "集群模式处理中..."})
-	flusher.Flush()
-
-	// 懒初始化：如果 Orchestrator 还没准备好，尝试初始化
-	if agentOrchestrator == nil {
-		initOrchestratorIfNeeded()
-	}
-
-	if agentOrchestrator == nil {
-		sendSSE(w, "error", map[string]interface{}{"message": "请先配置AI设置（API Key、模型）"})
-		return
-	}
-
-	// 获取超时配置
-	dataOntologyMu.RLock()
-	aiConfig := dataOntologyAIConfig
-	dataOntologyMu.RUnlock()
-
-	timeout := 120 // 默认120秒
-	if aiConfig != nil && aiConfig.Timeout > 0 {
-		timeout = aiConfig.Timeout
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
-	defer cancel()
-
-	// 生成 sessionID（同一用户的同一会话保持连续）
-	sessionID := fmt.Sprintf("cluster-%s", username)
-
-	// 调用 Orchestrator.Run() 获取事件channel
-	eventCh, err := agentOrchestrator.Run(ctx, username, sessionID, queryReq.Message)
-	if err != nil {
-		sendSSE(w, "error", map[string]interface{}{"message": fmt.Sprintf("Agent执行失败: %v", err)})
-		return
-	}
-
-	// 遍历channel，用 sendSSE 推送事件到前端
-	eventCount := 0
-	for evt := range eventCh {
-		eventCount++
-		log.Printf("[agent] SSE event #%d: type=%s, data=%v", eventCount, evt.Type, evt.Data)
-		sendSSE(w, string(evt.Type), evt.Data)
-		flusher.Flush()
-	}
-
-	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s, events=%d", username, sessionID, eventCount)
+	handleAIQuery(w, r)
 }
 
 // handleAgentClusterQueryWithReq 从 handleAIQuery 分发过来的集群模式处理
@@ -13658,11 +13644,9 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 	sendSSE(w, "start", map[string]interface{}{"message": "🤖 集群模式已启动，智能体正在规划任务..."})
 	flusher.Flush()
 
-	// 懒初始化 Orchestrator
-	if agentOrchestrator == nil {
-		initOrchestratorIfNeeded()
-	}
-	if agentOrchestrator == nil {
+	// 懒初始化：获取该用户的 Orchestrator（每用户独立 workspace）
+	orch := getOrchestratorForUser(username)
+	if orch == nil {
 		sendSSE(w, "error", map[string]interface{}{"message": "请先配置AI设置（API Key、模型）"})
 		sendSSE(w, "done", map[string]interface{}{})
 		flusher.Flush()
@@ -13685,7 +13669,7 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 	sessionID := fmt.Sprintf("cluster-%s", username)
 
 	// 调用 Orchestrator.Run()
-	eventCh, err := agentOrchestrator.Run(ctx, username, sessionID, queryReq.Message)
+	eventCh, err := orch.Run(ctx, username, sessionID, queryReq.Message)
 	if err != nil {
 		sendSSE(w, "error", map[string]interface{}{"message": fmt.Sprintf("Agent执行失败: %v", err)})
 		sendSSE(w, "done", map[string]interface{}{})
