@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # 当推送v开头的tag时触发，如 v1.0.0
+      - 'v*'  # 当推送v开头的tag时触发
   workflow_dispatch:  # 允许手动触发
 
 permissions:
@@ -15,40 +15,28 @@ jobs:
     name: Build for ${{ matrix.goos }}-${{ matrix.goarch }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # Windows
           - goos: windows
             goarch: amd64
             output: datatoolbox-server.exe
             package: datatoolbox-windows-amd64.zip
-          
+
           - goos: windows
             goarch: arm64
             output: datatoolbox-server.exe
             package: datatoolbox-windows-arm64.zip
-          
-          # Linux（CGO 启用，用于 SQLite 等）
+
           - goos: linux
             goarch: amd64
             output: datatoolbox-server
             package: datatoolbox-linux-amd64.tar.gz
-          
+
           - goos: linux
             goarch: arm64
             output: datatoolbox-server
             package: datatoolbox-linux-arm64.tar.gz
-          
-          # macOS
-          - goos: darwin
-            goarch: amd64
-            output: datatoolbox-server
-            package: datatoolbox-macos-amd64.tar.gz
-          
-          - goos: darwin
-            goarch: arm64
-            output: datatoolbox-server
-            package: datatoolbox-macos-arm64.tar.gz
 
     steps:
       - name: Checkout code
@@ -85,9 +73,7 @@ jobs:
         if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
         timeout-minutes: 10
         run: |
-          # 使用 Docker + QEMU 进行 ARM64 交叉编译
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
-          # ARM64 gov-runner 使用 Ubuntu 基础镜像（含 glibc，与生产环境一致）
           docker run --rm --platform linux/arm64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
             set -e
             apt-get update && apt-get install -y curl unzip
@@ -99,42 +85,19 @@ jobs:
             bun build index.ts --compile --outfile gov-runner
             cp gov-runner /project/
           '
-          # 验证编译结果
           file gov-runner || { echo "ERROR: gov-runner not found after Docker build"; exit 1; }
         continue-on-error: true
-
-      - name: Build gov-runner for macOS ARM64 using Docker QEMU
-        if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
-        run: |
-          # macOS ARM64 使用 Docker + QEMU 进行原生编译
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes || true
-          # 使用 ARM64 Ubuntu 镜像编译
-          docker run --rm --platform linux/arm64 -v "$PWD:/project" -w /project arm64v8/ubuntu:22.04 bash -c '
-            set -e
-            apt-get update && apt-get install -y curl unzip
-            curl -fsSL https://bun.sh/install | bash
-            export BUN_INSTALL="$HOME/.bun"
-            export PATH="$BUN_INSTALL/bin:$PATH"
-            cd /project/gov-runner-src
-            bun install
-            # macOS ARM64 需要交叉编译，Bun 不支持，暂时跳过
-            echo "macOS ARM64 gov-runner not supported yet, using nogov fallback"
-          '
-          # 创建占位符
-          touch gov-runner || true
 
       - name: Build gov-runner for Windows ARM64 (skip - using nogov tag)
         if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
         run: |
           echo "Windows ARM64 uses nogov tag, gov-runner not embedded"
-          # 创建空的 gov-runner.exe 占位符
           touch gov-runner.exe || true
 
       - name: Build gov-runner for other platforms (native)
         if: |
-          (matrix.goos != 'linux' || matrix.goarch != 'arm64') &&
-          (matrix.goos != 'darwin' || matrix.goarch != 'arm64') &&
-          (matrix.goos != 'windows' || matrix.goarch != 'arm64')
+          ! (matrix.goos == 'linux' && matrix.goarch == 'arm64') &&
+          ! (matrix.goos == 'windows' && matrix.goarch == 'arm64')
         run: |
           if [ -d "gov-runner-src" ]; then
             cd gov-runner-src
@@ -160,7 +123,6 @@ jobs:
       - name: Copy gov-shared.js to other platforms
         if: matrix.goos != 'linux' || matrix.goarch != 'amd64'
         run: |
-          # 复制 Linux amd64 构建的 gov-shared.js
           if [ -f "apps/data-ontology/lib/gov-shared.js" ]; then
             mkdir -p gov-runner-src
             cp apps/data-ontology/lib/gov-shared.js gov-runner-src/
@@ -173,9 +135,6 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          # Windows 使用 nogiv tag（gov-runner 作为外部文件加载）
-          # Linux ARM64 如果 gov-runner 编译失败也使用 nogov tag
-          # 其他平台嵌入 gov-runner
           if [ "${{ matrix.goos }}" = "windows" ]; then
             go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
           elif [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ] && [ ! -f "gov-runner" ]; then
@@ -185,53 +144,9 @@ jobs:
             go build -tags release -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
           fi
 
-      - name: Verify gov-runner architecture
-        # macOS ARM64、Windows ARM64 和 Linux ARM64（无 gov-runner）跳过验证
-        if: |
-          ! (matrix.goos == 'darwin' && matrix.goarch == 'arm64') &&
-          ! (matrix.goos == 'windows' && matrix.goarch == 'arm64') &&
-          ! (matrix.goos == 'linux' && matrix.goarch == 'arm64')
-        run: |
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            if [ -f "gov-runner.exe" ]; then
-              file gov-runner.exe
-              echo "✓ gov-runner.exe ready for packaging"
-            else
-              echo "✗ gov-runner.exe not found!"
-              exit 1
-            fi
-          else
-            if [ -f "gov-runner" ]; then
-              file gov-runner
-              # 验证架构匹配
-              if [ "${{ matrix.goarch }}" = "arm64" ]; then
-                if file gov-runner | grep -q "aarch64\|ARM aarch64\|ARM64"; then
-                  echo "✓ gov-runner is ARM64 binary"
-                else
-                  echo "✗ gov-runner is NOT ARM64 binary!"
-                  file gov-runner
-                  exit 1
-                fi
-              elif [ "${{ matrix.goarch }}" = "amd64" ]; then
-                if file gov-runner | grep -q "x86-64\|x86_64\|Intel 80386"; then
-                  echo "✓ gov-runner is x86_64 binary"
-                else
-                  echo "✗ gov-runner is NOT x86_64 binary!"
-                  file gov-runner
-                  exit 1
-                fi
-              fi
-            else
-              echo "✗ gov-runner not found!"
-              exit 1
-            fi
-          fi
-
       - name: Prepare package files
         run: |
           mkdir -p package
-          # 静态文件直接放在包根目录，与可执行文件同级
-          # 消除 web 子目录冗余，静态文件和配置文件（apps/data-ontology/data-store.json）统一位置
           cp ${{ matrix.output }} package/
           cp server.config.json package/
           cp scripts/install.sh package/install.sh
@@ -239,14 +154,10 @@ jobs:
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           chmod +x package/update.sh
-          # 复制静态文件到包根目录
           cp -r index.html apps css js lib examples package/
 
-          # 关键：打包时用空模板替换敏感配置文件，避免泄露数据库密码和AI API Key
-          # 用户首次启动时会自动生成空白配置
           echo '{}' > package/apps/data-ontology/data-store.json
 
-          # 注入版本号：替换静态资源 URL 中的 ?v=X.Y.Z
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
             for f in package/apps/data-ontology/index.html package/apps/data-ontology/script.js; do
@@ -256,9 +167,7 @@ jobs:
               fi
             done
           fi
-          # 复制 gov-runner（已预编译）
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            # Windows 版本需要单独的 gov-runner.exe
             if [ -f "gov-runner.exe" ]; then
               cp gov-runner.exe package/
             else
@@ -336,7 +245,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -352,81 +261,24 @@ jobs:
           files: artifacts/**/*
           body: |
             ## DataToolbox Server Release
-            
+
             ### 📦 下载说明
-            
+
             根据你的系统选择对应的包：
-            
+
             - **Windows (64位 Intel/AMD)**: `datatoolbox-windows-amd64.zip`
             - **Windows (ARM64)**: `datatoolbox-windows-arm64.zip`
             - **Linux (64位)**: `datatoolbox-linux-amd64.tar.gz`
             - **Linux (ARM64)**: `datatoolbox-linux-arm64.tar.gz`
-            - **macOS (Intel)**: `datatoolbox-macos-amd64.tar.gz`
-            - **macOS (Apple Silicon)**: `datatoolbox-macos-arm64.tar.gz`
-            
-            ### 📁 目录结构
-            
-            解压后目录结构：
-            ```
-            datatoolbox/
-            ├── datatoolbox-server    # 可执行文件
-            ├── index.html            # 主页（静态文件）
-            ├── apps/                 # 应用目录（含配置文件）
-            │   └── data-ontology/
-            │       ├── script.js     # 前端脚本
-            │       └── data-store.json  # 配置文件（服务端读写）
-            ├── css/                  # 样式文件
-            ├── js/                   # JavaScript 库
-            ├── lib/                  # 第三方库
-            ├── gov-runner            # 治理任务运行器
-            ├── server.config.json    # 服务器配置
-            ├── install.sh            # 安装脚本
-            └── update.sh             # 更新脚本
-            ```
-            
-            **注意**：静态文件和配置文件统一在 `apps/` 目录，更新前端只需修改一处。
-            
+
             ### 🚀 使用方法
-            
-            **交互式安装（推荐）：** 解压后执行 `chmod +x install.sh && ./install.sh`，详见包内 `README_DEPLOY.md`。
-            
+
             **默认端口8080启动：**
             - Windows: 双击运行 `start.bat`
-            - Linux/macOS: 运行 `./start.sh`
-            
+            - Linux: 运行 `./start.sh`
+
             **自定义端口启动：**
             - Windows: `start.bat 3000` 或 `datatoolbox-server.exe -port 3000`
-            - Linux/macOS: `./start.sh 3000` 或 `./datatoolbox-server -port 3000`
-            
-            **修改默认端口：**
-            编辑 `server.config.json`
-            ```json
-            {
-              "port": 8080,
-              "host": "0.0.0.0"
-            }
-            ```
-            
-            **Linux 持久运行且开机自启（解压包内含 `datatoolbox.service`）：**
-            1. 解压到目录，如 `/opt/datatoolbox`（若用其他目录需先改 `datatoolbox.service` 里的 WorkingDirectory 和 ExecStart）
-            2. `sudo cp /opt/datatoolbox/datatoolbox.service /etc/systemd/system/`
-            3. `sudo systemctl daemon-reload && sudo systemctl enable --now datatoolbox`
-            之后关掉终端或重启服务器都会自动运行；查看状态：`sudo systemctl status datatoolbox`，日志：`journalctl -u datatoolbox -f`
-            
-            **Linux 更新版本：**
-            1. 下载新版本 tar.gz 包
-            2. 执行更新脚本：`sudo ./update.sh datatoolbox-linux-amd64.tar.gz`
-            
-            或手动更新：
-            1. 停止服务：`sudo systemctl stop datatoolbox`
-            2. 解压新版本到临时目录
-            3. 备份后替换：二进制 + 前端文件（index.html, apps/, css/, js/, lib/）
-            4. 启动服务：`sudo systemctl start datatoolbox`
-            
-            **⚠️ 注意**：更新时必须同时替换前端文件，否则新功能不会生效！
-            
-            **Linux 停止服务 / 取消开机自启：**
-            - 仅停止：`sudo systemctl stop datatoolbox`
-            - 取消开机自启并停止：`sudo systemctl disable --now datatoolbox`
-            
-            启动后访问: http://localhost:端口号
+            - Linux: `./start.sh 3000` 或 `./datatoolbox-server -port 3000`
+
+            **Linux 持久运行：** 解压后执行 `chmod +x install.sh && ./install.sh`
