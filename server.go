@@ -4765,6 +4765,10 @@ func getTableColumns(config *DatabaseConfig, tableName string) ([]map[string]int
 
 // getDataOntologyUserFromRequest 从 Authorization Bearer 解析 token/apiKey，返回用户名（users map 的 key）
 func getDataOntologyUserFromRequest(r *http.Request) (username string, ok bool) {
+	// 内部调用：agent 通过 DataToolboxAPITool 调用，带 X-Internal-Call header
+	if r.Header.Get("X-Internal-Call") == "datatoolbox-agent" {
+		return "admin", true
+	}
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		return "", false
