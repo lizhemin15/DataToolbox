@@ -11,6 +11,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/pkg/sftp v1.13.6
+	github.com/sashabaranov/go-openai v1.41.2
 	github.com/sijms/go-ora/v2 v2.8.0
 	go.mongodb.org/mongo-driver v1.13.1
 	golang.org/x/crypto v0.49.0
@@ -65,6 +66,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260316180232-0b37fe3546d5 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.49.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

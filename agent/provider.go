@@ -3,18 +3,16 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
+	"github.com/sashabaranov/go-openai"
 	"google.golang.org/adk/model"
 	"google.golang.org/adk/model/gemini"
 	"google.golang.org/genai"
 )
 
-// ---------------------------------------------------------------------------
-// Provider — LLM provider configuration and registry
-// ---------------------------------------------------------------------------
-
-// ProviderType identifies the LLM backend.
+// ProviderType LLM Provider 类型
 type ProviderType string
 
 const (
@@ -23,123 +21,99 @@ const (
 	ProviderTypeAnthropic ProviderType = "anthropic"
 )
 
-// ProviderConfig describes an LLM provider. Stored in JSON config.
+// ProviderConfig LLM Provider 配置
 type ProviderConfig struct {
 	ID        string       `json:"id"`
 	Name      string       `json:"name"`
 	Type      ProviderType `json:"type"`
-	APIKey    string       `json:"api_key,omitempty"`
+	APIKey    string       `json:"api_key"`
 	BaseURL   string       `json:"base_url,omitempty"`
 	ModelID   string       `json:"model_id"`
 	Enabled   bool         `json:"enabled"`
 	IsDefault bool         `json:"is_default"`
 }
 
-// ProviderRegistry manages available LLM providers.
+// ProviderRegistry 管理 LLM Provider 配置和创建 Model 实例
 type ProviderRegistry struct {
-	mu       sync.RWMutex
-	providers map[string]ProviderConfig
+	mu      sync.RWMutex
+	configs map[string]ProviderConfig
 }
 
-// NewProviderRegistry creates an empty registry.
+// NewProviderRegistry 创建 Provider 注册表
 func NewProviderRegistry() *ProviderRegistry {
 	return &ProviderRegistry{
-		providers: make(map[string]ProviderConfig),
+		configs: make(map[string]ProviderConfig),
 	}
 }
 
-// Add registers a provider config.
+// Add 添加 Provider 配置
 func (r *ProviderRegistry) Add(cfg ProviderConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.providers[cfg.ID] = cfg
+	r.configs[cfg.ID] = cfg
+	log.Printf("[provider] added: %s (%s/%s)", cfg.ID, cfg.Type, cfg.ModelID)
 }
 
-// Remove removes a provider by ID.
-func (r *ProviderRegistry) Remove(id string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.providers, id)
-}
-
-// Get returns a provider config by ID.
-func (r *ProviderRegistry) Get(id string) (ProviderConfig, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	cfg, ok := r.providers[id]
-	return cfg, ok
-}
-
-// List returns all provider configs.
+// List 列出所有 Provider 配置
 func (r *ProviderRegistry) List() []ProviderConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]ProviderConfig, 0, len(r.providers))
-	for _, cfg := range r.providers {
-		out = append(out, cfg)
+	var result []ProviderConfig
+	for _, cfg := range r.configs {
+		result = append(result, cfg)
 	}
-	return out
+	return result
 }
 
-// Default returns the default provider config.
-func (r *ProviderRegistry) Default() (ProviderConfig, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, cfg := range r.providers {
-		if cfg.IsDefault && cfg.Enabled {
-			return cfg, true
-		}
-	}
-	// Fallback to first enabled provider.
-	for _, cfg := range r.providers {
-		if cfg.Enabled {
-			return cfg, true
-		}
-	}
-	return ProviderConfig{}, false
-}
-
-// CreateModel builds an adk-go model.LLM from a provider config.
-// Currently only Gemini is natively supported by adk-go.
-// OpenAI/Anthropic will be supported via adapter packages later.
+// CreateModel 根据 Provider 配置创建 adk-go Model 实例
 func (r *ProviderRegistry) CreateModel(ctx context.Context, cfg ProviderConfig) (model.LLM, error) {
 	switch cfg.Type {
 	case ProviderTypeGemini:
-		return gemini.NewModel(ctx, cfg.ModelID, &genai.ClientConfig{
-			APIKey: cfg.APIKey,
-		})
+		return createGeminiModel(ctx, cfg)
 	case ProviderTypeOpenAI:
-		return nil, fmt.Errorf("openai provider not yet implemented; use gemini for now")
+		return createOpenAIModel(cfg)
 	case ProviderTypeAnthropic:
-		return nil, fmt.Errorf("anthropic provider not yet implemented; use gemini for now")
+		return nil, fmt.Errorf("Anthropic provider not yet implemented — use OpenAI-compatible endpoint")
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", cfg.Type)
 	}
 }
 
-// CreateDefaultModel creates a model from the default provider.
-func (r *ProviderRegistry) CreateDefaultModel(ctx context.Context) (model.LLM, error) {
-	cfg, ok := r.Default()
-	if !ok {
-		return nil, fmt.Errorf("no default provider configured")
+// createGeminiModel 创建 Gemini 模型实例
+func createGeminiModel(ctx context.Context, cfg ProviderConfig) (model.LLM, error) {
+	clientCfg := &genai.ClientConfig{
+		APIKey: cfg.APIKey,
 	}
-	return r.CreateModel(ctx, cfg)
+
+	m, err := gemini.NewModel(ctx, cfg.ModelID, clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create gemini model %q: %w", cfg.ModelID, err)
+	}
+
+	log.Printf("[provider] created gemini model: %s", cfg.ModelID)
+	return m, nil
 }
 
-// LoadFromMap bulk-loads provider configs from a map (e.g. JSON file).
-func (r *ProviderRegistry) LoadFromMap(m map[string]ProviderConfig) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.providers = m
+// createOpenAIModel 创建 OpenAI 兼容模型实例
+func createOpenAIModel(cfg ProviderConfig) (model.LLM, error) {
+	ocfg := openai.DefaultConfig(cfg.APIKey)
+	if cfg.BaseURL != "" {
+		ocfg.BaseURL = cfg.BaseURL
+	}
+
+	m := NewOpenAIModel(cfg.ModelID, ocfg)
+	log.Printf("[provider] created openai model: %s (base_url=%s)", cfg.ModelID, cfg.BaseURL)
+	return m, nil
 }
 
-// ToMap exports provider configs as a map for JSON serialization.
-func (r *ProviderRegistry) ToMap() map[string]ProviderConfig {
+// GetDefault 获取默认 Provider 配置
+func (r *ProviderRegistry) GetDefault() (ProviderConfig, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make(map[string]ProviderConfig, len(r.providers))
-	for k, v := range r.providers {
-		out[k] = v
+	for _, cfg := range r.configs {
+		if cfg.IsDefault && cfg.Enabled {
+			return cfg, true
+		}
 	}
-	return out
+	return ProviderConfig{}, false
 }

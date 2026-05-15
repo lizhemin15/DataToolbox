@@ -47,6 +47,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
+	"google.golang.org/adk/tool"
 )
 
 // 版本号（通过 ldflags 注入，格式：2026.05.13.2130）
@@ -1154,6 +1155,7 @@ var (
 	agentProviderRegistry *agent.ProviderRegistry
 	agentMCPSupervisor    *agent.MCPSupervisor
 	agentSkillRegistry    *agent.SkillRegistry
+	agentOrchestrator     *agent.Orchestrator
 	agentSessionModes     = make(map[string]string) // sessionID → "fast"|"cluster"
 	agentConfigPath       = "/opt/datatoolbox/agent-config.json"
 )
@@ -13421,8 +13423,91 @@ func initAgentSubsystem() {
 	agentMCPSupervisor = agent.NewMCPSupervisor()
 	agentSkillRegistry = agent.NewSkillRegistry()
 	loadAgentConfig()
-	// 自动启动 MCP servers
-	agentMCPSupervisor.StartAll()
+
+	// 尝试初始化 Orchestrator（需要有效的 AI 配置）
+	initOrchestratorIfNeeded()
+}
+
+// initOrchestratorIfNeeded 当有有效 AI 配置时初始化 Orchestrator
+func initOrchestratorIfNeeded() {
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	if aiConfig == nil || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		log.Printf("[agent] AI config not ready, orchestrator will be initialized on first query")
+		return
+	}
+
+	ctx := context.Background()
+
+	// 1. 创建 LLM Model
+	providerType := agent.ProviderTypeGemini
+	if aiConfig.URL != "" && !strings.Contains(aiConfig.URL, "generativelanguage.googleapis.com") {
+		providerType = agent.ProviderTypeOpenAI
+	}
+
+	providerCfg := agent.ProviderConfig{
+		ID:        "default",
+		Name:      "Default",
+		Type:      providerType,
+		APIKey:    aiConfig.APIKey,
+		BaseURL:   aiConfig.URL,
+		ModelID:   aiConfig.Model,
+		Enabled:   true,
+		IsDefault: true,
+	}
+
+	llm, err := agentProviderRegistry.CreateModel(ctx, providerCfg)
+	if err != nil {
+		log.Printf("[agent] failed to create model: %v, will retry on first query", err)
+		return
+	}
+
+	// 2. 构建 MCP + Skill Toolsets
+	var toolsets []tool.Toolset
+	mcpToolsets, err := agent.BuildMCPToolsets(ctx, agentMCPSupervisor.ListConfigs())
+	if err != nil {
+		log.Printf("[agent] WARNING: MCP toolset build failed: %v", err)
+	} else {
+		toolsets = append(toolsets, mcpToolsets...)
+	}
+
+	skillDir := "/opt/datatoolbox/skills"
+	skillToolsets, err := agent.BuildSkillToolsets(ctx, skillDir, nil)
+	if err != nil {
+		log.Printf("[agent] WARNING: Skill toolset build failed: %v", err)
+	} else {
+		toolsets = append(toolsets, skillToolsets...)
+	}
+
+	// 3. 构建 DataToolbox Agent 树
+	rootAgent, err := agent.BuildDataToolboxAgentTree(ctx, llm, toolsets)
+	if err != nil {
+		log.Printf("[agent] failed to build agent tree: %v", err)
+		return
+	}
+
+	// 4. 创建 Orchestrator
+	orch, err := agent.NewOrchestrator(agent.OrchestratorConfig{
+		AppName:   "datatoolbox",
+		AgentTree: agent.AgentConfig{Name: rootAgent.Name(), Mode: agent.ModeSingle},
+	})
+	if err != nil {
+		log.Printf("[agent] failed to create orchestrator: %v", err)
+		return
+	}
+
+	// 手动设置 rootAgent（因为 BuildDataToolboxAgentTree 已经构建好了）
+	orch.SetRootAgent(rootAgent)
+
+	if err := orch.Initialize(ctx); err != nil {
+		log.Printf("[agent] failed to initialize orchestrator: %v", err)
+		return
+	}
+
+	agentOrchestrator = orch
+	log.Printf("[agent] orchestrator initialized successfully with %d MCP toolsets, %d skill toolsets", len(mcpToolsets), len(skillToolsets))
 }
 
 // handleAgentClusterQuery 集群模式查询入口（SSE流式响应）
@@ -13435,133 +13520,68 @@ func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
 
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "未授权",
-		})
+		sendSSE(w, "error", map[string]interface{}{"message": "未授权"})
 		return
 	}
 
 	if r.Method != http.MethodPost {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "只支持POST请求",
-		})
+		sendSSE(w, "error", map[string]interface{}{"message": "只支持POST请求"})
 		return
 	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "不支持流式传输",
-		})
+		sendSSE(w, "error", map[string]interface{}{"message": "不支持流式传输"})
 		return
 	}
 
 	// 解析请求
 	var queryReq AIQueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&queryReq); err != nil {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "请求格式错误",
-		})
+		sendSSE(w, "error", map[string]interface{}{"message": "请求格式错误"})
 		return
 	}
 
 	// 发送开始事件
-	sendSSE(w, "start", map[string]interface{}{
-		"message": "集群模式处理中...",
-	})
+	sendSSE(w, "start", map[string]interface{}{"message": "集群模式处理中..."})
 	flusher.Flush()
 
-	// 获取 AI 配置
+	// 懒初始化：如果 Orchestrator 还没准备好，尝试初始化
+	if agentOrchestrator == nil {
+		initOrchestratorIfNeeded()
+	}
+
+	if agentOrchestrator == nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "请先配置AI设置（API Key、模型）"})
+		return
+	}
+
+	// 获取超时配置
 	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
 	dataOntologyMu.RUnlock()
 
-	if aiConfig == nil || aiConfig.APIKey == "" || aiConfig.Model == "" {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": "请先配置AI设置（API Key、模型）",
-		})
-		return
+	timeout := 120 // 默认120秒
+	if aiConfig != nil && aiConfig.Timeout > 0 {
+		timeout = aiConfig.Timeout
 	}
 
-	// 用 ProviderRegistry 创建 Gemini model
-	providerCfg := agent.ProviderConfig{
-		ID:        "default",
-		Name:      "Default Gemini",
-		Type:      agent.ProviderTypeGemini,
-		APIKey:    aiConfig.APIKey,
-		BaseURL:   aiConfig.URL,
-		ModelID:   aiConfig.Model,
-		Enabled:   true,
-		IsDefault: true,
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(aiConfig.Timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	llm, err := agentProviderRegistry.CreateModel(ctx, providerCfg)
-	if err != nil {
-		// 如果 registry 创建失败，直接用 providerCfg 创建
-		llm, err = agent.NewProviderRegistry().CreateModel(ctx, providerCfg)
-		if err != nil {
-			sendSSE(w, "error", map[string]interface{}{
-				"message": fmt.Sprintf("创建AI模型失败: %v", err),
-			})
-			return
-		}
-	}
-
-	// 构建 OrchestratorConfig (root agent = single LLMAgent with tools)
-	agentCfg := agent.AgentConfig{
-		Name:        "datatoolbox-root",
-		Description: "DataToolbox 集群模式根Agent",
-		Instruction: "你是 DataToolbox 的AI助手，可以帮助用户查询数据库、分析数据、执行数据治理任务。请用中文回答。",
-		Model:       llm,
-		Mode:        agent.ModeSingle,
-	}
-
-	orchCfg := agent.OrchestratorConfig{
-		AppName:   "datatoolbox",
-		AgentTree: agentCfg,
-	}
-
-	orch, err := agent.NewOrchestrator(orchCfg)
-	if err != nil {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": fmt.Sprintf("创建Orchestrator失败: %v", err),
-		})
-		return
-	}
-
-	// 生成 sessionID
-	sessionID := fmt.Sprintf("session-%s-%d", username, time.Now().UnixNano())
+	// 生成 sessionID（同一用户的同一会话保持连续）
+	sessionID := fmt.Sprintf("cluster-%s", username)
 
 	// 调用 Orchestrator.Run() 获取事件channel
-	eventCh, err := orch.Run(ctx, username, sessionID, queryReq.Message)
+	eventCh, err := agentOrchestrator.Run(ctx, username, sessionID, queryReq.Message)
 	if err != nil {
-		sendSSE(w, "error", map[string]interface{}{
-			"message": fmt.Sprintf("Agent执行失败: %v", err),
-		})
+		sendSSE(w, "error", map[string]interface{}{"message": fmt.Sprintf("Agent执行失败: %v", err)})
 		return
 	}
 
 	// 遍历channel，用 sendSSE 推送事件到前端
 	for evt := range eventCh {
-		switch evt.Type {
-		case agent.EventTypeText:
-			sendSSE(w, "text", evt.Data)
-		case agent.EventTypeToolCall:
-			sendSSE(w, "tool_call", evt.Data)
-		case agent.EventTypeToolResult:
-			sendSSE(w, "tool_result", evt.Data)
-		case agent.EventTypeAgentSwitch:
-			sendSSE(w, "agent_switch", evt.Data)
-		case agent.EventTypeError:
-			sendSSE(w, "error", evt.Data)
-		case agent.EventTypeDone:
-			sendSSE(w, "done", evt.Data)
-		default:
-			sendSSE(w, string(evt.Type), evt.Data)
-		}
+		sendSSE(w, string(evt.Type), evt.Data)
 		flusher.Flush()
 	}
 

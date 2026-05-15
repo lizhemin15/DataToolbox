@@ -7227,6 +7227,15 @@ img.emoji {
     color: #dc2626;
 }
 
+.agent-trace-bubble.agent-thinking {
+    border-left-color: #8b5cf6;
+    background: #f5f3ff;
+}
+
+.agent-trace-bubble.agent-thinking .agent-trace-name {
+    color: #7c3aed;
+}
+
 @keyframes agentTraceIn {
     from { opacity: 0; transform: translateY(-4px); }
     to { opacity: 1; transform: translateY(0); }

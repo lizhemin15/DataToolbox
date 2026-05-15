@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"fmt"
+	"log"
 
-	adkagent "google.golang.org/adk/agent"
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/agent/workflowagents/loopagent"
 	"google.golang.org/adk/agent/workflowagents/parallelagent"
@@ -12,177 +14,174 @@ import (
 	"google.golang.org/adk/tool"
 )
 
-// ---------------------------------------------------------------------------
-// Configuration types (declarative, JSON-friendly)
-// ---------------------------------------------------------------------------
+// AgentMode 定义Agent树的编排模式
+type AgentMode string
 
-// AgentConfig describes a single agent node in the cluster tree.
-// All JSON field names use snake_case.
+const (
+	// ModeSingle 单Agent模式（根Agent直接处理）
+	ModeSingle AgentMode = "single"
+	// ModeSequential 顺序执行模式（子Agent依次执行）
+	ModeSequential AgentMode = "sequential"
+	// ModeParallel 并行执行模式（子Agent同时执行）
+	ModeParallel AgentMode = "parallel"
+	// ModeLoop 循环执行模式（子Agent循环执行直到条件满足）
+	ModeLoop AgentMode = "loop"
+)
+
+// AgentConfig 定义单个Agent的配置
 type AgentConfig struct {
-	// Name must be unique within the agent tree.
-	Name string `json:"name"`
-	// Description is a one-line capability summary used by the LLM for routing.
-	Description string `json:"description"`
-	// Instruction is the system prompt / instruction template for LLMAgents.
-	Instruction string `json:"instruction,omitempty"`
-	// Model is the LLM implementation. Not serialisable — set at runtime.
-	Model model.LLM `json:"-"`
-	// Mode determines how sub-agents are composed.
-	// single  → a standalone LLMAgent (default).
-	// sequential → SequentialAgent wrapping SubAgents.
-	// parallel   → ParallelAgent wrapping SubAgents.
-	// loop       → LoopAgent wrapping SubAgents.
-	Mode Mode `json:"mode,omitempty"`
-	// SubAgents are child agent configurations (recursively built).
-	SubAgents []AgentConfig `json:"sub_agents,omitempty"`
-	// Tools are pre-constructed tool instances. Not serialisable — set at runtime.
-	Tools []tool.Tool `json:"-"`
-	// Toolsets are pre-constructed toolset instances. Not serialisable — set at runtime.
-	Toolsets []tool.Toolset `json:"-"`
-	// MaxIterations is only meaningful when Mode == ModeLoop.
-	MaxIterations uint `json:"max_iterations,omitempty"`
-	// OutputKey optionally stores the agent's text output in session state.
-	OutputKey string `json:"output_key,omitempty"`
-	// DisallowTransferToParent prevents the agent from transferring back up.
-	DisallowTransferToParent bool `json:"disallow_transfer_to_parent,omitempty"`
-	// DisallowTransferToPeers prevents lateral agent transfers.
-	DisallowTransferToPeers bool `json:"disallow_transfer_to_peers,omitempty"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Instruction string     `json:"instruction"`
+	Model       model.LLM   `json:"-"` // 不序列化
+	Mode        AgentMode  `json:"mode"`
+	Tools       []tool.Tool `json:"-"` // 不序列化
+	Toolsets    []tool.Toolset `json:"-"` // 不序列化
+	OutputKey   string     `json:"output_key,omitempty"` // 用于sequential模式传递中间结果
+	SubAgents   []AgentConfig `json:"sub_agents,omitempty"`
+	MaxIterations int       `json:"max_iterations,omitempty"` // 用于loop模式
 }
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
+// Factory 负责根据配置递归构建 adk-go Agent 树
+type Factory struct{}
 
-// Factory builds adk-go Agent trees from AgentConfig declarations.
-type Factory struct {
-	// defaultModel is used when an AgentConfig does not specify its own Model.
-	defaultModel model.LLM
+// NewFactory 创建Agent工厂
+func NewFactory() *Factory {
+	return &Factory{}
 }
 
-// NewFactory creates a Factory with the given default LLM model.
-func NewFactory(defaultModel model.LLM) *Factory {
-	return &Factory{defaultModel: defaultModel}
-}
-
-// Build constructs an adk-go Agent tree from the given config.
-// It recursively creates sub-agents bottom-up, then wraps them in the
-// appropriate workflow agent (or returns a bare LLMAgent for ModeSingle).
-func (f *Factory) Build(cfg AgentConfig) (adkagent.Agent, error) {
-	return f.build(cfg)
-}
-
-// build is the recursive implementation.
-func (f *Factory) build(cfg AgentConfig) (adkagent.Agent, error) {
-	if cfg.Name == "" {
-		return nil, fmt.Errorf("agent name is required")
-	}
-
-	// Resolve model: prefer per-agent model, fall back to factory default.
-	m := cfg.Model
-	if m == nil {
-		m = f.defaultModel
-	}
-
-	// Recursively build sub-agents.
-	subAgents := make([]adkagent.Agent, 0, len(cfg.SubAgents))
-	for i, subCfg := range cfg.SubAgents {
-		sub, err := f.build(subCfg)
-		if err != nil {
-			return nil, fmt.Errorf("sub_agent[%d] %q: %w", i, subCfg.Name, err)
-		}
-		subAgents = append(subAgents, sub)
-	}
-
-	// Choose construction strategy based on Mode.
+// Build 递归构建Agent树，返回 adk-go Agent 接口
+func (f *Factory) Build(ctx context.Context, cfg AgentConfig) (agent.Agent, error) {
 	switch cfg.Mode {
-	case ModeSingle, "":
-		return f.buildLLMAgent(cfg, m, subAgents)
+	case ModeSingle:
+		return f.buildSingle(ctx, cfg)
 	case ModeSequential:
-		return f.buildSequentialAgent(cfg, subAgents)
+		return f.buildSequential(ctx, cfg)
 	case ModeParallel:
-		return f.buildParallelAgent(cfg, subAgents)
+		return f.buildParallel(ctx, cfg)
 	case ModeLoop:
-		return f.buildLoopAgent(cfg, subAgents)
+		return f.buildLoop(ctx, cfg)
 	default:
-		return nil, fmt.Errorf("unknown agent mode %q for agent %q", cfg.Mode, cfg.Name)
+		return f.buildSingle(ctx, cfg)
 	}
 }
 
-// buildLLMAgent creates a single LLMAgent. If subAgents are provided they
-// become child agents that the LLM can transfer to.
-func (f *Factory) buildLLMAgent(cfg AgentConfig, m model.LLM, subAgents []adkagent.Agent) (adkagent.Agent, error) {
-	if m == nil {
-		return nil, fmt.Errorf("model is required for LLMAgent %q", cfg.Name)
+// buildSingle 构建单个LLM Agent
+func (f *Factory) buildSingle(ctx context.Context, cfg AgentConfig) (agent.Agent, error) {
+	if cfg.Model == nil {
+		return nil, fmt.Errorf("agent %q: model is required for single mode", cfg.Name)
 	}
+
 	a, err := llmagent.New(llmagent.Config{
-		Name:                     cfg.Name,
-		Description:              cfg.Description,
-		Model:                    m,
-		Instruction:              cfg.Instruction,
-		Tools:                    cfg.Tools,
-		Toolsets:                 cfg.Toolsets,
-		SubAgents:                subAgents,
-		OutputKey:                cfg.OutputKey,
-		DisallowTransferToParent: cfg.DisallowTransferToParent,
-		DisallowTransferToPeers:  cfg.DisallowTransferToPeers,
+		Name:        cfg.Name,
+		Model:       cfg.Model,
+		Description: cfg.Description,
+		Instruction: cfg.Instruction,
+		Tools:       cfg.Tools,
+		Toolsets:    cfg.Toolsets,
+		OutputKey:   cfg.OutputKey,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LLMAgent %q: %w", cfg.Name, err)
+		return nil, fmt.Errorf("create llmagent %q: %w", cfg.Name, err)
 	}
+
+	log.Printf("[factory] built single agent: %s", cfg.Name)
 	return a, nil
 }
 
-// buildSequentialAgent wraps sub-agents in a SequentialAgent.
-func (f *Factory) buildSequentialAgent(cfg AgentConfig, subAgents []adkagent.Agent) (adkagent.Agent, error) {
-	if len(subAgents) == 0 {
-		return nil, fmt.Errorf("SequentialAgent %q requires at least one sub_agent", cfg.Name)
+// buildSequential 构建顺序执行Agent
+func (f *Factory) buildSequential(ctx context.Context, cfg AgentConfig) (agent.Agent, error) {
+	subAgents, err := f.buildSubAgents(ctx, cfg.SubAgents)
+	if err != nil {
+		return nil, err
 	}
+
+	if len(subAgents) == 0 {
+		return nil, fmt.Errorf("agent %q: sequential mode requires at least one sub_agent", cfg.Name)
+	}
+
 	a, err := sequentialagent.New(sequentialagent.Config{
-		AgentConfig: adkagent.Config{
+		AgentConfig: agent.Config{
 			Name:        cfg.Name,
 			Description: cfg.Description,
 			SubAgents:   subAgents,
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SequentialAgent %q: %w", cfg.Name, err)
+		return nil, fmt.Errorf("create sequentialagent %q: %w", cfg.Name, err)
 	}
+
+	log.Printf("[factory] built sequential agent: %s with %d sub-agents", cfg.Name, len(subAgents))
 	return a, nil
 }
 
-// buildParallelAgent wraps sub-agents in a ParallelAgent.
-func (f *Factory) buildParallelAgent(cfg AgentConfig, subAgents []adkagent.Agent) (adkagent.Agent, error) {
-	if len(subAgents) == 0 {
-		return nil, fmt.Errorf("ParallelAgent %q requires at least one sub_agent", cfg.Name)
+// buildParallel 构建并行执行Agent
+func (f *Factory) buildParallel(ctx context.Context, cfg AgentConfig) (agent.Agent, error) {
+	subAgents, err := f.buildSubAgents(ctx, cfg.SubAgents)
+	if err != nil {
+		return nil, err
 	}
+
+	if len(subAgents) == 0 {
+		return nil, fmt.Errorf("agent %q: parallel mode requires at least one sub_agent", cfg.Name)
+	}
+
 	a, err := parallelagent.New(parallelagent.Config{
-		AgentConfig: adkagent.Config{
+		AgentConfig: agent.Config{
 			Name:        cfg.Name,
 			Description: cfg.Description,
 			SubAgents:   subAgents,
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create ParallelAgent %q: %w", cfg.Name, err)
+		return nil, fmt.Errorf("create parallelagent %q: %w", cfg.Name, err)
 	}
+
+	log.Printf("[factory] built parallel agent: %s with %d sub-agents", cfg.Name, len(subAgents))
 	return a, nil
 }
 
-// buildLoopAgent wraps sub-agents in a LoopAgent.
-func (f *Factory) buildLoopAgent(cfg AgentConfig, subAgents []adkagent.Agent) (adkagent.Agent, error) {
-	if len(subAgents) == 0 {
-		return nil, fmt.Errorf("LoopAgent %q requires at least one sub_agent", cfg.Name)
+// buildLoop 构建循环执行Agent
+func (f *Factory) buildLoop(ctx context.Context, cfg AgentConfig) (agent.Agent, error) {
+	subAgents, err := f.buildSubAgents(ctx, cfg.SubAgents)
+	if err != nil {
+		return nil, err
 	}
+
+	if len(subAgents) == 0 {
+		return nil, fmt.Errorf("agent %q: loop mode requires at least one sub_agent", cfg.Name)
+	}
+
+	maxIter := uint(cfg.MaxIterations)
+	if maxIter <= 0 {
+		maxIter = 3 // 默认最多循环3次
+	}
+
 	a, err := loopagent.New(loopagent.Config{
-		AgentConfig: adkagent.Config{
+		MaxIterations: maxIter,
+		AgentConfig: agent.Config{
 			Name:        cfg.Name,
 			Description: cfg.Description,
 			SubAgents:   subAgents,
 		},
-		MaxIterations: cfg.MaxIterations,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LoopAgent %q: %w", cfg.Name, err)
+		return nil, fmt.Errorf("create loopagent %q: %w", cfg.Name, err)
 	}
+
+	log.Printf("[factory] built loop agent: %s with %d sub-agents, max_iterations=%d", cfg.Name, len(subAgents), maxIter)
 	return a, nil
+}
+
+// buildSubAgents 递归构建子Agent列表
+func (f *Factory) buildSubAgents(ctx context.Context, configs []AgentConfig) ([]agent.Agent, error) {
+	var agents []agent.Agent
+	for _, subCfg := range configs {
+		a, err := f.Build(ctx, subCfg)
+		if err != nil {
+			return nil, fmt.Errorf("sub-agent %q: %w", subCfg.Name, err)
+		}
+		agents = append(agents, a)
+	}
+	return agents, nil
 }

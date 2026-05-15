@@ -6,247 +6,260 @@ import (
 	"log"
 	"sync"
 
-	adkagent "google.golang.org/adk/agent"
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 )
 
-// Orchestrator manages agent lifecycle, sessions, and execution.
-type Orchestrator struct {
-	mu           sync.RWMutex
-	factory      *Factory
-	sessionSvc   session.Service
-	rootAgent    adkagent.Agent
-	agentTree    AgentConfig
-	toolRegistry map[string]tool.Tool
-	toolsetReg   map[string]tool.Toolset
-	runner       *runner.Runner
-	appName      string
-}
-
-// OrchestratorConfig holds the configuration for creating an Orchestrator.
+// OrchestratorConfig 编排器配置
 type OrchestratorConfig struct {
-	AppName       string          `json:"app_name"`
-	AgentTree     AgentConfig     `json:"agent_tree"`
-	SessionService session.Service `json:"-"`
+	AppName   string      `json:"app_name"`
+	AgentTree AgentConfig `json:"agent_tree"`
 }
 
-// NewOrchestrator creates a new Orchestrator from the given config.
+// OrchestratorStatus 编排器状态
+type OrchestratorStatus struct {
+	Ready       bool   `json:"ready"`
+	AppName     string `json:"app_name"`
+	AgentName   string `json:"agent_name"`
+	SessionCount int   `json:"session_count"`
+}
+
+// Orchestrator 集群模式编排器 — 管理 Agent 执行、Session、Tool 注册
+type Orchestrator struct {
+	cfg     OrchestratorConfig
+	factory *Factory
+
+	mu        sync.RWMutex
+	rootAgent agent.Agent      // 缓存的 Agent 树
+	sessSvc   session.Service  // 缓存的 Session Service
+	runner    *runner.Runner   // 缓存的 Runner
+	sessCount int              // session 计数
+}
+
+// NewOrchestrator 创建编排器
 func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
-	if cfg.AppName == "" {
-		cfg.AppName = "datatoolbox"
-	}
-
-	factory := NewFactory(nil)
-
-	svc := cfg.SessionService
-	if svc == nil {
-		svc = session.InMemoryService()
-	}
-
 	o := &Orchestrator{
-		factory:      factory,
-		sessionSvc:   svc,
-		agentTree:    cfg.AgentTree,
-		toolRegistry: make(map[string]tool.Tool),
-		toolsetReg:   make(map[string]tool.Toolset),
-		appName:      cfg.AppName,
+		cfg:     cfg,
+		factory: NewFactory(),
 	}
-
-	if cfg.AgentTree.Name != "" {
-		root, err := factory.Build(cfg.AgentTree)
-		if err != nil {
-			return nil, fmt.Errorf("build agent tree: %w", err)
-		}
-		o.rootAgent = root
-
-		r, err := runner.New(runner.Config{
-			AppName:        cfg.AppName,
-			Agent:          root,
-			SessionService: svc,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("create runner: %w", err)
-		}
-		o.runner = r
-	}
-
+	// 初始化 Session Service（全局共享，支持多轮对话）
+	o.sessSvc = session.InMemoryService()
 	return o, nil
 }
 
-// RegisterTool adds a tool to the registry.
-func (o *Orchestrator) RegisterTool(t tool.Tool) {
+// Initialize 构建 Agent 树和 Runner（启动时调用一次）
+func (o *Orchestrator) Initialize(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.toolRegistry[t.Name()] = t
+	return o.rebuildLocked(ctx)
 }
 
-// RegisterToolset adds a toolset to the registry.
-func (o *Orchestrator) RegisterToolset(ts tool.Toolset) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.toolsetReg[ts.Name()] = ts
-}
-
-// UnregisterTool removes a tool by name.
-func (o *Orchestrator) UnregisterTool(name string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	delete(o.toolRegistry, name)
-}
-
-// UnregisterToolset removes a toolset by name.
-func (o *Orchestrator) UnregisterToolset(name string) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	delete(o.toolsetReg, name)
-}
-
-// ListTools returns all registered tool names.
-func (o *Orchestrator) ListTools() []string {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	names := make([]string, 0, len(o.toolRegistry))
-	for n := range o.toolRegistry {
-		names = append(names, n)
+// rebuildLocked 重建 Agent 树和 Runner（调用者需持有锁）
+func (o *Orchestrator) rebuildLocked(ctx context.Context) error {
+	// 1. 构建 Agent 树
+	rootAgent, err := o.factory.Build(ctx, o.cfg.AgentTree)
+	if err != nil {
+		return fmt.Errorf("build agent tree: %w", err)
 	}
-	return names
-}
+	o.rootAgent = rootAgent
 
-// ListToolsets returns all registered toolset names.
-func (o *Orchestrator) ListToolsets() []string {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	names := make([]string, 0, len(o.toolsetReg))
-	for n := range o.toolsetReg {
-		names = append(names, n)
+	// 2. 创建 Runner
+	r, err := runner.New(runner.Config{
+		AppName:           o.cfg.AppName,
+		Agent:             rootAgent,
+		SessionService:    o.sessSvc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return fmt.Errorf("create runner: %w", err)
 	}
-	return names
+	o.runner = r
+
+	log.Printf("[orchestrator] initialized: app=%s, agent=%s", o.cfg.AppName, rootAgent.Name())
+	return nil
 }
 
-// Run executes the agent tree for a given user message and streams events.
+// Run 执行集群模式查询，通过 channel 流式返回事件
 func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message string) (<-chan Event, error) {
 	o.mu.RLock()
 	r := o.runner
 	o.mu.RUnlock()
 
 	if r == nil {
-		return nil, fmt.Errorf("orchestrator not initialized: no agent tree")
+		return nil, fmt.Errorf("orchestrator not initialized — call Initialize() first")
 	}
 
+	// 构建用户消息
+	msg := genai.NewContentFromText(message, genai.RoleUser)
+
+	// 启动流式执行
 	eventCh := make(chan Event, 64)
 
 	go func() {
 		defer close(eventCh)
 
-		msg := genai.NewContentFromText(message, genai.RoleUser)
-
-		for evt, err := range r.Run(ctx, userID, sessionID, msg, adkagent.RunConfig{}) {
+		// runner.Run() 返回 iter.Seq2[*session.Event, error]
+		for evt, err := range r.Run(ctx, userID, sessionID, msg, agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 			if err != nil {
-				eventCh <- NewErrorEvent(fmt.Sprintf("agent execution error: %v", err), "RUNTIME")
-				eventCh <- NewDoneEvent(false)
+				eventCh <- NewErrorEvent(fmt.Sprintf("agent error: %v", err))
 				return
 			}
-			if converted := o.convertEvent(evt); converted != nil {
-				eventCh <- *converted
+
+			if evt == nil {
+				continue
+			}
+
+			// 将 adk-go 的 session.Event 转换为我们的 Event
+			agentEvts := convertEvent(evt)
+			for _, ae := range agentEvts {
+				if ae.Type != "" {
+					eventCh <- ae
+				}
 			}
 		}
 
-		eventCh <- NewDoneEvent(true)
+		eventCh <- NewDoneEvent()
 	}()
+
+	o.mu.Lock()
+	o.sessCount++
+	o.mu.Unlock()
 
 	return eventCh, nil
 }
 
-// convertEvent translates an adk-go session.Event into our streaming Event.
-func (o *Orchestrator) convertEvent(evt *session.Event) *Event {
-	if evt == nil || evt.Content == nil {
+// convertEvent 将 adk-go 的 session.Event 转换为我们的 Event 列表
+// 一个 session.Event 可能产生多个 Event（如同时有文本和 tool_call）
+func convertEvent(evt *session.Event) []Event {
+	if evt == nil {
 		return nil
 	}
 
-	for _, part := range evt.Content.Parts {
-		if part.Text != "" {
-			e := NewTextEvent(evt.Author, part.Text, evt.Partial)
-			return &e
-		}
-		if part.FunctionCall != nil {
-			e := NewToolCallEvent(
-				evt.Author,
-				part.FunctionCall.Name,
-				part.FunctionCall.ID,
-				part.FunctionCall.Args,
-			)
-			return &e
-		}
-		if part.FunctionResponse != nil {
-			e := NewToolResultEvent(
-				evt.Author,
-				part.FunctionResponse.Name,
-				part.FunctionResponse.ID,
-				part.FunctionResponse.Response,
-				false,
-			)
-			return &e
+	var events []Event
+
+	// 1. Agent Transfer 事件
+	if evt.Actions.TransferToAgent != "" {
+		events = append(events, Event{
+			Type: EventTypeAgentSwitch,
+			Data: map[string]string{
+				"from":   evt.Author,
+				"to":     evt.Actions.TransferToAgent,
+				"reason": "transfer",
+			},
+		})
+	}
+
+	// 2. Escalate 事件（LoopAgent 终止）
+	if evt.Actions.Escalate {
+		events = append(events, Event{
+			Type: EventTypeAgentSwitch,
+			Data: map[string]string{
+				"from":   evt.Author,
+				"to":     "parent",
+				"reason": "escalate",
+			},
+		})
+	}
+
+	// 3. 从 LLMResponse.Content.Parts 提取内容
+	if evt.LLMResponse.Content != nil {
+		for _, part := range evt.LLMResponse.Content.Parts {
+			if part == nil {
+				continue
+			}
+
+			// 文本内容
+			if part.Text != "" {
+				evtType := EventTypeText
+				if part.Thought {
+					evtType = EventTypeThinking
+				}
+				events = append(events, Event{
+					Type: evtType,
+					Data: map[string]interface{}{
+						"content": part.Text,
+						"partial": evt.LLMResponse.Partial,
+						"agent":   evt.Author,
+					},
+				})
+			}
+
+			// Function Call
+			if part.FunctionCall != nil {
+				events = append(events, Event{
+					Type: EventTypeToolCall,
+					Data: map[string]interface{}{
+						"tool":  part.FunctionCall.Name,
+						"args":  part.FunctionCall.Args,
+						"agent": evt.Author,
+					},
+				})
+			}
+
+			// Function Response
+			if part.FunctionResponse != nil {
+				events = append(events, Event{
+					Type: EventTypeToolResult,
+					Data: map[string]interface{}{
+						"tool":   part.FunctionResponse.Name,
+						"result": part.FunctionResponse.Response,
+						"agent":  evt.Author,
+					},
+				})
+			}
 		}
 	}
 
-	return nil
+	return events
 }
 
-// Rebuild reconstructs the agent tree after tool registration changes.
-func (o *Orchestrator) Rebuild() error {
+// Rebuild 热重建 Agent 树（配置变更后调用）
+func (o *Orchestrator) Rebuild(ctx context.Context, newCfg AgentConfig) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	cfg := o.agentTree
-	cfg.Tools = make([]tool.Tool, 0, len(o.toolRegistry))
-	for _, t := range o.toolRegistry {
-		cfg.Tools = append(cfg.Tools, t)
-	}
-	cfg.Toolsets = make([]tool.Toolset, 0, len(o.toolsetReg))
-	for _, ts := range o.toolsetReg {
-		cfg.Toolsets = append(cfg.Toolsets, ts)
-	}
-
-	root, err := o.factory.Build(cfg)
-	if err != nil {
-		return fmt.Errorf("rebuild agent tree: %w", err)
-	}
-	o.rootAgent = root
-
-	r, err := runner.New(runner.Config{
-		AppName:        o.appName,
-		Agent:          root,
-		SessionService: o.sessionSvc,
-	})
-	if err != nil {
-		return fmt.Errorf("rebuild runner: %w", err)
-	}
-	o.runner = r
-
-	logf("agent tree rebuilt with %d tools, %d toolsets", len(cfg.Tools), len(cfg.Toolsets))
-	return nil
+	o.cfg.AgentTree = newCfg
+	return o.rebuildLocked(ctx)
 }
 
-// RootAgent returns the root agent of the tree.
-func (o *Orchestrator) RootAgent() adkagent.Agent {
+// RebuildWithModel 用新 Model 重建 Agent 树
+func (o *Orchestrator) RebuildWithModel(ctx context.Context, newCfg AgentConfig, model interface{}) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.cfg.AgentTree = newCfg
+	// model 已在 newCfg 中设置
+	return o.rebuildLocked(ctx)
+}
+
+// Status 返回编排器状态
+func (o *Orchestrator) Status() OrchestratorStatus {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	return o.rootAgent
+
+	status := OrchestratorStatus{
+		Ready:        o.runner != nil,
+		AppName:      o.cfg.AppName,
+		SessionCount: o.sessCount,
+	}
+	if o.rootAgent != nil {
+		status.AgentName = o.rootAgent.Name()
+	}
+	return status
 }
 
-// AgentTree returns a copy of the current agent tree config.
-func (o *Orchestrator) AgentTree() AgentConfig {
+// GetConfig 返回当前配置
+func (o *Orchestrator) GetConfig() OrchestratorConfig {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
-	return o.agentTree
+	return o.cfg
 }
 
-// AppName returns the application name.
-func (o *Orchestrator) AppName() string { return o.appName }
-
-func logf(format string, args ...interface{}) {
-	log.Printf("[agent-orchestrator] "+format, args...)
+// SetRootAgent 直接设置预构建的 Agent 树（跳过 Factory.Build）
+func (o *Orchestrator) SetRootAgent(a agent.Agent) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.rootAgent = a
 }

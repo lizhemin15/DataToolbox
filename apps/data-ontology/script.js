@@ -15025,32 +15025,43 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
     switch (evt.type) {
         case 'text':
             if (evt.data && evt.data.content) {
-                // Append text to streaming message
                 if (streamEl) {
-                    const content = evt.data.partial ? evt.data.content : evt.data.content;
-                    streamEl.innerHTML = formatAiResponse(content);
+                    streamEl.innerHTML = formatAiResponse(evt.data.content);
                 }
             }
             break;
 
+        case 'thinking':
+            addAgentTraceBubble(messagesEl, 'agent-thinking', 
+                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
+                `💭 ${evt.data && evt.data.content ? evt.data.content.substring(0, 80) + '...' : '思考中...'}`);
+            break;
+
         case 'tool_call':
-            addAgentTraceBubble(messagesEl, 'tool-call', evt.agent_name || 'Agent', 
-                `调用工具: ${evt.data ? evt.data.tool_name : '?'}`);
+            addAgentTraceBubble(messagesEl, 'tool-call',
+                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
+                `🔧 调用工具: ${evt.data && evt.data.tool ? evt.data.tool : '?'}`);
             break;
 
         case 'tool_result':
-            addAgentTraceBubble(messagesEl, 'tool-result', evt.agent_name || 'Agent',
-                `工具结果: ${evt.data ? evt.data.tool_name : '?'}`);
+            addAgentTraceBubble(messagesEl, 'tool-result',
+                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
+                `📋 工具结果: ${evt.data && evt.data.tool ? evt.data.tool : '?'}`);
             break;
 
         case 'agent_switch':
-            addAgentTraceBubble(messagesEl, 'agent-switch', '', 
-                `${evt.data ? evt.data.from_agent : '?'} → ${evt.data ? evt.data.to_agent : '?'}`);
+            addAgentTraceBubble(messagesEl, 'agent-switch',
+                evt.data && evt.data.to ? evt.data.to : '',
+                `🔀 ${evt.data && evt.data.from ? evt.data.from : '?'} → ${evt.data && evt.data.to ? evt.data.to : '?'}`);
             break;
 
         case 'error':
             addAgentTraceBubble(messagesEl, 'error-trace', 'Error',
-                evt.data ? evt.data.message : '未知错误');
+                evt.data && evt.data.message ? evt.data.message : '未知错误');
+            break;
+
+        case 'start':
+            // 开始事件，已在streamEl显示
             break;
 
         case 'done':
