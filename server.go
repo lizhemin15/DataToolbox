@@ -11161,6 +11161,26 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 集群模式分发：如果 mode=cluster 或会话级模式为 cluster，走集群模式
+	effectiveMode := queryReq.Mode
+	log.Printf("[handleAIQuery] mode=%q, databases=%v, message=%q", queryReq.Mode, queryReq.Databases, queryReq.Message)
+	if effectiveMode == "" {
+		// 从会话级模式映射中获取
+		dataOntologyMu.RLock()
+		if m, ok := agentSessionModes[username]; ok {
+			effectiveMode = m
+		}
+		dataOntologyMu.RUnlock()
+	}
+	log.Printf("[handleAIQuery] effectiveMode=%q, agentSessionModes=%v", effectiveMode, agentSessionModes)
+	if effectiveMode == "cluster" {
+		log.Printf("[handleAIQuery] → routing to cluster mode")
+		handleAgentClusterQueryWithReq(w, r, flusher, &queryReq, username)
+		return
+	}
+	log.Printf("[handleAIQuery] → routing to fast mode")
+
+	// === 极速模式（默认） ===
 	// 发送开始事件
 	sendSSE(w, "start", map[string]interface{}{
 		"message": "开始处理您的问题...",
@@ -13590,6 +13610,60 @@ func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s, events=%d", username, sessionID, eventCount)
 }
 
+// handleAgentClusterQueryWithReq 从 handleAIQuery 分发过来的集群模式处理
+// 已完成鉴权和请求解析，直接进入核心逻辑
+func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flusher http.Flusher, queryReq *AIQueryRequest, username string) {
+	// 发送开始事件
+	sendSSE(w, "start", map[string]interface{}{"message": "🤖 集群模式已启动，智能体正在规划任务..."})
+	flusher.Flush()
+
+	// 懒初始化 Orchestrator
+	if agentOrchestrator == nil {
+		initOrchestratorIfNeeded()
+	}
+	if agentOrchestrator == nil {
+		sendSSE(w, "error", map[string]interface{}{"message": "请先配置AI设置（API Key、模型）"})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 获取超时配置
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+
+	timeout := 120
+	if aiConfig != nil && aiConfig.Timeout > 0 {
+		timeout = aiConfig.Timeout
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	sessionID := fmt.Sprintf("cluster-%s", username)
+
+	// 调用 Orchestrator.Run()
+	eventCh, err := agentOrchestrator.Run(ctx, username, sessionID, queryReq.Message)
+	if err != nil {
+		sendSSE(w, "error", map[string]interface{}{"message": fmt.Sprintf("Agent执行失败: %v", err)})
+		sendSSE(w, "done", map[string]interface{}{})
+		flusher.Flush()
+		return
+	}
+
+	// 遍历事件channel，推送到前端
+	eventCount := 0
+	for evt := range eventCh {
+		eventCount++
+		log.Printf("[agent] SSE event #%d: type=%s, data=%v", eventCount, evt.Type, evt.Data)
+		sendSSE(w, string(evt.Type), evt.Data)
+		flusher.Flush()
+	}
+
+	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s, events=%d", username, sessionID, eventCount)
+}
+
 // handleAgentMCP MCP Server配置管理 (CRUD)
 func handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -13750,24 +13824,25 @@ func handleAgentMode(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// 获取当前模式
-		sessionID := r.URL.Query().Get("session_id")
+		// 获取当前模式 — 用 username 作为 key
+		username, _ := getDataOntologyUserFromRequest(r)
+		key := username
+		if key == "" {
+			key = "default"
+		}
 		mode := "fast" // 默认
-		if sessionID != "" {
-			if m, ok := agentSessionModes[sessionID]; ok {
-				mode = m
-			}
+		if m, ok := agentSessionModes[key]; ok {
+			mode = m
 		}
 		apiSuccess(w, map[string]interface{}{
-			"session_id": sessionID,
-			"mode":       mode,
+			"mode": mode,
 		})
 
 	case http.MethodPost:
-		// 设置当前模式
+		// 设置当前模式 — 用 username 作为 key
+		username, _ := getDataOntologyUserFromRequest(r)
 		var req struct {
-			SessionID string `json:"session_id"`
-			Mode      string `json:"mode"`
+			Mode string `json:"mode"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			apiBadRequest(w, "请求格式错误")
@@ -13777,14 +13852,14 @@ func handleAgentMode(w http.ResponseWriter, r *http.Request) {
 			apiBadRequest(w, "mode 必须为 fast 或 cluster")
 			return
 		}
-		if req.SessionID == "" {
-			apiBadRequest(w, "缺少 session_id")
-			return
+		key := username
+		if key == "" {
+			key = "default"
 		}
-		agentSessionModes[req.SessionID] = req.Mode
+		agentSessionModes[key] = req.Mode
+		log.Printf("[agent] mode set: user=%s, mode=%s", key, req.Mode)
 		apiSuccess(w, map[string]interface{}{
-			"session_id": req.SessionID,
-			"mode":       req.Mode,
+			"mode": req.Mode,
 		})
 
 	default:

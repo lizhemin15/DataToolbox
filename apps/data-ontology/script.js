@@ -15002,7 +15002,7 @@ async function sendClusterQuery(message, databases, modules) {
     clusterTraceData = [];
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/agent/cluster/query`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -15048,9 +15048,8 @@ async function sendClusterQuery(message, databases, modules) {
                     if (!evt.type && currentEventType) {
                         evt.type = currentEventType;
                     }
-                    // Normalize data fields for fullText accumulation
-                    const evtData = evt.data || {};
-                    const evtContent = evtData.content || evtData.text || '';
+                    // 后端 SSE data 直接就是事件数据，不是嵌套在 evt.data 里
+                    const evtContent = evt.content || evt.text || evt.message || '';
                     handleClusterEvent(evt, streamEl, messagesEl);
                     if (evt.type === 'text' && evtContent) {
                         fullText += evtContent;
@@ -15081,11 +15080,11 @@ async function sendClusterQuery(message, databases, modules) {
 function handleClusterEvent(evt, streamEl, messagesEl) {
     if (!evt || !evt.type) return;
 
-    // Normalize data access: backend uses "text" field, frontend may use "content"
-    const d = evt.data || {};
-    const content = d.content || d.text || '';
-    const agent = d.agent || d.from || '';
-    const tool = d.tool || '';
+    // 后端 SSE data 直接就是事件数据（不是嵌套在 data 字段里）
+    // 例如: {"agent":"datatoolbox","content":"你好","partial":true}
+    const content = evt.content || evt.text || evt.message || '';
+    const agent = evt.agent || evt.from || '';
+    const tool = evt.tool || '';
 
     switch (evt.type) {
         case 'text':
@@ -15116,17 +15115,20 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
 
         case 'agent_switch':
             addAgentTraceBubble(messagesEl, 'agent-switch',
-                d.to || '',
-                `🔀 ${d.from || '?'} → ${d.to || '?'}`);
+                evt.to || '',
+                `🔀 ${evt.from || '?'} → ${evt.to || '?'}`);
             break;
 
         case 'error':
             addAgentTraceBubble(messagesEl, 'error-trace', 'Error',
-                evt.data && evt.data.message ? evt.data.message : '未知错误');
+                evt.message || '未知错误');
             break;
 
         case 'start':
-            // 开始事件，已在streamEl显示
+            // 显示集群模式启动提示
+            if (content) {
+                addAgentTraceBubble(messagesEl, 'agent-start', 'System', content);
+            }
             break;
 
         case 'done':
