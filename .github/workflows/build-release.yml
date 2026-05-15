@@ -135,14 +135,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
-          elif [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ] && [ ! -f "gov-runner" ]; then
-            echo "gov-runner not available for Linux ARM64, using nogov tag"
-            go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
-          else
-            go build -tags release -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
-          fi
+          go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
 
       - name: Prepare package files
         run: |

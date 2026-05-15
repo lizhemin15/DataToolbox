@@ -1,10 +1,16 @@
 # 服务器可执行文件
 datatoolbox-server
 datatoolbox-server.exe
+datatoolbox
+DataToolbox
+datatoolbox_test
 
-# gov-runner 可执行文件（构建产物，嵌入 datatoolbox-server）
-gov-runner/gov-runner
-gov-runner/gov-runner.exe
+# gov-runner 可执行文件（构建产物）
+gov-runner
+gov-runner.exe
+gov-runner-src/gov-runner
+gov-runner-src/gov-runner.exe
+gov-runner-src/node_modules/
 
 # 日志文件
 *.log
@@ -17,26 +23,25 @@ package/
 # GitHub Actions artifacts
 artifacts/
 
-
-# 编译产物
-datatoolbox
-
 # 临时文件 / 运行时缓存
 .gocache/
+.gomodcache/
 server.config.json
 apps/data-ontology/data-store.json
 apps/web-nav/links-store.json
 *.tmp
 *.temp
+*.bak
 
 # Claude Code 权限配置
 .claude/
+.cursor/
 
 # 临时 web 目录
 web/
 
-DataToolbox
+# Node
 node_modules/
 
-# Compiled binaries
-gov-runner
+# 测试文档
+多层级测试文档.docx
