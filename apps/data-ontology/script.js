@@ -15000,6 +15000,7 @@ async function sendClusterQuery(message, databases, modules) {
     const streamEl = document.getElementById(streamId);
     
     clusterTraceData = [];
+    let startBubbleId = null; // 记录 start 气泡，收到实际内容后清除
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
@@ -15022,6 +15023,7 @@ async function sendClusterQuery(message, databases, modules) {
         let buffer = '';
         let fullText = '';
         let currentEventType = '';
+        let gotRealContent = false; // 是否已收到实际文本内容
 
         while (true) {
             const { done, value } = await reader.read();
@@ -15050,10 +15052,22 @@ async function sendClusterQuery(message, databases, modules) {
                     }
                     // 后端 SSE data 直接就是事件数据，不是嵌套在 evt.data 里
                     const evtContent = evt.content || evt.text || evt.message || '';
-                    handleClusterEvent(evt, streamEl, messagesEl);
-                    if (evt.type === 'text' && evtContent) {
-                        fullText += evtContent;
+                    
+                    // 收到实际文本内容后，清除 start 提示气泡
+                    if (evt.type === 'text' && evtContent && !gotRealContent) {
+                        gotRealContent = true;
+                        const startBubble = document.getElementById('agentStartBubble');
+                        if (startBubble) startBubble.remove();
                     }
+                    
+                    // partial:false 是最终完整文本，直接设为最终内容，不再累积
+                    if (evt.type === 'text' && evt.partial === false && evtContent) {
+                        fullText = evtContent; // 直接用最终文本，不累积
+                    } else if (evt.type === 'text' && evtContent) {
+                        fullText += evtContent; // partial:true 累积 token
+                    }
+                    
+                    handleClusterEvent(evt, streamEl, messagesEl);
                 } catch (e) {
                     // ignore parse errors
                 }
@@ -15090,7 +15104,14 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
         case 'text':
             if (content) {
                 if (streamEl) {
-                    streamEl.innerHTML = escapeHtml(content);
+                    // partial:true 逐字追加，partial:false 设为最终完整文本
+                    if (evt.partial === false) {
+                        streamEl.innerHTML = escapeHtml(content);
+                    } else {
+                        // 追加模式：获取现有文本 + 新 token
+                        const existing = streamEl.textContent || '';
+                        streamEl.innerHTML = escapeHtml(existing + content);
+                    }
                 }
             }
             break;
@@ -15125,9 +15146,10 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
             break;
 
         case 'start':
-            // 显示集群模式启动提示
+            // 显示集群模式启动提示（收到实际内容后会自动清除）
             if (content) {
-                addAgentTraceBubble(messagesEl, 'agent-start', 'System', content);
+                const bubble = addAgentTraceBubble(messagesEl, 'agent-start', 'System', content);
+                if (bubble) bubble.id = 'agentStartBubble';
             }
             break;
 
@@ -15139,7 +15161,7 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
 
 // Add agent trace bubble to chat
 function addAgentTraceBubble(messagesEl, className, agentName, action) {
-    if (!messagesEl) return;
+    if (!messagesEl) return null;
     const bubble = document.createElement('div');
     bubble.className = `agent-trace-bubble ${className}`;
     bubble.innerHTML = `<span class="agent-trace-name">${escapeHtml(agentName)}</span>` +
@@ -15147,6 +15169,7 @@ function addAgentTraceBubble(messagesEl, className, agentName, action) {
     messagesEl.appendChild(bubble);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     clusterTraceData.push({ agent: agentName, action: action, type: className, time: new Date().toISOString() });
+    return bubble;
 }
 
 // Show agent configuration panel
