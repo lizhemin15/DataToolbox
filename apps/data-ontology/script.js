@@ -14934,7 +14934,53 @@ function toggleAgentMode() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: agentMode })
     }).catch(() => {});
-    showToast(agentMode === 'cluster' ? '已切换到集群模式 🚀' : '已切换到极速模式 ⚡', 'info');
+    
+    if (agentMode === 'cluster') {
+        showToast('已切换到集群模式 🚀', 'info');
+        // Show cluster mode guide
+        showClusterModeGuide();
+    } else {
+        showToast('已切换到极速模式 ⚡', 'info');
+        removeClusterModeGuide();
+    }
+}
+
+// Show cluster mode usage guide
+function showClusterModeGuide() {
+    const messagesEl = document.getElementById('aiChatMessages');
+    if (!messagesEl) return;
+    
+    // Remove existing guide if any
+    removeClusterModeGuide();
+    
+    const guideEl = document.createElement('div');
+    guideEl.id = 'clusterModeGuide';
+    guideEl.className = 'cluster-mode-guide';
+    guideEl.innerHTML = `
+        <div class="cluster-guide-header">🚀 集群模式 — 多智能体自主规划执行</div>
+        <div class="cluster-guide-body">
+            <p>集群模式由多个AI智能体协作完成任务，具备自主规划、工具调用、深度分析能力。</p>
+            <div class="cluster-guide-tips">
+                <div class="cluster-tip">💡 <b>直接提问</b>：输入自然语言描述，如"帮我分析这个数据库的数据质量"</div>
+                <div class="cluster-tip">🔍 <b>深度分析</b>：智能体会自动拆解复杂任务，多步执行</div>
+                <div class="cluster-tip">🔧 <b>工具调用</b>：支持SQL生成、Schema审查、数据治理等工具</div>
+                <div class="cluster-tip">📋 <b>Trace追踪</b>：可查看每个智能体的执行轨迹和工具调用</div>
+            </div>
+            <div class="cluster-guide-note">
+                ⚠️ 集群模式响应较慢（需要多步推理），适合复杂任务。简单查询建议使用极速模式。
+            </div>
+            <div class="cluster-guide-config">
+                ⚙️ 点击右上角 <b>Agent配置</b> 按钮，可管理 MCP Server 和 Skill。
+            </div>
+        </div>
+    `;
+    messagesEl.insertBefore(guideEl, messagesEl.firstChild);
+}
+
+// Remove cluster mode guide
+function removeClusterModeGuide() {
+    const existing = document.getElementById('clusterModeGuide');
+    if (existing) existing.remove();
 }
 
 // Initialize agent mode from localStorage
@@ -14975,6 +15021,7 @@ async function sendClusterQuery(message, databases, modules) {
         const decoder = new TextDecoder();
         let buffer = '';
         let fullText = '';
+        let currentEventType = '';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -14985,21 +15032,33 @@ async function sendClusterQuery(message, databases, modules) {
             buffer = lines.pop() || '';
 
             for (const line of lines) {
+                // Parse SSE event type line
+                const eventMatch = line.match(/^event:\s*(\w+)/);
+                if (eventMatch) {
+                    currentEventType = eventMatch[1];
+                    continue;
+                }
                 if (!line.startsWith('data: ')) continue;
                 const dataStr = line.slice(6).trim();
                 if (!dataStr) continue;
 
                 try {
                     const evt = JSON.parse(dataStr);
+                    // Use SSE event type if available, fallback to JSON type field
+                    if (!evt.type && currentEventType) {
+                        evt.type = currentEventType;
+                    }
+                    // Normalize data fields for fullText accumulation
+                    const evtData = evt.data || {};
+                    const evtContent = evtData.content || evtData.text || '';
                     handleClusterEvent(evt, streamEl, messagesEl);
-                    if (evt.type === 'text' && evt.data && evt.data.content) {
-                        fullText += evt.data.content;
+                    if (evt.type === 'text' && evtContent) {
+                        fullText += evtContent;
                     }
                 } catch (e) {
-                    // Try parsing as raw SSE with event type
-                    const eventMatch = line.match(/^event:\s*(\w+)/);
-                    if (eventMatch) continue;
+                    // ignore parse errors
                 }
+                currentEventType = '';
             }
         }
 
@@ -15022,37 +15081,43 @@ async function sendClusterQuery(message, databases, modules) {
 function handleClusterEvent(evt, streamEl, messagesEl) {
     if (!evt || !evt.type) return;
 
+    // Normalize data access: backend uses "text" field, frontend may use "content"
+    const d = evt.data || {};
+    const content = d.content || d.text || '';
+    const agent = d.agent || d.from || '';
+    const tool = d.tool || '';
+
     switch (evt.type) {
         case 'text':
-            if (evt.data && evt.data.content) {
+            if (content) {
                 if (streamEl) {
-                    streamEl.innerHTML = escapeHtml(evt.data.content);
+                    streamEl.innerHTML = escapeHtml(content);
                 }
             }
             break;
 
         case 'thinking':
             addAgentTraceBubble(messagesEl, 'agent-thinking', 
-                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
-                `💭 ${evt.data && evt.data.content ? evt.data.content.substring(0, 80) + '...' : '思考中...'}`);
+                agent || 'Agent',
+                `💭 ${content ? content.substring(0, 80) + '...' : '思考中...'}`);
             break;
 
         case 'tool_call':
             addAgentTraceBubble(messagesEl, 'tool-call',
-                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
-                `🔧 调用工具: ${evt.data && evt.data.tool ? evt.data.tool : '?'}`);
+                agent || 'Agent',
+                `🔧 调用工具: ${tool || '?'}`);
             break;
 
         case 'tool_result':
             addAgentTraceBubble(messagesEl, 'tool-result',
-                evt.data && evt.data.agent ? evt.data.agent : 'Agent',
-                `📋 工具结果: ${evt.data && evt.data.tool ? evt.data.tool : '?'}`);
+                agent || 'Agent',
+                `📋 工具结果: ${tool || '?'}`);
             break;
 
         case 'agent_switch':
             addAgentTraceBubble(messagesEl, 'agent-switch',
-                evt.data && evt.data.to ? evt.data.to : '',
-                `🔀 ${evt.data && evt.data.from ? evt.data.from : '?'} → ${evt.data && evt.data.to ? evt.data.to : '?'}`);
+                d.to || '',
+                `🔀 ${d.from || '?'} → ${d.to || '?'}`);
             break;
 
         case 'error':

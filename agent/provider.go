@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/sashabaranov/go-openai"
@@ -98,11 +99,15 @@ func createGeminiModel(ctx context.Context, cfg ProviderConfig) (model.LLM, erro
 func createOpenAIModel(cfg ProviderConfig) (model.LLM, error) {
 	ocfg := openai.DefaultConfig(cfg.APIKey)
 	if cfg.BaseURL != "" {
-		ocfg.BaseURL = cfg.BaseURL
+		// OpenAI SDK 会自动拼接 /chat/completions，所以 BaseURL 只需要到 /v1
+		baseURL := cfg.BaseURL
+		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+		baseURL = strings.TrimSuffix(baseURL, "/completions")
+		ocfg.BaseURL = baseURL
 	}
 
 	m := NewOpenAIModel(cfg.ModelID, ocfg)
-	log.Printf("[provider] created openai model: %s (base_url=%s)", cfg.ModelID, cfg.BaseURL)
+	log.Printf("[provider] created openai model: %s (base_url=%s)", cfg.ModelID, ocfg.BaseURL)
 	return m, nil
 }
 

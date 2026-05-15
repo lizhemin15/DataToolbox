@@ -13579,12 +13579,15 @@ func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 遍历channel，用 sendSSE 推送事件到前端
+	eventCount := 0
 	for evt := range eventCh {
+		eventCount++
+		log.Printf("[agent] SSE event #%d: type=%s, data=%v", eventCount, evt.Type, evt.Data)
 		sendSSE(w, string(evt.Type), evt.Data)
 		flusher.Flush()
 	}
 
-	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s", username, sessionID)
+	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s, events=%d", username, sessionID, eventCount)
 }
 
 // handleAgentMCP MCP Server配置管理 (CRUD)

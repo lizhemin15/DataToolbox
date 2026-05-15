@@ -7536,3 +7536,63 @@ img.emoji {
 }
 
 /* === Agent Cluster Mode Styles End === */
+
+/* Cluster Mode Guide */
+.cluster-mode-guide {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid #4a90d9;
+    border-radius: 12px;
+    margin: 12px 0;
+    overflow: hidden;
+    animation: clusterGuideIn 0.3s ease;
+}
+@keyframes clusterGuideIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.cluster-guide-header {
+    background: linear-gradient(90deg, #4a90d9, #7c3aed);
+    color: #fff;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: 600;
+}
+.cluster-guide-body {
+    padding: 14px 16px;
+    color: #e0e0e0;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.cluster-guide-body p {
+    margin: 0 0 10px 0;
+    color: #b0b0b0;
+}
+.cluster-guide-tips {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+}
+.cluster-tip {
+    background: rgba(74, 144, 217, 0.1);
+    border-left: 3px solid #4a90d9;
+    padding: 6px 10px;
+    border-radius: 0 6px 6px 0;
+    color: #d0d0d0;
+}
+.cluster-guide-note {
+    background: rgba(234, 179, 8, 0.1);
+    border-left: 3px solid #eab308;
+    padding: 6px 10px;
+    border-radius: 0 6px 6px 0;
+    color: #fbbf24;
+    margin-top: 8px;
+}
+.cluster-guide-config {
+    background: rgba(124, 58, 237, 0.1);
+    border-left: 3px solid #7c3aed;
+    padding: 6px 10px;
+    border-radius: 0 6px 6px 0;
+    color: #a78bfa;
+    margin-top: 6px;
+}
