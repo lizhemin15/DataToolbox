@@ -37,26 +37,24 @@ func BuildMCPToolsets(ctx context.Context, configs []MCPServerConfig) ([]tool.To
 
 // buildSingleMCPToolset 为单个 MCP Server 配置创建 adk-go MCPToolset
 func buildSingleMCPToolset(ctx context.Context, cfg MCPServerConfig) (tool.Toolset, error) {
-	var transport mcp.Transport
-
-	// 根据配置决定 Transport 类型
-	if cfg.Command != "" {
-		// stdio 模式：通过命令启动 MCP Server 子进程
-		cmd := exec.Command(cfg.Command, cfg.Args...)
-
-		// 设置环境变量
-		if len(cfg.Env) > 0 {
-			env := make([]string, 0, len(cfg.Env))
-			for k, v := range cfg.Env {
-				env = append(env, fmt.Sprintf("%s=%s", k, v))
-			}
-			cmd.Env = env
-		}
-
-		transport = &mcp.CommandTransport{Command: cmd}
-	} else {
+	if cfg.Command == "" {
 		return nil, fmt.Errorf("MCP server %q: command is required (stdio mode)", cfg.ID)
 	}
+
+	// 构建 exec.Command
+	cmd := exec.Command(cfg.Command, cfg.Args...)
+
+	// 设置环境变量
+	if len(cfg.Env) > 0 {
+		env := make([]string, 0, len(cfg.Env))
+		for k, v := range cfg.Env {
+			env = append(env, fmt.Sprintf("%s=%s", k, v))
+		}
+		cmd.Env = env
+	}
+
+	// 使用 go-sdk v1.4.1 的 CommandTransport
+	transport := &mcp.CommandTransport{Command: cmd}
 
 	ts, err := mcptoolset.New(mcptoolset.Config{
 		Transport: transport,

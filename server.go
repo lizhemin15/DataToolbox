@@ -13488,7 +13488,7 @@ func initOrchestratorIfNeeded() {
 		return
 	}
 
-	// 4. 创建 Orchestrator
+	// 4. 创建 Orchestrator 并初始化
 	orch, err := agent.NewOrchestrator(agent.OrchestratorConfig{
 		AppName:   "datatoolbox",
 		AgentTree: agent.AgentConfig{Name: rootAgent.Name(), Mode: agent.ModeSingle},
@@ -13498,10 +13498,9 @@ func initOrchestratorIfNeeded() {
 		return
 	}
 
-	// 手动设置 rootAgent（因为 BuildDataToolboxAgentTree 已经构建好了）
+	// 先设置预构建的 Agent 树，再初始化（Initialize 会用 rootAgent 创建 Runner）
 	orch.SetRootAgent(rootAgent)
-
-	if err := orch.Initialize(ctx); err != nil {
+	if err := orch.InitializeWithAgent(ctx); err != nil {
 		log.Printf("[agent] failed to initialize orchestrator: %v", err)
 		return
 	}

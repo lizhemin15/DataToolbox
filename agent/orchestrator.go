@@ -56,6 +56,31 @@ func (o *Orchestrator) Initialize(ctx context.Context) error {
 	return o.rebuildLocked(ctx)
 }
 
+// InitializeWithAgent 用已设置的 rootAgent 创建 Runner（跳过 Factory.Build）
+func (o *Orchestrator) InitializeWithAgent(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.rootAgent == nil {
+		return fmt.Errorf("rootAgent not set — call SetRootAgent() first")
+	}
+
+	// 直接用 rootAgent 创建 Runner，不调用 rebuildLocked
+	r, err := runner.New(runner.Config{
+		AppName:           o.cfg.AppName,
+		Agent:             o.rootAgent,
+		SessionService:    o.sessSvc,
+		AutoCreateSession: true,
+	})
+	if err != nil {
+		return fmt.Errorf("create runner: %w", err)
+	}
+	o.runner = r
+
+	log.Printf("[orchestrator] initialized with agent: app=%s, agent=%s", o.cfg.AppName, o.rootAgent.Name())
+	return nil
+}
+
 // rebuildLocked 重建 Agent 树和 Runner（调用者需持有锁）
 func (o *Orchestrator) rebuildLocked(ctx context.Context) error {
 	// 1. 构建 Agent 树
@@ -131,7 +156,7 @@ func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message strin
 }
 
 // convertEvent 将 adk-go 的 session.Event 转换为我们的 Event 列表
-// 一个 session.Event 可能产生多个 Event（如同时有文本和 tool_call）
+// session.Event 内嵌了 model.LLMResponse，所以 Content/Partial 等字段直接在 Event 上访问
 func convertEvent(evt *session.Event) []Event {
 	if evt == nil {
 		return nil
@@ -163,9 +188,9 @@ func convertEvent(evt *session.Event) []Event {
 		})
 	}
 
-	// 3. 从 LLMResponse.Content.Parts 提取内容
-	if evt.LLMResponse.Content != nil {
-		for _, part := range evt.LLMResponse.Content.Parts {
+	// 3. 从 Content.Parts 提取内容（session.Event 内嵌 model.LLMResponse）
+	if evt.Content != nil {
+		for _, part := range evt.Content.Parts {
 			if part == nil {
 				continue
 			}
@@ -180,7 +205,7 @@ func convertEvent(evt *session.Event) []Event {
 					Type: evtType,
 					Data: map[string]interface{}{
 						"content": part.Text,
-						"partial": evt.LLMResponse.Partial,
+						"partial": evt.Partial,
 						"agent":   evt.Author,
 					},
 				})
