@@ -15005,7 +15005,7 @@ async function sendClusterQuery(message, databases, modules) {
 
         // Finalize stream message
         if (streamEl) {
-            streamEl.innerHTML = formatAiResponse(fullText);
+            streamEl.innerHTML = escapeHtml(fullText);
             streamEl.classList.remove('ai-streaming');
         }
 
@@ -15026,7 +15026,7 @@ function handleClusterEvent(evt, streamEl, messagesEl) {
         case 'text':
             if (evt.data && evt.data.content) {
                 if (streamEl) {
-                    streamEl.innerHTML = formatAiResponse(evt.data.content);
+                    streamEl.innerHTML = escapeHtml(evt.data.content);
                 }
             }
             break;
