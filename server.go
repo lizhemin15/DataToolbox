@@ -13523,7 +13523,11 @@ func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
 	temp := 0.7
 	cfg.Agents.Defaults.Temperature = &temp
 	cfg.Agents.Defaults.MaxParallelTurns = 1
-	cfg.Agents.Defaults.RestrictToWorkspace = false
+
+	// 沙箱隔离 — agent workspace 限制在部署目录的子目录，不能访问部署根目录
+	agentWorkspace := filepath.Join(filepath.Dir(getDataOntologyStorePath()), "..", "agent_workspace")
+	cfg.Agents.Defaults.Workspace = agentWorkspace
+	cfg.Agents.Defaults.RestrictToWorkspace = true
 	cfg.Agents.Defaults.SubTurn.MaxDepth = 3
 	cfg.Agents.Defaults.SubTurn.MaxConcurrent = 5
 	cfg.Agents.Defaults.SubTurn.DefaultTimeoutMinutes = 5
