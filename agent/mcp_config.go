@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -185,7 +184,7 @@ func (s *MCPSupervisor) Start(id string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // independent process group
+	setSysProcAttr(cmd) // platform-specific process group setup
 
 	// Set environment.
 	cmd.Env = os.Environ()
@@ -239,13 +238,13 @@ func (s *MCPSupervisor) Stop(id string) error {
 
 	proc.cancel()
 	// Kill the process group to ensure all children are terminated.
-	_ = syscall.Kill(-proc.cmd.Process.Pid, syscall.SIGTERM)
+	_ = killProcessGroup(proc.cmd.Process.Pid, nil)
 
 	// Wait briefly for graceful shutdown.
 	select {
 	case <-proc.done:
 	case <-time.After(5 * time.Second):
-		_ = syscall.Kill(-proc.cmd.Process.Pid, syscall.SIGKILL)
+		_ = killProcessGroup(proc.cmd.Process.Pid, "kill")
 	}
 
 	delete(s.servers, id)
