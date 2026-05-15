@@ -7,10 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sashabaranov/go-openai"
-	"google.golang.org/adk/model"
-	"google.golang.org/adk/model/gemini"
-	"google.golang.org/genai"
+	picoclawproviders "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/providers"
+	picoclawcfg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
 )
 
 // ProviderType LLM Provider 类型
@@ -34,7 +32,7 @@ type ProviderConfig struct {
 	IsDefault bool         `json:"is_default"`
 }
 
-// ProviderRegistry 管理 LLM Provider 配置和创建 Model 实例
+// ProviderRegistry 管理 LLM Provider 配置和创建 PicoClaw LLMProvider 实例
 type ProviderRegistry struct {
 	mu      sync.RWMutex
 	configs map[string]ProviderConfig
@@ -66,49 +64,43 @@ func (r *ProviderRegistry) List() []ProviderConfig {
 	return result
 }
 
-// CreateModel 根据 Provider 配置创建 adk-go Model 实例
-func (r *ProviderRegistry) CreateModel(ctx context.Context, cfg ProviderConfig) (model.LLM, error) {
+// CreatePicoProvider 根据 Provider 配置创建 PicoClaw LLMProvider
+func (r *ProviderRegistry) CreatePicoProvider(ctx context.Context, cfg ProviderConfig) (picoclawproviders.LLMProvider, error) {
 	switch cfg.Type {
+	case ProviderTypeOpenAI, ProviderTypeAnthropic:
+		return createPicoOpenAIProvider(cfg)
 	case ProviderTypeGemini:
-		return createGeminiModel(ctx, cfg)
-	case ProviderTypeOpenAI:
-		return createOpenAIModel(cfg)
-	case ProviderTypeAnthropic:
-		return nil, fmt.Errorf("Anthropic provider not yet implemented — use OpenAI-compatible endpoint")
+		return nil, fmt.Errorf("Gemini provider not yet supported in PicoClaw mode — use OpenAI-compatible endpoint")
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", cfg.Type)
 	}
 }
 
-// createGeminiModel 创建 Gemini 模型实例
-func createGeminiModel(ctx context.Context, cfg ProviderConfig) (model.LLM, error) {
-	clientCfg := &genai.ClientConfig{
-		APIKey: cfg.APIKey,
-	}
-
-	m, err := gemini.NewModel(ctx, cfg.ModelID, clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create gemini model %q: %w", cfg.ModelID, err)
-	}
-
-	log.Printf("[provider] created gemini model: %s", cfg.ModelID)
-	return m, nil
-}
-
-// createOpenAIModel 创建 OpenAI 兼容模型实例
-func createOpenAIModel(cfg ProviderConfig) (model.LLM, error) {
-	ocfg := openai.DefaultConfig(cfg.APIKey)
-	if cfg.BaseURL != "" {
-		// OpenAI SDK 会自动拼接 /chat/completions，所以 BaseURL 只需要到 /v1
-		baseURL := cfg.BaseURL
+// createPicoOpenAIProvider 创建 PicoClaw OpenAI 兼容 provider
+func createPicoOpenAIProvider(cfg ProviderConfig) (picoclawproviders.LLMProvider, error) {
+	baseURL := cfg.BaseURL
+	if baseURL != "" {
 		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 		baseURL = strings.TrimSuffix(baseURL, "/completions")
-		ocfg.BaseURL = baseURL
 	}
 
-	m := NewOpenAIModel(cfg.ModelID, ocfg)
-	log.Printf("[provider] created openai model: %s (base_url=%s)", cfg.ModelID, ocfg.BaseURL)
-	return m, nil
+	// 构建 PicoClaw ModelConfig
+	modelCfg := &picoclawcfg.ModelConfig{
+		ModelName: cfg.Name,
+		Provider:  "openai",
+		Model:     cfg.ModelID,
+		APIBase:   baseURL,
+		APIKeys:   picoclawcfg.SecureStrings{picoclawcfg.NewSecureString(cfg.APIKey)},
+		Enabled:   true,
+	}
+
+	provider, _, err := picoclawproviders.CreateProviderFromConfig(modelCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create pico openai provider %q: %w", cfg.ModelID, err)
+	}
+
+	log.Printf("[provider] created pico openai provider: %s (base_url=%s)", cfg.ModelID, baseURL)
+	return provider, nil
 }
 
 // GetDefault 获取默认 Provider 配置

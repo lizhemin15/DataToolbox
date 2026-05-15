@@ -47,7 +47,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
-	"google.golang.org/adk/tool"
+	picoclawcfg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
 )
 
 // 版本号（通过 ldflags 注入，格式：2026.05.13.2130）
@@ -13448,7 +13448,7 @@ func initAgentSubsystem() {
 	initOrchestratorIfNeeded()
 }
 
-// initOrchestratorIfNeeded 当有有效 AI 配置时初始化 Orchestrator
+// initOrchestratorIfNeeded 当有有效 AI 配置时初始化 Orchestrator（PicoClaw 模式）
 func initOrchestratorIfNeeded() {
 	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
@@ -13461,10 +13461,10 @@ func initOrchestratorIfNeeded() {
 
 	ctx := context.Background()
 
-	// 1. 创建 LLM Model
-	providerType := agent.ProviderTypeGemini
-	if aiConfig.URL != "" && !strings.Contains(aiConfig.URL, "generativelanguage.googleapis.com") {
-		providerType = agent.ProviderTypeOpenAI
+	// 1. 创建 PicoClaw LLMProvider
+	providerType := agent.ProviderTypeOpenAI
+	if aiConfig.URL != "" && strings.Contains(aiConfig.URL, "generativelanguage.googleapis.com") {
+		providerType = agent.ProviderTypeGemini
 	}
 
 	providerCfg := agent.ProviderConfig{
@@ -13478,55 +13478,72 @@ func initOrchestratorIfNeeded() {
 		IsDefault: true,
 	}
 
-	llm, err := agentProviderRegistry.CreateModel(ctx, providerCfg)
+	picoProvider, err := agentProviderRegistry.CreatePicoProvider(ctx, providerCfg)
 	if err != nil {
-		log.Printf("[agent] failed to create model: %v, will retry on first query", err)
+		log.Printf("[agent] failed to create PicoClaw provider: %v, will retry on first query", err)
 		return
 	}
 
-	// 2. 构建 MCP + Skill Toolsets
-	var toolsets []tool.Toolset
-	mcpToolsets, err := agent.BuildMCPToolsets(ctx, agentMCPSupervisor.ListConfigs())
-	if err != nil {
-		log.Printf("[agent] WARNING: MCP toolset build failed: %v", err)
-	} else {
-		toolsets = append(toolsets, mcpToolsets...)
-	}
+	// 2. 构建 PicoClaw Config
+	picoCfg := buildPicoClawConfig(aiConfig)
 
-	skillDir := "/opt/datatoolbox/skills"
-	skillToolsets, err := agent.BuildSkillToolsets(ctx, skillDir, nil)
-	if err != nil {
-		log.Printf("[agent] WARNING: Skill toolset build failed: %v", err)
-	} else {
-		toolsets = append(toolsets, skillToolsets...)
-	}
-
-	// 3. 构建 DataToolbox Agent 树
-	rootAgent, err := agent.BuildDataToolboxAgentTree(ctx, llm, toolsets)
-	if err != nil {
-		log.Printf("[agent] failed to build agent tree: %v", err)
-		return
-	}
-
-	// 4. 创建 Orchestrator 并初始化
+	// 3. 创建 Orchestrator 并初始化
 	orch, err := agent.NewOrchestrator(agent.OrchestratorConfig{
-		AppName:   "datatoolbox",
-		AgentTree: agent.AgentConfig{Name: rootAgent.Name(), Mode: agent.ModeSingle},
+		AppName: "datatoolbox",
 	})
 	if err != nil {
 		log.Printf("[agent] failed to create orchestrator: %v", err)
 		return
 	}
 
-	// 先设置预构建的 Agent 树，再初始化（Initialize 会用 rootAgent 创建 Runner）
-	orch.SetRootAgent(rootAgent)
-	if err := orch.InitializeWithAgent(ctx); err != nil {
+	if err := orch.InitializeWithProvider(ctx, picoProvider, picoCfg); err != nil {
 		log.Printf("[agent] failed to initialize orchestrator: %v", err)
 		return
 	}
 
 	agentOrchestrator = orch
-	log.Printf("[agent] orchestrator initialized successfully with %d MCP toolsets, %d skill toolsets", len(mcpToolsets), len(skillToolsets))
+	log.Printf("[agent] orchestrator initialized successfully with PicoClaw")
+}
+
+// buildPicoClawConfig 构建 PicoClaw 配置
+func buildPicoClawConfig(aiConfig *AIConfig) *picoclawcfg.Config {
+	cfg := &picoclawcfg.Config{}
+
+	// 默认 agent 配置
+	cfg.Agents.Defaults.ModelName = aiConfig.Model
+	cfg.Agents.Defaults.MaxTokens = 4096
+	temp := 0.7
+	cfg.Agents.Defaults.Temperature = &temp
+	cfg.Agents.Defaults.MaxParallelTurns = 1
+	cfg.Agents.Defaults.RestrictToWorkspace = false
+	cfg.Agents.Defaults.SubTurn.MaxDepth = 3
+	cfg.Agents.Defaults.SubTurn.MaxConcurrent = 5
+	cfg.Agents.Defaults.SubTurn.DefaultTimeoutMinutes = 5
+	cfg.Agents.Defaults.SubTurn.ConcurrencyTimeoutSec = 30
+
+	// Agent 列表 — DataToolbox 的多智能体配置
+	cfg.Agents.List = []picoclawcfg.AgentConfig{
+		{
+			ID:      "data_query_agent",
+			Name:    "数据查询助手",
+			Default: true,
+		},
+		{
+			ID:   "db_admin_agent",
+			Name: "数据库管理助手",
+		},
+	}
+
+	// 工具配置 — 启用 delegate/subagent/spawn 用于多智能体调度
+	cfg.Tools.Spawn.Enabled = true
+	cfg.Tools.Subagent.Enabled = true
+	cfg.Tools.Exec.Enabled = true
+	cfg.Tools.ReadFile.Enabled = true
+	cfg.Tools.ListDir.Enabled = true
+	cfg.Tools.WriteFile.Enabled = true
+	cfg.Tools.AppendFile.Enabled = true
+
+	return cfg
 }
 
 // handleAgentClusterQuery 集群模式查询入口（SSE流式响应）

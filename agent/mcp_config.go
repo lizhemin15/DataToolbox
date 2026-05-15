@@ -182,7 +182,7 @@ func (s *MCPSupervisor) stopProcessLocked(proc *mcpProcess) {
 		log.Printf("[mcp] stopped gracefully: %s", proc.config.ID)
 	case <-time.After(5 * time.Second):
 		// 强制杀掉
-		_ = killProcessGroup(proc.cmd.Process.Pid, "kill")
+		_ = killProcessGroup(proc.cmd)
 		proc.cmd.Process.Kill()
 		log.Printf("[mcp] force killed: %s", proc.config.ID)
 	}
