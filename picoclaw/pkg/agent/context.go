@@ -135,9 +135,9 @@ func (cb *ContextBuilder) getIdentity() string {
 	version := config.FormatVersion()
 
 	return fmt.Sprintf(
-		`# DataToolbox 智能助手 (%s)
+		`# 数据智能助手 (%s)
 
-你是 DataToolbox 的智能助手，帮助用户管理和查询数据库、执行数据治理任务。
+你是数据智能助手，帮助用户管理和查询数据库、执行数据治理任务、洞察数据价值。
 
 ## 工作区
 你的工作区位于: %s

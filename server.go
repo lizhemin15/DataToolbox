@@ -13539,8 +13539,8 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 	agentMDPath := filepath.Join(agentWorkspace, "AGENT.md")
 	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
 		agentMDContent := `---
-name: DataToolbox 智能助手
-description: DataToolbox 数据管理智能助手
+name: 数据智能助手
+description: 数据智能助手 — 数据库管理、查询、治理与洞察
 tools:
   - datatoolbox_api
   - delegate
@@ -13552,9 +13552,9 @@ tools:
   - exec
 ---
 
-# DataToolbox 智能助手
+# 数据智能助手
 
-你是 DataToolbox 系统的智能助手，负责帮助用户管理数据库、查询数据、执行数据治理任务。
+你是数据智能助手，负责帮助用户管理数据库、查询数据、执行数据治理任务、洞察数据价值。
 
 ## 核心能力
 
