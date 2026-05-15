@@ -1,0 +1,157 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/tools"
+)
+
+// DataToolboxAPITool 让 PicoClaw agent 能调用 DataToolbox 内部 API
+// 深度耦合的关键 — agent 直接调用服务内部 API，共享鉴权和数据库连接
+
+const dataToolboxAPIDesc = `Call DataToolbox internal API endpoints to interact with databases, execute SQL, manage governance tasks, and query data ontology.
+
+Available endpoints:
+- list_databases: List all configured databases (no params)
+- get_database: Get database details (params: name)
+- execute_sql: Execute SQL query (params: database, sql)
+- list_tables: List tables in a database (params: database)
+- get_table_schema: Get table schema details (params: database, table)
+- search_tables: Search tables by keyword (params: query, database?)
+- governance_tasks: List governance tasks (no params)
+- ontology_query: Query data ontology (params: query)
+
+This tool calls DataToolbox APIs via internal HTTP, sharing the same auth token.`
+
+type DataToolboxAPITool struct {
+	serverURL string
+	authToken string
+}
+
+func NewDataToolboxAPITool(serverURL, authToken string) *DataToolboxAPITool {
+	return &DataToolboxAPITool{
+		serverURL: strings.TrimRight(serverURL, "/"),
+		authToken: authToken,
+	}
+}
+
+func (t *DataToolboxAPITool) Name() string        { return "datatoolbox_api" }
+func (t *DataToolboxAPITool) Description() string  { return dataToolboxAPIDesc }
+func (t *DataToolboxAPITool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"endpoint": map[string]any{
+				"type":        "string",
+				"description": "The API endpoint to call (e.g. list_databases, execute_sql)",
+			},
+			"params": map[string]any{
+				"type":        "object",
+				"description": "Parameters for the endpoint",
+			},
+		},
+		"required": []string{"endpoint"},
+	}
+}
+
+func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
+	endpoint, _ := args["endpoint"].(string)
+	if endpoint == "" {
+		return tools.ErrorResult("endpoint is required")
+	}
+
+	params, _ := args["params"].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+	}
+
+	result, err := t.callAPI(ctx, endpoint, params)
+	if err != nil {
+		return tools.ErrorResult(fmt.Sprintf("API call failed: %v", err))
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return tools.NewToolResult(string(resultJSON))
+}
+
+func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, params map[string]any) (interface{}, error) {
+	switch endpoint {
+	case "list_databases":
+		return t.httpGet(ctx, "/api/data-ontology/databases")
+	case "get_database":
+		name, ok := params["name"].(string)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("name parameter required")
+		}
+		return t.httpGet(ctx, "/api/data-ontology/databases/"+name)
+	case "execute_sql":
+		return t.httpPost(ctx, "/api/data-ontology/governance/execute-sql", params)
+	case "list_tables":
+		db, ok := params["database"].(string)
+		if !ok || db == "" {
+			return nil, fmt.Errorf("database parameter required")
+		}
+		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables", db))
+	case "get_table_schema":
+		db, _ := params["database"].(string)
+		tbl, _ := params["table"].(string)
+		if db == "" || tbl == "" {
+			return nil, fmt.Errorf("database and table parameters required")
+		}
+		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables/%s/schema", db, tbl))
+	case "search_tables":
+		return t.httpPost(ctx, "/api/data-ontology/table-retrieval/search", params)
+	case "governance_tasks":
+		return t.httpGet(ctx, "/api/data-ontology/governance/tasks")
+	case "ontology_query":
+		return t.httpPost(ctx, "/api/data-ontology/ontology/query", params)
+	default:
+		return nil, fmt.Errorf("unknown endpoint: %s", endpoint)
+	}
+}
+
+func (t *DataToolboxAPITool) httpGet(ctx context.Context, path string) (interface{}, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", t.serverURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return t.doRequest(req)
+}
+
+func (t *DataToolboxAPITool) httpPost(ctx context.Context, path string, body interface{}) (interface{}, error) {
+	bodyJSON, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", t.serverURL+path, strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return t.doRequest(req)
+}
+
+func (t *DataToolboxAPITool) doRequest(req *http.Request) (interface{}, error) {
+	if t.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+t.authToken)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return map[string]string{"raw": string(body)}, nil
+	}
+	return result, nil
+}

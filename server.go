@@ -13496,13 +13496,21 @@ func initOrchestratorIfNeeded() {
 		return
 	}
 
+	// 4. 注册 DataToolbox 深度耦合工具 — agent 可直接调用系统 API
+	serverURL := "http://localhost:8080"
+	webNavMu.RLock()
+	authToken := webNavAdminToken
+	webNavMu.RUnlock()
+	dtTool := agent.NewDataToolboxAPITool(serverURL, authToken)
+	orch.SetDataToolboxTool(dtTool)
+
 	if err := orch.InitializeWithProvider(ctx, picoProvider, picoCfg); err != nil {
 		log.Printf("[agent] failed to initialize orchestrator: %v", err)
 		return
 	}
 
 	agentOrchestrator = orch
-	log.Printf("[agent] orchestrator initialized successfully with PicoClaw")
+	log.Printf("[agent] orchestrator initialized successfully with PicoClaw + DataToolbox tools")
 }
 
 // buildPicoClawConfig 构建 PicoClaw 配置

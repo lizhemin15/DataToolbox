@@ -33,6 +33,9 @@ type Orchestrator struct {
 	provider picoclawproviders.LLMProvider
 	picoCfg  *picoclawcfg.Config
 
+	// DataToolbox 深度耦合工具
+	dtTool *DataToolboxAPITool
+
 	mu        sync.RWMutex
 	sessCount int
 }
@@ -45,6 +48,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 }
 
 // InitializeWithProvider 用 LLM provider 初始化 PicoClaw AgentLoop
+// 并注册 DataToolbox 深度耦合工具
 func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider picoclawproviders.LLMProvider, picoCfg *picoclawcfg.Config) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -56,9 +60,36 @@ func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider pico
 	o.provider = provider
 	o.picoCfg = picoCfg
 
+	// 注册 DataToolbox 深度耦合工具到所有 agent
+	if o.dtTool != nil {
+		o.registerDataToolboxTools()
+	}
+
 	agentIDs := loop.GetRegistry().ListAgentIDs()
 	log.Printf("[orchestrator] initialized with PicoClaw: agents=%v", agentIDs)
 	return nil
+}
+
+// SetDataToolboxTool 设置 DataToolbox API 工具（在 InitializeWithProvider 之前调用）
+func (o *Orchestrator) SetDataToolboxTool(tool *DataToolboxAPITool) {
+	o.dtTool = tool
+}
+
+// registerDataToolboxTools 将 DataToolboxAPITool 注册到所有 agent 的 ToolRegistry
+func (o *Orchestrator) registerDataToolboxTools() {
+	if o.loop == nil || o.dtTool == nil {
+		return
+	}
+
+	registry := o.loop.GetRegistry()
+	for _, agentID := range registry.ListAgentIDs() {
+		agent, ok := registry.GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		agent.Tools.Register(o.dtTool)
+		log.Printf("[orchestrator] registered datatoolbox_api tool for agent=%s", agentID)
+	}
 }
 
 // Run 执行集群模式查询，通过 channel 流式返回事件
