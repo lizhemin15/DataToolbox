@@ -139,10 +139,10 @@ func registerSharedTools(
 					}
 				}
 
-				systemPrompt := "You are a subagent. Complete the given task independently and report the result.\n" +
-					"You have access to tools - use them as needed to complete your task.\n" +
-					"After completing the task, provide a clear summary of what was done.\n\n" +
-					"Task: " + task
+			systemPrompt := "你是一个子智能体，独立完成指定任务并报告结果。\n" +
+				"你可以使用工具来完成任务。\n" +
+				"完成后，请用中文提供清晰的总结。\n\n" +
+				"任务: " + task
 
 				modelToUse := agent.Model
 				if targetAgentID != "" {

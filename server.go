@@ -13534,6 +13534,51 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		return nil
 	}
 
+	// 写入中文 AGENT.md 到用户 workspace（如果不存在）
+	agentWorkspace := picoCfg.Agents.Defaults.Workspace
+	agentMDPath := filepath.Join(agentWorkspace, "AGENT.md")
+	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
+		agentMDContent := `---
+name: DataToolbox 智能助手
+description: DataToolbox 数据管理智能助手
+tools:
+  - datatoolbox_api
+  - delegate
+  - subagent
+  - spawn
+  - read_file
+  - write_file
+  - list_dir
+  - exec
+---
+
+# DataToolbox 智能助手
+
+你是 DataToolbox 系统的智能助手，负责帮助用户管理数据库、查询数据、执行数据治理任务。
+
+## 核心能力
+
+- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、get_tables、execute_query 端点
+- **数据治理**: 使用 get_governance_rules 端点获取治理规则
+- **数据库监控**: 使用 get_db_metrics 端点获取数据库指标
+- **多智能体协作**: 可以通过 delegate/subagent/spawn 工具委派任务给其他智能体
+
+## 行为准则
+
+1. **用中文回复** — 所有输出使用中文
+2. **先查后答** — 涉及数据库信息时，先用工具查询实时数据，不要凭记忆回答
+3. **主动使用工具** — 不要只是描述你会做什么，要实际调用工具
+4. **简洁准确** — 回答要直接了当，不要废话
+5. **遇到错误要报告** — 如果工具调用失败，如实告知用户错误信息
+`
+		os.MkdirAll(agentWorkspace, 0755)
+		if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
+			log.Printf("[agent] failed to write AGENT.md for user=%s: %v", username, err)
+		} else {
+			log.Printf("[agent] wrote AGENT.md for user=%s at %s", username, agentMDPath)
+		}
+	}
+
 	agentOrchestrators[username] = orch
 	log.Printf("[agent] orchestrator initialized for user=%s with workspace=%s", username, picoCfg.Agents.Defaults.Workspace)
 	return orch
