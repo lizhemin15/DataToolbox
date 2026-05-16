@@ -16,10 +16,14 @@ import (
 type MCPServerConfig struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
-	Command     string            `json:"command"`
-	Args        []string          `json:"args"`
-	Env         map[string]string `json:"env,omitempty"`
+	Type        string            `json:"type,omitempty"`        // "stdio", "sse", "http", "streamable-http"
+	Command     string            `json:"command"`               // stdio: 可执行命令
+	Args        []string          `json:"args"`                  // stdio: 命令参数
+	Env         map[string]string `json:"env,omitempty"`         // stdio: 环境变量
+	URL         string            `json:"url,omitempty"`         // sse/http: MCP server URL
+	Headers     map[string]string `json:"headers,omitempty"`     // sse/http: 请求头
 	Enabled     bool              `json:"enabled"`
+	AutoStart   bool              `json:"auto_start,omitempty"`  // 服务启动时自动启动进程
 	Description string            `json:"description,omitempty"`
 }
 
@@ -216,4 +220,16 @@ func (s *MCPSupervisor) Load() error {
 	s.configs = configs
 	log.Printf("[mcp] loaded %d configs from disk", len(configs))
 	return nil
+}
+
+// IsRunning 检查指定 MCP Server 进程是否在运行
+func (s *MCPSupervisor) IsRunning(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	proc, ok := s.procs[id]
+	if !ok || proc.cmd == nil || proc.cmd.Process == nil {
+		return false
+	}
+	// 检查进程是否还在运行
+	return proc.cmd.ProcessState == nil || !proc.cmd.ProcessState.Exited()
 }

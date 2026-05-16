@@ -71,18 +71,51 @@ func (t *mcpToolAdapter) Parameters() map[string]any {
 }
 
 func (t *mcpToolAdapter) Execute(ctx context.Context, args map[string]any) *toolshared.ToolResult {
-	// LLMs sometimes wrap arguments in a "raw" field (legacy datatoolbox_api format).
-	// Unwrap it so MCP tools receive proper flat arguments.
-	if raw, ok := args["raw"]; ok {
+	// LLMs sometimes wrap arguments in nested "raw" fields (legacy datatoolbox_api format).
+	// Unwrap ALL layers so MCP tools receive proper flat arguments.
+	// e.g. {"raw":"{\"raw\":\"{\\\"path\\\":...}\"}"} → {"path":...}
+	logger.DebugCF("agent", "MCP tool raw unwrap: before",
+		map[string]any{"tool": t.tool.Name, "args_keys": func() []string {
+			keys := make([]string, 0, len(args))
+			for k := range args { keys = append(keys, k) }
+			return keys
+		}()})
+
+	for {
+		raw, ok := args["raw"]
+		if !ok {
+			break
+		}
 		switch v := raw.(type) {
 		case string:
+			// Try direct parse first
 			var parsed map[string]any
 			if err := json.Unmarshal([]byte(v), &parsed); err == nil {
 				args = parsed
+				continue // check for another layer
 			}
+			// LLM sometimes returns truncated JSON (missing closing braces).
+			// Try to fix by appending closing braces.
+			fixed := v
+			for i := 0; i < 5; i++ {
+				fixed += "}"
+				if err := json.Unmarshal([]byte(fixed), &parsed); err == nil {
+					logger.InfoCF("agent", "MCP tool raw unwrap: fixed truncated JSON",
+						map[string]any{"tool": t.tool.Name, "original_len": len(v), "added_braces": i + 1})
+					args = parsed
+					break
+				}
+			}
+			if len(parsed) > 0 {
+				continue // successfully fixed and parsed
+			}
+			logger.WarnCF("agent", "MCP tool raw unwrap: string parse failed",
+				map[string]any{"tool": t.tool.Name, "raw_len": len(v)})
 		case map[string]any:
 			args = v
+			continue // check for another layer
 		}
+		break // raw field exists but not unwappable
 	}
 
 	logger.InfoCF("agent", "MCP tool call",

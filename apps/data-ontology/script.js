@@ -15537,12 +15537,28 @@ function showAddMCPForm() {
     const name = prompt('MCP Server 名称:');
     if (!name) return;
     const transport = prompt('传输类型 (stdio/sse/streamable_http):', 'stdio');
-    const command = prompt('命令 (如: npx @modelcontextprotocol/server-sqlite):');
-    if (!command) return;
+    let body = { name, type: transport || 'stdio', enabled: true, auto_start: false };
+    if (transport === 'sse' || transport === 'http' || transport === 'streamable_http' || transport === 'streamable-http') {
+        const url = prompt('MCP Server URL (如: http://localhost:3000/mcp):');
+        if (!url) return;
+        body.url = url;
+        const headers = prompt('自定义请求头 (JSON格式，如: {"Authorization":"Bearer xxx"}，留空跳过):');
+        if (headers) try { body.headers = JSON.parse(headers); } catch(e) {}
+    } else {
+        const command = prompt('命令 (如: npx @modelcontextprotocol/server-sqlite):');
+        if (!command) return;
+        body.command = command;
+        const args = prompt('参数 (空格分隔，如: -y @modelcontextprotocol/server-echo，留空跳过):');
+        if (args) body.args = args.split(/\s+/);
+        const env = prompt('环境变量 (JSON格式，如: {"API_KEY":"xxx"}，留空跳过):');
+        if (env) try { body.env = JSON.parse(env); } catch(e) {}
+    }
+    const desc = prompt('描述 (可选):');
+    if (desc) body.description = desc;
     fetchWithAuth(`${API_BASE}/api/agent/mcp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, transport: transport || 'stdio', command, enabled: true, auto_start: false })
+        body: JSON.stringify(body)
     }).then(() => loadAgentConfigTab('mcp')).catch(e => showToast('添加失败: ' + e.message, 'error'));
 }
 

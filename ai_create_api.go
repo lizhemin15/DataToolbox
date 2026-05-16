@@ -730,6 +730,31 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Confi
 				},
 			},
 		}
+		// 合并用户通过 /api/agent/mcp 添加的外部 MCP server 配置
+		externalServers := agentMCPSupervisor.ListConfigs()
+		for _, srv := range externalServers {
+			if !srv.Enabled {
+				continue
+			}
+			serverType := srv.Type
+			if serverType == "" {
+				if srv.Command != "" {
+					serverType = "stdio"
+				} else if srv.URL != "" {
+					serverType = "sse"
+				}
+			}
+			sanitizedName := sanitizePathName(srv.Name)
+			cfg.Tools.MCP.Servers[sanitizedName] = picoclawcfg.MCPServerConfig{
+				Enabled: true,
+				Type:    serverType,
+				Command: srv.Command,
+				Args:    srv.Args,
+				Env:     srv.Env,
+				URL:     srv.URL,
+				Headers: srv.Headers,
+			}
+		}
 	}
 
 	// 模型列表 — 必须注册，否则 ParseModelRef 会把 "Qwen/xxx" 拆成 provider=Qwen
@@ -890,9 +915,35 @@ func handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// 列出所有 MCP 配置
+		// 列出所有 MCP 配置，添加 transport/status 字段供前端渲染
 		configs := agentMCPSupervisor.ListConfigs()
-		apiSuccess(w, configs)
+		type mcpServerView struct {
+			agent.MCPServerConfig
+			Transport string `json:"transport"`
+			Status    string `json:"status"`
+		}
+		views := make([]mcpServerView, 0, len(configs))
+		for _, cfg := range configs {
+			transport := "stdio"
+			if cfg.Type != "" {
+				transport = cfg.Type
+			} else if cfg.URL != "" {
+				transport = "sse"
+			} else if len(cfg.Args) > 0 {
+				transport = "stdio"
+			}
+			status := "stopped"
+			// 检查进程是否在运行
+			if agentMCPSupervisor.IsRunning(cfg.ID) {
+				status = "running"
+			}
+			views = append(views, mcpServerView{
+				MCPServerConfig: cfg,
+				Transport:       transport,
+				Status:          status,
+			})
+		}
+		apiSuccess(w, map[string]interface{}{"mcp_servers": views})
 
 	case http.MethodPost:
 		// 新增 MCP 配置

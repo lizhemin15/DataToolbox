@@ -721,7 +721,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if !verifyToken(r) {
+	if !verifyToken(r) && r.Header.Get("X-Internal-Call") != "datatoolbox-agent" {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":"未授权，请在 Authorization 头中提供有效的 API Key"}`))
 		return
@@ -733,7 +733,15 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 对于 X-Internal-Call 请求，使用内部 admin token
 	apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if r.Header.Get("X-Internal-Call") == "datatoolbox-agent" {
+		dataOntologyMu.RLock()
+		if user, ok := dataOntologyUsers["admin"]; ok {
+			apiKey = user.Token
+		}
+		dataOntologyMu.RUnlock()
+	}
 	cli := &mcpClient{
 		baseURL: mcpLoopbackAddr,
 		apiKey:  apiKey,
