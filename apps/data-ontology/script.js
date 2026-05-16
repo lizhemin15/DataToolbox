@@ -141,7 +141,11 @@ function switchToSession(sessionId) {
         messagesEl.innerHTML = '';
         if (session.messages && session.messages.length > 0) {
             session.messages.forEach(msg => {
-                appendMessageToChat(msg.role, msg.content);
+                if (msg.mode === 'cluster' && msg.blocks && msg.blocks.length > 0) {
+                    appendClusterMessageToChat(msg.content, msg.blocks);
+                } else {
+                    appendMessageToChat(msg.role, msg.content);
+                }
             });
         } else {
             // 空会话显示欢迎信息
@@ -189,6 +193,67 @@ function appendMessageToChat(role, content) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+// 从保存的 blocks 数据恢复集群模式卡片（刷新后使用）
+function appendClusterMessageToChat(textContent, blocksData) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    if (!messagesEl) return;
+    const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
+    if (welcomeMsg) welcomeMsg.remove();
+
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+    const div = document.createElement('div');
+    div.className = 'ai-message assistant';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-message-bubble cluster-response-card';
+
+    // 重建折叠块
+    const blocksContainer = document.createElement('div');
+    blocksContainer.className = 'cluster-blocks';
+    if (blocksData && blocksData.length > 0) {
+        blocksData.forEach(b => {
+            const block = document.createElement('div');
+            block.className = 'cluster-block ' + (b.className || '') + ' collapsed';
+            const headerId = 'cbh-h-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+            block.innerHTML = `
+                <div class="cluster-block-header" id="${headerId}" onclick="toggleClusterBlock(this)">
+                    <span class="cluster-block-title">${escapeHtml(b.title)}</span>
+                    <span class="cluster-block-chevron">▶</span>
+                </div>
+                <div class="cluster-block-body" style="display:none"></div>`;
+            const bodyEl = block.querySelector('.cluster-block-body');
+            if (bodyEl && b.bodyHtml) bodyEl.innerHTML = b.bodyHtml;
+            blocksContainer.appendChild(block);
+        });
+    }
+    bubble.appendChild(blocksContainer);
+
+    // 文本内容
+    const textDiv = document.createElement('div');
+    textDiv.className = 'cluster-text-content';
+    textDiv.innerHTML = formatClusterMarkdown(textContent);
+    bubble.appendChild(textDiv);
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'ai-message-content';
+    contentDiv.appendChild(bubble);
+
+    const metaDiv = document.createElement('div');
+    metaDiv.className = 'ai-message-meta';
+    metaDiv.innerHTML = '<span>' + time + '</span>';
+    contentDiv.appendChild(metaDiv);
+
+    const avatarDiv = document.createElement('div');
+    avatarDiv.className = 'ai-message-avatar';
+    avatarDiv.innerHTML = getAiAvatarSvg();
+
+    div.appendChild(avatarDiv);
+    div.appendChild(contentDiv);
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function showSessionWelcome(mode) {
     const messagesEl = document.getElementById('aiChatMessages');
     if (!messagesEl) return;
@@ -226,10 +291,15 @@ function showSessionWelcome(mode) {
     }
 }
 
-function saveCurrentSessionMessage(role, content) {
+function saveCurrentSessionMessage(role, content, blocksData) {
     const session = getCurrentSession();
     if (!session) return;
-    session.messages.push({ role, content, time: new Date().toISOString() });
+    const msg = { role, content, time: new Date().toISOString() };
+    if (blocksData && blocksData.length > 0) {
+        msg.blocks = blocksData;
+        msg.mode = 'cluster';
+    }
+    session.messages.push(msg);
     // 自动更新标题：用第一条用户消息
     if (role === 'user' && session.messages.filter(m => m.role === 'user').length === 1) {
         session.title = content.substring(0, 20) + (content.length > 20 ? '...' : '');
@@ -15278,7 +15348,20 @@ async function sendClusterQuery(message, databases, modules) {
             const body = b.querySelector('.cluster-block-body');
             if (body) body.style.display = 'none';
         });
-        if (fullText) saveCurrentSessionMessage('assistant', fullText);
+
+        // 从 DOM 提取折叠块数据，用于刷新后恢复
+        const blocksData = [];
+        blocksEl.querySelectorAll('.cluster-block').forEach(b => {
+            const titleEl = b.querySelector('.cluster-block-title');
+            const bodyEl = b.querySelector('.cluster-block-body');
+            blocksData.push({
+                title: titleEl ? titleEl.textContent : '',
+                className: b.className.replace('cluster-block ', '').replace(' collapsed', '').replace(' closed', ''),
+                bodyHtml: bodyEl ? bodyEl.innerHTML : ''
+            });
+        });
+
+        if (fullText || blocksData.length > 0) saveCurrentSessionMessage('assistant', fullText || '', blocksData.length > 0 ? blocksData : null);
 
     } catch (e) {
         console.error('Cluster query error:', e);

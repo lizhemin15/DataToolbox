@@ -262,7 +262,37 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 	case "list_apis":
 		return t.httpGet(ctx, "/api/data-ontology/apis")
 	case "create_api":
-		return t.httpPost(ctx, "/api/data-ontology/apis", params)
+		// 参数预处理：database → database_id 转换，字段名映射
+		apiParams := make(map[string]interface{})
+		for k, v := range params {
+			apiParams[k] = v
+		}
+		// database name → database_id (UUID)
+		if dbName, ok := apiParams["database"].(string); ok && dbName != "" {
+			dbID, err := t.resolveDatabaseID(ctx, dbName)
+			if err != nil {
+				return nil, fmt.Errorf("resolve database '%s' failed: %w", dbName, err)
+			}
+			apiParams["database_id"] = dbID
+			delete(apiParams, "database")
+		}
+		// 确保路径以 /api/ 开头
+		if path, ok := apiParams["path"].(string); ok && path != "" {
+			path = strings.TrimSpace(path)
+			if !strings.HasPrefix(path, "/api/") {
+				path = "/api/" + strings.TrimPrefix(path, "/")
+			}
+			apiParams["path"] = path
+		}
+		// 确保方法大写
+		if method, ok := apiParams["method"].(string); ok {
+			apiParams["method"] = strings.ToUpper(strings.TrimSpace(method))
+		}
+		// 确保有 type 字段
+		if _, ok := apiParams["type"]; !ok {
+			apiParams["type"] = "query"
+		}
+		return t.httpPost(ctx, "/api/data-ontology/apis", apiParams)
 	case "governance_tasks":
 		return t.httpGet(ctx, "/api/data-ontology/governance/tasks")
 	case "ontology_query":

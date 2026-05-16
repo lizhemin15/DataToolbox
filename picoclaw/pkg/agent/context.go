@@ -164,6 +164,13 @@ func (cb *ContextBuilder) getIdentity() string {
    - search_tables: 按关键词搜索表（参数: query, database?）
    - list_apis: 列出所有已有的 API 接口
    - create_api: 创建新的 API 接口（参数: name, path, method, sql, description, database, default_params）
+     * name: 接口名称（如"员工查询"）
+     * path: 接口路径，必须是 /api/xxx/yyy 格式（两级路径，如 /api/employee/query）
+     * method: HTTP方法（GET 或 POST）
+     * sql: SQL查询语句，使用 #{参数名} 表示参数（如 SELECT * FROM EMP WHERE EMP_NAME = #{name}）
+     * database: 数据库名称（如 DM），系统会自动转换为数据库ID
+     * description: 接口描述（可选）
+     * default_params: 默认参数值，必须是数据库中实际存在的数据（如 {"name": "张伟"}）
    - governance_tasks: 列出数据治理任务
    - ontology_query: 查询数据本体
 
@@ -182,12 +189,13 @@ func (cb *ContextBuilder) getIdentity() string {
    f. 创建后告知用户接口路径和测试方法
 
 8. **创建接口的 SQL 规则**：
-   - SQL 只能有一条语句
-   - 使用 #\{参数名\} 表示预编译参数
-   - 接口路径以 /api/ 开头，使用 RESTful 风格
+   - SQL 只能有一条 SELECT 语句
+   - 使用 #{参数名} 表示预编译参数（如 #{EMP_NAME}），不支持 #if/#end 条件语法
+   - 接口路径以 /api/ 开头，必须是 /api/xxx/yyy 格式（两级路径）
    - 必须使用真实的表名和字段名（从 get_table_schema 获取）
    - 必须为每个参数提供 default_params 默认值
    - default_params 的值必须是数据库中实际存在的数据
+   - SQL 示例：SELECT EMP_ID, EMP_NAME, POSITION FROM HR_EMPLOYEE WHERE EMP_NAME = #{EMP_NAME} AND STATUS = #{STATUS}
 
 9. **数据库上下文** — 用户消息中可能包含 [数据库:xxx] 或 [模块:xxx] 标记，表示用户通过 @命令 指定了数据库或操作模块。你必须使用这些指定的资源，不要忽略。
 
