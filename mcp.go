@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -264,6 +265,180 @@ func mcpToolsList() []interface{} {
 				"required": []string{"api_id"},
 			},
 		},
+		map[string]interface{}{
+			"name":        "search_tables",
+			"description": "根据关键词搜索数据库中的表，支持指定数据库范围",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query":    map[string]interface{}{"type": "string", "description": "搜索关键词"},
+					"database": map[string]interface{}{"type": "string", "description": "数据库名称（可选，用于限定搜索范围）"},
+				},
+				"required": []string{"query"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "get_db_schema",
+			"description": "获取指定数据库的完整 schema 信息，包括所有表结构、列定义、索引等",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
+				},
+				"required": []string{"database_id"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "get_db_sql_hints",
+			"description": "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
+				},
+				"required": []string{"database_id"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "create_api",
+			"description": "创建新的数据接口，定义接口路径、方法、SQL 和参数等",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":          map[string]interface{}{"type": "string", "description": "接口名称"},
+					"path":          map[string]interface{}{"type": "string", "description": "接口路径（如 /api/users）"},
+					"method":        map[string]interface{}{"type": "string", "description": "HTTP 方法（GET/POST 等）"},
+					"sql":           map[string]interface{}{"type": "string", "description": "接口关联的 SQL 语句"},
+					"description":   map[string]interface{}{"type": "string", "description": "接口描述"},
+					"database":      map[string]interface{}{"type": "string", "description": "数据库名称"},
+					"default_params": map[string]interface{}{"type": "object", "description": "默认参数定义"},
+				},
+				"required": []string{"name", "path", "method", "sql", "database"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "execute_api",
+			"description": "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path":   map[string]interface{}{"type": "string", "description": "接口路径（如 /users）"},
+					"params": map[string]interface{}{"type": "object", "description": "查询参数"},
+				},
+				"required": []string{"path"},
+			},
+		},
+	}
+}
+
+// buildSQLDialectHints 根据数据库类型生成 SQL 方言提示
+func buildSQLDialectHints(dbType, dbName string) map[string]interface{} {
+	dialectMap := map[string]map[string]string{
+		"mysql": {
+			"dialect":          "MySQL",
+			"quote_char":       "`",
+			"param_style":      "?",
+			"concat_operator":  "CONCAT()",
+			"limit_syntax":     "LIMIT n OFFSET m",
+			"auto_increment":   "AUTO_INCREMENT",
+			"string_concat":    "CONCAT_WS()",
+			"date_function":    "NOW(), CURDATE(), DATE_FORMAT()",
+			"json_support":     "JSON_EXTRACT(), JSON_ARRAY(), JSON_OBJECT()",
+			"fulltext_search":  "MATCH() AGAINST()",
+			"common_hints":     "MySQL 使用反引号(`)引用标识符，占位符为?，字符串用单引号",
+		},
+		"postgresql": {
+			"dialect":          "PostgreSQL",
+			"quote_char":       "\"",
+			"param_style":      "$1, $2, ...",
+			"concat_operator":  "||",
+			"limit_syntax":     "LIMIT n OFFSET m",
+			"auto_increment":   "SERIAL / BIGSERIAL",
+			"string_concat":    "|| 运算符",
+			"date_function":    "NOW(), CURRENT_DATE, TO_CHAR()",
+			"json_support":     "->, ->>, jsonb_each(), json_build_object()",
+			"fulltext_search":  "to_tsvector() @@ to_tsquery()",
+			"common_hints":     "PostgreSQL 使用双引号(\")引用标识符，占位符为$1/$2，字符串用单引号",
+		},
+		"sqlite": {
+			"dialect":          "SQLite",
+			"quote_char":       "\"",
+			"param_style":      "? 或 :name",
+			"concat_operator":  "||",
+			"limit_syntax":     "LIMIT n OFFSET m",
+			"auto_increment":   "AUTOINCREMENT",
+			"string_concat":    "|| 运算符",
+			"date_function":    "date(), datetime(), strftime()",
+			"json_support":     "json_extract(), json_array(), json_object()",
+			"fulltext_search":  "FTS5 扩展",
+			"common_hints":     "SQLite 使用双引号(\")或方括号([])引用标识符，占位符为?，字符串用单引号",
+		},
+		"clickhouse": {
+			"dialect":          "ClickHouse",
+			"quote_char":       "`",
+			"param_style":      "{name:Type}",
+			"concat_operator":  "concat()",
+			"limit_syntax":     "LIMIT n OFFSET m",
+			"auto_increment":   "无（使用 UUID 或序列）",
+			"string_concat":    "concat()",
+			"date_function":    "now(), today(), formatDateTime()",
+			"json_support":     "JSONExtract(), JSONExtractString()",
+			"fulltext_search":  "全文索引（实验性）",
+			"common_hints":     "ClickHouse 使用反引号(`)引用标识符，参数使用{name:Type}格式，列式存储优化聚合查询",
+		},
+		"sqlserver": {
+			"dialect":          "SQL Server",
+			"quote_char":       "[ ]",
+			"param_style":      "@param",
+			"concat_operator":  "+",
+			"limit_syntax":     "OFFSET n ROWS FETCH NEXT m ROWS ONLY",
+			"auto_increment":   "IDENTITY(1,1)",
+			"string_concat":    "+ 运算符",
+			"date_function":    "GETDATE(), DATEADD(), CONVERT()",
+			"json_support":     "JSON_VALUE(), JSON_QUERY()",
+			"fulltext_search":  "CONTAINS(), FREETEXT()",
+			"common_hints":     "SQL Server 使用方括号([])引用标识符，参数使用@param格式，分页使用OFFSET-FETCH",
+		},
+		"oracle": {
+			"dialect":          "Oracle",
+			"quote_char":       "\"",
+			"param_style":      ":param",
+			"concat_operator":  "||",
+			"limit_syntax":     "ROWNUM <= n 或 FETCH FIRST n ROWS ONLY",
+			"auto_increment":   "SEQUENCE + TRIGGER",
+			"string_concat":    "|| 运算符",
+			"date_function":    "SYSDATE, TO_CHAR(), TO_DATE()",
+			"json_support":     "JSON_OBJECT(), JSON_ARRAY() (12c+)",
+			"fulltext_search":  "CTXSYS.CONTEXT",
+			"common_hints":     "Oracle 使用双引号(\")引用标识符，参数使用:param格式，没有LIMIT关键字",
+		},
+		"dm": {
+			"dialect":          "达梦(DM)",
+			"quote_char":       "\"",
+			"param_style":      ":param",
+			"concat_operator":  "||",
+			"limit_syntax":     "LIMIT n OFFSET m 或 ROWNUM",
+			"auto_increment":   "IDENTITY(1,1)",
+			"string_concat":    "|| 运算符",
+			"date_function":    "SYSDATE, TO_CHAR(), TO_DATE()",
+			"json_support":     "有限支持",
+			"fulltext_search":  "全文索引",
+			"common_hints":     "达梦兼容Oracle语法，使用双引号(\")引用标识符，参数使用:param格式",
+		},
+	}
+
+	hints, ok := dialectMap[dbType]
+	if !ok {
+		hints = map[string]string{
+			"dialect":      dbType,
+			"common_hints": "未知数据库类型，请参考标准 SQL 语法",
+		}
+	}
+
+	return map[string]interface{}{
+		"database_name": dbName,
+		"database_type": dbType,
+		"sql_hints":     hints,
 	}
 }
 
@@ -371,6 +546,147 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 		}
 		body, _ := json.Marshal(map[string]interface{}{"params": args.Params})
 		data, err := cli.do(http.MethodPost, "/api/apis/"+args.ApiID+"/test", body)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
+	case "search_tables":
+		var args struct {
+			Query    string `json:"query"`
+			Database string `json:"database"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.Query == "" {
+			return nil, fmt.Errorf("query 不能为空")
+		}
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"query":    args.Query,
+			"database": args.Database,
+		})
+		data, err := cli.do(http.MethodPost, "/api/table-retrieval/search", reqBody)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
+	case "get_db_schema":
+		var args struct {
+			DatabaseID string `json:"database_id"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.DatabaseID == "" {
+			return nil, fmt.Errorf("database_id 不能为空")
+		}
+		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
+	case "get_db_sql_hints":
+		var args struct {
+			DatabaseID string `json:"database_id"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.DatabaseID == "" {
+			return nil, fmt.Errorf("database_id 不能为空")
+		}
+		// 先获取数据库信息以提取类型
+		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
+		if err != nil {
+			return nil, err
+		}
+		// 从返回数据中提取数据库类型，生成方言提示
+		var dbInfo struct {
+			Data struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(data, &dbInfo); err != nil {
+			return nil, fmt.Errorf("解析数据库信息失败: %w", err)
+		}
+		dbType := strings.ToLower(dbInfo.Data.Type)
+		hints := buildSQLDialectHints(dbType, dbInfo.Data.Name)
+		hintsData, _ := json.Marshal(hints)
+		return textResult(hintsData), nil
+
+	case "create_api":
+		var args struct {
+			Name          string                 `json:"name"`
+			Path          string                 `json:"path"`
+			Method        string                 `json:"method"`
+			SQL           string                 `json:"sql"`
+			Description   string                 `json:"description"`
+			Database      string                 `json:"database"`
+			DefaultParams map[string]interface{} `json:"default_params"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.Name == "" || args.Path == "" || args.Method == "" || args.SQL == "" || args.Database == "" {
+			return nil, fmt.Errorf("name, path, method, sql, database 不能为空")
+		}
+		// 通过数据库名称查找 database_id
+		dbsData, err := cli.do(http.MethodGet, "/api/databases", nil)
+		if err != nil {
+			return nil, fmt.Errorf("获取数据库列表失败: %w", err)
+		}
+		var dbsResp struct {
+			Data []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(dbsData, &dbsResp); err != nil {
+			return nil, fmt.Errorf("解析数据库列表失败: %w", err)
+		}
+		var databaseID string
+		for _, db := range dbsResp.Data {
+			if db.Name == args.Database {
+				databaseID = db.ID
+				break
+			}
+		}
+		if databaseID == "" {
+			return nil, fmt.Errorf("未找到名为 %q 的数据库", args.Database)
+		}
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"name":           args.Name,
+			"path":           args.Path,
+			"method":         args.Method,
+			"sql":            args.SQL,
+			"description":    args.Description,
+			"database_id":    databaseID,
+			"default_params": args.DefaultParams,
+		})
+		data, err := cli.do(http.MethodPost, "/api/apis", reqBody)
+		if err != nil {
+			return nil, err
+		}
+		return textResult(data), nil
+
+	case "execute_api":
+		var args struct {
+			Path   string                 `json:"path"`
+			Params map[string]interface{} `json:"params"`
+		}
+		json.Unmarshal(argsRaw, &args)
+		if args.Path == "" {
+			return nil, fmt.Errorf("path 不能为空")
+		}
+		// 构建带查询参数的 URL
+		apiPath := args.Path
+		if !strings.HasPrefix(apiPath, "/") {
+			apiPath = "/" + apiPath
+		}
+		if len(args.Params) > 0 {
+			params := url.Values{}
+			for k, v := range args.Params {
+				params.Set(k, fmt.Sprintf("%v", v))
+			}
+			apiPath += "?" + params.Encode()
+		}
+		data, err := cli.do(http.MethodGet, apiPath, nil)
 		if err != nil {
 			return nil, err
 		}

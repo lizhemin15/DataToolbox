@@ -700,6 +700,22 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Confi
 	cfg.Tools.WriteFile.Enabled = true
 	cfg.Tools.AppendFile.Enabled = true
 
+	// MCP 配置 — DataToolbox 自身作为 MCP server（streamable-http）
+	mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+	if mcpEnabled {
+		cfg.Tools.MCP.Enabled = true
+		cfg.Tools.MCP.Servers = map[string]picoclawcfg.MCPServerConfig{
+			"datatoolbox": {
+				Enabled: true,
+				Type:    "streamable-http",
+				URL:     mcpLoopbackAddr + "/mcp",
+				Headers: map[string]string{
+					"X-Internal-Call": "datatoolbox-agent",
+				},
+			},
+		}
+	}
+
 	// 模型列表 — 必须注册，否则 ParseModelRef 会把 "Qwen/xxx" 拆成 provider=Qwen
 	cfg.ModelList = []*picoclawcfg.ModelConfig{
 		{
@@ -1211,6 +1227,14 @@ func detectUserIntent(message string) IntentInfo {
 			if strings.Contains(strings.ToLower(name), refLower) {
 				return IntentInfo{DetectedModule: mod, Confidence: 0.95, Reason: "用户通过 @" + ref + " 指定意图（模糊匹配）"}
 			}
+		}
+	}
+
+	// 接口调用关键词（高置信度）
+	apiCallKeywords := []string{"调用接口", "试试接口", "测试接口", "调用一下", "试试看", "接口调用", "调用api", "测试api", "接口测试", "看看接口返回什么", "接口返回什么数据", "接口数据", "看看接口"}
+	for _, kw := range apiCallKeywords {
+		if strings.Contains(lowerMsg, strings.ToLower(kw)) {
+			return IntentInfo{DetectedModule: "api-dispatch", Confidence: 0.95, Reason: "包含接口调用关键词: " + kw}
 		}
 	}
 
