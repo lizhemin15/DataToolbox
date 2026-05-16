@@ -86,11 +86,42 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 	case "list_databases":
 		return t.httpGet(ctx, "/api/data-ontology/databases")
 	case "get_database":
-		name, ok := params["name"].(string)
-		if !ok || name == "" {
-			return nil, fmt.Errorf("name parameter required")
+		// 支持用 name 或 id 查询；如果用 name，先通过 list_databases 找到 ID
+		nameOrID, ok := params["name"].(string)
+		if !ok || nameOrID == "" {
+			nameOrID, _ = params["id"].(string)
 		}
-		return t.httpGet(ctx, "/api/data-ontology/databases/"+name)
+		if nameOrID == "" {
+			return nil, fmt.Errorf("name or id parameter required")
+		}
+		// 先尝试直接用 ID 查
+		result, err := t.httpGet(ctx, "/api/data-ontology/databases/"+nameOrID)
+		if err == nil {
+			if m, ok := result.(map[string]any); ok {
+				if success, _ := m["success"].(bool); success {
+					return result, nil
+				}
+			}
+		}
+		// ID 查不到，尝试通过 list_databases 匹配 name
+		listResult, listErr := t.httpGet(ctx, "/api/data-ontology/databases")
+		if listErr == nil {
+			if m, ok := listResult.(map[string]any); ok {
+				if dbs, ok := m["databases"].([]any); ok {
+					nameLower := strings.ToLower(nameOrID)
+					for _, db := range dbs {
+						if dbMap, ok := db.(map[string]any); ok {
+							dbName, _ := dbMap["name"].(string)
+							dbID, _ := dbMap["id"].(string)
+							if strings.ToLower(dbName) == nameLower && dbID != "" {
+								return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
+							}
+						}
+					}
+				}
+			}
+		}
+		return nil, fmt.Errorf("database %q not found", nameOrID)
 	case "execute_sql":
 		return t.httpPost(ctx, "/api/data-ontology/governance/execute-sql", params)
 	case "list_tables":
