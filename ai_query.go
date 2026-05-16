@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -1251,14 +1252,32 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseMyBatisSQL 解析MyBatis风格的SQL语句
-// 支持 #{param} 预编译参数和 ${param} 直接替换
+// 支持 #{param} 预编译参数、${param} 直接替换、#if(param)...#end 条件块
 
 func parseMyBatisSQL(sqlTemplate string, params map[string]interface{}) (string, []interface{}, error) {
 	var args []interface{}
 	finalSQL := sqlTemplate
 	var missingParams []string
 
-	// 首先处理 ${param} - 直接替换
+	// 首先处理 #if(param)...#end 条件块
+	// 如果参数存在则保留条件体内容，否则移除整个条件块
+	ifRe := regexp.MustCompile(`#if\(([^)]+)\)([\s\S]*?)#end`)
+	finalSQL = ifRe.ReplaceAllStringFunc(finalSQL, func(match string) string {
+		submatch := ifRe.FindStringSubmatch(match)
+		if len(submatch) < 3 {
+			return match
+		}
+		paramName := strings.TrimSpace(submatch[1])
+		condBody := submatch[2]
+		// 检查参数是否存在（非空）
+		if val, exists := params[paramName]; exists && val != nil && val != "" {
+			return condBody
+		}
+		// 参数不存在，移除整个条件块
+		return ""
+	})
+
+	// 然后处理 ${param} - 直接替换
 	dollarPattern := `\$\{([^}]+)\}`
 	finalSQL = replaceWithRegex(finalSQL, dollarPattern, func(match string) string {
 		paramName := strings.TrimSpace(match[2 : len(match)-1])
