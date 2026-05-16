@@ -509,10 +509,9 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		return nil
 	}
 
-	// 写入中文 AGENT.md 到用户 workspace（如果不存在）
+	// 写入中文 AGENT.md 到用户 workspace（每次都更新，确保最新指令生效）
 	agentWorkspace := picoCfg.Agents.Defaults.Workspace
 	agentMDPath := filepath.Join(agentWorkspace, "AGENT.md")
-	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
 		agentMDContent := `---
 name: 数据智能助手
 description: 数据智能助手 — 数据库管理、查询、接口创建、治理与洞察
@@ -617,18 +616,19 @@ tools:
 1. **用中文回复** — 所有输出使用中文
 2. **先查后答** — 涉及数据库信息时，先用工具查询实时数据，不要凭记忆回答
 3. **主动使用工具** — 不要只是描述你会做什么，要实际调用工具
-4. **简洁准确** — 回答要直接了当，不要废话
-5. **遇到错误要报告** — 如果工具调用失败，如实告知用户错误信息
-6. **尊重用户上下文** — 用户通过 @ 指定的数据库和模块必须使用
-7. **反思验证** — 执行 SQL 后检查结果合理性，不合理则修正重试
-8. **写操作确认** — 任何写操作必须先向用户确认
+4. **主动调用接口验证** — 用户要求"看看接口"/"调用接口"/"试试接口"时，必须用 execute_api 实际调用接口并返回真实数据，不要只列出接口列表
+5. **简洁准确** — 回答要直接了当，不要废话
+6. **遇到错误要报告** — 如果工具调用失败，如实告知用户错误信息
+7. **尊重用户上下文** — 用户通过 @ 指定的数据库和模块必须使用
+8. **反思验证** — 执行 SQL 后检查结果合理性，不合理则修正重试
+9. **写操作确认** — 任何写操作必须先向用户确认
+10. **数据是真实的** — 通过工具获取的数据来自真实数据库连接，不要声称数据是模拟的或数据库是断开的，除非工具返回明确的连接错误
 `
 		os.MkdirAll(agentWorkspace, 0755)
-		if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
-			log.Printf("[agent] failed to write AGENT.md for user=%s: %v", username, err)
-		} else {
-			log.Printf("[agent] wrote AGENT.md for user=%s at %s", username, agentMDPath)
-		}
+	if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
+		log.Printf("[agent] failed to write AGENT.md for user=%s: %v", username, err)
+	} else {
+		log.Printf("[agent] wrote AGENT.md for user=%s at %s", username, agentMDPath)
 	}
 
 	agentOrchestrators[username] = orch
