@@ -13540,7 +13540,7 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 	if _, err := os.Stat(agentMDPath); os.IsNotExist(err) {
 		agentMDContent := `---
 name: 数据智能助手
-description: 数据智能助手 — 数据库管理、查询、治理与洞察
+description: 数据智能助手 — 数据库管理、查询、接口创建、治理与洞察
 tools:
   - datatoolbox_api
   - delegate
@@ -13554,14 +13554,43 @@ tools:
 
 # 数据智能助手
 
-你是数据智能助手，负责帮助用户管理数据库、查询数据、执行数据治理任务、洞察数据价值。
+你是数据智能助手，负责帮助用户管理数据库、查询数据、创建API接口、执行数据治理任务、洞察数据价值。
 
 ## 核心能力
 
-- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、get_tables、execute_query 端点
-- **数据治理**: 使用 get_governance_rules 端点获取治理规则
-- **数据库监控**: 使用 get_db_metrics 端点获取数据库指标
+- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、list_tables、execute_sql、get_table_schema 端点
+- **接口创建**: 使用 list_apis 查看已有接口，使用 create_api 创建新接口
+- **数据治理**: 使用 governance_tasks 端点管理治理任务
+- **数据本体**: 使用 ontology_query 查询概念关系
 - **多智能体协作**: 可以通过 delegate/subagent/spawn 工具委派任务给其他智能体
+
+## 用户意图识别
+
+根据用户消息判断意图：
+- "创建接口"/"做个API"/"接口制作" → 创建接口流程
+- "查询数据"/"看看有哪些表" → 数据库查询
+- "数据治理"/"定时任务" → 治理任务
+- 用户用 @数据库名 指定了数据库时，必须使用该数据库
+- 用户用 @接口制作 指定了模块时，进入创建接口流程
+
+## 创建接口流程
+
+当用户要求创建接口时，必须按以下步骤操作：
+1. 用 list_databases 确认可用的数据库
+2. 用 list_tables 获取指定数据库的表列表
+3. 用 get_table_schema 获取相关表的字段信息
+4. 用 list_apis 查看已有接口，避免路径重复
+5. 根据用户需求生成接口配置，调用 create_api 创建
+6. 创建后告知用户接口路径和测试方法
+
+## 创建接口的 SQL 规则
+
+- SQL 只能有一条语句
+- 使用 #{参数名} 表示预编译参数
+- 接口路径以 /api/ 开头，使用 RESTful 风格
+- 必须使用真实的表名和字段名（从 get_table_schema 获取）
+- 必须为每个参数提供 default_params 默认值
+- default_params 的值必须是数据库中实际存在的数据
 
 ## 行为准则
 
@@ -13570,6 +13599,7 @@ tools:
 3. **主动使用工具** — 不要只是描述你会做什么，要实际调用工具
 4. **简洁准确** — 回答要直接了当，不要废话
 5. **遇到错误要报告** — 如果工具调用失败，如实告知用户错误信息
+6. **尊重用户上下文** — 用户通过 @ 指定的数据库和模块必须使用
 `
 		os.MkdirAll(agentWorkspace, 0755)
 		if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
@@ -13717,8 +13747,52 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 
 	sessionID := fmt.Sprintf("cluster-%s", username)
 
+	// 构建增强消息：注入数据库和模块上下文
+	enhancedMessage := queryReq.Message
+	var contextParts []string
+
+	// 注入数据库上下文
+	if len(queryReq.Databases) > 0 {
+		dataOntologyMu.RLock()
+		var dbInfos []string
+		for _, dbID := range queryReq.Databases {
+			if db, ok := dataOntologyDatabases[dbID]; ok {
+				dbInfos = append(dbInfos, fmt.Sprintf("- 数据库: %s (类型: %s, ID: %s)", db.Name, db.Type, dbID))
+			}
+		}
+		dataOntologyMu.RUnlock()
+		if len(dbInfos) > 0 {
+			contextParts = append(contextParts, "用户通过 @命令 指定了以下数据库:\n"+strings.Join(dbInfos, "\n"))
+		}
+	}
+
+	// 注入模块上下文
+	if len(queryReq.Modules) > 0 {
+		moduleNames := make(map[string]string)
+		moduleNames["db-manage"] = "通用提问 — 查询数据、统计信息、了解表结构"
+		moduleNames["api-dispatch"] = "接口制作 — 创建 API 接口、生成数据服务"
+		moduleNames["data-governance"] = "数据治理 — 创建定时任务、数据导入导出"
+		moduleNames["quality-audit"] = "质量审计 — 数据质量检查、校验规则"
+		moduleNames["ontology"] = "本体查询 — 概念关系、语义分析"
+		moduleNames["small-model"] = "小模型 — 本地模型、离线推理"
+
+		var modInfos []string
+		for _, modID := range queryReq.Modules {
+			if desc, ok := moduleNames[modID]; ok {
+				modInfos = append(modInfos, fmt.Sprintf("- 模块: %s (%s)", modID, desc))
+			}
+		}
+		if len(modInfos) > 0 {
+			contextParts = append(contextParts, "用户通过 @命令 指定了以下操作模块:\n"+strings.Join(modInfos, "\n"))
+		}
+	}
+
+	if len(contextParts) > 0 {
+		enhancedMessage = strings.Join(contextParts, "\n\n") + "\n\n用户问题: " + queryReq.Message
+	}
+
 	// 调用 Orchestrator.Run()
-	eventCh, err := orch.Run(ctx, username, sessionID, queryReq.Message)
+	eventCh, err := orch.Run(ctx, username, sessionID, enhancedMessage)
 	if err != nil {
 		sendSSE(w, "error", map[string]interface{}{"message": fmt.Sprintf("Agent执行失败: %v", err)})
 		sendSSE(w, "done", map[string]interface{}{})

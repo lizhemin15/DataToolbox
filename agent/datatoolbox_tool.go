@@ -14,7 +14,7 @@ import (
 // DataToolboxAPITool 让 PicoClaw agent 能调用 DataToolbox 内部 API
 // 深度耦合的关键 — agent 直接调用服务内部 API，共享鉴权和数据库连接
 
-const dataToolboxAPIDesc = `Call DataToolbox internal API endpoints to interact with databases, execute SQL, manage governance tasks, and query data ontology.
+const dataToolboxAPIDesc = `Call DataToolbox internal API endpoints to interact with databases, execute SQL, manage APIs, governance tasks, and query data ontology.
 
 Available endpoints:
 - list_databases: List all configured databases (no params)
@@ -23,6 +23,8 @@ Available endpoints:
 - list_tables: List tables in a database (params: database)
 - get_table_schema: Get table schema details (params: database, table)
 - search_tables: Search tables by keyword (params: query, database?)
+- list_apis: List all existing API endpoints (no params)
+- create_api: Create a new API endpoint (params: name, path, method, sql, description, database, default_params)
 - governance_tasks: List governance tasks (no params)
 - ontology_query: Query data ontology (params: query)
 
@@ -106,6 +108,10 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables/%s/schema", db, tbl))
 	case "search_tables":
 		return t.httpPost(ctx, "/api/data-ontology/table-retrieval/search", params)
+	case "list_apis":
+		return t.httpGet(ctx, "/api/data-ontology/apis")
+	case "create_api":
+		return t.httpPost(ctx, "/api/data-ontology/apis", params)
 	case "governance_tasks":
 		return t.httpGet(ctx, "/api/data-ontology/governance/tasks")
 	case "ontology_query":
