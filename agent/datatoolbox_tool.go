@@ -63,11 +63,27 @@ func (t *DataToolboxAPITool) Parameters() map[string]any {
 
 func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
 	endpoint, _ := args["endpoint"].(string)
+	params, _ := args["params"].(map[string]any)
+
+	// 处理 LLM 把参数包在 "raw" 字段里的情况（Qwen3 等模型常见）
+	if endpoint == "" {
+		if raw, ok := args["raw"].(string); ok && raw != "" {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+				if e, ok := parsed["endpoint"].(string); ok {
+					endpoint = e
+				}
+				if p, ok := parsed["params"].(map[string]any); ok {
+					params = p
+				}
+			}
+		}
+	}
+
 	if endpoint == "" {
 		return tools.ErrorResult("endpoint is required")
 	}
 
-	params, _ := args["params"].(map[string]any)
 	if params == nil {
 		params = map[string]any{}
 	}
