@@ -2503,10 +2503,25 @@ textarea#testApiParams {
 .ai-chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: 0;
     background: #f7fafc;
     min-height: 0;
     max-height: 100%;
+}
+
+/* PicoClaw-style centered message container */
+.ai-chat-messages-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 16px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Cluster mode: wider layout for trace blocks */
+.ai-chat-messages.cluster-mode .ai-chat-messages-inner {
+    max-width: 800px;
 }
 
 .ai-welcome-message {
@@ -2541,10 +2556,14 @@ textarea#testApiParams {
 }
 
 .ai-message {
-    margin-bottom: 10px;
     display: flex;
-    gap: 8px;
+    gap: 10px;
     animation: fadeIn 0.3s ease-in;
+}
+
+/* Cluster mode: full-width messages for card layout */
+.ai-chat-messages.cluster-mode .ai-message {
+    width: 100%;
 }
 
 @keyframes fadeIn {
@@ -2613,9 +2632,26 @@ textarea#testApiParams {
 .ai-message.assistant .ai-message-bubble {
     background: white;
     color: #2d3748;
-    border: 1px solid #e2e8f0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-bottom-left-radius: 4px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    border-radius: 12px;
+}
+
+/* Cluster mode: assistant card style (PicoClaw-inspired) */
+.ai-chat-messages.cluster-mode .ai-message.assistant .ai-message-bubble {
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* Cluster mode: user message right-aligned */
+.ai-chat-messages.cluster-mode .ai-message.user {
+    justify-content: flex-end;
+}
+
+.ai-chat-messages.cluster-mode .ai-message.user .ai-message-content {
+    max-width: 85%;
 }
 
 .ai-message-meta {
@@ -2740,25 +2776,44 @@ textarea#testApiParams {
 }
 
 .ai-input-area {
-    padding: 10px 16px;
-    background: white;
-    border-top: 1px solid #e2e8f0;
+    padding: 0;
+    background: transparent;
     position: relative;
     flex-shrink: 0;
+    z-index: 10;
+}
+
+/* PicoClaw-style floating input wrapper */
+.ai-input-float-wrap {
+    margin: -24px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 10px 12px;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ai-input-float-wrap:focus-within {
+    border-color: #8b5cf6;
+    box-shadow: 0 2px 12px rgba(139, 92, 246, 0.12);
 }
 
 .ai-db-suggestions {
     position: absolute;
     bottom: 100%;
-    left: 24px;
-    right: 24px;
+    left: 0;
+    right: 0;
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
     max-height: 200px;
     overflow-y: auto;
     z-index: 10;
+    margin-bottom: 4px;
 }
 
 .ai-db-suggestion {
@@ -2831,42 +2886,61 @@ textarea#testApiParams {
 
 .ai-input-wrapper {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     align-items: flex-end;
 }
 
 .ai-input {
     flex: 1;
-    padding: 12px 16px;
-    border: 2px solid #e2e8f0;
-    border-radius: 8px;
-    font-size: 14px;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
     resize: none;
-    max-height: 120px;
-    min-height: 44px;
-    transition: border-color 0.2s;
+    max-height: 200px;
+    min-height: 40px;
+    transition: none;
+    line-height: 1.5;
+    background: transparent;
+    outline: none;
 }
 
 .ai-input:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: transparent;
+    box-shadow: none;
 }
 
 .ai-send-btn {
-    padding: 12px 24px;
-    white-space: nowrap;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: 50%;
+    background: #8b5cf6;
     border: none;
-    height: 44px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    padding: 0;
+    flex-shrink: 0;
 }
 
 .ai-send-btn:hover {
-    opacity: 0.9;
+    background: #7c3aed;
+    transform: scale(1.05);
+}
+
+.ai-send-btn:active {
+    transform: scale(0.95);
 }
 
 .ai-send-btn:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
+    transform: none;
 }
 
 .ai-error {
@@ -7345,76 +7419,198 @@ img.emoji {
     transform: translateX(19px);
 }
 
-/* Agent trace bubble */
-.agent-trace-bubble {
-    margin: 4px 0 4px 0;
-    padding: 6px 10px;
-    background: #f0f4ff;
-    border-left: 3px solid #6366f1;
-    border-radius: 4px;
+/* Cluster mode — PicoClaw-style collapsible blocks */
+.cluster-response-card {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.cluster-blocks {
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.cluster-block {
+    border-bottom: 1px solid #f3f4f6;
+    transition: background 0.15s;
+}
+
+.cluster-block:last-child {
+    border-bottom: none;
+}
+
+.cluster-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    transition: background 0.15s;
+}
+
+.cluster-block-header:hover {
+    background: #f9fafb;
+}
+
+.cluster-block-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cluster-block-chevron {
+    font-size: 10px;
+    color: #9ca3af;
+    margin-left: 8px;
+    transition: transform 0.2s;
+}
+
+.cluster-block.collapsed .cluster-block-chevron {
+    transform: rotate(-90deg);
+}
+
+.cluster-block-body {
+    padding: 6px 14px 10px;
     font-size: 12px;
-    color: #4a5568;
-    animation: agentTraceIn 0.3s ease;
+    color: #6b7280;
+    line-height: 1.5;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fafbfc;
 }
 
-.agent-trace-bubble .agent-trace-name {
-    font-weight: 600;
-    color: #6366f1;
-    margin-right: 6px;
+.cluster-block.collapsed .cluster-block-body {
+    display: none;
 }
 
-.agent-trace-bubble .agent-trace-action {
-    color: #718096;
+/* Thinking block */
+.cluster-block-thinking .cluster-block-header {
+    color: #7c3aed;
+}
+.cluster-block-thinking .cluster-block-body {
+    border-left: 3px solid #c4b5fd;
+    background: #faf5ff;
+}
+.cluster-think-step {
+    padding: 2px 0;
+    border-bottom: 1px dashed #e9d5ff;
+}
+.cluster-think-step:last-child {
+    border-bottom: none;
 }
 
-.agent-trace-bubble.tool-call {
-    border-left-color: #f59e0b;
-    background: #fffbeb;
-}
-
-.agent-trace-bubble.tool-call .agent-trace-name {
+/* Tool block */
+.cluster-block-tool .cluster-block-header {
     color: #d97706;
 }
-
-.agent-trace-bubble.tool-result {
-    border-left-color: #10b981;
-    background: #ecfdf5;
+.cluster-block-tool .cluster-block-body {
+    border-left: 3px solid #fcd34d;
+    background: #fffbeb;
 }
-
-.agent-trace-bubble.tool-result .agent-trace-name {
+.cluster-tool-detail {
+    padding: 3px 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+.cluster-tool-result {
+    padding: 3px 0;
     color: #059669;
+    border-top: 1px solid #d1fae5;
+    margin-top: 4px;
 }
 
-.agent-trace-bubble.agent-switch {
-    border-left-color: #8b5cf6;
-    background: #f5f3ff;
+/* Switch block */
+.cluster-block-switch .cluster-block-header {
+    color: #6366f1;
+}
+.cluster-block-switch .cluster-block-body {
+    border-left: 3px solid #a5b4fc;
+    background: #eef2ff;
 }
 
-.agent-trace-bubble.agent-switch .agent-trace-name {
-    color: #7c3aed;
-}
-
-.agent-trace-bubble.error-trace {
-    border-left-color: #ef4444;
-    background: #fef2f2;
-}
-
-.agent-trace-bubble.error-trace .agent-trace-name {
+/* Error block */
+.cluster-block-error .cluster-block-header {
     color: #dc2626;
 }
-
-.agent-trace-bubble.agent-thinking {
-    border-left-color: #8b5cf6;
-    background: #f5f3ff;
+.cluster-block-error .cluster-block-body {
+    border-left: 3px solid #fca5a5;
+    background: #fef2f2;
+}
+.cluster-error-detail {
+    color: #b91c1c;
+    font-weight: 500;
 }
 
-.agent-trace-bubble.agent-thinking .agent-trace-name {
+/* Text content area */
+.cluster-text-content {
+    padding: 14px 16px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #1f2937;
+    min-height: 20px;
+}
+.cluster-text-content h2, .cluster-text-content h3, .cluster-text-content h4 {
+    margin: 8px 0 4px;
+    color: #111827;
+}
+.cluster-text-content code {
+    background: #f3f4f6;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
     color: #7c3aed;
 }
+.cluster-text-content pre {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12px;
+}
+.cluster-text-content pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+}
+.cluster-text-content ul, .cluster-text-content ol {
+    padding-left: 20px;
+    margin: 4px 0;
+}
+.cluster-text-content li {
+    margin: 2px 0;
+}
+.cluster-text-content strong {
+    color: #111827;
+}
 
-@keyframes agentTraceIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+/* Typing indicator */
+.cluster-typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 16px;
+}
+.cluster-typing-indicator span {
+    width: 6px;
+    height: 6px;
+    background: #a78bfa;
+    border-radius: 50%;
+    animation: clusterTypingBounce 1.4s infinite ease-in-out;
+}
+.cluster-typing-indicator span:nth-child(1) { animation-delay: 0s; }
+.cluster-typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.cluster-typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes clusterTypingBounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
 }
 
 /* Agent config panel */
@@ -7695,7 +7891,7 @@ img.emoji {
     font-size: 11px;
     font-weight: 500;
     margin-bottom: 8px;
-    animation: agentTraceIn 0.3s ease;
+    animation: clusterTypingBounce 0.3s ease;
 }
 
 .agent-cluster-indicator .pulse-dot {

@@ -15189,37 +15189,49 @@ function initAgentMode() {
     initSessionSystem();
 }
 
-// Send message via cluster mode (SSE)
+// Send message via cluster mode (SSE) — PicoClaw-style card UI
 async function sendClusterQuery(message, databases, modules) {
     const messagesEl = document.getElementById('aiChatMessages');
-    const streamId = addAiStreamMessage();
-    const streamEl = document.getElementById(streamId);
+    messagesEl.classList.add('cluster-mode');
+    
+    // 创建助手消息卡片
+    const cardId = 'cluster-card-' + Date.now();
+    const cardHtml = `
+        <div class="ai-message assistant" id="${cardId}">
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble cluster-response-card">
+                    <div id="${cardId}-blocks" class="cluster-blocks"></div>
+                    <div id="${cardId}-text" class="cluster-text-content"></div>
+                    <div id="${cardId}-typing" class="cluster-typing-indicator"><span></span><span></span><span></span></div>
+                </div>
+                <div class="ai-message-meta"><span>${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span></div>
+            </div>
+        </div>`;
+    messagesEl.insertAdjacentHTML('beforeend', cardHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    const blocksEl = document.getElementById(`${cardId}-blocks`);
+    const textEl = document.getElementById(`${cardId}-text`);
+    const typingEl = document.getElementById(`${cardId}-typing`);
     
     clusterTraceData = [];
-    let startBubbleId = null; // 记录 start 气泡，收到实际内容后清除
+    let currentBlock = null; // 当前活跃的折叠块
+    let fullText = '';
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/ai/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message: message,
-                databases: databases,
-                modules: modules,
-                mode: 'cluster'
-            })
+            body: JSON.stringify({ message, databases, modules, mode: 'cluster' })
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let fullText = '';
         let currentEventType = '';
-        let gotRealContent = false; // 是否已收到实际文本内容
 
         while (true) {
             const { done, value } = await reader.read();
@@ -15230,146 +15242,200 @@ async function sendClusterQuery(message, databases, modules) {
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-                // Parse SSE event type line
                 const eventMatch = line.match(/^event:\s*(\w+)/);
-                if (eventMatch) {
-                    currentEventType = eventMatch[1];
-                    continue;
-                }
+                if (eventMatch) { currentEventType = eventMatch[1]; continue; }
                 if (!line.startsWith('data: ')) continue;
                 const dataStr = line.slice(6).trim();
                 if (!dataStr) continue;
 
                 try {
                     const evt = JSON.parse(dataStr);
-                    // Use SSE event type if available, fallback to JSON type field
-                    if (!evt.type && currentEventType) {
-                        evt.type = currentEventType;
-                    }
-                    // 后端 SSE data 直接就是事件数据，不是嵌套在 evt.data 里
+                    if (!evt.type && currentEventType) evt.type = currentEventType;
                     const evtContent = evt.content || evt.text || evt.message || '';
                     
-                    // 收到实际文本内容后，清除 start 提示气泡
-                    if (evt.type === 'text' && evtContent && !gotRealContent) {
-                        gotRealContent = true;
-                        const startBubble = document.getElementById('agentStartBubble');
-                        if (startBubble) startBubble.remove();
-                    }
-                    
-                    // partial:false 是最终完整文本，直接设为最终内容，不再累积
                     if (evt.type === 'text' && evt.partial === false && evtContent) {
-                        fullText = evtContent; // 直接用最终文本，不累积
+                        fullText = evtContent;
                     } else if (evt.type === 'text' && evtContent) {
-                        fullText += evtContent; // partial:true 累积 token
+                        fullText += evtContent;
                     }
                     
-                    handleClusterEvent(evt, streamEl, messagesEl);
-                } catch (e) {
-                    // ignore parse errors
-                }
+                    currentBlock = handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock);
+                } catch (e) {}
                 currentEventType = '';
             }
         }
 
-        // Finalize stream message
-        if (streamEl) {
-            streamEl.innerHTML = escapeHtml(fullText);
-            streamEl.classList.remove('ai-streaming');
-        }
-        // 保存AI回复到当前会话
+        // 完成：隐藏打字指示器，折叠所有块，渲染最终文本
+        typingEl.style.display = 'none';
         if (fullText) {
-            saveCurrentSessionMessage('assistant', fullText);
+            textEl.innerHTML = formatClusterMarkdown(fullText);
         }
+        // 折叠所有 trace 块
+        blocksEl.querySelectorAll('.cluster-block').forEach(b => {
+            b.classList.add('collapsed');
+            const body = b.querySelector('.cluster-block-body');
+            if (body) body.style.display = 'none';
+        });
+        if (fullText) saveCurrentSessionMessage('assistant', fullText);
 
     } catch (e) {
         console.error('Cluster query error:', e);
-        if (streamEl) {
-            streamEl.innerHTML = `<div class="ai-error">集群模式请求失败: ${escapeHtml(e.message)}</div>`;
-            streamEl.classList.remove('ai-streaming');
-        }
+        typingEl.style.display = 'none';
+        textEl.innerHTML = `<div class="ai-error">集群模式请求失败: ${escapeHtml(e.message)}</div>`;
     }
 }
 
-// Handle individual cluster SSE events
-function handleClusterEvent(evt, streamEl, messagesEl) {
-    if (!evt || !evt.type) return;
-
-    // 后端 SSE data 直接就是事件数据（不是嵌套在 data 字段里）
-    // 例如: {"agent":"datatoolbox","content":"你好","partial":true}
+// Handle cluster SSE events — PicoClaw-style structured blocks
+function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
+    if (!evt || !evt.type) return currentBlock;
     const content = evt.content || evt.text || evt.message || '';
     const agent = evt.agent || evt.from || '';
     const tool = evt.tool || '';
 
     switch (evt.type) {
+        case 'start':
+            typingEl.style.display = 'flex';
+            break;
+
         case 'text':
             if (content) {
-                if (streamEl) {
-                    // partial:true 逐字追加，partial:false 设为最终完整文本
-                    if (evt.partial === false) {
-                        streamEl.innerHTML = escapeHtml(content);
-                    } else {
-                        // 追加模式：获取现有文本 + 新 token
-                        const existing = streamEl.textContent || '';
-                        streamEl.innerHTML = escapeHtml(existing + content);
-                    }
+                typingEl.style.display = 'none';
+                if (evt.partial === false) {
+                    textEl.innerHTML = formatClusterMarkdown(content);
+                } else {
+                    const existing = textEl.textContent || '';
+                    textEl.textContent = existing + content;
                 }
             }
             break;
 
-        case 'thinking':
-            addAgentTraceBubble(messagesEl, 'agent-thinking', 
-                agent || 'Agent',
-                `💭 ${content ? content.substring(0, 80) + '...' : '思考中...'}`);
-            break;
-
-        case 'tool_call':
-            addAgentTraceBubble(messagesEl, 'tool-call',
-                agent || 'Agent',
-                `🔧 调用工具: ${tool || '?'}`);
-            break;
-
-        case 'tool_result':
-            addAgentTraceBubble(messagesEl, 'tool-result',
-                agent || 'Agent',
-                `📋 工具结果: ${tool || '?'}`);
-            break;
-
-        case 'agent_switch':
-            addAgentTraceBubble(messagesEl, 'agent-switch',
-                evt.to || '',
-                `🔀 ${evt.from || '?'} → ${evt.to || '?'}`);
-            break;
-
-        case 'error':
-            addAgentTraceBubble(messagesEl, 'error-trace', 'Error',
-                evt.message || '未知错误');
-            break;
-
-        case 'start':
-            // 显示集群模式启动提示（收到实际内容后会自动清除）
+        case 'thinking': {
+            // 创建或追加到思考折叠块
+            let thinkBlock = blocksEl.querySelector('.cluster-block-thinking:not(.closed)');
+            if (!thinkBlock) {
+                thinkBlock = createClusterBlock('💭 思考过程', 'cluster-block-thinking');
+                blocksEl.appendChild(thinkBlock);
+            }
+            const body = thinkBlock.querySelector('.cluster-block-body');
             if (content) {
-                const bubble = addAgentTraceBubble(messagesEl, 'agent-start', 'System', content);
-                if (bubble) bubble.id = 'agentStartBubble';
+                body.insertAdjacentHTML('beforeend', `<div class="cluster-think-step">${escapeHtml(content.substring(0, 200))}</div>`);
+            }
+            currentBlock = thinkBlock;
+            break;
+        }
+
+        case 'tool_call': {
+            // 创建工具调用折叠块
+            const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
+            const body = toolBlock.querySelector('.cluster-block-body');
+            if (content) body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-detail">${escapeHtml(content.substring(0, 500))}</div>`);
+            blocksEl.appendChild(toolBlock);
+            currentBlock = toolBlock;
+            break;
+        }
+
+        case 'tool_result': {
+            // 追加到当前工具块，或创建新块
+            if (currentBlock && currentBlock.classList.contains('cluster-block-tool')) {
+                const body = currentBlock.querySelector('.cluster-block-body');
+                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">✅ ${escapeHtml(content.substring(0, 300))}</div>`);
+                currentBlock.classList.add('closed');
+            } else {
+                const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
+                const body = resultBlock.querySelector('.cluster-block-body');
+                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
+                blocksEl.appendChild(resultBlock);
+                resultBlock.classList.add('closed');
+                currentBlock = resultBlock;
             }
             break;
+        }
+
+        case 'agent_switch': {
+            const switchBlock = createClusterBlock(`🔀 ${evt.from || '?'} → ${evt.to || '?'}`, 'cluster-block-switch');
+            blocksEl.appendChild(switchBlock);
+            switchBlock.classList.add('closed');
+            currentBlock = switchBlock;
+            break;
+        }
+
+        case 'error': {
+            const errBlock = createClusterBlock(`❌ 错误`, 'cluster-block-error');
+            const body = errBlock.querySelector('.cluster-block-body');
+            body.insertAdjacentHTML('beforeend', `<div class="cluster-error-detail">${escapeHtml(evt.message || content || '未知错误')}</div>`);
+            blocksEl.appendChild(errBlock);
+            currentBlock = errBlock;
+            break;
+        }
 
         case 'done':
-            // Stream complete
+            typingEl.style.display = 'none';
             break;
+    }
+
+    // 自动滚动
+    const messagesEl = document.getElementById('aiChatMessages');
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    clusterTraceData.push({ agent: agent || 'system', action: evt.type, type: evt.type, time: new Date().toISOString() });
+    return currentBlock;
+}
+
+// 创建可折叠的 trace 块（仿 PicoClaw isCollapsedBlock）
+function createClusterBlock(title, className) {
+    const block = document.createElement('div');
+    block.className = `cluster-block ${className}`;
+    const headerId = 'cbh-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+    block.innerHTML = `
+        <div class="cluster-block-header" id="${headerId}" onclick="toggleClusterBlock(this)">
+            <span class="cluster-block-title">${title}</span>
+            <span class="cluster-block-chevron">▼</span>
+        </div>
+        <div class="cluster-block-body"></div>`;
+    return block;
+}
+
+// 切换折叠块展开/收起
+function toggleClusterBlock(headerEl) {
+    const block = headerEl.parentElement;
+    const body = block.querySelector('.cluster-block-body');
+    const chevron = headerEl.querySelector('.cluster-block-chevron');
+    const isCollapsed = block.classList.contains('collapsed');
+    if (isCollapsed) {
+        block.classList.remove('collapsed');
+        body.style.display = 'block';
+        chevron.textContent = '▼';
+    } else {
+        block.classList.add('collapsed');
+        body.style.display = 'none';
+        chevron.textContent = '▶';
     }
 }
 
-// Add agent trace bubble to chat
-function addAgentTraceBubble(messagesEl, className, agentName, action) {
-    if (!messagesEl) return null;
-    const bubble = document.createElement('div');
-    bubble.className = `agent-trace-bubble ${className}`;
-    bubble.innerHTML = `<span class="agent-trace-name">${escapeHtml(agentName)}</span>` +
-                       `<span class="agent-trace-action">${escapeHtml(action)}</span>`;
-    messagesEl.appendChild(bubble);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    clusterTraceData.push({ agent: agentName, action: action, type: className, time: new Date().toISOString() });
-    return bubble;
+// 简易 Markdown 渲染（不依赖库）
+function formatClusterMarkdown(text) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // bold
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // italic
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // code block
+    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+    // headers
+    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+    // bullet list
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    // numbered list
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    // line breaks
+    html = html.replace(/\n/g, '<br>');
+    return html;
 }
 
 // Show agent configuration panel
