@@ -379,6 +379,45 @@ func (p *Pipeline) CallLLM(
 			}
 			continue
 		}
+
+		// Rate limit (429) — exponential backoff with longer delays
+		isRateLimitError := strings.Contains(errMsg, "429") ||
+			strings.Contains(errMsg, "rate limit") ||
+			strings.Contains(errMsg, "rate_limit") ||
+			strings.Contains(errMsg, "tpm limit") ||
+			strings.Contains(errMsg, "rpm limit") ||
+			strings.Contains(errMsg, "too many requests")
+
+		if isRateLimitError && retry < maxRetries {
+			// Rate limit backoff: 5s, 10s, 20s (longer than timeout/network)
+			rateLimitBackoff := time.Duration(5*(1<<retry)) * time.Second
+			al.emitEvent(
+				runtimeevents.KindAgentLLMRetry,
+				ts.eventMeta("runTurn", "turn.llm.retry"),
+				LLMRetryPayload{
+					Attempt:    retry + 1,
+					MaxRetries: maxRetries,
+					Reason:     "rate_limit",
+					Error:      err.Error(),
+					Backoff:    rateLimitBackoff,
+				},
+			)
+			logger.WarnCF("agent", "Rate limit error (429), retrying after backoff", map[string]any{
+				"error":   err.Error(),
+				"retry":   retry,
+				"backoff": rateLimitBackoff.String(),
+			})
+			if sleepErr := sleepWithContext(turnCtx, rateLimitBackoff); sleepErr != nil {
+				if ts.hardAbortRequested() {
+					_ = ts.requestHardAbort()
+					return ControlBreak, nil
+				}
+				err = sleepErr
+				break
+			}
+			continue
+		}
+
 		break
 	}
 
