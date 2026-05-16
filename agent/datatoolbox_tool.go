@@ -68,7 +68,7 @@ func (t *DataToolboxAPITool) resolveDatabaseID(ctx context.Context, nameOrID str
 		return "", fmt.Errorf("database name or id required")
 	}
 	// 先尝试直接用 ID 查
-	result, err := t.httpGet(ctx, "/api/data-ontology/databases/"+nameOrID)
+	result, err := t.httpGet(ctx, "/api/databases/"+nameOrID)
 	if err == nil {
 		if m, ok := result.(map[string]any); ok {
 			if success, _ := m["success"].(bool); success {
@@ -77,7 +77,7 @@ func (t *DataToolboxAPITool) resolveDatabaseID(ctx context.Context, nameOrID str
 		}
 	}
 	// ID 查不到，通过 list_databases 匹配 name
-	listResult, listErr := t.httpGet(ctx, "/api/data-ontology/databases")
+	listResult, listErr := t.httpGet(ctx, "/api/databases")
 	if listErr != nil {
 		return "", fmt.Errorf("database %q not found (list failed: %v)", nameOrID, listErr)
 	}
@@ -220,7 +220,7 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, params map[string]any) (interface{}, error) {
 	switch endpoint {
 	case "list_databases":
-		return t.httpGet(ctx, "/api/data-ontology/databases")
+		return t.httpGet(ctx, "/api/databases")
 	case "get_database":
 		nameOrID, ok := params["name"].(string)
 		if !ok || nameOrID == "" {
@@ -233,9 +233,9 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
+		return t.httpGet(ctx, "/api/databases/"+dbID)
 	case "execute_sql":
-		return t.httpPost(ctx, "/api/data-ontology/governance/execute-sql", params)
+		return t.httpPost(ctx, "/api/governance/execute-sql", params)
 	case "list_tables":
 		db, ok := params["database"].(string)
 		if !ok || db == "" {
@@ -245,7 +245,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables", dbID))
+		return t.httpGet(ctx, fmt.Sprintf("/api/databases/%s/tables", dbID))
 	case "get_table_schema":
 		db, _ := params["database"].(string)
 		tbl, _ := params["table"].(string)
@@ -256,11 +256,11 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables/%s/schema", dbID, tbl))
+		return t.httpGet(ctx, fmt.Sprintf("/api/databases/%s/tables/%s/schema", dbID, tbl))
 	case "search_tables":
-		return t.httpPost(ctx, "/api/data-ontology/table-retrieval/search", params)
+		return t.httpPost(ctx, "/api/table-retrieval/search", params)
 	case "list_apis":
-		return t.httpGet(ctx, "/api/data-ontology/apis")
+		return t.httpGet(ctx, "/api/apis")
 	case "create_api":
 		// 参数预处理：database → database_id 转换，字段名映射
 		apiParams := make(map[string]interface{})
@@ -292,11 +292,11 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if _, ok := apiParams["type"]; !ok {
 			apiParams["type"] = "query"
 		}
-		return t.httpPost(ctx, "/api/data-ontology/apis", apiParams)
+		return t.httpPost(ctx, "/api/apis", apiParams)
 	case "governance_tasks":
-		return t.httpGet(ctx, "/api/data-ontology/governance/tasks")
+		return t.httpGet(ctx, "/api/governance/tasks")
 	case "ontology_query":
-		return t.httpPost(ctx, "/api/data-ontology/ontology/query", params)
+		return t.httpPost(ctx, "/api/ontology/query", params)
 	default:
 		return nil, fmt.Errorf("unknown endpoint: %s", endpoint)
 	}
