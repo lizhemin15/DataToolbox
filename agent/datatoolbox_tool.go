@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -114,26 +115,40 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		result, err := t.httpGet(ctx, "/api/data-ontology/databases/"+nameOrID)
 		if err == nil {
 			if m, ok := result.(map[string]any); ok {
-				if success, _ := m["success"].(bool); success {
+				if success, ok := m["success"].(bool); ok && success {
 					return result, nil
 				}
+				log.Printf("[datatoolbox_api] get_database %q: direct lookup success=false, falling back to name search", nameOrID)
+			} else {
+				log.Printf("[datatoolbox_api] get_database %q: result is not map[string]any, type=%T", nameOrID, result)
 			}
+		} else {
+			log.Printf("[datatoolbox_api] get_database %q: direct lookup error: %v", nameOrID, err)
 		}
 		// ID 查不到，尝试通过 list_databases 匹配 name
 		listResult, listErr := t.httpGet(ctx, "/api/data-ontology/databases")
-		if listErr == nil {
-			if m, ok := listResult.(map[string]any); ok {
-				if dbs, ok := m["databases"].([]any); ok {
-					nameLower := strings.ToLower(nameOrID)
-					for _, db := range dbs {
-						if dbMap, ok := db.(map[string]any); ok {
-							dbName, _ := dbMap["name"].(string)
-							dbID, _ := dbMap["id"].(string)
-							if strings.ToLower(dbName) == nameLower && dbID != "" {
-								return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
-							}
-						}
-					}
+		if listErr != nil {
+			log.Printf("[datatoolbox_api] list_databases error: %v", listErr)
+			return nil, fmt.Errorf("database %q not found (list failed: %v)", nameOrID, listErr)
+		}
+		listMap, ok := listResult.(map[string]any)
+		if !ok {
+			log.Printf("[datatoolbox_api] list_databases result is not map, type=%T", listResult)
+			return nil, fmt.Errorf("database %q not found (unexpected list format)", nameOrID)
+		}
+		dbs, ok := listMap["databases"].([]any)
+		if !ok {
+			log.Printf("[datatoolbox_api] list_databases: 'databases' field not []any, type=%T", listMap["databases"])
+			return nil, fmt.Errorf("database %q not found (no databases list)", nameOrID)
+		}
+		nameLower := strings.ToLower(nameOrID)
+		for _, db := range dbs {
+			if dbMap, ok := db.(map[string]any); ok {
+				dbName, _ := dbMap["name"].(string)
+				dbID, _ := dbMap["id"].(string)
+				if strings.ToLower(dbName) == nameLower && dbID != "" {
+					log.Printf("[datatoolbox_api] get_database: matched name %q -> id %s", nameOrID, dbID)
+					return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
 				}
 			}
 		}
