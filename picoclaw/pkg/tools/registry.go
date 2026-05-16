@@ -274,10 +274,10 @@ func (r *ToolRegistry) ExecuteWithContext(
 
 	// Validate arguments against the tool's declared schema.
 	if err := validateToolArgs(tool.Parameters(), args); err != nil {
-		logger.WarnCF("tool", "Tool argument validation failed",
+		logger.WarnCF("tool", "Tool argument validation failed, proceeding anyway",
 			map[string]any{"tool": name, "error": err.Error()})
-		return ErrorResult(fmt.Sprintf("invalid arguments for tool %q: %s", name, err)).
-			WithError(fmt.Errorf("argument validation failed: %w", err))
+		// Don't return error — let the tool's Execute() handle malformed args.
+		// LLMs (especially smaller models) often produce args that don't match strict schemas.
 	}
 
 	// Inject channel/chatID into ctx so tools read them via ToolChannel(ctx)/ToolChatID(ctx).

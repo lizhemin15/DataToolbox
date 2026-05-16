@@ -67,22 +67,33 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 	params, _ := args["params"].(map[string]any)
 
 	// 处理 LLM 把参数包在 "raw" 字段里的情况（Qwen3 等模型常见）
+	// 递归解析嵌套的 raw 字段
 	if endpoint == "" {
-		if raw, ok := args["raw"].(string); ok && raw != "" {
-			var parsed map[string]any
-			if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
-				if e, ok := parsed["endpoint"].(string); ok {
-					endpoint = e
-				}
-				if p, ok := parsed["params"].(map[string]any); ok {
-					params = p
-				}
+		current := args
+		for i := 0; i < 5; i++ { // 最多递归5层
+			raw, ok := current["raw"].(string)
+			if !ok || raw == "" {
+				break
 			}
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+				break
+			}
+			if e, ok := parsed["endpoint"].(string); ok {
+				endpoint = e
+			}
+			if p, ok := parsed["params"].(map[string]any); ok {
+				params = p
+			}
+			if endpoint != "" {
+				break
+			}
+			current = parsed // 继续解析下一层 raw
 		}
 	}
 
 	if endpoint == "" {
-		return tools.ErrorResult("endpoint is required")
+		return tools.ErrorResult("endpoint is required. Available: list_databases, get_database, list_tables, get_table_schema, execute_sql, list_apis, create_api, search_tables, governance_tasks, ontology_query")
 	}
 
 	if params == nil {
