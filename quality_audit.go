@@ -863,7 +863,7 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prefix := "/api/data-ontology/quality-audit"
+	prefix := "/api/quality-audit"
 	path := strings.TrimPrefix(r.URL.Path, prefix)
 	path = strings.Trim(path, "/")
 	parts := strings.Split(path, "/")

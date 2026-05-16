@@ -26,7 +26,7 @@ import (
 func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/tasks/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/governance/tasks/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少任务ID"})
 		return
@@ -44,7 +44,7 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		case "logs":
 			if len(pathParts) > 2 {
-				// DELETE /api/data-ontology/governance/tasks/{taskID}/logs/{logID}
+				// DELETE /api/governance/tasks/{taskID}/logs/{logID}
 				handleGovernanceTaskLogDelete(w, r, taskID, pathParts[2])
 				return
 			}
@@ -78,8 +78,8 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			// POST /api/data-ontology/governance/tasks/{id}/share - 开启分享
-			// DELETE /api/data-ontology/governance/tasks/{id}/share - 关闭分享
+			// POST /api/governance/tasks/{id}/share - 开启分享
+			// DELETE /api/governance/tasks/{id}/share - 关闭分享
 			if r.Method == http.MethodPost {
 				handleGovernanceTaskShareEnable(w, r, taskID)
 			} else if r.Method == http.MethodDelete {
@@ -803,7 +803,7 @@ func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 // handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
-	rawPath := strings.TrimPrefix(r.URL.Path, "/api/data-ontology/governance/examples/")
+	rawPath := strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
 	if rawPath == r.URL.Path {
 		rawPath = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
 	}
@@ -972,7 +972,7 @@ func handleGovernanceExamplesZipDownload(w http.ResponseWriter, r *http.Request)
 	w.Write(buf.Bytes())
 }
 
-// handleGovernanceExamplesReload POST /api/data-ontology/governance/examples/reload
+// handleGovernanceExamplesReload POST /api/governance/examples/reload
 // 从当前进程内的 embed FS 将预置任务的 example_files（及可选的「综合日报生成器」js_code）同步到 data-store.json。
 // 仅匹配内置任务名称，不修改用户自建任务。需管理员。
 
@@ -1685,7 +1685,7 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 	// 执行任务
 	result := callGovRunner(taskData)
 	if !result.Success {
-		return nil, fmt.Errorf(result.Error)
+		return nil, fmt.Errorf("%s", result.Error)
 	}
 
 	// 返回结果
@@ -1771,7 +1771,7 @@ func governanceWriteOutputFiles(runID string, files []GovOutputFile) []string {
 		q := url.Values{}
 		q.Set("run_id", runID)
 		q.Set("name", safe)
-		lines = append(lines, fmt.Sprintf("输出文件 %s — 下载: /api/data-ontology/governance/download-output?%s", safe, q.Encode()))
+		lines = append(lines, fmt.Sprintf("输出文件 %s — 下载: /api/governance/download-output?%s", safe, q.Encode()))
 	}
 	return lines
 }

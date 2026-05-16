@@ -99,14 +99,14 @@ func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 
 	// 从URL中提取数据库ID
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 5 {
+	if len(pathParts) < 4 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := pathParts[3]
+	dbID := pathParts[2]
 
 	// 检查数据库是否存在及权限
 	dataOntologyMu.RLock()
@@ -384,14 +384,14 @@ func handleDatabaseOntologyRelations(w http.ResponseWriter, r *http.Request) {
 
 	// 从URL中提取数据库ID
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 5 {
+	if len(pathParts) < 4 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := pathParts[3]
+	dbID := pathParts[2]
 
 	// 检查数据库是否存在及权限
 	dataOntologyMu.RLock()
@@ -532,15 +532,15 @@ func handleDatabaseOntologyRelationDetail(w http.ResponseWriter, r *http.Request
 
 	// 从URL中提取数据库ID和关系ID
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 7 {
+	if len(pathParts) < 6 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := pathParts[3]
-	relID := pathParts[6]
+	dbID := pathParts[2]
+	relID := pathParts[5]
 
 	// 检查数据库是否存在及权限
 	dataOntologyMu.RLock()
@@ -953,7 +953,7 @@ func handleSharePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 提供分享页面
-	http.ServeFile(w, r, "apps/data-ontology/share.html")
+	http.ServeFile(w, r, "share.html")
 }
 
 // handleGovernanceShare 处理分享任务请求（免鉴权）
@@ -961,8 +961,8 @@ func handleSharePage(w http.ResponseWriter, r *http.Request) {
 func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// 解析路径: /api/data-ontology/share/{token}[/run[/run_id[/download]]]
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/share/"), "/")
+	// 解析路径: /api/share/{token}[/run[/run_id[/download]]]
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/share/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少分享token"})
 		return
@@ -986,7 +986,7 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 路由分发
-	// GET /api/data-ontology/share/{token}/examples/{filename} - 免鉴权下载示例文件
+	// GET /api/share/{token}/examples/{filename} - 免鉴权下载示例文件
 	if len(pathParts) >= 3 && pathParts[1] == "examples" {
 		filename := pathParts[2]
 		handleGovernanceShareExampleDownload(w, r, task, filename)
@@ -997,32 +997,32 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 		if len(pathParts) >= 3 && pathParts[2] != "" {
 			runID := pathParts[2]
 			if len(pathParts) >= 4 && pathParts[3] == "download" {
-				// GET /api/data-ontology/share/{token}/run/{run_id}/download
+				// GET /api/share/{token}/run/{run_id}/download
 				handleGovernanceShareRunDownload(w, r, task, runID)
 				return
 			}
-			// GET /api/data-ontology/share/{token}/run/{run_id}
+			// GET /api/share/{token}/run/{run_id}
 			handleGovernanceShareRunStatus(w, r, task, runID)
 			return
 		}
-		// POST /api/data-ontology/share/{token}/run
+		// POST /api/share/{token}/run
 		handleGovernanceShareRun(w, r, task, shareToken)
 		return
 	}
 
-	// GET /api/data-ontology/share/{token}/runs - 列出所有执行记录
+	// GET /api/share/{token}/runs - 列出所有执行记录
 	if len(pathParts) >= 2 && pathParts[1] == "runs" {
 		handleGovernanceShareRuns(w, r, task)
 		return
 	}
 
-	// POST /api/data-ontology/share/{token}/ai/completion - 免授权 AI 调用
+	// POST /api/share/{token}/ai/completion - 免授权 AI 调用
 	if len(pathParts) >= 3 && pathParts[1] == "ai" && pathParts[2] == "completion" {
 		handleGovernanceShareAICompletion(w, r)
 		return
 	}
 
-	// GET /api/data-ontology/share/{token}
+	// GET /api/share/{token}
 	handleGovernanceShareInfo(w, r, task)
 }
 

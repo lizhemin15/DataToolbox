@@ -731,14 +731,14 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	// 从URL中提取数据库ID
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	if len(parts) < 5 {
+	if len(parts) < 4 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := parts[4]
+	dbID := parts[3]
 
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
@@ -984,15 +984,15 @@ func handleDatabaseLineage(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.Trim(r.URL.Path, "/")
 	parts := strings.Split(path, "/")
-	// api / data-ontology / databases / {id} / lineage
-	if len(parts) != 5 || parts[0] != "api" || parts[1] != "data-ontology" || parts[2] != "databases" || parts[4] != "lineage" {
+	// api / databases / {id} / lineage
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "databases" || parts[3] != "lineage" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := parts[3]
+	dbID := parts[2]
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()

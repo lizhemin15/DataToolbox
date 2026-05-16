@@ -893,7 +893,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}`);
+                const response = await fetch(`${API_BASE}/api/share/${shareToken}`);
                 const data = await response.json();
                 if (data.success) {
                     taskInfo = data;
@@ -944,7 +944,7 @@
                         const exampleFiles = document.getElementById('exampleFiles');
                         exampleSection.style.display = '';
                         exampleFiles.innerHTML = data.example_files.map(file =>
-                            `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/examples/${encodeURIComponent(file.path)}" class="example-file" download title="点击下载 ${file.name}">${file.name}</a>`
+                            `<a href="${API_BASE}/api/share/${shareToken}/examples/${encodeURIComponent(file.path)}" class="example-file" download title="点击下载 ${file.name}">${file.name}</a>`
                         ).join('');
                     }
 
@@ -1039,7 +1039,7 @@
             });
 
             try {
-                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run`, {
+                const response = await fetch(`${API_BASE}/api/share/${shareToken}/run`, {
                     method: 'POST',
                     body: formData
                 });
@@ -1067,7 +1067,7 @@
             if (!currentRunId) return;
 
             try {
-                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run/${currentRunId}`);
+                const response = await fetch(`${API_BASE}/api/share/${shareToken}/run/${currentRunId}`);
                 const data = await response.json();
                 if (data.success) {
                     const progressFill = document.getElementById('progressFill');
@@ -1132,10 +1132,10 @@
             const resultFiles = document.getElementById('resultFiles');
             if (data.result_files && data.result_files.length > 0) {
                 resultFiles.innerHTML = data.result_files.map(file =>
-                    `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${currentRunId}/download?file=${encodeURIComponent(file)}" class="result-file" download>${file}</a>`
+                    `<a href="${API_BASE}/api/share/${shareToken}/run/${currentRunId}/download?file=${encodeURIComponent(file)}" class="result-file" download>${file}</a>`
                 ).join('');
             } else if (data.status === 'completed') {
-                resultFiles.innerHTML = '<a href="' + API_BASE + '/api/data-ontology/share/' + shareToken + '/run/' + currentRunId + '/download" class="result-file">下载全部结果</a>';
+                resultFiles.innerHTML = '<a href="' + API_BASE + '/api/share/' + shareToken + '/run/' + currentRunId + '/download" class="result-file">下载全部结果</a>';
             } else {
                 resultFiles.innerHTML = '';
             }
@@ -1156,7 +1156,7 @@
         async function loadHistory() {
             if (!shareToken) return;
             try {
-                const response = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/runs`);
+                const response = await fetch(`${API_BASE}/api/share/${shareToken}/runs`);
                 const data = await response.json();
                 const historyList = document.getElementById('historyList');
                 if (!data.success || !data.runs || data.runs.length === 0) {
@@ -1172,12 +1172,12 @@
                     
                     // 输入文件列表
                     const inputFilesHtml = (run.input_files && run.input_files.length > 0)
-                        ? run.input_files.map(f => `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=input" class="history-file-link" target="_blank">${f}</a>`).join('')
+                        ? run.input_files.map(f => `<a href="${API_BASE}/api/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=input" class="history-file-link" target="_blank">${f}</a>`).join('')
                         : '<span class="history-file-none">-</span>';
                     
                     // 输出文件列表
                     const outputFilesHtml = (run.result_files && run.result_files.length > 0)
-                        ? run.result_files.map(f => `<a href="${API_BASE}/api/data-ontology/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=output" class="history-file-link" target="_blank">${f}</a>`).join('')
+                        ? run.result_files.map(f => `<a href="${API_BASE}/api/share/${shareToken}/run/${run.id}/download?file=${encodeURIComponent(f)}&type=output" class="history-file-link" target="_blank">${f}</a>`).join('')
                         : '<span class="history-file-none">-</span>';
                     
                     // 执行日志（可展开/折叠）
@@ -1227,7 +1227,7 @@
             if (savedRunId) {
                 // 先验证 runId 是否有效，再恢复轮询
                 try {
-                    const resp = await fetch(`${API_BASE}/api/data-ontology/share/${shareToken}/run/${savedRunId}`);
+                    const resp = await fetch(`${API_BASE}/api/share/${shareToken}/run/${savedRunId}`);
                     const data = await resp.json();
                     if (data.success) {
                         currentRunId = savedRunId;

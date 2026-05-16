@@ -877,8 +877,8 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
 
-	// 路径格式: /api/data-ontology/databases/{id}/tables 或 /api/data-ontology/databases/{id}/tables/{name}
-	if len(parts) < 6 {
+	// 路径格式: /api/databases/{id}/tables 或 /api/databases/{id}/tables/{name}
+	if len(parts) < 5 {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
@@ -886,7 +886,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbID := parts[4]
+	dbID := parts[3]
 
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]
@@ -922,7 +922,7 @@ func handleTableData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tableName := parts[6]
+	tableName := parts[5]
 
 	// 安全验证：检查表名是否合法，防止 SQL 注入
 	if !isValidIdentifierWithSchema(tableName) {

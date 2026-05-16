@@ -68,15 +68,6 @@ func main() {
 	mux.HandleFunc("/ws/chat", handleWebSocket)
 	mux.HandleFunc("/ws/ops/ssh", handleSSHWebSocket)
 
-	// SSH/SFTP 运维 API 路由
-	mux.HandleFunc("/api/ops/sftp/connect", handleSFTPConnect)
-	mux.HandleFunc("/api/ops/sftp/list", handleSFTPList)
-	mux.HandleFunc("/api/ops/sftp/upload", handleSFTPUpload)
-	mux.HandleFunc("/api/ops/sftp/download", handleSFTPDownload)
-	mux.HandleFunc("/api/ops/sftp/disconnect", handleSFTPDisconnect)
-	mux.HandleFunc("/api/ops/sftp/mkdir", handleSFTPMkdir)
-	mux.HandleFunc("/api/ops/sftp/delete", handleSFTPDelete)
-	mux.HandleFunc("/api/ops/sftp/rename", handleSFTPRename)
 
 	// 版本号 API（无需鉴权）
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
@@ -85,47 +76,47 @@ func main() {
 	})
 
 	// 数据本体池API路由
-	mux.HandleFunc("/api/data-ontology/login", handleDataOntologyLogin)
-	mux.HandleFunc("/api/data-ontology/users", handleDataOntologyUsers)
-	mux.HandleFunc("/api/data-ontology/users/batch", handleDataOntologyUsersBatch)
-	mux.HandleFunc("/api/data-ontology/users/", handleDataOntologyUsersDetail)
-	mux.HandleFunc("/api/data-ontology/apikey", handleApiKey)
-	mux.HandleFunc("/api/data-ontology/settings", handleUserSettings)
-	mux.HandleFunc("/api/data-ontology/test-connection", handleTestConnection)
-	mux.HandleFunc("/api/data-ontology/databases", handleDatabases)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/sync", handleTableRetrievalSync)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/status", handleTableRetrievalStatus)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-sync", handleTableRetrievalEmbeddingSync)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-scan", handleTableRetrievalRelationScan)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-confirm", handleTableRetrievalRelationConfirm)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/embedding-preview", handleTableRetrievalEmbeddingPreview)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/relation-preview", handleTableRetrievalRelationPreview)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/search", handleTableRetrievalSearch)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/vectors", handleTableRetrievalVectorList)
-	mux.HandleFunc("/api/data-ontology/table-retrieval/relations", handleTableRetrievalRelationList)
-	mux.HandleFunc("/api/data-ontology/databases/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/login", handleDataOntologyLogin)
+	mux.HandleFunc("/api/users", handleDataOntologyUsers)
+	mux.HandleFunc("/api/users/batch", handleDataOntologyUsersBatch)
+	mux.HandleFunc("/api/users/", handleDataOntologyUsersDetail)
+	mux.HandleFunc("/api/apikey", handleApiKey)
+	mux.HandleFunc("/api/settings", handleUserSettings)
+	mux.HandleFunc("/api/test-connection", handleTestConnection)
+	mux.HandleFunc("/api/databases", handleDatabases)
+	mux.HandleFunc("/api/table-retrieval/sync", handleTableRetrievalSync)
+	mux.HandleFunc("/api/table-retrieval/status", handleTableRetrievalStatus)
+	mux.HandleFunc("/api/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
+	mux.HandleFunc("/api/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
+	mux.HandleFunc("/api/table-retrieval/embedding-sync", handleTableRetrievalEmbeddingSync)
+	mux.HandleFunc("/api/table-retrieval/relation-scan", handleTableRetrievalRelationScan)
+	mux.HandleFunc("/api/table-retrieval/relation-confirm", handleTableRetrievalRelationConfirm)
+	mux.HandleFunc("/api/table-retrieval/embedding-preview", handleTableRetrievalEmbeddingPreview)
+	mux.HandleFunc("/api/table-retrieval/relation-preview", handleTableRetrievalRelationPreview)
+	mux.HandleFunc("/api/table-retrieval/search", handleTableRetrievalSearch)
+	mux.HandleFunc("/api/table-retrieval/vectors", handleTableRetrievalVectorList)
+	mux.HandleFunc("/api/table-retrieval/relations", handleTableRetrievalRelationList)
+	mux.HandleFunc("/api/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
-		// Handle ontology endpoints: /api/data-ontology/databases/{id}/ontology/...
-		if len(parts) >= 6 && parts[2] == "databases" && parts[4] == "ontology" {
-			switch parts[5] {
+		// Handle ontology endpoints: /api/databases/{id}/ontology/...
+		if len(parts) >= 5 && parts[1] == "databases" && parts[3] == "ontology" {
+			switch parts[4] {
 			case "scan":
 				handleDatabaseOntologyScan(w, r)
 				return
 			case "relations":
-				if len(parts) == 6 {
+				if len(parts) == 5 {
 					handleDatabaseOntologyRelations(w, r)
 					return
-				} else if len(parts) == 7 {
+				} else if len(parts) == 6 {
 					handleDatabaseOntologyRelationDetail(w, r)
 					return
 				}
 			}
 		}
 		// Handle lineage endpoint
-		if len(parts) == 5 && parts[2] == "databases" && parts[4] == "lineage" {
+		if len(parts) == 4 && parts[1] == "databases" && parts[3] == "lineage" {
 			handleDatabaseLineage(w, r)
 			return
 		}
@@ -138,16 +129,16 @@ func main() {
 	})
 
 	// MCP 配置（总开关）
-	mux.HandleFunc("/api/data-ontology/mcp/config", handleMCPConfig)
-	mux.HandleFunc("/api/data-ontology/mcp/safe-config", handleMCPSafeConfig)
-	mux.HandleFunc("/api/data-ontology/mcp/port", handleMCPPort)
+	mux.HandleFunc("/api/mcp/config", handleMCPConfig)
+	mux.HandleFunc("/api/mcp/safe-config", handleMCPSafeConfig)
+	mux.HandleFunc("/api/mcp/port", handleMCPPort)
 	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
 	mux.Handle("/mcp/", http.HandlerFunc(handleMCPHTTP))
 	// Skills 技能导出
-	mux.HandleFunc("/api/data-ontology/skills/export", handleSkillsExport)
+	mux.HandleFunc("/api/skills/export", handleSkillsExport)
 	// 接口管理API路由
-	mux.HandleFunc("/api/data-ontology/apis", handleApis)
-	mux.HandleFunc("/api/data-ontology/apis/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/apis", handleApis)
+	mux.HandleFunc("/api/apis/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if strings.HasSuffix(path, "/test") {
 			handleApiTest(w, r)
@@ -157,65 +148,50 @@ func main() {
 	})
 
 	// AI助手API路由
-	mux.HandleFunc("/api/data-ontology/ai/config", handleAIConfig)
-	mux.HandleFunc("/api/data-ontology/ai/embedding-config", handleAIEmbeddingConfig)
-	mux.HandleFunc("/api/data-ontology/ai/table-retrieval-config", handleTableRetrievalConfig)
-	mux.HandleFunc("/api/data-ontology/ai/capabilities", handleAICapabilities)
-	mux.HandleFunc("/api/data-ontology/ai/query", handleAIQuery)
-	mux.HandleFunc("/api/data-ontology/ai/confirm-execute", handleAIConfirmExecute)
-	mux.HandleFunc("/api/data-ontology/ai/codegen", handleAICodegen)
-	mux.HandleFunc("/api/data-ontology/ai/completion", handleAICompletion)
+	mux.HandleFunc("/api/ai/config", handleAIConfig)
+	mux.HandleFunc("/api/ai/embedding-config", handleAIEmbeddingConfig)
+	mux.HandleFunc("/api/ai/table-retrieval-config", handleTableRetrievalConfig)
+	mux.HandleFunc("/api/ai/capabilities", handleAICapabilities)
+	mux.HandleFunc("/api/ai/query", handleAIQuery)
+	mux.HandleFunc("/api/ai/confirm-execute", handleAIConfirmExecute)
+	mux.HandleFunc("/api/ai/codegen", handleAICodegen)
+	mux.HandleFunc("/api/ai/completion", handleAICompletion)
 
 	// 集群模式（Agent）API路由
-	mux.HandleFunc("/api/data-ontology/agent/cluster/query", handleAgentClusterQuery)
-	mux.HandleFunc("/api/data-ontology/agent/mcp", handleAgentMCP)
-	mux.HandleFunc("/api/data-ontology/agent/skill", handleAgentSkill)
-	mux.HandleFunc("/api/data-ontology/agent/mode", handleAgentMode)
-	mux.HandleFunc("/api/data-ontology/agent/status", handleAgentStatus)
+	mux.HandleFunc("/api/agent/cluster/query", handleAgentClusterQuery)
+	mux.HandleFunc("/api/agent/mcp", handleAgentMCP)
+	mux.HandleFunc("/api/agent/skill", handleAgentSkill)
+	mux.HandleFunc("/api/agent/mode", handleAgentMode)
+	mux.HandleFunc("/api/agent/status", handleAgentStatus)
 
 	// 模型管理API路由
-	mux.HandleFunc("/api/data-ontology/models/llm", handleLLMModels)
-	mux.HandleFunc("/api/data-ontology/models/llm/", handleLLMModelDetail)
-	mux.HandleFunc("/api/data-ontology/models/small", handleSmallModels)
-	mux.HandleFunc("/api/data-ontology/models/small/", handleSmallModelDetail)
+	mux.HandleFunc("/api/models/llm", handleLLMModels)
+	mux.HandleFunc("/api/models/llm/", handleLLMModelDetail)
+	mux.HandleFunc("/api/models/small", handleSmallModels)
+	mux.HandleFunc("/api/models/small/", handleSmallModelDetail)
 
 	// 本体论API路由
-	mux.HandleFunc("/api/data-ontology/ontology/extract", handleOntologyExtract)
-	mux.HandleFunc("/api/data-ontology/ontology/query", handleOntologySemanticQuery)
+	mux.HandleFunc("/api/ontology/extract", handleOntologyExtract)
+	mux.HandleFunc("/api/ontology/query", handleOntologySemanticQuery)
 
 	// 数据治理API路由
-	mux.HandleFunc("/api/data-ontology/governance/tasks", handleGovernanceTasks)
-	mux.HandleFunc("/api/data-ontology/governance/tasks/", handleGovernanceTaskDetail)
-	mux.HandleFunc("/api/data-ontology/governance/examples/download", handleGovernanceExamplesZipDownload)
-	mux.HandleFunc("/api/data-ontology/governance/examples/", handleGovernanceExampleDownload)
-	mux.HandleFunc("/api/governance/examples/download", handleGovernanceExamplesZipDownload)
-	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
-	mux.HandleFunc("/api/data-ontology/governance/download-output", handleGovernanceDownloadOutput)
-	mux.HandleFunc("/api/data-ontology/governance/execute-sql", handleGovernanceExecuteSQL)
-	mux.HandleFunc("/api/data-ontology/quality-audit/", handleQualityAuditAPI)
+	mux.HandleFunc("/api/governance/tasks", handleGovernanceTasks)
+	mux.HandleFunc("/api/governance/tasks/", handleGovernanceTaskDetail)
+	mux.HandleFunc("/api/governance/download-output", handleGovernanceDownloadOutput)
+	mux.HandleFunc("/api/governance/execute-sql", handleGovernanceExecuteSQL)
+	mux.HandleFunc("/api/quality-audit/", handleQualityAuditAPI)
 
 	// 分享API路由（免鉴权）
-	mux.HandleFunc("/api/data-ontology/share/", handleGovernanceShare)
+	mux.HandleFunc("/api/share/", handleGovernanceShare)
 
 	// 文本结构化解析API路由
-	mux.HandleFunc("/api/data-ontology/gov/parse-text", handleGovParseText)
+	mux.HandleFunc("/api/gov/parse-text", handleGovParseText)
 
 	// 数据备份与恢复API路由
-	mux.HandleFunc("/api/data-ontology/backup", handleDataOntologyBackup)
-	mux.HandleFunc("/api/data-ontology/restore", handleDataOntologyRestore)
-	mux.HandleFunc("/api/data-ontology/restore-upload", handleDataOntologyRestoreUpload)
+	mux.HandleFunc("/api/backup", handleDataOntologyBackup)
+	mux.HandleFunc("/api/restore", handleDataOntologyRestore)
+	mux.HandleFunc("/api/restore-upload", handleDataOntologyRestoreUpload)
 
-	// 网页导航 API
-	mux.HandleFunc("/api/web-nav/login", handleWebNavLogin)
-	mux.HandleFunc("/api/web-nav/links", handleWebNavLinks)
-	mux.HandleFunc("/api/web-nav/links/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/web-nav/links/")
-		if id == "" {
-			http.NotFound(w, r)
-			return
-		}
-		handleWebNavLinkByID(w, r, id)
-	})
 
 	// 静态资源（嵌入二进制，无需外置 apps/css/js/lib）
 	mux.Handle("/", newStaticFileHandler())

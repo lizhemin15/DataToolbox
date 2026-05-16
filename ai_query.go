@@ -735,7 +735,7 @@ func handleApiDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 提取接口ID
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apis/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		apiBadRequest(w, "缺少接口ID")
 		return
@@ -1126,7 +1126,7 @@ func handleApiTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 提取接口ID
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/apis/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apis/"), "/")
 	if len(pathParts) < 2 || pathParts[0] == "" {
 		apiBadRequest(w, "缺少接口ID")
 		return
@@ -1744,7 +1744,7 @@ func handleLLMModelDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/llm/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/models/llm/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		apiBadRequest(w, "缺少模型ID")
 		return
@@ -1863,7 +1863,7 @@ func handleSmallModelDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/data-ontology/models/small/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/models/small/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少模型ID"})
 		return

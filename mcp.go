@@ -275,7 +275,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 	}
 	switch name {
 	case "list_databases":
-		data, err := cli.do(http.MethodGet, "/api/data-ontology/databases", nil)
+		data, err := cli.do(http.MethodGet, "/api/databases", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -289,7 +289,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 		if args.DatabaseID == "" {
 			return nil, fmt.Errorf("database_id 不能为空")
 		}
-		data, err := cli.do(http.MethodGet, "/api/data-ontology/databases/"+args.DatabaseID, nil)
+		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +308,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			"database_id": args.DatabaseID,
 			"sql":         "DESCRIBE `" + args.TableName + "`",
 		})
-		data, err := cli.do(http.MethodPost, "/api/data-ontology/governance/execute-sql", body)
+		data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
 		if err != nil {
 			return nil, err
 		}
@@ -333,14 +333,14 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			"sql":         args.SQL,
 			"params":      args.Params,
 		})
-		data, err := cli.do(http.MethodPost, "/api/data-ontology/governance/execute-sql", body)
+		data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
 		if err != nil {
 			return nil, err
 		}
 		return textResult(data), nil
 
 	case "list_apis":
-		data, err := cli.do(http.MethodGet, "/api/data-ontology/apis", nil)
+		data, err := cli.do(http.MethodGet, "/api/apis", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -354,7 +354,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 		if args.ApiID == "" {
 			return nil, fmt.Errorf("api_id 不能为空")
 		}
-		data, err := cli.do(http.MethodGet, "/api/data-ontology/apis/"+args.ApiID, nil)
+		data, err := cli.do(http.MethodGet, "/api/apis/"+args.ApiID, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -370,7 +370,7 @@ func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interfac
 			return nil, fmt.Errorf("api_id 不能为空")
 		}
 		body, _ := json.Marshal(map[string]interface{}{"params": args.Params})
-		data, err := cli.do(http.MethodPost, "/api/data-ontology/apis/"+args.ApiID+"/test", body)
+		data, err := cli.do(http.MethodPost, "/api/apis/"+args.ApiID+"/test", body)
 		if err != nil {
 			return nil, err
 		}
@@ -476,7 +476,7 @@ func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatab
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/data-ontology/databases", nil)
+	data, err := cli.do(http.MethodGet, "/api/databases", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -492,7 +492,7 @@ func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/data-ontology/databases/"+in.DatabaseID, nil)
+	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -506,7 +506,7 @@ func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/data-ontology/apis", nil)
+	data, err := cli.do(http.MethodGet, "/api/apis", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -527,7 +527,7 @@ func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*m
 	if body == nil {
 		body = []byte(`{"params":{}}`)
 	}
-	data, err := cli.do(http.MethodPost, "/api/data-ontology/apis/"+in.ApiID+"/test", body)
+	data, err := cli.do(http.MethodPost, "/api/apis/"+in.ApiID+"/test", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -542,7 +542,7 @@ func runMCPServer() {
 		fmt.Fprintf(os.Stderr, "MCP 启动失败: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := cli.do(http.MethodGet, "/api/data-ontology/mcp/config", nil)
+	data, err := cli.do(http.MethodGet, "/api/mcp/config", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 无法连接服务端: %v\n", err)
 		os.Exit(1)

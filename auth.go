@@ -1075,7 +1075,7 @@ func handleDataOntologyUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleDataOntologyUsersBatch POST /api/data-ontology/users/batch 批量创建用户（仅 admin）
+// handleDataOntologyUsersBatch POST /api/users/batch 批量创建用户（仅 admin）
 
 func handleDataOntologyUsersBatch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1176,7 +1176,7 @@ func handleDataOntologyUsersBatch(w http.ResponseWriter, r *http.Request) {
 
 func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	base := "/api/data-ontology/users/"
+	base := "/api/users/"
 	if !strings.HasPrefix(r.URL.Path, base) {
 		http.NotFound(w, r)
 		return
