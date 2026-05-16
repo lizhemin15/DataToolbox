@@ -140,6 +140,7 @@ func (c *mcpClient) do(method, path string, body []byte) ([]byte, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Call", "datatoolbox-agent")
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
