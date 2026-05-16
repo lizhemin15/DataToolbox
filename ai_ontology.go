@@ -114,24 +114,10 @@ func handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 集群模式分发：如果 mode=cluster 或会话级模式为 cluster，走集群模式
-	effectiveMode := queryReq.Mode
-	log.Printf("[handleAIQuery] mode=%q, databases=%v, message=%q", queryReq.Mode, queryReq.Databases, queryReq.Message)
-	if effectiveMode == "" {
-		// 从会话级模式映射中获取
-		dataOntologyMu.RLock()
-		if m, ok := agentSessionModes[username]; ok {
-			effectiveMode = m
-		}
-		dataOntologyMu.RUnlock()
-	}
-	log.Printf("[handleAIQuery] effectiveMode=%q, agentSessionModes=%v", effectiveMode, agentSessionModes)
-	if effectiveMode == "cluster" {
-		log.Printf("[handleAIQuery] → routing to cluster mode")
-		handleAgentClusterQueryWithReq(w, r, flusher, &queryReq, username)
-		return
-	}
-	log.Printf("[handleAIQuery] → routing to fast mode")
+	// 直接走集群模式（不再有 mode 分支，极速模式代码保留但不再走）
+	log.Printf("[handleAIQuery] → routing to cluster mode (default)")
+	handleAgentClusterQueryWithReq(w, r, flusher, &queryReq, username)
+	return
 
 	// === 极速模式（默认） ===
 	// 发送开始事件

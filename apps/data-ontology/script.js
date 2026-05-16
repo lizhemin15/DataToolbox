@@ -58,7 +58,7 @@ let currentDbReference = null;
 let dbSuggestionIndex = -1;
 
 // === Agent Cluster Mode ===
-let agentMode = 'fast'; // 'fast' | 'cluster'
+let agentMode = 'cluster'; // always cluster mode
 let clusterTraceData = []; // agent_trace bubbles for current session
 let mcpServersList = []; // MCP server list cache
 let skillsList = []; // Skill list cache
@@ -101,11 +101,11 @@ function getCurrentSession() {
     return aiSessions.find(s => s.id === currentSessionId) || null;
 }
 
-function createNewSession(mode) {
+function createNewSession() {
     const session = {
         id: 'sess-' + Date.now(),
-        title: mode === 'cluster' ? '🚀 新集群会话' : '⚡ 新极速会话',
-        mode: mode,
+        title: '🚀 新会话',
+        mode: 'cluster',
         messages: [],
         databases: [],
         modules: [],
@@ -118,11 +118,7 @@ function createNewSession(mode) {
     saveSessions();
     renderSessionList();
     switchToSession(session.id);
-    // 更新全局 agentMode
-    agentMode = mode;
-    updateModeSwitchUI();
 }
-
 function switchToSession(sessionId) {
     currentSessionId = sessionId;
     const session = getCurrentSession();
@@ -132,8 +128,6 @@ function switchToSession(sessionId) {
     aiSessionContext.databases = session.databases || [];
     aiSessionContext.modules = session.modules || [];
     aiSessionContext.history = session.history || [];
-    agentMode = session.mode;
-    updateModeSwitchUI();
     
     // 清空聊天区并重新渲染消息
     const messagesEl = document.getElementById('aiChatMessages');
@@ -149,7 +143,7 @@ function switchToSession(sessionId) {
             });
         } else {
             // 空会话显示欢迎信息
-            showSessionWelcome(session.mode);
+            showSessionWelcome();
         }
     }
     
@@ -254,41 +248,24 @@ function appendClusterMessageToChat(textContent, blocksData) {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function showSessionWelcome(mode) {
+function showSessionWelcome() {
     const messagesEl = document.getElementById('aiChatMessages');
     if (!messagesEl) return;
-    if (mode === 'cluster') {
-        messagesEl.innerHTML = `
-            <div class="ai-welcome-message">
-                <div class="ai-welcome-icon">🚀</div>
-                <h3>集群模式</h3>
-                <p>多智能体协作，自主规划执行复杂任务</p>
-                <div class="ai-tip">
-                    <div style="font-weight:600;margin-bottom:8px;">💡 使用方式：</div>
-                    <div style="text-align:left;padding-left:20px;">
-                        • 直接输入自然语言描述任务<br>
-                        • 智能体会自动拆解、多步执行<br>
-                        • 适合复杂的数据分析和治理任务<br>
-                        • 响应较慢，简单查询建议用极速模式
-                    </div>
+    messagesEl.innerHTML = `
+        <div class="ai-welcome-message">
+            <div class="ai-welcome-icon">🚀</div>
+            <h3>智能助手</h3>
+            <p>多智能体协作，自主规划执行复杂任务</p>
+            <div class="ai-tip">
+                <div style="font-weight:600;margin-bottom:8px;">💡 使用方式：</div>
+                <div style="text-align:left;padding-left:20px;">
+                    • 直接输入自然语言描述任务<br>
+                    • 智能体会自动拆解、多步执行<br>
+                    • 适合复杂的数据分析和治理任务<br>
+                    • 使用 <b>@数据库名</b> 引用数据库
                 </div>
-            </div>`;
-    } else {
-        messagesEl.innerHTML = `
-            <div class="ai-welcome-message">
-                <div class="ai-welcome-icon">⚡</div>
-                <h3>极速模式</h3>
-                <p>快速响应，固定工作流处理数据查询</p>
-                <div class="ai-tip">
-                    <div style="font-weight:600;margin-bottom:8px;">💡 使用方式：</div>
-                    <div style="text-align:left;padding-left:20px;">
-                        • 使用 <b>@数据库名</b> 引用数据库<br>
-                        • 后续对话记住数据库，无需重复 @<br>
-                        • 适合快速查询和接口生成
-                    </div>
-                </div>
-            </div>`;
-    }
+            </div>
+        </div>`;
 }
 
 function saveCurrentSessionMessage(role, content, blocksData) {
@@ -323,11 +300,7 @@ function renderSessionList() {
     
     listEl.innerHTML = aiSessions.map(s => {
         const isActive = s.id === currentSessionId;
-        const modeBadge = s.mode === 'cluster' 
-            ? '<span class="session-mode-badge mode-cluster">🚀</span>' 
-            : '<span class="session-mode-badge mode-fast">⚡</span>';
         return `<div class="ai-session-item ${isActive ? 'active' : ''}" onclick="switchToSession('${s.id}')">
-            ${modeBadge}
             <span class="session-title">${escapeHtml(s.title)}</span>
             <button class="session-delete" onclick="deleteSession('${s.id}', event)" title="删除">✕</button>
         </div>`;
@@ -339,12 +312,6 @@ function toggleAISidebar() {
     if (sidebar) sidebar.classList.toggle('collapsed');
 }
 
-function updateModeSwitchUI() {
-    const sw = document.getElementById('agentModeSwitch');
-    if (sw) {
-        sw.classList.toggle('cluster', agentMode === 'cluster');
-    }
-}
 
 // 初始化会话系统
 function initSessionSystem() {
@@ -5730,138 +5697,46 @@ async function handleSendAiMessage() {
     
     if (!message) return;
     
-    // 检查 AI 配置是否完整。
+    // 检查 AI 配置是否完整
     if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
         showAiError('请先完成 AI 配置');
         return;
     }
     
-    // 提取消息中的 @ 引用。
+    // 提取消息中的 @ 引用
     const allMatches = [...message.matchAll(/@([^\s]+)/g)];
-    const dbReferences = [];
-    const moduleReferences = [];
-
+    const dbRefs = [];
+    const modRefs = [];
     for (const match of allMatches) {
-        const refName = match[1];
-        // 模块匹配：优先精确匹配 name，再匹配 aliases，再匹配 id（忽略大小写）
-        const refNameLower = refName.toLowerCase();
-        let mod = aiModules.find(m => m.name === refName);
-        if (!mod) mod = aiModules.find(m => m.aliases && m.aliases.some(a => a === refName));
-        if (!mod) mod = aiModules.find(m => m.name.toLowerCase() === refNameLower);
-        if (!mod) mod = aiModules.find(m => m.aliases && m.aliases.some(a => a.toLowerCase() === refNameLower));
-        if (!mod) mod = aiModules.find(m => m.id === refName || m.id.toLowerCase() === refNameLower);
-        if (mod) {
-            moduleReferences.push(mod);
-            continue;
-        }
-        // 数据库匹配：精确匹配、忽略大小写、部分匹配、ID匹配
-        let db = databases.find(d => d.name === refName);
-        if (!db) {
-            db = databases.find(d => d.name.toLowerCase() === refNameLower);
-        }
-        if (!db) {
-            db = databases.find(d => d.name.toLowerCase().includes(refNameLower));
-        }
-        if (!db) {
-            db = databases.find(d => d.id === refName);
-        }
-        if (db) {
-            dbReferences.push(db);
-        }
+        const ref = match[1];
+        const refL = ref.toLowerCase();
+        let mod = aiModules.find(m => m.name === ref || m.name.toLowerCase() === refL || m.id === ref);
+        if (mod) { modRefs.push(mod); continue; }
+        let db = databases.find(d => d.name === ref || d.name.toLowerCase() === refL || d.id === ref);
+        if (db) dbRefs.push(db);
     }
-
-    // 清除数据库建议列表
-    if (moduleReferences.length > 0) {
-        aiSessionContext.modules = moduleReferences;
-    }
-
-    // 合并数据库上下文
-    if (dbReferences.length > 0) {
-        aiSessionContext.databases = dbReferences;
-    } else if (aiSessionContext.databases.length > 0) {
-        dbReferences.push(...aiSessionContext.databases);
-    }
-    // 如果没有指定数据库，让后端返回数据库选择卡片，不再前端拦截
-
-    updateAiContextDisplay();
+    if (modRefs.length > 0) aiSessionContext.modules = modRefs;
+    if (dbRefs.length > 0) aiSessionContext.databases = dbRefs;
+    else if (aiSessionContext.databases.length > 0) dbRefs.push(...aiSessionContext.databases);
 
     // 记录用户消息
     aiSessionContext.history.push({
         role: 'user',
         content: message,
-        databases: dbReferences.map(db => db.id),
+        databases: dbRefs.map(db => db.id),
         modules: aiSessionContext.modules.map(m => m.id)
     });
 
-    // 如果没有显式选择数据库，则使用已有上下文补足。
-    let displayMessage = message;
-    if (allMatches.length === 0 && aiSessionContext.databases.length > 0) {
-        const contextDbs = aiSessionContext.databases.map(db => `@${db.name}`).join(' ');
-        displayMessage = message + `\n<div class="ai-context-hint">当前上下文：${contextDbs}</div>`;
-    }
-    addAiMessage('user', displayMessage);
+    addAiMessage('user', message);
     saveCurrentSessionMessage('user', message);
-    
-    // 发送AI消息
     input.value = '';
     input.style.height = 'auto';
-    
-    // 显示进度
-    const sendBtn = document.getElementById('aiSendBtn');
-    sendBtn.disabled = true;
-    
-    // 清除数据库建议列表
-    const streamMessageId = addAiStreamMessage();
-    
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/query`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                message: message,
-                databases: dbReferences.map(db => db.id),
-                modules: aiSessionContext.modules.map(m => m.id),
-                history: aiSessionContext.history.slice(-5)
-            })
-        });
+    document.getElementById('aiSendBtn').disabled = true;
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        
-        while (true) {
-            const {done, value} = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, {stream: true});
-            const chunks = buffer.split(/\n\n+/);
-            buffer = chunks.pop() || '';
-            
-            for (const chunk of chunks) {
-                if (!chunk.trim()) continue;
-                const eventLines = chunk.split('\n');
-                let eventType = '';
-                const dataLines = [];
-                for (const line of eventLines) {
-                    if (line.startsWith('event:')) eventType = line.slice(6).trim();
-                    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-                }
-                if (!eventType || dataLines.length === 0) continue;
-                try {
-                    const data = JSON.parse(dataLines.join('\n'));
-                    handleStreamEvent(streamMessageId, eventType, data, message);
-                } catch (err) {
-                    console.warn('SSE JSON parse failed', eventType, dataLines.join('\n'), err);
-                }
-            }
-        }
-    } catch (error) {
-        updateStreamMessage(streamMessageId, 'error', {message: '发送失败：' + error.message});
-    } finally {
-        sendBtn.disabled = false;
-    }
+    // 统一走集群模式
+    await sendClusterQuery(message, dbRefs.map(d => d.id), aiSessionContext.modules.map(m => m.id));
+
+    document.getElementById('aiSendBtn').disabled = false;
 }
 
 // 生成用户头像 SVG
@@ -15209,14 +15084,6 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
 
 // === Agent Cluster Mode Functions ===
 
-// Toggle between fast and cluster mode
-function toggleAgentMode() {
-    // 切换模式 = 创建新模式的新会话
-    const newMode = agentMode === 'fast' ? 'cluster' : 'fast';
-    createNewSession(newMode);
-    showToast(`已创建${newMode === 'cluster' ? '集群' : '极速'}模式新会话 ${newMode === 'cluster' ? '🚀' : '⚡'}`, 'info');
-}
-
 // Show cluster mode usage guide
 function showClusterModeGuide() {
     const messagesEl = document.getElementById('aiChatMessages');
@@ -15239,7 +15106,7 @@ function showClusterModeGuide() {
                 <div class="cluster-tip">📋 <b>Trace追踪</b>：可查看每个智能体的执行轨迹和工具调用</div>
             </div>
             <div class="cluster-guide-note">
-                ⚠️ 集群模式响应较慢（需要多步推理），适合复杂任务。简单查询建议使用极速模式。
+                ⚠️ 智能助手需要多步推理，复杂任务响应较慢。
             </div>
             <div class="cluster-guide-config">
                 ⚙️ 点击右上角 <b>Agent配置</b> 按钮，可管理 MCP Server 和 Skill。
@@ -15255,9 +15122,8 @@ function removeClusterModeGuide() {
     if (existing) existing.remove();
 }
 
-// Initialize agent mode from localStorage
+// Initialize session system on DOMContentLoaded
 function initAgentMode() {
-    // 初始化会话系统（取代简单的 mode 切换）
     initSessionSystem();
 }
 
@@ -15723,49 +15589,3 @@ function showAddSkillForm() {
         body: JSON.stringify({ name, source_path: sourcePath, enabled: true })
     }).then(() => loadAgentConfigTab('skill')).catch(e => showToast('添加失败: ' + e.message, 'error'));
 }
-
-// Override handleSendAiMessage to support cluster mode
-const _originalHandleSendAiMessage = handleSendAiMessage;
-handleSendAiMessage = async function() {
-    if (agentMode === 'cluster') {
-        const input = document.getElementById('aiInput');
-        const message = input.value.trim();
-        if (!message) return;
-        if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
-            showAiError('请先完成 AI 配置');
-            return;
-        }
-        // Extract @ references same as original
-        const allMatches = [...message.matchAll(/@([^\s]+)/g)];
-        const dbRefs = [];
-        const modRefs = [];
-        for (const match of allMatches) {
-            const ref = match[1];
-            const refL = ref.toLowerCase();
-            let mod = aiModules.find(m => m.name === ref || m.name.toLowerCase() === refL || m.id === ref);
-            if (mod) { modRefs.push(mod); continue; }
-            let db = databases.find(d => d.name === ref || d.name.toLowerCase() === refL || d.id === ref);
-            if (db) dbRefs.push(db);
-        }
-        if (modRefs.length > 0) aiSessionContext.modules = modRefs;
-        if (dbRefs.length > 0) aiSessionContext.databases = dbRefs;
-        else if (aiSessionContext.databases.length > 0) dbRefs.push(...aiSessionContext.databases);
-
-        addAiMessage('user', message);
-        saveCurrentSessionMessage('user', message);
-        input.value = '';
-        input.style.height = 'auto';
-        document.getElementById('aiSendBtn').disabled = true;
-
-        await sendClusterQuery(message, dbRefs.map(d => d.id), aiSessionContext.modules.map(m => m.id));
-
-        document.getElementById('aiSendBtn').disabled = false;
-    } else {
-        return _originalHandleSendAiMessage();
-    }
-};
-
-// Init on load
-document.addEventListener('DOMContentLoaded', initAgentMode);
-
-// === Agent Cluster Mode End ===

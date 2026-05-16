@@ -533,7 +533,7 @@ tools:
 
 ## 核心能力
 
-- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、list_tables、execute_sql、get_table_schema 端点
+- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、list_tables、execute_sql、get_table_schema、search_tables 端点
 - **接口创建**: 使用 list_apis 查看已有接口，使用 create_api 创建新接口
 - **数据治理**: 使用 governance_tasks 端点管理治理任务
 - **数据本体**: 使用 ontology_query 查询概念关系
@@ -541,12 +541,54 @@ tools:
 
 ## 用户意图识别
 
-根据用户消息判断意图：
+根据用户消息和系统注入的意图检测结果判断意图：
 - "创建接口"/"做个API"/"接口制作" → 创建接口流程
 - "查询数据"/"看看有哪些表" → 数据库查询
 - "数据治理"/"定时任务" → 治理任务
 - 用户用 @数据库名 指定了数据库时，必须使用该数据库
 - 用户用 @接口制作 指定了模块时，进入创建接口流程
+- 系统会在消息中注入意图检测结果（模块、置信度、原因），优先参考该结果
+
+## RAG 检索流程（SQL 查询必读）
+
+当用户需要查询数据时，必须按以下 RAG 流程操作，不要跳步：
+
+1. **search_tables** — 用用户需求关键词搜索相关表（参数: query, database?）
+2. **get_table_schema** — 获取相关表的字段详情（参数: database, table）
+3. **get_db_sql_hints** — 获取该数据库的 SQL 方言提示和文档（参数: database）
+4. **生成 SQL** — 基于表结构和方言提示生成准确的 SQL
+5. **execute_sql** — 执行生成的 SQL（参数: database, sql）
+
+重要：不要凭记忆猜测表名或字段名，必须先通过 search_tables 和 get_table_schema 获取真实信息。
+
+## SQL 生成最佳实践
+
+1. **先获取方言提示** — 不同数据库（MySQL/PostgreSQL/DM/Oracle等）语法有差异，生成 SQL 前先调用 get_db_sql_hints 获取方言提示
+2. **使用真实表名和字段名** — 从 get_table_schema 获取，不要猜测
+3. **合理使用 LIMIT** — 查询数据时默认加 LIMIT，避免返回过多数据
+4. **避免 SELECT *** — 只查询需要的字段
+5. **参数化查询** — 接口 SQL 使用 #{参数名} 格式
+6. **注意数据类型** — 字符串加引号，数字不加，日期按方言格式
+
+## 反思流程（执行后验证）
+
+执行 SQL 后必须检查结果是否合理：
+
+1. **检查结果是否为空** — 如果返回空结果，思考是否 SQL 条件过于严格，考虑放宽条件重试
+2. **检查结果数量** — 如果返回行数异常多或异常少，思考是否符合预期
+3. **检查字段值** — 如果结果中包含 NULL 或异常值，向用户说明
+4. **错误重试** — 如果 SQL 执行失败，分析错误信息，修正 SQL 后重试（最多重试 3 次）
+5. **结果解释** — 用中文向用户解释查询结果的含义，不要只返回原始数据
+
+## 写操作安全
+
+遇到 INSERT、UPDATE、DELETE、DROP、ALTER、TRUNCATE 等写操作时：
+
+1. **必须先确认** — 向用户展示即将执行的 SQL，等待用户确认后再执行
+2. **说明影响范围** — 告知用户该操作会影响多少行数据
+3. **建议备份** — 对于重要数据的修改，建议用户先备份
+4. **禁止危险操作** — 不要执行 DROP TABLE、TRUNCATE 等不可逆操作，除非用户明确要求
+5. **事务建议** — 对于批量修改，建议使用事务以便回滚
 
 ## 创建接口流程
 
@@ -575,6 +617,8 @@ tools:
 4. **简洁准确** — 回答要直接了当，不要废话
 5. **遇到错误要报告** — 如果工具调用失败，如实告知用户错误信息
 6. **尊重用户上下文** — 用户通过 @ 指定的数据库和模块必须使用
+7. **反思验证** — 执行 SQL 后检查结果合理性，不合理则修正重试
+8. **写操作确认** — 任何写操作必须先向用户确认
 `
 		os.MkdirAll(agentWorkspace, 0755)
 		if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
@@ -726,9 +770,17 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 
 	sessionID := fmt.Sprintf("cluster-%s", username)
 
-	// 构建增强消息：注入数据库和模块上下文
+	// 构建增强消息：注入意图检测、数据库和模块上下文
 	enhancedMessage := queryReq.Message
 	var contextParts []string
+
+	// 意图检测：在注入上下文前，先调用 detectUserIntent 做意图检测
+	intentInfo := detectUserIntent(queryReq.Message)
+	if intentInfo.DetectedModule != "" {
+		intentDesc := fmt.Sprintf("- 检测到意图: %s (置信度: %.0f%%, 原因: %s)", intentInfo.DetectedModule, intentInfo.Confidence*100, intentInfo.Reason)
+		contextParts = append(contextParts, "系统意图检测结果:\n"+intentDesc)
+		log.Printf("[agent] intent detected: module=%s, confidence=%.2f, reason=%s", intentInfo.DetectedModule, intentInfo.Confidence, intentInfo.Reason)
+	}
 
 	// 注入数据库上下文
 	if len(queryReq.Databases) > 0 {
@@ -954,42 +1006,22 @@ func handleAgentMode(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// 获取当前模式 — 用 username 作为 key
-		username, _ := getDataOntologyUserFromRequest(r)
-		key := username
-		if key == "" {
-			key = "default"
-		}
-		mode := "fast" // 默认
-		if m, ok := agentSessionModes[key]; ok {
-			mode = m
-		}
+		// 获取当前模式 — 始终返回 cluster
 		apiSuccess(w, map[string]interface{}{
-			"mode": mode,
+			"mode": "cluster",
 		})
 
 	case http.MethodPost:
-		// 设置当前模式 — 用 username 作为 key
+		// 设置当前模式 — 忽略请求，始终设为 cluster
 		username, _ := getDataOntologyUserFromRequest(r)
-		var req struct {
-			Mode string `json:"mode"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			apiBadRequest(w, "请求格式错误")
-			return
-		}
-		if req.Mode != "fast" && req.Mode != "cluster" {
-			apiBadRequest(w, "mode 必须为 fast 或 cluster")
-			return
-		}
 		key := username
 		if key == "" {
 			key = "default"
 		}
-		agentSessionModes[key] = req.Mode
-		log.Printf("[agent] mode set: user=%s, mode=%s", key, req.Mode)
+		agentSessionModes[key] = "cluster"
+		log.Printf("[agent] mode set: user=%s, mode=cluster (forced)", key)
 		apiSuccess(w, map[string]interface{}{
-			"mode": req.Mode,
+			"mode": "cluster",
 		})
 
 	default:

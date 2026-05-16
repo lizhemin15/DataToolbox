@@ -907,8 +907,8 @@
                     </div>
                     <div class="ai-sidebar-body" id="aiSidebarBody">
                         <div class="ai-new-session-bar">
-                            <button class="ai-new-session-btn" data-mode="fast" onclick="createNewSession('fast')" title="极速模式新会话">⚡</button>
-                            <button class="ai-new-session-btn" data-mode="cluster" onclick="createNewSession('cluster')" title="集群模式新会话">🚀</button>
+                            <button class="ai-new-session-btn" onclick="createNewSession()" title="🚀 新会话">🚀</button>
+
                         </div>
                         <div class="ai-session-list" id="aiSessionList">
                             <!-- 会话列表动态生成 -->
@@ -919,13 +919,6 @@
                     <div class="ai-chat-header">
                         <h3>🤖 智能助手</h3>
                         <div class="ai-header-controls">
-                            <div class="agent-mode-switch" id="agentModeSwitch" title="切换模式">
-                                <span class="agent-mode-label" data-mode="fast">极速</span>
-                                <div class="agent-mode-slider" id="agentModeSlider" onclick="toggleAgentMode()">
-                                    <div class="agent-mode-knob" id="agentModeKnob"></div>
-                                </div>
-                                <span class="agent-mode-label" data-mode="cluster">集群</span>
-                            </div>
                             <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">🧩</button>
                             <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
                         </div>

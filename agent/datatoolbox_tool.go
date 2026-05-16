@@ -20,14 +20,22 @@ const dataToolboxAPIDesc = `Call DataToolbox internal API endpoints to interact 
 Available endpoints:
 - list_databases: List all configured databases (no params)
 - get_database: Get database details (params: name)
-- execute_sql: Execute SQL query (params: database, sql)
+- get_db_schema: Get full database schema (all tables + columns) for AI SQL generation (params: database)
+- get_db_sql_hints: Get SQL dialect hints and documentation for a database (params: database)
+- execute_sql: Execute SQL query with result truncation for LLM context safety (params: database, sql)
 - list_tables: List tables in a database (params: database)
 - get_table_schema: Get table schema details (params: database, table)
-- search_tables: Search tables by keyword (params: query, database?)
+- search_tables: Search tables by keyword with optional database filter (params: query, database?)
 - list_apis: List all existing API endpoints (no params)
 - create_api: Create a new API endpoint (params: name, path, method, sql, description, database, default_params)
 - governance_tasks: List governance tasks (no params)
 - ontology_query: Query data ontology (params: query)
+
+Recommended RAG workflow for SQL generation:
+1. search_tables(query="user requirement") → find relevant tables
+2. get_db_schema(database="db") → understand full table/column structure
+3. get_db_sql_hints(database="db") → get dialect-specific SQL tips
+4. execute_sql(database="db", sql="...") → run the generated SQL
 
 This tool calls DataToolbox APIs via internal HTTP, sharing the same auth token.`
 
@@ -51,11 +59,38 @@ func (t *DataToolboxAPITool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"endpoint": map[string]any{
 				"type":        "string",
-				"description": "The API endpoint to call (e.g. list_databases, execute_sql)",
+				"description": "The API endpoint to call. One of: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, create_api, governance_tasks, ontology_query",
+				"enum": []string{
+					"list_databases", "get_database", "get_db_schema", "get_db_sql_hints",
+					"execute_sql", "list_tables", "get_table_schema", "search_tables",
+					"list_apis", "create_api", "governance_tasks", "ontology_query",
+				},
 			},
 			"params": map[string]any{
 				"type":        "object",
-				"description": "Parameters for the endpoint",
+				"description": "Parameters for the endpoint. Common params: database (name or ID), query (search text), sql (SQL statement), table (table name)",
+				"properties": map[string]any{
+					"database": map[string]any{
+						"type":        "string",
+						"description": "Database name or ID (used by: get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, create_api)",
+					},
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Search query text (used by: search_tables, ontology_query)",
+					},
+					"sql": map[string]any{
+						"type":        "string",
+						"description": "SQL statement to execute (used by: execute_sql, create_api)",
+					},
+					"table": map[string]any{
+						"type":        "string",
+						"description": "Table name (used by: get_table_schema)",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Database name for get_database, or API name for create_api",
+					},
+				},
 			},
 		},
 		"required": []string{"endpoint"},
@@ -201,7 +236,7 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 	}
 
 	if endpoint == "" {
-		return tools.ErrorResult("endpoint is required. Available: list_databases, get_database, list_tables, get_table_schema, execute_sql, list_apis, create_api, search_tables, governance_tasks, ontology_query")
+		return tools.ErrorResult("endpoint is required. Available: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, create_api, governance_tasks, ontology_query")
 	}
 
 	if params == nil {
@@ -257,6 +292,62 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 			return nil, err
 		}
 		return t.httpGet(ctx, fmt.Sprintf("/api/databases/%s/tables/%s/schema", dbID, tbl))
+	case "get_db_schema":
+		db, ok := params["database"].(string)
+		if !ok || db == "" {
+			return nil, fmt.Errorf("database parameter required")
+		}
+		dbID, err := t.resolveDatabaseID(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		// 获取数据库详情（包含所有表和字段）
+		dbDetail, err := t.httpGet(ctx, "/api/databases/"+dbID)
+		if err != nil {
+			return nil, err
+		}
+		// 提取schema信息，格式化为AI友好的结构
+		if m, ok := dbDetail.(map[string]any); ok {
+			result := map[string]any{
+				"database_id":   dbID,
+				"database_name": db,
+				"tables":        m["tables"],
+				"columns":       m["columns"],
+			}
+			return result, nil
+		}
+		return dbDetail, nil
+	case "get_db_sql_hints":
+		db, ok := params["database"].(string)
+		if !ok || db == "" {
+			return nil, fmt.Errorf("database parameter required")
+		}
+		dbID, err := t.resolveDatabaseID(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		// 获取数据库类型
+		dbDetail, err := t.httpGet(ctx, "/api/databases/"+dbID)
+		if err != nil {
+			return nil, err
+		}
+		dbType := "mysql"
+		if m, ok := dbDetail.(map[string]any); ok {
+			if nested, ok := m["database"].(map[string]any); ok {
+				if dt, ok := nested["type"].(string); ok && dt != "" {
+					dbType = dt
+				}
+			}
+			if dt, ok := m["type"].(string); ok && dt != "" {
+				dbType = dt
+			}
+		}
+		// 返回SQL方言提示
+		hints := map[string]any{
+			"database_type": dbType,
+			"sql_dialect":   getSQLDialectHints(dbType),
+		}
+		return hints, nil
 	case "search_tables":
 		return t.httpPost(ctx, "/api/table-retrieval/search", params)
 	case "list_apis":
@@ -340,4 +431,52 @@ func (t *DataToolboxAPITool) doRequest(req *http.Request) (interface{}, error) {
 		return map[string]string{"raw": string(body)}, nil
 	}
 	return result, nil
+}
+
+// getSQLDialectHints 返回数据库方言的SQL提示
+func getSQLDialectHints(dbType string) map[string]any {
+	switch strings.ToLower(dbType) {
+	case "dm", "dameng":
+		return map[string]any{
+			"limit_syntax":     "FETCH FIRST N ROWS ONLY 或 ROWNUM <= N",
+			"quote_identifier": `双引号 "表名" 或不加引号`,
+			"sample_query":     `SELECT * FROM "SCHEMA"."TABLE" FETCH FIRST 10 ROWS ONLY`,
+			"notes":            "达梦数据库：表名需要带SCHEMA前缀，如 SCHEMA.TABLE；字符串用单引号；LIMIT用FETCH FIRST",
+		}
+	case "oracle":
+		return map[string]any{
+			"limit_syntax":     "ROWNUM <= N 或 FETCH FIRST N ROWS ONLY (12c+)",
+			"quote_identifier": `双引号 "表名" 或不加引号`,
+			"sample_query":     `SELECT * FROM "SCHEMA"."TABLE" WHERE ROWNUM <= 10`,
+			"notes":            "Oracle：表名需要带SCHEMA前缀；字符串用单引号；分页用ROWNUM或OFFSET-FETCH",
+		}
+	case "postgresql", "postgres", "pg":
+		return map[string]any{
+			"limit_syntax":     "LIMIT N",
+			"quote_identifier": `双引号 "表名"`,
+			"sample_query":     `SELECT * FROM "schema"."table" LIMIT 10`,
+			"notes":            "PostgreSQL：LIMIT语法标准；表名可选双引号；支持JSON操作",
+		}
+	case "mysql":
+		return map[string]any{
+			"limit_syntax":     "LIMIT N",
+			"quote_identifier": "反引号 `表名` 或不加引号",
+			"sample_query":     "SELECT * FROM `table` LIMIT 10",
+			"notes":            "MySQL：LIMIT语法标准；字符串用单引号；支持GROUP_CONCAT",
+		}
+	case "sqlserver", "mssql":
+		return map[string]any{
+			"limit_syntax":     "TOP N 或 OFFSET N ROWS FETCH NEXT M ROWS ONLY",
+			"quote_identifier": `方括号 [表名] 或双引号`,
+			"sample_query":     "SELECT TOP 10 * FROM [table]",
+			"notes":            "SQL Server：TOP关键字分页；方括号引用标识符",
+		}
+	default:
+		return map[string]any{
+			"limit_syntax":     "LIMIT N",
+			"quote_identifier": "不加引号或双引号",
+			"sample_query":     "SELECT * FROM table LIMIT 10",
+			"notes":            "通用SQL：使用标准LIMIT语法；字符串用单引号",
+		}
+	}
 }
