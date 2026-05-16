@@ -496,13 +496,18 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		return nil
 	}
 
-	// 4. 注册 DataToolbox 深度耦合工具
+	// 4. 注册 DataToolbox 工具 — MCP 启用时用 MCP 工具替代 datatoolbox_api
+	mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 	serverURL := mcpLoopbackAddr
 	webNavMu.RLock()
 	authToken := webNavAdminToken
 	webNavMu.RUnlock()
-	dtTool := agent.NewDataToolboxAPITool(serverURL, authToken)
-	orch.SetDataToolboxTool(dtTool)
+
+	if !mcpEnabled {
+		// MCP 关闭时，使用 datatoolbox_api 作为唯一工具源
+		dtTool := agent.NewDataToolboxAPITool(serverURL, authToken)
+		orch.SetDataToolboxTool(dtTool)
+	}
 
 	if err := orch.InitializeWithProvider(ctx, picoProvider, picoCfg); err != nil {
 		log.Printf("[agent] failed to initialize orchestrator for user=%s: %v", username, err)
@@ -516,7 +521,6 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 name: 数据智能助手
 description: 数据智能助手 — 数据库管理、查询、接口创建、治理与洞察
 tools:
-  - datatoolbox_api
   - delegate
   - subagent
   - spawn
@@ -524,6 +528,18 @@ tools:
   - write_file
   - list_dir
   - exec
+  - list_databases
+  - get_tables
+  - describe_table
+  - execute_sql
+  - list_apis
+  - get_api_detail
+  - call_api
+  - search_tables
+  - get_db_schema
+  - get_db_sql_hints
+  - create_api
+  - execute_api
 ---
 
 # 数据智能助手
@@ -532,7 +548,7 @@ tools:
 
 ## 核心能力
 
-- **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、list_tables、execute_sql、get_table_schema、search_tables 端点
+- **数据库查询**: 使用 list_databases、list_tables、execute_sql、get_table_schema、search_tables 工具
 - **接口调用**: 使用 list_apis 查看已有接口，使用 execute_api 直接调用已有接口获取真实数据（参数: path, 以及接口所需的查询参数）
 - **接口创建**: 使用 create_api 创建新接口（仅在接口不存在时创建）
 - **数据治理**: 使用 governance_tasks 端点管理治理任务

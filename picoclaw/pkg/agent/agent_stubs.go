@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
+	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/logger"
 	mcppkg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/mcp"
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/providers"
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/providers/protocoltypes"
@@ -90,6 +91,12 @@ func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
 	}
 
 	al.mcp.manager = mgr
+
+	// Register discovered MCP tools into each agent's ToolRegistry.
+	// This allows the LLM to call MCP tools directly by name (e.g. "list_apis")
+	// instead of going through the datatoolbox_api wrapper.
+	al.registerMCPToolsToAgents(mgr)
+
 	return nil
 }
 
@@ -179,3 +186,59 @@ func (al *AgentLoop) targetReasoningChannelID(channel string) string { return ""
 
 // publishPicoToolCallInterim is a stub.
 func (al *AgentLoop) publishPicoToolCallInterim(ctx context.Context, ts *turnState, reasoning, content string, toolCalls []protocoltypes.ToolCall) {}
+
+// registerMCPToolsToAgents discovers all tools from connected MCP servers
+// and registers them as mcpToolAdapter instances in each agent's ToolRegistry.
+// This allows the LLM to call MCP tools directly by their native name
+// (e.g. "list_apis") instead of going through the datatoolbox_api wrapper.
+func (al *AgentLoop) registerMCPToolsToAgents(mgr *mcppkg.Manager) {
+	registry := al.GetRegistry()
+	if registry == nil {
+		return
+	}
+
+	// Clear tool allowlist for all agents so MCP tools can be registered.
+	// AGENT.md frontmatter "tools:" field creates an allowlist that blocks
+	// MCP tool registration. We clear it to allow dynamic MCP tools.
+	for _, agentID := range registry.ListAgentIDs() {
+		agentInst, ok := registry.GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		agentInst.Tools.SetAllowlist(nil)
+	}
+
+	servers := mgr.GetServers()
+	for serverName, conn := range servers {
+		for _, mcpTool := range conn.Tools {
+			adapter := newMCPToolAdapter(serverName, mcpTool, mgr)
+
+			// Register into every agent's ToolRegistry
+			for _, agentID := range registry.ListAgentIDs() {
+				agentInst, ok := registry.GetAgent(agentID)
+				if !ok {
+					continue
+				}
+				// Skip if the tool is already registered (e.g. datatoolbox_api already covers it)
+				if agentInst.Tools.HasRegistered(adapter.Name()) {
+					logger.DebugCF("agent", "MCP tool already registered, skipping",
+						map[string]any{"tool": adapter.Name(), "agent": agentID})
+					continue
+				}
+				agentInst.Tools.Register(adapter)
+				logger.InfoCF("agent", "Registered MCP tool into agent",
+					map[string]any{"tool": adapter.Name(), "server": serverName, "agent": agentID, "total_tools": agentInst.Tools.Count()})
+			}
+		}
+	}
+
+	// Diagnostic: log all registered tools for each agent
+	for _, agentID := range registry.ListAgentIDs() {
+		agentInst, ok := registry.GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		logger.InfoCF("agent", "Agent tool registry after MCP registration",
+			map[string]any{"agent": agentID, "tool_count": agentInst.Tools.Count(), "tools": agentInst.Tools.List()})
+	}
+}
