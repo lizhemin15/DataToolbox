@@ -62,6 +62,46 @@ func (t *DataToolboxAPITool) Parameters() map[string]any {
 	}
 }
 
+// resolveDatabaseID 将数据库名称转换为 ID（如果已经是 ID 则直接返回）
+func (t *DataToolboxAPITool) resolveDatabaseID(ctx context.Context, nameOrID string) (string, error) {
+	if nameOrID == "" {
+		return "", fmt.Errorf("database name or id required")
+	}
+	// 先尝试直接用 ID 查
+	result, err := t.httpGet(ctx, "/api/data-ontology/databases/"+nameOrID)
+	if err == nil {
+		if m, ok := result.(map[string]any); ok {
+			if success, _ := m["success"].(bool); success {
+				return nameOrID, nil
+			}
+		}
+	}
+	// ID 查不到，通过 list_databases 匹配 name
+	listResult, listErr := t.httpGet(ctx, "/api/data-ontology/databases")
+	if listErr != nil {
+		return "", fmt.Errorf("database %q not found (list failed: %v)", nameOrID, listErr)
+	}
+	listMap, ok := listResult.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("database %q not found (unexpected list format)", nameOrID)
+	}
+	dbs, ok := listMap["databases"].([]any)
+	if !ok {
+		return "", fmt.Errorf("database %q not found (no databases list)", nameOrID)
+	}
+	nameLower := strings.ToLower(nameOrID)
+	for _, db := range dbs {
+		if dbMap, ok := db.(map[string]any); ok {
+			dbName, _ := dbMap["name"].(string)
+			dbID, _ := dbMap["id"].(string)
+			if strings.ToLower(dbName) == nameLower && dbID != "" {
+				return dbID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("database %q not found", nameOrID)
+}
+
 func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
 	endpoint, _ := args["endpoint"].(string)
 	params, _ := args["params"].(map[string]any)
@@ -69,15 +109,82 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 	// 处理 LLM 把参数包在 "raw" 字段里的情况（Qwen3 等模型常见）
 	// 递归解析嵌套的 raw 字段
 	if endpoint == "" {
+		log.Printf("[datatoolbox_api] Execute: endpoint is empty, args keys=%v", func() []string {
+			keys := make([]string, 0, len(args))
+			for k := range args {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 		current := args
 		for i := 0; i < 5; i++ { // 最多递归5层
 			raw, ok := current["raw"].(string)
 			if !ok || raw == "" {
+				log.Printf("[datatoolbox_api] Execute: no raw field at depth %d, current keys=%v", i, func() []string {
+					keys := make([]string, 0, len(current))
+					for k := range current {
+						keys = append(keys, k)
+					}
+					return keys
+				}())
 				break
 			}
+			log.Printf("[datatoolbox_api] Execute: raw at depth %d, len=%d, first_50_bytes=%q", i, len(raw), func() string {
+				if len(raw) > 50 {
+					return raw[:50]
+				}
+				return raw
+			}())
 			var parsed map[string]any
 			if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-				break
+				// SiliconFlow/Qwen3 经常截断 tool_call arguments JSON
+				// 尝试修复：补上缺失的引号、括号
+				fixed := raw
+				// 计算未闭合的括号和引号
+				openBraces := 0
+				inString := false
+				for _, ch := range fixed {
+					if ch == '"' {
+						inString = !inString
+					} else if !inString {
+						if ch == '{' {
+							openBraces++
+						} else if ch == '}' {
+							openBraces--
+						}
+					}
+				}
+				// 补上缺失的闭合括号
+				for i := 0; i < openBraces; i++ {
+					fixed += "}"
+				}
+				// 如果在字符串中间截断，先闭合字符串
+				if inString {
+					fixed += "\""
+				}
+				// 再补一次括号（因为闭合字符串后可能还需要括号）
+				openBraces2 := 0
+				inString2 := false
+				for _, ch := range fixed {
+					if ch == '"' {
+						inString2 = !inString2
+					} else if !inString2 {
+						if ch == '{' {
+							openBraces2++
+						} else if ch == '}' {
+							openBraces2--
+						}
+					}
+				}
+				for i := 0; i < openBraces2; i++ {
+					fixed += "}"
+				}
+				log.Printf("[datatoolbox_api] Execute: attempting JSON repair, original=%d bytes, fixed=%d bytes", len(raw), len(fixed))
+				if err2 := json.Unmarshal([]byte(fixed), &parsed); err2 != nil {
+					log.Printf("[datatoolbox_api] Execute: JSON repair also failed: %v", err2)
+					break
+				}
+				log.Printf("[datatoolbox_api] Execute: JSON repair succeeded!")
 			}
 			if e, ok := parsed["endpoint"].(string); ok {
 				endpoint = e
@@ -86,6 +193,7 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 				params = p
 			}
 			if endpoint != "" {
+				log.Printf("[datatoolbox_api] Execute: resolved endpoint=%s, params=%v", endpoint, params)
 				break
 			}
 			current = parsed // 继续解析下一层 raw
@@ -114,7 +222,6 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 	case "list_databases":
 		return t.httpGet(ctx, "/api/data-ontology/databases")
 	case "get_database":
-		// 支持用 name 或 id 查询；如果用 name，先通过 list_databases 找到 ID
 		nameOrID, ok := params["name"].(string)
 		if !ok || nameOrID == "" {
 			nameOrID, _ = params["id"].(string)
@@ -122,48 +229,11 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if nameOrID == "" {
 			return nil, fmt.Errorf("name or id parameter required")
 		}
-		// 先尝试直接用 ID 查
-		result, err := t.httpGet(ctx, "/api/data-ontology/databases/"+nameOrID)
-		if err == nil {
-			if m, ok := result.(map[string]any); ok {
-				if success, ok := m["success"].(bool); ok && success {
-					return result, nil
-				}
-				log.Printf("[datatoolbox_api] get_database %q: direct lookup success=false, falling back to name search", nameOrID)
-			} else {
-				log.Printf("[datatoolbox_api] get_database %q: result is not map[string]any, type=%T", nameOrID, result)
-			}
-		} else {
-			log.Printf("[datatoolbox_api] get_database %q: direct lookup error: %v", nameOrID, err)
+		dbID, err := t.resolveDatabaseID(ctx, nameOrID)
+		if err != nil {
+			return nil, err
 		}
-		// ID 查不到，尝试通过 list_databases 匹配 name
-		listResult, listErr := t.httpGet(ctx, "/api/data-ontology/databases")
-		if listErr != nil {
-			log.Printf("[datatoolbox_api] list_databases error: %v", listErr)
-			return nil, fmt.Errorf("database %q not found (list failed: %v)", nameOrID, listErr)
-		}
-		listMap, ok := listResult.(map[string]any)
-		if !ok {
-			log.Printf("[datatoolbox_api] list_databases result is not map, type=%T", listResult)
-			return nil, fmt.Errorf("database %q not found (unexpected list format)", nameOrID)
-		}
-		dbs, ok := listMap["databases"].([]any)
-		if !ok {
-			log.Printf("[datatoolbox_api] list_databases: 'databases' field not []any, type=%T", listMap["databases"])
-			return nil, fmt.Errorf("database %q not found (no databases list)", nameOrID)
-		}
-		nameLower := strings.ToLower(nameOrID)
-		for _, db := range dbs {
-			if dbMap, ok := db.(map[string]any); ok {
-				dbName, _ := dbMap["name"].(string)
-				dbID, _ := dbMap["id"].(string)
-				if strings.ToLower(dbName) == nameLower && dbID != "" {
-					log.Printf("[datatoolbox_api] get_database: matched name %q -> id %s", nameOrID, dbID)
-					return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
-				}
-			}
-		}
-		return nil, fmt.Errorf("database %q not found", nameOrID)
+		return t.httpGet(ctx, "/api/data-ontology/databases/"+dbID)
 	case "execute_sql":
 		return t.httpPost(ctx, "/api/data-ontology/governance/execute-sql", params)
 	case "list_tables":
@@ -171,14 +241,22 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if !ok || db == "" {
 			return nil, fmt.Errorf("database parameter required")
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables", db))
+		dbID, err := t.resolveDatabaseID(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables", dbID))
 	case "get_table_schema":
 		db, _ := params["database"].(string)
 		tbl, _ := params["table"].(string)
 		if db == "" || tbl == "" {
 			return nil, fmt.Errorf("database and table parameters required")
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables/%s/schema", db, tbl))
+		dbID, err := t.resolveDatabaseID(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		return t.httpGet(ctx, fmt.Sprintf("/api/data-ontology/databases/%s/tables/%s/schema", dbID, tbl))
 	case "search_tables":
 		return t.httpPost(ctx, "/api/data-ontology/table-retrieval/search", params)
 	case "list_apis":
