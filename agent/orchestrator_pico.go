@@ -2,14 +2,17 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
-	picoclaw "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/agent"
+	picoclawagent "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/agent"
 	picoclawbus "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/bus"
 	picoclawcfg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
 	picoclawproviders "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/providers"
+	runtimeevents "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/events"
 )
 
 // OrchestratorConfig 编排器配置
@@ -29,7 +32,7 @@ type OrchestratorStatus struct {
 // 替换旧的 adk-go Runner，用 AgentRegistry + SubTurn 实现多智能体调度
 type Orchestrator struct {
 	cfg      OrchestratorConfig
-	loop     *picoclaw.AgentLoop
+	loop     *picoclawagent.AgentLoop
 	provider picoclawproviders.LLMProvider
 	picoCfg  *picoclawcfg.Config
 
@@ -54,7 +57,7 @@ func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider pico
 	defer o.mu.Unlock()
 
 	msgBus := picoclawbus.NewMessageBus()
-	loop := picoclaw.NewAgentLoop(picoCfg, msgBus, provider)
+	loop := picoclawagent.NewAgentLoop(picoCfg, msgBus, provider)
 
 	o.loop = loop
 	o.provider = provider
@@ -93,7 +96,7 @@ func (o *Orchestrator) registerDataToolboxTools() {
 }
 
 // Run 执行集群模式查询，通过 channel 流式返回事件
-// 保持与旧 Orchestrator 相同的接口，方便 server.go 无缝切换
+// 订阅 PicoClaw RuntimeEvents 实时推送工具调用、思考过程、子代理调度等
 func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message string) (<-chan Event, error) {
 	o.mu.RLock()
 	loop := o.loop
@@ -108,21 +111,66 @@ func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message strin
 	go func() {
 		defer close(eventCh)
 
-		// 使用 PicoClaw 的 ProcessDirectWithChannel
-		response, err := loop.ProcessDirectWithChannel(ctx, message, sessionID, "datatoolbox", sessionID)
-		if err != nil {
-			eventCh <- NewErrorEvent(fmt.Sprintf("agent error: %v", err))
-			return
+		// 订阅 PicoClaw RuntimeEvents — 只关注 agent 相关事件
+		runtimeCh := loop.RuntimeEvents()
+		var sub runtimeevents.Subscription
+		var runtimeEvtCh <-chan runtimeevents.Event
+
+		if runtimeCh != nil {
+			// 过滤出 agent 事件（LLM delta、工具调用、子代理调度等）
+			agentCh := runtimeCh.KindPrefix("agent.")
+			var err error
+			sub, runtimeEvtCh, err = agentCh.SubscribeChan(ctx, runtimeevents.SubscribeOptions{
+				Name:   "datatoolbox-sse-" + sessionID,
+				Buffer: 64,
+			})
+			if err != nil {
+				log.Printf("[orchestrator] subscribe runtime events failed: %v", err)
+			} else {
+				defer sub.Close()
+			}
 		}
 
-		// 发送最终文本响应
-		if response != "" {
-			eventCh <- Event{
-				Type: EventTypeText,
-				Data: map[string]interface{}{
-					"content": response,
-					"agent":   "orchestrator",
-				},
+		// 启动 PicoClaw 处理（在另一个 goroutine 中）
+		type result struct {
+			response string
+			err      error
+		}
+		resultCh := make(chan result, 1)
+		go func() {
+			resp, err := loop.ProcessDirectWithChannel(ctx, message, sessionID, "datatoolbox", sessionID)
+			resultCh <- result{response: resp, err: err}
+		}()
+
+		// 实时转发 PicoClaw 运行时事件到 SSE
+		done := false
+		for !done {
+			select {
+			case evt, ok := <-runtimeEvtCh:
+				if !ok {
+					runtimeEvtCh = nil
+					continue
+				}
+				translateRuntimeEvent(evt, eventCh)
+
+			case res := <-resultCh:
+				if res.err != nil {
+					eventCh <- NewErrorEvent(fmt.Sprintf("agent error: %v", res.err))
+				} else if res.response != "" {
+					// 最终文本（如果 runtime events 没有覆盖到最终文本）
+					eventCh <- Event{
+						Type: EventTypeText,
+						Data: map[string]interface{}{
+							"content": res.response,
+							"agent":   "orchestrator",
+						},
+					}
+				}
+				done = true
+
+			case <-ctx.Done():
+				eventCh <- NewErrorEvent("请求超时")
+				done = true
 			}
 		}
 
@@ -134,6 +182,92 @@ func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message strin
 	o.mu.Unlock()
 
 	return eventCh, nil
+}
+
+// translateRuntimeEvent 将 PicoClaw RuntimeEvent 翻译为 DataToolbox SSE Event
+func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
+	kind := evt.Kind
+	payload := evt.Payload
+
+	switch kind {
+	case runtimeevents.KindAgentLLMDelta:
+		// LLM 流式文本增量 — 转发为 thinking（让用户看到 AI 正在生成）
+		if p, ok := payload.(picoclawagent.LLMDeltaPayload); ok {
+			if p.ReasoningDeltaLen > 0 {
+				out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
+					"content": fmt.Sprintf("推理中... (+%d tokens)", p.ReasoningDeltaLen),
+					"agent":   evt.Source.Name,
+				}}
+			}
+		}
+
+	case runtimeevents.KindAgentLLMRequest:
+		// LLM 请求开始
+		if p, ok := payload.(picoclawagent.LLMRequestPayload); ok {
+			out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
+				"content": fmt.Sprintf("正在调用 %s 生成回复...", p.Model),
+				"agent":   evt.Source.Name,
+			}}
+		}
+
+	case runtimeevents.KindAgentToolExecStart:
+		// 工具调用开始 — 转发为 tool_call
+		if p, ok := payload.(picoclawagent.ToolExecStartPayload); ok {
+			argsJSON, _ := json.Marshal(p.Arguments)
+			out <- Event{Type: EventTypeToolCall, Data: map[string]interface{}{
+				"tool":    p.Tool,
+				"content": string(argsJSON),
+				"agent":   evt.Source.Name,
+			}}
+		}
+
+	case runtimeevents.KindAgentToolExecEnd:
+		// 工具调用结束 — 转发为 tool_result
+		if p, ok := payload.(picoclawagent.ToolExecEndPayload); ok {
+			status := "✅ 完成"
+			if p.IsError {
+				status = "❌ 失败"
+			}
+			out <- Event{Type: EventTypeToolResult, Data: map[string]interface{}{
+				"tool":    p.Tool,
+				"content": fmt.Sprintf("%s (耗时 %v, 结果 %d 字符)", status, p.Duration.Round(time.Millisecond), p.ForLLMLen),
+				"agent":   evt.Source.Name,
+			}}
+		}
+
+	case runtimeevents.KindAgentSubTurnSpawn:
+		// 子代理调度 — 转发为 agent_switch
+		if p, ok := payload.(picoclawagent.SubTurnSpawnPayload); ok {
+			out <- Event{Type: EventTypeAgentSwitch, Data: map[string]interface{}{
+				"from":    evt.Source.Name,
+				"to":      p.AgentID,
+				"content": fmt.Sprintf("调度子智能体: %s", p.Label),
+			}}
+		}
+
+	case runtimeevents.KindAgentSubTurnEnd:
+		// 子代理完成
+		if p, ok := payload.(picoclawagent.SubTurnEndPayload); ok {
+			out <- Event{Type: EventTypeAgentSwitch, Data: map[string]interface{}{
+				"from":    p.AgentID,
+				"to":      evt.Source.Name,
+				"content": fmt.Sprintf("子智能体 %s 完成 (%s)", p.AgentID, p.Status),
+			}}
+		}
+
+	case runtimeevents.KindAgentTurnStart:
+		out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
+			"content": "智能体开始处理任务...",
+			"agent":   evt.Source.Name,
+		}}
+
+	case runtimeevents.KindAgentError:
+		if p, ok := payload.(picoclawagent.ErrorPayload); ok {
+			out <- Event{Type: EventTypeError, Data: map[string]interface{}{
+				"message": fmt.Sprintf("[%s] %s", p.Stage, p.Message),
+			}}
+		}
+	}
 }
 
 // Status 返回编排器状态

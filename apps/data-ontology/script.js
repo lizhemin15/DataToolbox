@@ -5615,6 +5615,8 @@ function selectDbSuggestion(dbId) {
 function handleAiInputKeydown(e) {
     const suggestionsEl = document.getElementById('aiDbSuggestions');
 
+    if (e.isComposing) return; // 中文输入法 composing 中，回车是确认输入不是发送
+
     if (suggestionsEl.style.display === 'block') {
         const items = suggestionsEl.querySelectorAll('.ai-db-suggestion');
 
