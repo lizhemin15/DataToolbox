@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/tools"
@@ -28,6 +29,7 @@ Available endpoints:
 - search_tables: Search tables by keyword with optional database filter (params: query, database?)
 - list_apis: List all existing API endpoints (no params)
 - create_api: Create a new API endpoint (params: name, path, method, sql, description, database, default_params)
+- execute_api: Call an existing dynamic API endpoint to get real data (params: path, plus any query parameters)
 - governance_tasks: List governance tasks (no params)
 - ontology_query: Query data ontology (params: query)
 
@@ -59,11 +61,11 @@ func (t *DataToolboxAPITool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"endpoint": map[string]any{
 				"type":        "string",
-				"description": "The API endpoint to call. One of: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, create_api, governance_tasks, ontology_query",
-				"enum": []string{
-					"list_databases", "get_database", "get_db_schema", "get_db_sql_hints",
-					"execute_sql", "list_tables", "get_table_schema", "search_tables",
-					"list_apis", "create_api", "governance_tasks", "ontology_query",
+			"description": "The API endpoint to call. One of: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, create_api, execute_api, governance_tasks, ontology_query",
+			"enum": []string{
+				"list_databases", "get_database", "get_db_schema", "get_db_sql_hints",
+				"execute_sql", "list_tables", "get_table_schema", "search_tables",
+				"list_apis", "create_api", "execute_api", "governance_tasks", "ontology_query",
 				},
 			},
 			"params": map[string]any{
@@ -384,6 +386,27 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 			apiParams["type"] = "query"
 		}
 		return t.httpPost(ctx, "/api/apis", apiParams)
+	case "execute_api":
+		// 调用已创建的动态接口
+		path, _ := params["path"].(string)
+		if path == "" {
+			return nil, fmt.Errorf("path parameter required (e.g. /api/employee/query)")
+		}
+		// 确保路径以 /api/ 开头
+		if !strings.HasPrefix(path, "/api/") {
+			path = "/api/" + strings.TrimPrefix(path, "/")
+		}
+		// 提取查询参数（除 path 外的其他参数作为查询条件）
+		queryParams := make(map[string]any)
+		for k, v := range params {
+			if k != "path" && k != "endpoint" {
+				queryParams[k] = v
+			}
+		}
+		if len(queryParams) > 0 {
+			return t.httpGetWithParams(ctx, path, queryParams)
+		}
+		return t.httpGet(ctx, path)
 	case "governance_tasks":
 		return t.httpGet(ctx, "/api/governance/tasks")
 	case "ontology_query":
@@ -395,6 +418,19 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 
 func (t *DataToolboxAPITool) httpGet(ctx context.Context, path string) (interface{}, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", t.serverURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return t.doRequest(req)
+}
+
+func (t *DataToolboxAPITool) httpGetWithParams(ctx context.Context, path string, params map[string]any) (interface{}, error) {
+	values := url.Values{}
+	for k, v := range params {
+		values.Set(k, fmt.Sprintf("%v", v))
+	}
+	fullURL := t.serverURL + path + "?" + values.Encode()
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
 		return nil, err
 	}

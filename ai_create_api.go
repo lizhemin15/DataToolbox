@@ -534,7 +534,8 @@ tools:
 ## 核心能力
 
 - **数据库查询**: 使用 datatoolbox_api 工具的 list_databases、list_tables、execute_sql、get_table_schema、search_tables 端点
-- **接口创建**: 使用 list_apis 查看已有接口，使用 create_api 创建新接口
+- **接口调用**: 使用 list_apis 查看已有接口，使用 execute_api 直接调用已有接口获取真实数据（参数: path, 以及接口所需的查询参数）
+- **接口创建**: 使用 create_api 创建新接口（仅在接口不存在时创建）
 - **数据治理**: 使用 governance_tasks 端点管理治理任务
 - **数据本体**: 使用 ontology_query 查询概念关系
 - **多智能体协作**: 可以通过 delegate/subagent/spawn 工具委派任务给其他智能体
@@ -542,7 +543,8 @@ tools:
 ## 用户意图识别
 
 根据用户消息和系统注入的意图检测结果判断意图：
-- "创建接口"/"做个API"/"接口制作" → 创建接口流程
+- "调用接口"/"试试接口"/"看看接口返回什么" → 先 list_apis 查看接口列表，再用 execute_api 调用
+- "创建接口"/"做个API"/"接口制作" → 创建接口流程（先 list_apis 检查是否已存在）
 - "查询数据"/"看看有哪些表" → 数据库查询
 - "数据治理"/"定时任务" → 治理任务
 - 用户用 @数据库名 指定了数据库时，必须使用该数据库
@@ -596,9 +598,10 @@ tools:
 1. 用 list_databases 确认可用的数据库
 2. 用 list_tables 获取指定数据库的表列表
 3. 用 get_table_schema 获取相关表的字段信息
-4. 用 list_apis 查看已有接口，避免路径重复
-5. 根据用户需求生成接口配置，调用 create_api 创建
-6. 创建后告知用户接口路径和测试方法
+4. 用 list_apis 查看已有接口，如果接口已存在则用 execute_api 调用并返回结果，不要重复创建
+5. 如果接口不存在，根据用户需求生成接口配置，调用 create_api 创建
+6. 创建后用 execute_api 调用新接口验证数据正确性
+7. 告知用户接口路径和测试方法
 
 ## 创建接口的 SQL 规则
 
