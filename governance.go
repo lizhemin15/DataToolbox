@@ -1738,7 +1738,22 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 		}
 	}
 
-	// 处理文件参数（如果有的话）
+	// 处理文件参数
+	// 多文件模式：params["files"] 是 []map[string]interface{}，每项含 file_name + file_base64
+	if filesRaw, ok := params["files"].([]interface{}); ok && len(filesRaw) > 0 {
+		var filePayloads []map[string]interface{}
+		for _, fRaw := range filesRaw {
+			fMap, ok := fRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			filePayloads = append(filePayloads, fMap)
+		}
+		if len(filePayloads) > 0 {
+			taskData["files"] = filePayloads
+		}
+	}
+	// 单文件模式：file_base64 + file_name
 	if fileBase64, ok := params["file_base64"].(string); ok {
 		taskData["file_base64"] = fileBase64
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -932,7 +933,45 @@ func handleApiDispatch(next http.Handler) http.Handler {
 			// 解析请求参数
 			params := make(map[string]interface{})
 			isBodyMethod := reqMethod == http.MethodPost || reqMethod == http.MethodPut || reqMethod == http.MethodPatch
-			if isBodyMethod && r.Body != nil {
+
+			// 支持 multipart/form-data 文件上传
+			contentType := r.Header.Get("Content-Type")
+			if isBodyMethod && strings.Contains(contentType, "multipart/form-data") {
+				maxSize := int64(100 * 1024 * 1024) // 100MB
+				r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+				if err := r.ParseMultipartForm(maxSize); err != nil {
+					jsonError(w, "解析表单失败: "+err.Error(), "")
+					return
+				}
+				// 读取表单字段
+				for k, v := range r.MultipartForm.Value {
+					if len(v) == 1 {
+						params[k] = v[0]
+					} else {
+						params[k] = v
+					}
+				}
+				// 读取上传文件
+				var files []map[string]interface{}
+				for _, fh := range r.MultipartForm.File["files"] {
+					f, err := fh.Open()
+					if err != nil {
+						continue
+					}
+					data, err := io.ReadAll(f)
+					f.Close()
+					if err != nil {
+						continue
+					}
+					files = append(files, map[string]interface{}{
+						"file_name":   fh.Filename,
+						"file_base64": base64.StdEncoding.EncodeToString(data),
+					})
+				}
+				if len(files) > 0 {
+					params["files"] = files
+				}
+			} else if isBodyMethod && r.Body != nil {
 				json.NewDecoder(r.Body).Decode(&params)
 			}
 			for k, v := range r.URL.Query() {
