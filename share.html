@@ -901,9 +901,11 @@
                     document.title = data.name;
                     document.getElementById('taskDescription').textContent = data.description || '暂无描述';
 
-                    // 根据 execution_mode 和 type 决定是否显示上传区域
-                    // scheduled 类型任务（定时任务）不需要用户上传文件，但可手动执行
-                    const isScheduledTask = data.type === 'scheduled' || data.execution_mode === 'backend';
+                    // 根据 type 决定是否显示上传区域
+                    // type === 'scheduled' 是定时任务，不需要用户上传文件
+                    // type === 'interactive' 是交互任务，需要用户上传文件或输入文本
+                    // execution_mode (backend/frontend) 只影响执行方式，不影响是否需要文件
+                    const isScheduledTask = data.type === 'scheduled';
                     if (isScheduledTask) {
                         // 隐藏上传拖拽区域，但保留执行按钮
                         document.querySelector('.upload-area').style.display = 'none';
@@ -1024,19 +1026,31 @@
         // 执行任务
         async function runTask() {
             // scheduled 类型任务可以无文件执行
-            const isScheduled = taskInfo && (taskInfo.type === 'scheduled' || taskInfo.execution_mode === 'backend');
-            if (selectedFiles.length === 0 && !isScheduled) {
+            const isScheduled = taskInfo && taskInfo.type === 'scheduled';
+            const isTextInput = taskInfo && taskInfo.type === 'interactive' && taskInfo.input_type === 'text';
+            const inputText = document.getElementById('inputText').value.trim();
+            
+            if (selectedFiles.length === 0 && !isScheduled && !isTextInput) {
                 showError('请选择文件', '请先上传需要处理的文件，再点击"开始处理"。');
+                return;
+            }
+            if (isTextInput && !inputText) {
+                showError('请输入内容', '请先输入需要处理的文本内容。');
                 return;
             }
 
             const runBtn = document.getElementById('runBtn');
             runBtn.disabled = true;
+            runBtn.textContent = '处理中...';
 
             const formData = new FormData();
             selectedFiles.forEach(file => {
                 formData.append('files', file);
             });
+            // 文本输入类型：把文本内容也传给后端
+            if (isTextInput && inputText) {
+                formData.append('input_text', inputText);
+            }
 
             try {
                 const response = await fetch(`${API_BASE}/api/share/${shareToken}/run`, {
@@ -1050,19 +1064,25 @@
                     document.getElementById('progressContainer').style.display = '';
                     document.getElementById('resultContainer').style.display = 'none';
                     document.getElementById('progressFill').classList.remove('progress-completed', 'progress-failed');
+                    document.getElementById('progressFill').style.width = '0%';
+                    document.getElementById('progressText').textContent = '准备中...';
+                    document.getElementById('progressOutput').style.display = 'none';
                     pollProgress();
                 } else {
                     showError('执行失败', '任务执行失败：' + (data.message || '未知错误'));
                     runBtn.disabled = false;
+                    runBtn.textContent = isScheduled ? '立即执行' : '开始处理';
                 }
             } catch (error) {
                 console.error('执行任务失败:', error);
                 showError('网络错误', '提交任务时无法连接服务器，请检查网络后重试。', null, error.message);
                 runBtn.disabled = false;
+                runBtn.textContent = isScheduled ? '立即执行' : '开始处理';
             }
         }
 
         // 轮询进度
+        let pollFailCount = 0;
         async function pollProgress() {
             if (!currentRunId) return;
 
@@ -1070,6 +1090,7 @@
                 const response = await fetch(`${API_BASE}/api/share/${shareToken}/run/${currentRunId}`);
                 const data = await response.json();
                 if (data.success) {
+                    pollFailCount = 0;
                     const progressFill = document.getElementById('progressFill');
                     const progressText = document.getElementById('progressText');
                     const progressOutput = document.getElementById('progressOutput');
@@ -1097,22 +1118,44 @@
                         setTimeout(pollProgress, 300);
                     }
                 } else {
-                    // 查询失败时静默处理，不弹窗打扰用户
+                    pollFailCount++;
                     console.warn('查询进度失败:', data.message);
                     // 如果是"不存在"类错误，清理缓存并停止轮询
                     if (data.message && (data.message.includes('不存在') || data.message.includes('未找到'))) {
                         sessionStorage.removeItem('share_' + shareToken + '_runId');
                         currentRunId = null;
                         document.getElementById('progressContainer').style.display = 'none';
-                        document.getElementById('runBtn').disabled = false;
+                        const runBtn = document.getElementById('runBtn');
+                        runBtn.disabled = false;
+                        runBtn.textContent = taskInfo && taskInfo.type === 'scheduled' ? '立即执行' : '开始处理';
+                    } else if (pollFailCount >= 10) {
+                        // 连续失败10次，提示用户
+                        const progressText = document.getElementById('progressText');
+                        progressText.textContent = '查询进度异常，请稍后刷新页面查看结果';
+                        const progressFill = document.getElementById('progressFill');
+                        progressFill.classList.add('progress-failed');
+                        const runBtn = document.getElementById('runBtn');
+                        runBtn.disabled = false;
+                        runBtn.textContent = taskInfo && taskInfo.type === 'scheduled' ? '立即执行' : '开始处理';
                     } else {
-                        // 其他错误继续轮询
+                        // 其他错误继续轮询（间隔加长）
                         setTimeout(pollProgress, 2000);
                     }
                 }
             } catch (error) {
+                pollFailCount++;
                 console.error('查询进度失败:', error);
-                setTimeout(pollProgress, 2000);
+                if (pollFailCount >= 10) {
+                    const progressText = document.getElementById('progressText');
+                    progressText.textContent = '网络异常，请稍后刷新页面查看结果';
+                    const progressFill = document.getElementById('progressFill');
+                    progressFill.classList.add('progress-failed');
+                    const runBtn = document.getElementById('runBtn');
+                    runBtn.disabled = false;
+                    runBtn.textContent = taskInfo && taskInfo.type === 'scheduled' ? '立即执行' : '开始处理';
+                } else {
+                    setTimeout(pollProgress, 2000);
+                }
             }
         }
 
@@ -1141,6 +1184,7 @@
             }
 
             document.getElementById('runBtn').disabled = false;
+            document.getElementById('runBtn').textContent = taskInfo && taskInfo.type === 'scheduled' ? '立即执行' : '开始处理';
             // 保存 run_id 以便刷新恢复
             sessionStorage.setItem('share_' + shareToken + '_runId', currentRunId);
             // 刷新历史记录
