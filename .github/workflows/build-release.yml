@@ -61,7 +61,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            for f in apps/data-ontology/index.html apps/data-ontology/script.js; do
+            for f in index.html script.js; do
               if [ -f "$f" ]; then
                 sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
                 echo "  PATCHED: $f -> v=${VERSION}"
@@ -116,16 +116,16 @@ jobs:
         run: |
           cd gov-runner-src
           [ -d "node_modules" ] || bun install
-          bun build gov-shared.ts --outfile ../apps/data-ontology/lib/gov-shared.js --target=browser --minify
+          bun build gov-shared.ts --outfile ../lib/gov-shared.js --target=browser --minify
           echo "Built gov-shared.js for browser"
-          ls -la ../apps/data-ontology/lib/gov-shared.js
+          ls -la ../lib/gov-shared.js
 
       - name: Copy gov-shared.js to other platforms
         if: matrix.goos != 'linux' || matrix.goarch != 'amd64'
         run: |
-          if [ -f "apps/data-ontology/lib/gov-shared.js" ]; then
+          if [ -f "lib/gov-shared.js" ]; then
             mkdir -p gov-runner-src
-            cp apps/data-ontology/lib/gov-shared.js gov-runner-src/
+            cp lib/gov-shared.js gov-runner-src/
           fi
 
       - name: Build
@@ -147,13 +147,13 @@ jobs:
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           chmod +x package/update.sh
-          cp -r index.html apps css js lib examples package/
+          cp -r index.html share.html quality-audit.html script.js style.css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
 
           echo '{}' > package/apps/data-ontology/data-store.json
 
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            for f in package/apps/data-ontology/index.html package/apps/data-ontology/script.js; do
+            for f in package/index.html package/script.js; do
               if [ -f "$f" ]; then
                 sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
                 echo "  PATCHED: $f -> v=${VERSION}"
