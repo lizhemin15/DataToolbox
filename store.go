@@ -272,7 +272,7 @@ func saveDataOntologyStoreNoLock() error {
 // ====== 数据备份与恢复 API ======
 
 // handleDataOntologyBackup 导出备份（ZIP 格式，包含所有持久化数据）
-
+// SQLite 模式：直接导出 data-store.db 文件 + 文件目录
 func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
 	username, authOK := getDataOntologyUserFromRequest(r)
 	if !authOK {
@@ -291,73 +291,81 @@ func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dataOntologyMu.RLock()
-	governanceShareRunsMu.RLock()
-	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
-	for runID, run := range governanceShareRuns {
-		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
-			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
-		}
-		shareRunsByToken[run.ShareToken][runID] = run
-	}
-	governanceShareRunsMu.RUnlock()
-
-	store := DataOntologyStore{
-		Users:          dataOntologyUsers,
-		Databases:      dataOntologyDatabases,
-		Apis:           dataOntologyApis,
-		AIConfig:       dataOntologyAIConfig,
-		AICapabilities: dataOntologyAICapabilities,
-		Tasks:          governanceTasks,
-		TaskLogs:       governanceTaskLogs,
-		MCPEnabled:     dataOntologyMCPEnabled,
-		MCPSafeConfig:  dataOntologyMCPSafeConfig,
-		LLMModels:      llmModels,
-		SmallModels:    smallModels,
-		ShareRuns:      shareRunsByToken,
-	}
-	dataOntologyMu.RUnlock()
-
-	backupData := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"version":     2,
-			"export_time": time.Now().Format("2006-01-02T15:04:05Z07:00"),
-			"source":      "DataToolbox",
-		},
-		"data": store,
-	}
-
-	// 序列化 JSON 数据
-	jsonData, err := json.MarshalIndent(backupData, "", "  ")
-	if err != nil {
-		apiInternalError(w, "序列化备份数据失败")
-		return
-	}
-
 	// 创建 ZIP 压缩包
 	now := time.Now()
 	filename := fmt.Sprintf("datatoolbox-backup-%s.zip", now.Format("20060102"))
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
-	// 获取数据目录
-	dataDir := filepath.Dir(getDataOntologyStorePath())
+	dataDir := filepath.Dir(getStoreDBPath())
 	baseDir := "datatoolbox-backup"
 
 	zipWriter := zip.NewWriter(w)
 	defer zipWriter.Close()
 
-	// 1. 写入 data-store.json
-	jsonFile, err := zipWriter.Create(filepath.Join(baseDir, "data-store.json"))
-	if err != nil {
-		log.Printf("创建 ZIP 条目失败: %v", err)
-		apiInternalError(w, "创建ZIP条目失败")
-		return
-	}
-	if _, err := jsonFile.Write(jsonData); err != nil {
-		log.Printf("写入 data-store.json 到 ZIP 失败: %v", err)
-		apiInternalError(w, "写入ZIP失败")
-		return
+	// 1. SQLite 模式：导出 data-store.db
+	if storeDB != nil {
+		dbPath := getStoreDBPath()
+		if _, err := os.Stat(dbPath); err != nil {
+			log.Printf("[备份] data-store.db 不存在: %v", err)
+		} else {
+			// 先 VACUUM INTO 临时文件确保数据完整
+			tmpDB := filepath.Join(os.TempDir(), "backup-vacuum.db")
+			storeDBMu.Lock()
+			_, err := storeDB.Exec("VACUUM INTO '" + tmpDB + "'")
+			storeDBMu.Unlock()
+			if err != nil {
+				log.Printf("[备份] VACUUM INTO 失败， 直接复制原文件: %v", err)
+				// 失败时直接复制原文件
+				tmpDB = dbPath
+			}
+			dbFile, err := zipWriter.Create(filepath.Join(baseDir, "data-store.db"))
+			if err != nil {
+				log.Printf("[备份] 创建 ZIP 条目失败: %v", err)
+			} else {
+				f, err := os.Open(tmpDB)
+				if err == nil {
+					written, _ := io.Copy(dbFile, f)
+					log.Printf("[备份] data-store.db: %d bytes", written)
+					f.Close()
+				}
+			}
+			// 清理临时文件
+			if tmpDB != dbPath {
+				os.Remove(tmpDB)
+			}
+		}
+	} else {
+		// SQLite 未初始化，回退到 JSON 导出
+		dataOntologyMu.RLock()
+		governanceShareRunsMu.RLock()
+		shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+		for runID, run := range governanceShareRuns {
+			if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+				shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+			}
+			shareRunsByToken[run.ShareToken][runID] = run
+		}
+		governanceShareRunsMu.RUnlock()
+		store := DataOntologyStore{
+			Users: dataOntologyUsers, Databases: dataOntologyDatabases, Apis: dataOntologyApis,
+			AIConfig: dataOntologyAIConfig, AICapabilities: dataOntologyAICapabilities,
+			Tasks: governanceTasks, TaskLogs: governanceTaskLogs,
+			MCPEnabled: dataOntologyMCPEnabled, MCPSafeConfig: dataOntologyMCPSafeConfig,
+			LLMModels: llmModels, SmallModels: smallModels, ShareRuns: shareRunsByToken,
+		}
+		dataOntologyMu.RUnlock()
+		jsonData, err := json.MarshalIndent(store, "", "  ")
+		if err != nil {
+			apiInternalError(w, "序列化备份数据失败")
+			return
+		}
+		jsonFile, err := zipWriter.Create(filepath.Join(baseDir, "data-store.json"))
+		if err != nil {
+			apiInternalError(w, "创建ZIP条目失败")
+			return
+		}
+		jsonFile.Write(jsonData)
 	}
 
 	// 2. 写入 quality-audit.db（如果存在）
@@ -542,9 +550,8 @@ func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // restoreFromZIP 从 ZIP 文件恢复
-
 func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
-	dataDir := filepath.Dir(getDataOntologyStorePath())
+	dataDir := filepath.Dir(getStoreDBPath())
 
 	// 打开 ZIP 文件
 	r, err := zip.OpenReader(zipPath)
@@ -553,7 +560,73 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 	}
 	defer r.Close()
 
-	// 查找 data-store.json
+	// SQLite 模式：优先查找 data-store.db
+	if storeDB != nil {
+		var dbFile *zip.File
+		for _, f := range r.File {
+			if strings.HasSuffix(f.Name, "data-store.db") {
+				dbFile = f
+				break
+			}
+		}
+
+		if dbFile != nil && mode == "overwrite" {
+			// SQLite 覆盖模式：直接替换 data-store.db 文件
+			dbPath := getStoreDBPath()
+
+			// 先关闭当前数据库连接
+			storeDB.Close()
+			storeDB = nil
+
+			// 备份当前 db 文件
+			backupPath := dbPath + ".restore-backup"
+			os.Rename(dbPath, backupPath)
+
+			// 解压新的 db 文件
+			rc, err := dbFile.Open()
+			if err != nil {
+				// 恢复备份
+				os.Rename(backupPath, dbPath)
+				return nil, fmt.Errorf("打开 data-store.db 失败: %v", err)
+			}
+			dst, err := os.Create(dbPath)
+			if err != nil {
+				rc.Close()
+				os.Rename(backupPath, dbPath)
+				return nil, fmt.Errorf("创建 data-store.db 失败: %v", err)
+			}
+			written, err := io.Copy(dst, rc)
+			dst.Close()
+			rc.Close()
+			if err != nil {
+				os.Rename(backupPath, dbPath)
+				return nil, fmt.Errorf("写入 data-store.db 失败: %v", err)
+			}
+
+			// 删除备份
+			os.Remove(backupPath)
+
+			// 重新初始化 SQLite 并加载数据
+			if err := initStoreDB(); err != nil {
+				return nil, fmt.Errorf("重新初始化 SQLite 失败: %v", err)
+			}
+			if err := sqlLoadAll(); err != nil {
+				return nil, fmt.Errorf("从恢复的数据库加载数据失败: %v", err)
+			}
+
+			// 恢复文件目录
+			fileCount := restoreFilesFromZip(r, dataDir, mode)
+
+			stats := map[string]interface{}{
+				"mode":           mode,
+				"db_bytes":       written,
+				"files_restored": fileCount,
+			}
+			return stats, nil
+		}
+	}
+
+	// 回退到 JSON 恢复（兼容旧备份）
 	var dataStoreFile *zip.File
 	for _, f := range r.File {
 		if strings.HasSuffix(f.Name, "data-store.json") {
@@ -563,7 +636,7 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 	}
 
 	if dataStoreFile == nil {
-		return nil, fmt.Errorf("ZIP 文件中未找到 data-store.json")
+		return nil, fmt.Errorf("ZIP 文件中未找到 data-store.db 或 data-store.json")
 	}
 
 	// 读取 data-store.json
@@ -1443,6 +1516,69 @@ func ensureGovernanceExampleFiles() {
 			log.Printf("保存示例文件元数据失败: %v", err)
 		}
 	}
+}
+
+// restoreFilesFromZip 从 ZIP 中恢复文件目录（share-outputs, share-uploads, example_files 等）
+func restoreFilesFromZip(r *zip.ReadCloser, dataDir, mode string) int {
+	fileCount := 0
+	for _, f := range r.File {
+		// 跳过数据文件（data-store.db, data-store.json, quality-audit.db）
+		name := f.Name
+		if strings.HasSuffix(name, "data-store.db") || strings.HasSuffix(name, "data-store.json") || strings.HasSuffix(name, "quality-audit.db") {
+			continue
+		}
+
+		// 提取相对路径（去掉 datatoolbox-backup/ 前缀）
+		relPath := name
+		if idx := strings.Index(relPath, "/"); idx >= 0 {
+			relPath = relPath[idx+1:]
+		}
+		if relPath == "" {
+			continue
+		}
+
+		// 安全检查：防止路径遍历攻击
+		targetPath := filepath.Join(dataDir, relPath)
+		absTarget, err := filepath.Abs(targetPath)
+		if err != nil {
+			continue
+		}
+		absDataDir, _ := filepath.Abs(dataDir)
+		if !strings.HasPrefix(absTarget, absDataDir+string(filepath.Separator)) && absTarget != absDataDir {
+			continue
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(targetPath, 0755)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			continue
+		}
+
+		// 合并模式下跳过已存在的文件
+		if mode == "merge" {
+			if _, err := os.Stat(targetPath); err == nil {
+				continue
+			}
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		dst, err := os.Create(targetPath)
+		if err != nil {
+			rc.Close()
+			continue
+		}
+		io.Copy(dst, rc)
+		dst.Close()
+		rc.Close()
+		fileCount++
+	}
+	return fileCount
 }
 
 // 初始化默认管理员账号
