@@ -1739,18 +1739,25 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 	}
 
 	// 处理文件参数
-	// 多文件模式：params["files"] 是 []map[string]interface{}，每项含 file_name + file_base64
-	if filesRaw, ok := params["files"].([]interface{}); ok && len(filesRaw) > 0 {
-		var filePayloads []map[string]interface{}
-		for _, fRaw := range filesRaw {
-			fMap, ok := fRaw.(map[string]interface{})
-			if !ok {
-				continue
+	// 多文件模式：params["files"] 可能是 []map[string]interface{} 或 []interface{}
+	if filesVal, ok := params["files"]; ok {
+		switch fv := filesVal.(type) {
+		case []map[string]interface{}:
+			if len(fv) > 0 {
+				taskData["files"] = fv
 			}
-			filePayloads = append(filePayloads, fMap)
-		}
-		if len(filePayloads) > 0 {
-			taskData["files"] = filePayloads
+		case []interface{}:
+			var filePayloads []map[string]interface{}
+			for _, fRaw := range fv {
+				fMap, ok := fRaw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				filePayloads = append(filePayloads, fMap)
+			}
+			if len(filePayloads) > 0 {
+				taskData["files"] = filePayloads
+			}
 		}
 	}
 	// 单文件模式：file_base64 + file_name
