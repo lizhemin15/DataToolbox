@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -1914,3 +1915,94 @@ func handleGovernanceTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGovernanceTaskDetail 处理单个治理任务的 GET/PUT/DELETE
+
+// ==================== HITL (Human-in-the-Loop) API Handlers ====================
+
+// hitlRespondRequest HITL 响应提交请求
+type hitlRespondRequest struct {
+	HitlID string         `json:"hitl_id"`
+	Action string         `json:"action"` // submit | cancel
+	Values map[string]any `json:"values,omitempty"`
+}
+
+// handleHITLRespond 处理用户提交 HITL 响应
+// POST /api/hitl/respond
+func handleHITLRespond(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+
+	var req hitlRespondRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
+		return
+	}
+
+	if req.HitlID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "hitl_id 不能为空"})
+		return
+	}
+	if req.Action == "" {
+		req.Action = "submit"
+	}
+	if req.Action != "submit" && req.Action != "cancel" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "action 必须是 submit 或 cancel"})
+		return
+	}
+
+	// 获取全局 HITLManager
+	if globalHITLManager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "HITL 系统未初始化"})
+		return
+	}
+
+	resp := agent.HITLResponse{
+		HitlID:    req.HitlID,
+		Action:    req.Action,
+		Values:    req.Values,
+		Timestamp: time.Now(),
+	}
+
+	if err := globalHITLManager.SubmitResponse(req.HitlID, resp); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
+		return
+	}
+
+	log.Printf("[hitl] response submitted: hitl_id=%s, action=%s", req.HitlID, req.Action)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "响应已提交"})
+}
+
+// handleHITLPending 查询指定 session 的挂起 HITL 请求
+// GET /api/hitl/pending?session_id=xxx
+func handleHITLPending(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if !verifyToken(r) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权"})
+		return
+	}
+
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "session_id 参数不能为空"})
+		return
+	}
+
+	// 获取全局 HITLManager
+	if globalHITLManager == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "HITL 系统未初始化"})
+		return
+	}
+
+	requests := globalHITLManager.GetPendingRequests(sessionID)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"requests": requests,
+		"count":    len(requests),
+	})
+}

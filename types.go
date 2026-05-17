@@ -497,6 +497,8 @@ var (
 	agentOrchestrators    = make(map[string]*agent.Orchestrator) // username → Orchestrator（每用户独立workspace）
 	agentOrchestratorMu   sync.RWMutex
 	agentSessionModes     = make(map[string]string) // sessionID → "fast"|"cluster"
+	// HITL 人在环路
+	globalHITLManager *agent.HITLManager
 )
 
 // 数据治理任务队列

@@ -39,6 +39,12 @@ type Orchestrator struct {
 	// DataToolbox 深度耦合工具
 	dtTool *DataToolboxAPITool
 
+	// HITL 人在环路管理器
+	hitlMgr *HITLManager
+
+	// PicoClaw 事件总线（用于 HITL 等自定义事件推送）
+	eventBus runtimeevents.Bus
+
 	mu        sync.RWMutex
 	sessCount int
 }
@@ -64,9 +70,7 @@ func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider pico
 	o.picoCfg = picoCfg
 
 	// 注册 DataToolbox 深度耦合工具到所有 agent
-	if o.dtTool != nil {
-		o.registerDataToolboxTools()
-	}
+	o.registerDataToolboxTools()
 
 	agentIDs := loop.GetRegistry().ListAgentIDs()
 	log.Printf("[orchestrator] initialized with PicoClaw: agents=%v", agentIDs)
@@ -78,9 +82,15 @@ func (o *Orchestrator) SetDataToolboxTool(tool *DataToolboxAPITool) {
 	o.dtTool = tool
 }
 
-// registerDataToolboxTools 将 DataToolboxAPITool 注册到所有 agent 的 ToolRegistry
+// SetHITLManager 设置 HITL 管理器和事件总线（在 InitializeWithProvider 之前调用）
+func (o *Orchestrator) SetHITLManager(mgr *HITLManager, eventBus runtimeevents.Bus) {
+	o.hitlMgr = mgr
+	o.eventBus = eventBus
+}
+
+// registerDataToolboxTools 将 DataToolboxAPITool 和 AskUserTool 注册到所有 agent 的 ToolRegistry
 func (o *Orchestrator) registerDataToolboxTools() {
-	if o.loop == nil || o.dtTool == nil {
+	if o.loop == nil {
 		return
 	}
 
@@ -90,8 +100,35 @@ func (o *Orchestrator) registerDataToolboxTools() {
 		if !ok {
 			continue
 		}
-		agent.Tools.Register(o.dtTool)
-		log.Printf("[orchestrator] registered datatoolbox_api tool for agent=%s", agentID)
+
+		// 注册 DataToolboxAPITool
+		if o.dtTool != nil {
+			agent.Tools.Register(o.dtTool)
+			log.Printf("[orchestrator] registered datatoolbox_api tool for agent=%s", agentID)
+		}
+
+		// 注册 AskUserTool（如果 HITLManager 已设置）
+		if o.hitlMgr != nil {
+			askUserTool := NewAskUserTool(o.hitlMgr, o.pushHITLEvent)
+			agent.Tools.Register(askUserTool)
+			log.Printf("[orchestrator] registered ask_user tool for agent=%s", agentID)
+		}
+	}
+}
+
+// pushHITLEvent 创建 HITL 事件推送回调
+// 通过 PicoClaw EventBus 发布自定义事件，由 Run() 中的 runtimeEvtCh 订阅接收
+func (o *Orchestrator) pushHITLEvent(evt Event) {
+	if o.eventBus != nil {
+		runtimeEvt := runtimeevents.Event{
+			Kind:    runtimeevents.Kind("agent.hitl_interaction"),
+			Payload: evt.Data,
+			Source:  runtimeevents.Source{Component: "datatoolbox", Name: "ask_user"},
+		}
+		o.eventBus.PublishNonBlocking(runtimeEvt)
+		log.Printf("[orchestrator] HITL event published to EventBus: type=%s", evt.Type)
+	} else {
+		log.Printf("[orchestrator] HITL event skipped (no EventBus): type=%s", evt.Type)
 	}
 }
 
@@ -267,6 +304,10 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 				"message": fmt.Sprintf("[%s] %s", p.Stage, p.Message),
 			}}
 		}
+
+	case runtimeevents.Kind("agent.hitl_interaction"):
+		// HITL 人在环路交互事件 — 转发为 hitl_interaction SSE 事件
+		out <- Event{Type: EventTypeHITL, Data: payload}
 	}
 }
 

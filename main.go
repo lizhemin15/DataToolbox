@@ -164,6 +164,10 @@ func main() {
 	mux.HandleFunc("/api/agent/mode", handleAgentMode)
 	mux.HandleFunc("/api/agent/status", handleAgentStatus)
 
+	// HITL 人在环路 API路由
+	mux.HandleFunc("/api/hitl/respond", handleHITLRespond)
+	mux.HandleFunc("/api/hitl/pending", handleHITLPending)
+
 	// 模型管理API路由
 	mux.HandleFunc("/api/models/llm", handleLLMModels)
 	mux.HandleFunc("/api/models/llm/", handleLLMModelDetail)

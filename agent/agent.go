@@ -4,13 +4,14 @@ package agent
 type EventType string
 
 const (
-	EventTypeText        EventType = "text"
-	EventTypeToolCall    EventType = "tool_call"
-	EventTypeToolResult  EventType = "tool_result"
-	EventTypeThinking     EventType = "thinking"
-	EventTypeAgentSwitch EventType = "agent_switch"
-	EventTypeError       EventType = "error"
-	EventTypeDone        EventType = "done"
+	EventTypeText           EventType = "text"
+	EventTypeToolCall       EventType = "tool_call"
+	EventTypeToolResult     EventType = "tool_result"
+	EventTypeThinking       EventType = "thinking"
+	EventTypeAgentSwitch    EventType = "agent_switch"
+	EventTypeError          EventType = "error"
+	EventTypeDone           EventType = "done"
+	EventTypeHITL           EventType = "hitl_interaction"
 )
 
 // Mode 常量

@@ -16,7 +16,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	picoclawbus "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/bus"
 	picoclawcfg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
+	runtimeevents "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/events"
 )
 
 type AICompletionRequest struct {
@@ -421,11 +423,15 @@ func saveAgentConfig() error {
 }
 
 // initAgentSubsystem 初始化集群模式子系统
-
+// initAgentSubsystem 初始化集群模式子系统
 func initAgentSubsystem() {
 	agentProviderRegistry = agent.NewProviderRegistry()
 	agentMCPSupervisor = agent.NewMCPSupervisor()
 	agentSkillRegistry = agent.NewSkillRegistry()
+
+	// 初始化全局 HITL 管理器
+	globalHITLManager = agent.NewHITLManager()
+
 	loadAgentConfig()
 
 	// Orchestrator 改为懒初始化（每用户首次查询时创建），无需启动时预创建
@@ -509,9 +515,22 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		orch.SetDataToolboxTool(dtTool)
 	}
 
+	// 5. 注入 HITL 管理器到 Orchestrator
+	if globalHITLManager != nil {
+		// 先传入 HITLManager，eventBus 在 InitializeWithProvider 后补充
+		orch.SetHITLManager(globalHITLManager, nil)
+	}
+
 	if err := orch.InitializeWithProvider(ctx, picoProvider, picoCfg); err != nil {
 		log.Printf("[agent] failed to initialize orchestrator for user=%s: %v", username, err)
 		return nil
+	}
+
+	// 6. InitializeWithProvider 后，补充 eventBus 到 HITLManager 注入
+	// 创建独立的 EventBus 用于 HITL 事件推送（AskUserTool → EventBus → Run() 中的订阅者 → SSE）
+	if globalHITLManager != nil {
+		hitlEventBus := runtimeevents.NewBus()
+		orch.SetHITLManager(globalHITLManager, hitlEventBus)
 	}
 
 	// 写入中文 AGENT.md 到用户 workspace（每次都更新，确保最新指令生效）
@@ -540,6 +559,7 @@ tools:
   - get_db_sql_hints
   - create_api
   - execute_api
+  - ask_user
 ---
 
 # 数据智能助手
@@ -554,6 +574,7 @@ tools:
 - **数据治理**: 使用 governance_tasks 端点管理治理任务
 - **数据本体**: 使用 ontology_query 查询概念关系
 - **多智能体协作**: 可以通过 delegate/subagent/spawn 工具委派任务给其他智能体
+- **人在环路交互**: 使用 ask_user 工具向用户发起确认、选择、填空等交互请求
 
 ## 用户意图识别
 
@@ -815,7 +836,7 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 		return
 	}
 
-	// 获取超时配置
+	// 获取超时配置（HITL 交互需要更长时间，取配置超时和 HITL 默认超时的较大值）
 	dataOntologyMu.RLock()
 	aiConfig := dataOntologyAIConfig
 	dataOntologyMu.RUnlock()
@@ -823,6 +844,10 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 	timeout := 120
 	if aiConfig != nil && aiConfig.Timeout > 0 {
 		timeout = aiConfig.Timeout
+	}
+	// HITL 交互默认超时 300s，确保整体超时不小于此值，否则用户来不及响应
+	if timeout < 300 {
+		timeout = 300
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)

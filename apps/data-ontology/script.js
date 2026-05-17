@@ -15319,6 +15319,16 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
             break;
         }
 
+        case 'hitl_interaction': {
+            // HITL 人在环路交互卡片
+            const hitlCard = renderHITLCard(evt);
+            if (hitlCard) {
+                blocksEl.appendChild(hitlCard);
+                currentBlock = hitlCard;
+            }
+            break;
+        }
+
         case 'done':
             typingEl.style.display = 'none';
             break;
