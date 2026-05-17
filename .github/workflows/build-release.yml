@@ -149,6 +149,7 @@ jobs:
           chmod +x package/update.sh
           cp -r index.html share.html quality-audit.html script.js style.css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
 
+          mkdir -p package/apps/data-ontology
           echo '{}' > package/apps/data-ontology/data-store.json
 
           VERSION="${GITHUB_REF_NAME#v}"
