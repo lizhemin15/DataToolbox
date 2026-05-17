@@ -183,6 +183,7 @@ func main() {
 	mux.HandleFunc("/api/governance/tasks/", handleGovernanceTaskDetail)
 	mux.HandleFunc("/api/governance/download-output", handleGovernanceDownloadOutput)
 	mux.HandleFunc("/api/governance/execute-sql", handleGovernanceExecuteSQL)
+	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
 	mux.HandleFunc("/api/quality-audit/", handleQualityAuditAPI)
 
 	// 分享API路由（免鉴权）

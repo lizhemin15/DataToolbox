@@ -808,10 +808,19 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 		rawPath = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
 	}
 	rawPath = strings.TrimPrefix(rawPath, "/")
+
+	// POST /api/governance/examples/download → 批量打包下载
+	if r.Method == http.MethodPost && rawPath == "download" {
+		handleGovernanceExamplesZipDownload(w, r)
+		return
+	}
+
+	// POST /api/governance/examples/reload → 热更新
 	if r.Method == http.MethodPost && rawPath == "reload" {
 		handleGovernanceExamplesReload(w, r)
 		return
 	}
+
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
@@ -824,11 +833,6 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = username
-	raw := rawPath
-	if raw == "download" {
-		http.NotFound(w, r)
-		return
-	}
 	// 空路径返回示例文件列表
 	if raw == "" {
 		handleGovernanceExamplesList(w, r)

@@ -7758,6 +7758,20 @@ function onGovTaskTypeChange() {
     }
 }
 
+// 任务详情页 - 任务代码折叠切换
+function toggleGovTaskCode() {
+    const panel = document.getElementById('govTaskCodePanel');
+    const arrow = document.getElementById('govTaskCodeArrow');
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+        panel.style.display = '';
+        if (arrow) arrow.textContent = '▼';
+    } else {
+        panel.style.display = 'none';
+        if (arrow) arrow.textContent = '▶';
+    }
+}
+
 // 折叠块切换
 function toggleGovCollapsible(headerEl) {
     const collapsible = headerEl.parentElement;
