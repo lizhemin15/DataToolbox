@@ -226,51 +226,75 @@ func handleGovernanceShareRunStatus(w http.ResponseWriter, r *http.Request, task
 		return
 	}
 
-	// 直接从 governanceTaskLogs 读取（单一数据源）
+	// 优先从 governanceShareRuns 读取（任务入队时即创建，包含 pending/running 状态）
+	governanceShareRunsMu.RLock()
+	shareRun, shareRunExists := governanceShareRuns[runID]
+	governanceShareRunsMu.RUnlock()
+
+	// 从 governanceTaskLogs 读取（任务执行完成后写入）
 	dataOntologyMu.RLock()
 	logs := governanceTaskLogs[task.ID]
 	dataOntologyMu.RUnlock()
 
-	// 查找对应 run_id 的日志
-	var log *GovernanceTaskLog
+	var taskLog *GovernanceTaskLog
 	for _, l := range logs {
 		if l != nil && l.RunID == runID {
-			log = l
+			taskLog = l
 			break
 		}
 	}
 
-	if log == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
+	// 如果 log 存在，以 log 为准（任务已完成）
+	if taskLog != nil {
+		status := "completed"
+		output := taskLog.Output
+		if taskLog.Status == "error" {
+			status = "failed"
+			if taskLog.Error != "" {
+				if output != "" {
+					output = taskLog.Error + "\n" + output
+				} else {
+					output = taskLog.Error
+				}
+			}
+		}
+
+		// 扫描该运行的文件列表
+		inputFiles, outputFiles := scanShareRunFiles(task.ShareToken, runID)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"status":       status,
+			"progress":     100,
+			"output":       output,
+			"input_files":  inputFiles,
+			"result_files": outputFiles,
+			"created_at":   taskLog.StartTime,
+			"updated_at":   taskLog.EndTime,
+		})
 		return
 	}
 
-	status := "completed"
-	output := log.Output
-	if log.Status == "error" {
-		status = "failed"
-		if log.Error != "" {
-			if output != "" {
-				output = log.Error + "\n" + output
-			} else {
-				output = log.Error
-			}
-		}
+	// log 不存在，检查 shareRun（任务还在队列中或正在执行）
+	if shareRunExists {
+		// 扫描输出文件（执行过程中可能有中间输出）
+		_, outputFiles := scanShareRunFiles(task.ShareToken, runID)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"status":       shareRun.Status,   // pending / running
+			"progress":     shareRun.Progress,  // 0-100
+			"output":       shareRun.Output,
+			"input_files":  shareRun.InputFiles,
+			"result_files": outputFiles,
+			"created_at":   shareRun.CreatedAt,
+			"updated_at":   shareRun.UpdatedAt,
+		})
+		return
 	}
 
-	// 扫描该运行的文件列表
-	inputFiles, outputFiles := scanShareRunFiles(task.ShareToken, runID)
-	
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"status":       status,
-		"progress":     100,
-		"output":       output,
-		"input_files":  inputFiles,
-		"result_files": outputFiles,
-		"created_at":   log.StartTime,
-		"updated_at":   log.EndTime,
-	})
+	// 两者都不存在
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "执行记录不存在"})
 }
 
 // scanShareRunFiles 扫描分享任务的输入/输出文件
