@@ -152,9 +152,10 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 		r.URL.RawQuery = r.URL.RawQuery + "&_runID=" + runID
 	}
 
-	// 对于定时任务（scheduled类型）或后端执行模式，可以不需要上传文件
+	// 对于定时任务（scheduled类型）、后端执行模式、或文本输入类型，可以不需要上传文件
+	isTextInput := task.InputType == "text"
 	isScheduledTask := task.Type == "scheduled" || task.ExecutionMode == "backend"
-	if len(filePaths) == 0 && !isScheduledTask {
+	if len(filePaths) == 0 && !isScheduledTask && !isTextInput {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未上传文件"})
 		return
 	}
@@ -189,13 +190,29 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 		log.Printf("保存分享执行记录失败: %v", err)
 	}
 
+// 提取文本输入内容
+	inputText := ""
+	if r.MultipartForm != nil {
+		if vals := r.MultipartForm.Value["input_text"]; len(vals) > 0 {
+			inputText = vals[0]
+		}
+	} else if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		var bodyData map[string]interface{}
+		bodyBytes, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(bodyBytes, &bodyData); err == nil {
+			if v, ok := bodyData["input_text"].(string); ok {
+				inputText = v
+			}
+		}
+	}
+
 	// 创建任务并入队（分享任务不依赖用户 token，AI 调用走免鉴权端点）
 	job := &GovernanceJob{
 		TaskID:     task.ID,
 		RunID:      runID,
 		Token:      "", // 分享任务不需要用户 token
 		InputFiles: filePaths,
-		InputText:  "",
+		InputText:  inputText,
 		ShareToken: shareToken,
 	}
 
