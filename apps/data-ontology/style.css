@@ -425,6 +425,13 @@ body {
     margin-bottom: 16px;
 }
 
+.settings-data-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .settings-checkbox-group {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

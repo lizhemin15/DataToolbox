@@ -5036,6 +5036,11 @@ let currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
 async function showSettingsModal() {
     document.getElementById('settingsModal').classList.add('show');
     await loadTabSettings();
+    // 管理员才显示数据管理区域
+    const dataSection = document.getElementById('dataManagementSection');
+    if (dataSection) {
+        dataSection.style.display = currentUser === 'admin' ? 'block' : 'none';
+    }
 }
 
 // 关闭设置弹窗。
@@ -5137,6 +5142,110 @@ function resetTabSettings() {
     const embedModeToggle = document.getElementById('embedModeToggle');
     if (embedModeToggle) {
         embedModeToggle.checked = true; // 默认开启嵌入模式
+    }
+}
+
+// ====== 数据管理：一键导入导出 ======
+
+// 导出系统数据（管理员）
+async function exportSystemData() {
+    const statusEl = document.getElementById('dataManagementStatus');
+    const btn = document.getElementById('exportDataBtn');
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏳ 导出中...';
+        statusEl.textContent = '正在生成备份文件...';
+        statusEl.style.color = '#a0aec0';
+
+        const token = localStorage.getItem('token');
+        const resp = await fetch('/api/backup', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({error: '导出失败'}));
+            throw new Error(err.error || '导出失败');
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `datatoolbox-backup-${dateStr}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+        statusEl.textContent = `✅ 导出成功 (${sizeMB} MB)`;
+        statusEl.style.color = '#48bb78';
+        showToast('数据导出成功', 'success');
+    } catch (e) {
+        statusEl.textContent = '❌ ' + e.message;
+        statusEl.style.color = '#fc8181';
+        showToast('导出失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📤 导出数据';
+    }
+}
+
+// 导入系统数据（管理员）
+async function importSystemData(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    const mode = document.getElementById('importModeSelect').value;
+    const statusEl = document.getElementById('dataManagementStatus');
+
+    // 覆盖模式二次确认
+    if (mode === 'overwrite') {
+        if (!confirm('覆盖模式将替换所有现有数据，确定继续吗？')) {
+            input.value = '';
+            return;
+        }
+    }
+
+    try {
+        statusEl.textContent = '正在导入数据...';
+        statusEl.style.color = '#a0aec0';
+
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('backup', file);
+        formData.append('mode', mode);
+
+        const resp = await fetch('/api/restore-upload', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+
+        const result = await resp.json();
+        if (!resp.ok || result.error) {
+            throw new Error(result.error || result.message || '导入失败');
+        }
+
+        const data = result.data || result;
+        let msg = '✅ 导入成功';
+        if (data.db_bytes) msg += ` (数据库 ${Math.round(data.db_bytes/1024)}KB)`;
+        if (data.users_count !== undefined) msg += ` — ${data.users_count} 用户, ${data.databases_count} 数据库, ${data.apis_count} 接口`;
+        if (data.files_restored) msg += `, ${data.files_restored} 文件`;
+
+        statusEl.textContent = msg;
+        statusEl.style.color = '#48bb78';
+        showToast('数据导入成功，即将刷新页面', 'success');
+
+        // 导入成功后刷新页面加载新数据
+        setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+        statusEl.textContent = '❌ ' + e.message;
+        statusEl.style.color = '#fc8181';
+        showToast('导入失败: ' + e.message, 'error');
+    } finally {
+        input.value = '';
     }
 }
 
