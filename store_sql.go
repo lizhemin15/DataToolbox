@@ -27,9 +27,9 @@ func getStoreDBPath() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Printf("[存储] 获取可执行文件路径失败: %v", err)
-		return "apps/data-ontology/data-store.db"
+		return "data/data-store.db"
 	}
-	return filepath.Join(filepath.Dir(exePath), "apps", "data-ontology", "data-store.db")
+	return filepath.Join(filepath.Dir(exePath), "data", "data-store.db")
 }
 
 // initStoreDB 初始化 SQLite 数据库，创建表结构

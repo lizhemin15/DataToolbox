@@ -22,10 +22,10 @@ func getDataOntologyStorePath() string {
 	exePath, err := os.Executable()
 	if err != nil {
 		log.Printf("获取可执行文件路径失败: %v", err)
-		return "apps/data-ontology/data-store.json"
+		return "data/data-store.json"
 	}
 	rootDir := filepath.Dir(exePath)
-	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
+	return filepath.Join(rootDir, "data", "data-store.json")
 }
 
 // saveDataOntologyStoreJSON JSON 保存（fallback，SQLite 未初始化时使用）

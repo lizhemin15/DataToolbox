@@ -113,7 +113,7 @@ func handleGovernanceShareRun(w http.ResponseWriter, r *http.Request, task *Gove
 
 		// 先生成 runID，所有文件保存到同一个目录
 		runID := uuid.New().String()
-		uploadDir := filepath.Join("apps", "data-ontology", "share-uploads", shareToken, runID)
+		uploadDir := filepath.Join("data", "share-uploads", shareToken, runID)
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建上传目录失败"})
 			return
@@ -535,9 +535,9 @@ func handleGovernanceShareRunDownload(w http.ResponseWriter, r *http.Request, ta
 	// 根据类型选择目录（使用 task.ShareToken）
 	var baseDir string
 	if downloadType == "input" {
-		baseDir = filepath.Join("apps", "data-ontology", "share-uploads", task.ShareToken, runID)
+		baseDir = filepath.Join("data", "share-uploads", task.ShareToken, runID)
 	} else {
-		baseDir = filepath.Join("apps", "data-ontology", "share-outputs", task.ShareToken, runID)
+		baseDir = filepath.Join("data", "share-outputs", task.ShareToken, runID)
 	}
 
 	// 获取要下载的文件名

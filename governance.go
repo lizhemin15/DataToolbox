@@ -1074,7 +1074,7 @@ func handleGovernanceDownloadAPIOutput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	path := filepath.Join("apps", "data-ontology", "api-outputs", taskID, runID, safeName)
+	path := filepath.Join("data", "api-outputs", taskID, runID, safeName)
 	if _, err := os.Stat(path); err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
@@ -1773,7 +1773,7 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 
 	// 落盘输出文件并生成下载链接
 	if len(result.OutputFiles) > 0 {
-		dir := filepath.Join("apps", "data-ontology", "api-outputs", task.ID, runID)
+		dir := filepath.Join("data", "api-outputs", task.ID, runID)
 		_ = os.MkdirAll(dir, 0755)
 		var outputFiles []map[string]string
 		for _, f := range result.OutputFiles {
@@ -1840,7 +1840,7 @@ func governanceWriteOutputFilesForShare(shareToken string, runID string, files [
 	if shareToken == "" || runID == "" || len(files) == 0 {
 		return nil
 	}
-	dir := filepath.Join("apps", "data-ontology", "share-outputs", shareToken, runID)
+	dir := filepath.Join("data", "share-outputs", shareToken, runID)
 	_ = os.MkdirAll(dir, 0755)
 	var lines []string
 	for _, f := range files {
@@ -2194,7 +2194,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 			if isShare {
 				var resultFiles []string
 				// 收集所有输出文件名
-				outputDir := filepath.Join("apps", "data-ontology", "share-outputs", job.ShareToken, runID)
+				outputDir := filepath.Join("data", "share-outputs", job.ShareToken, runID)
 				if files, err := os.ReadDir(outputDir); err == nil {
 					for _, f := range files {
 						if !f.IsDir() {

@@ -20,7 +20,7 @@ import (
 func getFTS5Manager() *FTS5Manager {
 	fts5ManagerOnce.Do(func() {
 		// 数据库路径：服务工作目录下的 data-store.db
-		dbPath := filepath.Join(".", "apps", "data-ontology", "data-store.db")
+		dbPath := filepath.Join(".", "data", "data-store.db")
 
 		// 确保目录存在
 		dir := filepath.Dir(dbPath)
