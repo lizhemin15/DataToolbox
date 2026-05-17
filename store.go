@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -570,59 +571,107 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 			}
 		}
 
-		if dbFile != nil && mode == "overwrite" {
-			// SQLite 覆盖模式：直接替换 data-store.db 文件
-			dbPath := getStoreDBPath()
+		if dbFile != nil {
+			if mode == "overwrite" {
+				// SQLite 覆盖模式：直接替换 data-store.db 文件
+				dbPath := getStoreDBPath()
 
-			// 先关闭当前数据库连接
-			storeDB.Close()
-			storeDB = nil
+				// 先关闭当前数据库连接
+				storeDB.Close()
+				storeDB = nil
 
-			// 备份当前 db 文件
-			backupPath := dbPath + ".restore-backup"
-			os.Rename(dbPath, backupPath)
+				// 备份当前 db 文件
+				backupPath := dbPath + ".restore-backup"
+				os.Rename(dbPath, backupPath)
 
-			// 解压新的 db 文件
+				// 解压新的 db 文件
+				rc, err := dbFile.Open()
+				if err != nil {
+					// 恢复备份
+					os.Rename(backupPath, dbPath)
+					return nil, fmt.Errorf("打开 data-store.db 失败: %v", err)
+				}
+				dst, err := os.Create(dbPath)
+				if err != nil {
+					rc.Close()
+					os.Rename(backupPath, dbPath)
+					return nil, fmt.Errorf("创建 data-store.db 失败: %v", err)
+				}
+				written, err := io.Copy(dst, rc)
+				dst.Close()
+				rc.Close()
+				if err != nil {
+					os.Rename(backupPath, dbPath)
+					return nil, fmt.Errorf("写入 data-store.db 失败: %v", err)
+				}
+
+				// 删除备份
+				os.Remove(backupPath)
+
+				// 重新初始化 SQLite 并加载数据
+				if err := initStoreDB(); err != nil {
+					return nil, fmt.Errorf("重新初始化 SQLite 失败: %v", err)
+				}
+				if err := sqlLoadAll(); err != nil {
+					return nil, fmt.Errorf("从恢复的数据库加载数据失败: %v", err)
+				}
+
+				// 恢复文件目录
+				fileCount := restoreFilesFromZip(r, dataDir, mode)
+
+				stats := map[string]interface{}{
+					"mode":           mode,
+					"db_bytes":       written,
+					"files_restored": fileCount,
+				}
+				return stats, nil
+			}
+
+			// merge 模式 + SQLite：从备份 db 读取数据合并到当前内存
+			// 将备份 db 解压到临时文件，打开读取，合并到内存
+			tmpDB := filepath.Join(os.TempDir(), "restore-merge.db")
 			rc, err := dbFile.Open()
 			if err != nil {
-				// 恢复备份
-				os.Rename(backupPath, dbPath)
-				return nil, fmt.Errorf("打开 data-store.db 失败: %v", err)
+				return nil, fmt.Errorf("打开备份 data-store.db 失败: %v", err)
 			}
-			dst, err := os.Create(dbPath)
+			dst, err := os.Create(tmpDB)
 			if err != nil {
 				rc.Close()
-				os.Rename(backupPath, dbPath)
-				return nil, fmt.Errorf("创建 data-store.db 失败: %v", err)
+				return nil, fmt.Errorf("创建临时 db 文件失败: %v", err)
 			}
 			written, err := io.Copy(dst, rc)
 			dst.Close()
 			rc.Close()
 			if err != nil {
-				os.Rename(backupPath, dbPath)
-				return nil, fmt.Errorf("写入 data-store.db 失败: %v", err)
+				os.Remove(tmpDB)
+				return nil, fmt.Errorf("写入临时 db 文件失败: %v", err)
 			}
 
-			// 删除备份
-			os.Remove(backupPath)
-
-			// 重新初始化 SQLite 并加载数据
-			if err := initStoreDB(); err != nil {
-				return nil, fmt.Errorf("重新初始化 SQLite 失败: %v", err)
+			// 从临时 db 加载数据到新的内存变量
+			mergeDB, err := sql.Open("sqlite", tmpDB+"?mode=ro")
+			if err != nil {
+				os.Remove(tmpDB)
+				return nil, fmt.Errorf("打开临时数据库失败: %v", err)
 			}
-			if err := sqlLoadAll(); err != nil {
-				return nil, fmt.Errorf("从恢复的数据库加载数据失败: %v", err)
+			mergeStats, err := mergeFromDB(mergeDB)
+			mergeDB.Close()
+			os.Remove(tmpDB)
+			if err != nil {
+				return nil, fmt.Errorf("合并数据失败: %v", err)
+			}
+
+			// 保存合并后的数据
+			if err := saveDataOntologyStore(); err != nil {
+				return nil, fmt.Errorf("保存合并数据失败: %v", err)
 			}
 
 			// 恢复文件目录
 			fileCount := restoreFilesFromZip(r, dataDir, mode)
 
-			stats := map[string]interface{}{
-				"mode":           mode,
-				"db_bytes":       written,
-				"files_restored": fileCount,
-			}
-			return stats, nil
+			mergeStats["mode"] = mode
+			mergeStats["db_bytes"] = written
+			mergeStats["files_restored"] = fileCount
+			return mergeStats, nil
 		}
 	}
 

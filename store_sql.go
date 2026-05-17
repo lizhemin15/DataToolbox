@@ -1374,3 +1374,111 @@ func closeStore() {
 		log.Printf("[存储] SQLite 数据库已关闭")
 	}
 }
+
+// mergeFromDB 从另一个 SQLite 数据库读取数据合并到当前内存
+// 用于 merge 模式的恢复操作
+func mergeFromDB(otherDB *sql.DB) (map[string]interface{}, error) {
+	stats := map[string]interface{}{
+		"users_added":     0,
+		"databases_added": 0,
+		"apis_added":      0,
+		"tasks_added":     0,
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	// 合并用户
+	rows, err := otherDB.Query("SELECT username, password, token, tokens, token_entries, api_key, settings FROM users")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var u User
+			var token, tokensJSON, tokenEntriesJSON, apiKey, settingsJSON sql.NullString
+			rows.Scan(&u.Username, &u.Password, &token, &tokensJSON, &tokenEntriesJSON, &apiKey, &settingsJSON)
+			u.Token = token.String
+			if tokensJSON.Valid && tokensJSON.String != "" {
+				json.Unmarshal([]byte(tokensJSON.String), &u.Tokens)
+			}
+			if tokenEntriesJSON.Valid && tokenEntriesJSON.String != "" {
+				json.Unmarshal([]byte(tokenEntriesJSON.String), &u.TokenEntries)
+			}
+			u.ApiKey = apiKey.String
+			if settingsJSON.Valid && settingsJSON.String != "" {
+				json.Unmarshal([]byte(settingsJSON.String), &u.Settings)
+			}
+			if _, exists := dataOntologyUsers[u.Username]; !exists {
+				if u.Password != "" && !isBcryptHash(u.Password) {
+					u.Password = hashPassword(u.Password)
+				}
+				dataOntologyUsers[u.Username] = &u
+				stats["users_added"] = stats["users_added"].(int) + 1
+			}
+		}
+	}
+
+	// 合并数据库配置
+	rows, err = otherDB.Query("SELECT id, owner, type, name, host, port, user, password, database, path, options, relations FROM databases")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var db DatabaseConfig
+			var owner, optionsJSON, relationsJSON sql.NullString
+			rows.Scan(&db.ID, &owner, &db.Type, &db.Name, &db.Host, &db.Port, &db.User, &db.Password, &db.Database, &db.Path, &optionsJSON, &relationsJSON)
+			db.Owner = owner.String
+			if relationsJSON.Valid && relationsJSON.String != "" {
+				json.Unmarshal([]byte(relationsJSON.String), &db.Relations)
+			}
+			if _, exists := dataOntologyDatabases[db.ID]; !exists {
+				dataOntologyDatabases[db.ID] = &db
+				stats["databases_added"] = stats["databases_added"].(int) + 1
+			}
+		}
+	}
+
+	// 合并接口
+	rows, err = otherDB.Query("SELECT id, name, database_id, config FROM apis")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, name, dbID string
+			var configJSON sql.NullString
+			rows.Scan(&id, &name, &dbID, &configJSON)
+			if _, exists := dataOntologyApis[id]; !exists {
+				api := &ApiConfig{ID: id, Name: name, DatabaseID: dbID}
+				if configJSON.Valid && configJSON.String != "" {
+					json.Unmarshal([]byte(configJSON.String), api)
+				}
+				api.ID = id
+				api.Name = name
+				api.DatabaseID = dbID
+				dataOntologyApis[id] = api
+				stats["apis_added"] = stats["apis_added"].(int) + 1
+			}
+		}
+	}
+
+	// 合并治理任务
+	rows, err = otherDB.Query("SELECT id, name, config FROM governance_tasks")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, name string
+			var configJSON sql.NullString
+			rows.Scan(&id, &name, &configJSON)
+			if _, exists := governanceTasks[id]; !exists {
+				task := &GovernanceTask{ID: id, Name: name}
+				if configJSON.Valid && configJSON.String != "" {
+					json.Unmarshal([]byte(configJSON.String), task)
+				}
+				task.ID = id
+				task.Name = name
+				governanceTasks[id] = task
+				stats["tasks_added"] = stats["tasks_added"].(int) + 1
+			}
+		}
+	}
+
+	log.Printf("[存储] 合并完成: %+v", stats)
+	return stats, nil
+}
