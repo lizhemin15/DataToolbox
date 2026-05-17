@@ -501,18 +501,7 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		return nil
 	}
 
-	// 4. 注册 DataToolbox 工具 — MCP 启用时用 MCP 工具替代 datatoolbox_api
-	mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
-	serverURL := mcpLoopbackAddr
-	webNavMu.RLock()
-	authToken := webNavAdminToken
-	webNavMu.RUnlock()
-
-	if !mcpEnabled {
-		// MCP 关闭时，使用 datatoolbox_api 作为唯一工具源
-		dtTool := agent.NewDataToolboxAPITool(serverURL, authToken)
-		orch.SetDataToolboxTool(dtTool)
-	}
+	// 4. 工具通过 MCP 注册（不再使用 DataToolboxAPITool，避免重复）
 
 	// 5. 注入 HITL 管理器到 Orchestrator
 	if globalHITLManager != nil {
@@ -546,18 +535,6 @@ tools:
   - write_file
   - list_dir
   - exec
-  - list_databases
-  - get_tables
-  - describe_table
-  - execute_sql
-  - list_apis
-  - get_api_detail
-  - call_api
-  - search_tables
-  - get_db_schema
-  - get_db_sql_hints
-  - create_api
-  - execute_api
   - ask_user
 ---
 

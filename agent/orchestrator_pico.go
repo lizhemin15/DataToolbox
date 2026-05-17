@@ -36,9 +36,6 @@ type Orchestrator struct {
 	provider picoclawproviders.LLMProvider
 	picoCfg  *picoclawcfg.Config
 
-	// DataToolbox 深度耦合工具
-	dtTool *DataToolboxAPITool
-
 	// HITL 人在环路管理器
 	hitlMgr *HITLManager
 
@@ -57,7 +54,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 }
 
 // InitializeWithProvider 用 LLM provider 初始化 PicoClaw AgentLoop
-// 并注册 DataToolbox 深度耦合工具
+// 并注册 HITL 等工具（DataToolbox 系统工具通过 MCP 协议注册）
 func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider picoclawproviders.LLMProvider, picoCfg *picoclawcfg.Config) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -69,17 +66,12 @@ func (o *Orchestrator) InitializeWithProvider(ctx context.Context, provider pico
 	o.provider = provider
 	o.picoCfg = picoCfg
 
-	// 注册 DataToolbox 深度耦合工具到所有 agent
+	// 注册 HITL 等工具到所有 agent（DataToolbox 系统工具通过 MCP 注册）
 	o.registerDataToolboxTools()
 
 	agentIDs := loop.GetRegistry().ListAgentIDs()
 	log.Printf("[orchestrator] initialized with PicoClaw: agents=%v", agentIDs)
 	return nil
-}
-
-// SetDataToolboxTool 设置 DataToolbox API 工具（在 InitializeWithProvider 之前调用）
-func (o *Orchestrator) SetDataToolboxTool(tool *DataToolboxAPITool) {
-	o.dtTool = tool
 }
 
 // SetHITLManager 设置 HITL 管理器和事件总线（在 InitializeWithProvider 之前调用）
@@ -88,7 +80,8 @@ func (o *Orchestrator) SetHITLManager(mgr *HITLManager, eventBus runtimeevents.B
 	o.eventBus = eventBus
 }
 
-// registerDataToolboxTools 将 DataToolboxAPITool 和 AskUserTool 注册到所有 agent 的 ToolRegistry
+// registerDataToolboxTools 将 AskUserTool 注册到所有 agent 的 ToolRegistry
+// DataToolbox 系统工具通过 MCP 协议注册，不再使用 DataToolboxAPITool
 func (o *Orchestrator) registerDataToolboxTools() {
 	if o.loop == nil {
 		return
@@ -99,12 +92,6 @@ func (o *Orchestrator) registerDataToolboxTools() {
 		agent, ok := registry.GetAgent(agentID)
 		if !ok {
 			continue
-		}
-
-		// 注册 DataToolboxAPITool
-		if o.dtTool != nil {
-			agent.Tools.Register(o.dtTool)
-			log.Printf("[orchestrator] registered datatoolbox_api tool for agent=%s", agentID)
 		}
 
 		// 注册 AskUserTool（如果 HITLManager 已设置）
