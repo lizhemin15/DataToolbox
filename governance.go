@@ -1055,6 +1055,65 @@ func handleGovernanceDownloadOutput(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleGovernanceDownloadAPIOutput 下载 API 调用治理任务生成的输出文件
+// 支持 API Key 鉴权（Authorization: Bearer xxx）或用户登录态
+func handleGovernanceDownloadAPIOutput(w http.ResponseWriter, r *http.Request) {
+	// 鉴权：支持 API Key 或用户登录
+	if !verifyToken(r) {
+		username, authOK := getDataOntologyUserFromRequest(r)
+		if !authOK || username == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权，请提供 API Key 或登录"})
+			return
+		}
+	}
+
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})
+		return
+	}
+	taskID := r.URL.Query().Get("task_id")
+	runID := r.URL.Query().Get("run_id")
+	safeName := sanitizeGovOutputFilename(r.URL.Query().Get("name"))
+	if taskID == "" || runID == "" || safeName == "" {
+		http.Error(w, "Bad Request: task_id, run_id, name required", http.StatusBadRequest)
+		return
+	}
+	// 安全：防止路径遍历
+	if strings.Contains(taskID, "..") || strings.Contains(runID, "..") || strings.Contains(safeName, "..") {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	path := filepath.Join("apps", "data-ontology", "api-outputs", taskID, runID, safeName)
+	if _, err := os.Stat(path); err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+	// 根据文件扩展名设置 Content-Type
+	contentType := "application/octet-stream"
+	switch strings.ToLower(filepath.Ext(safeName)) {
+	case ".docx":
+		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".pdf":
+		contentType = "application/pdf"
+	case ".xlsx":
+		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".csv":
+		contentType = "text/csv"
+	case ".txt", ".log":
+		contentType = "text/plain; charset=utf-8"
+	case ".json":
+		contentType = "application/json"
+	case ".html":
+		contentType = "text/html; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+safeName+`"`)
+	http.ServeFile(w, r, path)
+}
+
 func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	username, authOK := getDataOntologyUserFromRequest(r)
@@ -1634,6 +1693,7 @@ func governanceWorker() {
 }
 
 // executeGovernanceTaskForAPI 为 API 调用执行任务（同步返回结果）
+// 返回结果包含 output（文本输出）和 output_files（生成的文件下载链接）
 
 func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interface{}) (interface{}, error) {
 	// 获取任务信息
@@ -1656,6 +1716,9 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 		})
 	}
 	dataOntologyMu.RUnlock()
+
+	// 生成 runID 用于输出文件目录
+	runID := uuid.New().String()
 
 	// 准备任务参数
 	taskData := map[string]interface{}{
@@ -1692,11 +1755,49 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 		return nil, fmt.Errorf("%s", result.Error)
 	}
 
-	// 返回结果
-	if len(result.Output) == 1 {
+	// 构建返回结果
+	resp := map[string]interface{}{
+		"output":       result.Output,
+		"output_files": []map[string]string{},
+	}
+
+	// 落盘输出文件并生成下载链接
+	if len(result.OutputFiles) > 0 {
+		dir := filepath.Join("apps", "data-ontology", "api-outputs", task.ID, runID)
+		_ = os.MkdirAll(dir, 0755)
+		var outputFiles []map[string]string
+		for _, f := range result.OutputFiles {
+			if f.Name == "" || f.ContentBase64 == "" {
+				continue
+			}
+			safe := sanitizeGovOutputFilename(f.Name)
+			data, err := base64.StdEncoding.DecodeString(f.ContentBase64)
+			if err != nil {
+				continue
+			}
+			path := filepath.Join(dir, safe)
+			if err := os.WriteFile(path, data, 0644); err != nil {
+				continue
+			}
+			// 生成下载链接
+			q := url.Values{}
+			q.Set("task_id", task.ID)
+			q.Set("run_id", runID)
+			q.Set("name", safe)
+			downloadURL := "/api/governance/download-api-output?" + q.Encode()
+			outputFiles = append(outputFiles, map[string]string{
+				"name":         safe,
+				"download_url": downloadURL,
+			})
+		}
+		resp["output_files"] = outputFiles
+	}
+
+	// 兼容：如果只有一条文本输出且无文件，直接返回文本
+	if len(result.Output) == 1 && len(result.OutputFiles) == 0 {
 		return result.Output[0], nil
 	}
-	return result.Output, nil
+	return resp, nil
 }
 
 // GovOutputFile gov-runner 生成的二进制输出

@@ -182,6 +182,7 @@ func main() {
 	mux.HandleFunc("/api/governance/tasks", handleGovernanceTasks)
 	mux.HandleFunc("/api/governance/tasks/", handleGovernanceTaskDetail)
 	mux.HandleFunc("/api/governance/download-output", handleGovernanceDownloadOutput)
+	mux.HandleFunc("/api/governance/download-api-output", handleGovernanceDownloadAPIOutput)
 	mux.HandleFunc("/api/governance/execute-sql", handleGovernanceExecuteSQL)
 	mux.HandleFunc("/api/governance/examples/", handleGovernanceExampleDownload)
 	mux.HandleFunc("/api/quality-audit/", handleQualityAuditAPI)
