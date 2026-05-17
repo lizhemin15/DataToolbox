@@ -834,11 +834,11 @@ func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = username
 	// 空路径返回示例文件列表
-	if raw == "" {
+	if rawPath == "" {
 		handleGovernanceExamplesList(w, r)
 		return
 	}
-	safe := sanitizeGovernanceExampleFilename(raw)
+	safe := sanitizeGovernanceExampleFilename(rawPath)
 	if safe == "" {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
