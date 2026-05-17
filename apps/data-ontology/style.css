@@ -7289,6 +7289,59 @@ body.embed-mode .embed-settings-btn {
     color: #94a3b8;
 }
 
+/* ==================== 治理任务详情 - 代码折叠块 ==================== */
+.gov-code-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.gov-code-toggle:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.gov-code-toggle h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.gov-code-toggle h3::before {
+    content: none;
+}
+
+.gov-code-arrow {
+    font-size: 12px;
+    color: #64748b;
+    transition: transform 0.2s;
+}
+
+.gov-code-panel {
+    margin-top: -1px;
+    border: 1px solid #e2e8f0;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+
+.gov-code-panel .sql-display {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+}
+
 /* ==================== 治理任务编辑折叠块 ==================== */
 .gov-collapsible {
     margin-top: 16px;
