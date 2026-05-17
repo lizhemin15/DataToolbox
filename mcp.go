@@ -1,5 +1,6 @@
 // Agent 服务：
-//   HTTP 模式（推荐）：MCP 服务内嵌在 HTTP 服务器中，客户端通过 URL 直接连接，无需本地二进制。
+//   HTTP 模式（推荐）：MCP 服务内嵌在 HTTP 服务器中，使用 go-sdk StreamableHTTPHandler，
+//     PicoClaw 通过 streamable-http transport 连接，自动发现工具。
 //   Stdio 模式（备用）：DATA_ONTOLOGY_BASE_URL=http://... DATA_ONTOLOGY_API_KEY=dok_xxx ./datatoolbox-server mcp
 
 package main
@@ -23,7 +24,6 @@ var mcpLoopbackAddr = "http://127.0.0.1:8080"
 
 const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
-const mcpProtocolVersion = "2024-11-05"
 
 // ─── SQL 安全检查 ───────────────────────────────────────────────────────────
 
@@ -127,13 +127,13 @@ func newMCPClient() (*mcpClient, error) {
 }
 
 func (c *mcpClient) do(method, path string, body []byte) ([]byte, error) {
-	url := c.baseURL + path
+	reqURL := c.baseURL + path
 	var req *http.Request
 	var err error
 	if body != nil {
-		req, err = http.NewRequest(method, url, bytes.NewReader(body))
+		req, err = http.NewRequest(method, reqURL, bytes.NewReader(body))
 	} else {
-		req, err = http.NewRequest(method, url, nil)
+		req, err = http.NewRequest(method, reqURL, nil)
 	}
 	if err != nil {
 		return nil, err
@@ -156,183 +156,325 @@ func (c *mcpClient) do(method, path string, body []byte) ([]byte, error) {
 	return data, nil
 }
 
-// ─── HTTP 模式：自定义 JSON-RPC over HTTP MCP 端点 ───────────────────────────
-// 不使用 go-sdk 的 HTTP handler，完全手写，避免底层 transport 的不兼容问题。
-
-type mcpRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-}
-
-type mcpRPCResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
-	ID      interface{}   `json:"id"`
-	Result  interface{}   `json:"result,omitempty"`
-	Error   *mcpRPCError  `json:"error,omitempty"`
-}
-
-type mcpRPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
-func mcpSendResult(w http.ResponseWriter, id interface{}, result interface{}) {
-	json.NewEncoder(w).Encode(mcpRPCResponse{JSONRPC: "2.0", ID: id, Result: result})
-}
-
-func mcpSendError(w http.ResponseWriter, id interface{}, code int, msg string) {
-	w.WriteHeader(http.StatusOK) // MCP spec: errors still return 200
-	json.NewEncoder(w).Encode(mcpRPCResponse{
-		JSONRPC: "2.0", ID: id,
-		Error: &mcpRPCError{Code: code, Message: msg},
-	})
-}
-
-func mcpToolsList() []interface{} {
-	return []interface{}{
-		map[string]interface{}{
-			"name":        "list_databases",
-			"description": "列出数据本体池中已配置的数据库（不含密码）",
-			"inputSchema": map[string]interface{}{
-				"type": "object", "properties": map[string]interface{}{},
-			},
-		},
-		map[string]interface{}{
-			"name":        "get_tables",
-			"description": "获取指定数据库的表列表及连接状态",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
-				},
-				"required": []string{"database_id"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "describe_table",
-			"description": "获取指定数据库中某张表的列结构（字段名、类型、是否可空、默认值、键信息等）",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
-					"table_name":  map[string]interface{}{"type": "string", "description": "表名"},
-				},
-				"required": []string{"database_id", "table_name"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "execute_sql",
-			"description": "在指定数据库上执行 SQL 语句。SELECT/SHOW/DESCRIBE/EXPLAIN 返回查询结果；INSERT/UPDATE/DELETE/CREATE/DROP 等返回影响行数。请谨慎使用写操作。",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
-					"sql":         map[string]interface{}{"type": "string", "description": "要执行的 SQL 语句"},
-					"params":      map[string]interface{}{"type": "array", "description": "SQL 占位符参数（可选）", "items": map[string]interface{}{"type": "string"}},
-				},
-				"required": []string{"database_id", "sql"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "list_apis",
-			"description": "列出数据本体池中已配置的接口（path、method、关联数据库）",
-			"inputSchema": map[string]interface{}{
-				"type": "object", "properties": map[string]interface{}{},
-			},
-		},
-		map[string]interface{}{
-			"name":        "get_api_detail",
-			"description": "获取指定接口的完整详情，包括 SQL 语句、参数定义、描述、关联数据库等",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"api_id": map[string]interface{}{"type": "string", "description": "接口 ID"},
-				},
-				"required": []string{"api_id"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "call_api",
-			"description": "调用已配置的接口，传入接口 ID 和 params 执行并返回数据",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"api_id": map[string]interface{}{"type": "string", "description": "接口 ID"},
-					"params": map[string]interface{}{"type": "object", "description": "请求参数，与接口 SQL 中占位符对应"},
-				},
-				"required": []string{"api_id"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "search_tables",
-			"description": "根据关键词搜索数据库中的表，支持指定数据库范围",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"query":    map[string]interface{}{"type": "string", "description": "搜索关键词"},
-					"database": map[string]interface{}{"type": "string", "description": "数据库名称（可选，用于限定搜索范围）"},
-				},
-				"required": []string{"query"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "get_db_schema",
-			"description": "获取指定数据库的完整 schema 信息，包括所有表结构、列定义、索引等",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
-				},
-				"required": []string{"database_id"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "get_db_sql_hints",
-			"description": "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"database_id": map[string]interface{}{"type": "string", "description": "数据库 ID"},
-				},
-				"required": []string{"database_id"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "create_api",
-			"description": "创建新的数据接口，定义接口路径、方法、SQL 和参数等",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"name":          map[string]interface{}{"type": "string", "description": "接口名称"},
-					"path":          map[string]interface{}{"type": "string", "description": "接口路径（如 /api/users）"},
-					"method":        map[string]interface{}{"type": "string", "description": "HTTP 方法（GET/POST 等）"},
-					"sql":           map[string]interface{}{"type": "string", "description": "接口关联的 SQL 语句"},
-					"description":   map[string]interface{}{"type": "string", "description": "接口描述"},
-					"database":      map[string]interface{}{"type": "string", "description": "数据库名称"},
-					"default_params": map[string]interface{}{"type": "object", "description": "默认参数定义"},
-				},
-				"required": []string{"name", "path", "method", "sql", "database"},
-			},
-		},
-		map[string]interface{}{
-			"name":        "execute_api",
-			"description": "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据",
-			"inputSchema": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"path":   map[string]interface{}{"type": "string", "description": "接口路径（如 /users）"},
-					"params": map[string]interface{}{"type": "object", "description": "查询参数"},
-				},
-				"required": []string{"path"},
-			},
-		},
+// newLoopbackMCPClient 创建回环 MCP 客户端（用于 HTTP 模式的工具处理函数）
+func newLoopbackMCPClient(apiKey string) *mcpClient {
+	return &mcpClient{
+		baseURL: mcpLoopbackAddr,
+		apiKey:  apiKey,
+		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}
 }
 
-// buildSQLDialectHints 根据数据库类型生成 SQL 方言提示
+// ─── HTTP 模式：使用 go-sdk StreamableHTTPHandler ────────────────────────────
+// 替换旧的手写 JSON-RPC 端点，使用 go-sdk 标准实现，兼容 PicoClaw 的 streamable-http transport。
+// 使用 Stateless + JSONResponse 模式：每个请求创建临时会话，返回 application/json 响应。
+
+// mcpOutput 是工具函数的输出类型
+type mcpOutput struct {
+	Result string `json:"result"`
+}
+
+// ─── 工具输入类型定义 ─────────────────────────────────────────────────────────
+
+type listDatabasesIn struct{}
+
+type getTablesIn struct {
+	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+}
+
+type describeTableIn struct {
+	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+	TableName  string `json:"table_name" jsonschema:"required,description=表名"`
+}
+
+type executeSQLIn struct {
+	DatabaseID string        `json:"database_id" jsonschema:"required,description=数据库 ID"`
+	SQL        string        `json:"sql" jsonschema:"required,description=要执行的 SQL 语句"`
+	Params     []interface{} `json:"params" jsonschema:"description=SQL 占位符参数（可选）"`
+}
+
+type listApisIn struct{}
+
+type getApiDetailIn struct {
+	ApiID string `json:"api_id" jsonschema:"required,description=接口 ID"`
+}
+
+type callApiIn struct {
+	ApiID  string                 `json:"api_id" jsonschema:"required,description=接口 ID"`
+	Params map[string]interface{} `json:"params" jsonschema:"description=请求参数，与接口 SQL 中占位符对应"`
+}
+
+type searchTablesIn struct {
+	Query    string `json:"query" jsonschema:"required,description=搜索关键词"`
+	Database string `json:"database" jsonschema:"description=数据库名称（可选，用于限定搜索范围）"`
+}
+
+type getDbSchemaIn struct {
+	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+}
+
+type getDbSQLHintsIn struct {
+	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+}
+
+type createApiIn struct {
+	Name          string                 `json:"name" jsonschema:"required,description=接口名称"`
+	Path          string                 `json:"path" jsonschema:"required,description=接口路径（如 /api/users）"`
+	Method        string                 `json:"method" jsonschema:"required,description=HTTP 方法（GET/POST 等）"`
+	SQL           string                 `json:"sql" jsonschema:"required,description=接口关联的 SQL 语句"`
+	Description   string                 `json:"description" jsonschema:"description=接口描述"`
+	Database      string                 `json:"database" jsonschema:"required,description=数据库名称"`
+	DefaultParams map[string]interface{} `json:"default_params" jsonschema:"description=默认参数定义"`
+}
+
+type executeApiIn struct {
+	Path   string                 `json:"path" jsonschema:"required,description=接口路径（如 /users）"`
+	Params map[string]interface{} `json:"params" jsonschema:"description=查询参数"`
+}
+
+// ─── 工具处理函数（HTTP 模式和 Stdio 模式共用） ──────────────────────────────
+
+func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/databases", nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describeTableIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	body, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         "DESCRIBE `" + in.TableName + "`",
+	})
+	data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	// SQL 安全检查
+	if allowed, reason := checkSQLSafety(in.SQL); !allowed {
+		return nil, mcpOutput{}, fmt.Errorf("SQL 安全检查失败: %s", reason)
+	}
+	body, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         in.SQL,
+		"params":      in.Params,
+	})
+	data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/apis", nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpGetApiDetail(ctx context.Context, req *mcp.CallToolRequest, in getApiDetailIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/apis/"+in.ApiID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	body, _ := json.Marshal(map[string]interface{}{"params": in.Params})
+	if body == nil {
+		body = []byte(`{"params":{}}`)
+	}
+	data, err := cli.do(http.MethodPost, "/api/apis/"+in.ApiID+"/test", body)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"query":    in.Query,
+		"database": in.Database,
+	})
+	data, err := cli.do(http.MethodPost, "/api/table-retrieval/search", reqBody)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpGetDbSchema(ctx context.Context, req *mcp.CallToolRequest, in getDbSchemaIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQLHintsIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	// 先获取数据库信息以提取类型
+	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	// 从返回数据中提取数据库类型，生成方言提示
+	var dbInfo struct {
+		Data struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &dbInfo); err != nil {
+		return nil, mcpOutput{}, fmt.Errorf("解析数据库信息失败: %w", err)
+	}
+	dbType := strings.ToLower(dbInfo.Data.Type)
+	hints := buildSQLDialectHints(dbType, dbInfo.Data.Name)
+	hintsData, _ := json.Marshal(hints)
+	return nil, mcpOutput{Result: string(hintsData)}, nil
+}
+
+func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	// 通过数据库名称查找 database_id
+	dbsData, err := cli.do(http.MethodGet, "/api/databases", nil)
+	if err != nil {
+		return nil, mcpOutput{}, fmt.Errorf("获取数据库列表失败: %w", err)
+	}
+	var dbsResp struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(dbsData, &dbsResp); err != nil {
+		return nil, mcpOutput{}, fmt.Errorf("解析数据库列表失败: %w", err)
+	}
+	var databaseID string
+	for _, db := range dbsResp.Data {
+		if db.Name == in.Database {
+			databaseID = db.ID
+			break
+		}
+	}
+	if databaseID == "" {
+		return nil, mcpOutput{}, fmt.Errorf("未找到名为 %q 的数据库", in.Database)
+	}
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"name":           in.Name,
+		"path":           in.Path,
+		"method":         in.Method,
+		"sql":            in.SQL,
+		"description":    in.Description,
+		"database_id":    databaseID,
+		"default_params": in.DefaultParams,
+	})
+	data, err := cli.do(http.MethodPost, "/api/apis", reqBody)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	// 构建带查询参数的 URL
+	apiPath := in.Path
+	if !strings.HasPrefix(apiPath, "/") {
+		apiPath = "/" + apiPath
+	}
+	if len(in.Params) > 0 {
+		params := url.Values{}
+		for k, v := range in.Params {
+			params.Set(k, fmt.Sprintf("%v", v))
+		}
+		apiPath += "?" + params.Encode()
+	}
+	data, err := cli.do(http.MethodGet, apiPath, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+// ─── MCP 客户端上下文传递 ────────────────────────────────────────────────────
+
+type mcpClientContextKey struct{}
+
+// getMCPClientFromContext 从请求上下文中获取 MCP 客户端
+// HTTP 模式：从 context 中获取（由 mcpMiddleware 注入）
+// Stdio 模式：创建新的客户端
+func getMCPClientFromContext(ctx context.Context) (*mcpClient, error) {
+	if cli, ok := ctx.Value(mcpClientContextKey{}).(*mcpClient); ok && cli != nil {
+		return cli, nil
+	}
+	// 回退：创建新的客户端（Stdio 模式）
+	return newMCPClient()
+}
+
+// ─── buildSQLDialectHints 根据数据库类型生成 SQL 方言提示 ─────────────────────
+
 func buildSQLDialectHints(dbType, dbName string) map[string]interface{} {
 	dialectMap := map[string]map[string]string{
 		"mysql": {
@@ -443,264 +585,46 @@ func buildSQLDialectHints(dbType, dbName string) map[string]interface{} {
 	}
 }
 
-func mcpCallTool(cli *mcpClient, name string, argsRaw json.RawMessage) (interface{}, error) {
-	textResult := func(data []byte) interface{} {
-		return map[string]interface{}{
-			"content": []interface{}{map[string]interface{}{"type": "text", "text": string(data)}},
-		}
+// ─── HTTP 模式：go-sdk StreamableHTTPHandler ─────────────────────────────────
+
+// mcpHTTPHandler 全局 MCP HTTP handler（在 initMCPHTTPHandler 中创建）
+var mcpHTTPHandler *mcp.StreamableHTTPHandler
+
+// initMCPHTTPHandler 创建并注册所有工具的 MCP StreamableHTTPHandler
+func initMCPHTTPHandler() {
+	getServer := func(r *http.Request) *mcp.Server {
+		server := mcp.NewServer(&mcp.Implementation{
+			Name:    mcpServerName,
+			Version: mcpServerVersion,
+		}, nil)
+
+		// 注册所有 12 个工具
+		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
+		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构（字段名、类型、是否可空、默认值、键信息等）"}, mcpDescribeTable)
+		mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "在指定数据库上执行 SQL 语句。SELECT/SHOW/DESCRIBE/EXPLAIN 返回查询结果；INSERT/UPDATE/DELETE/CREATE/DROP 等返回影响行数。请谨慎使用写操作。"}, mcpExecuteSQL)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出数据本体池中已配置的接口（path、method、关联数据库）"}, mcpListApis)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取指定接口的完整详情，包括 SQL 语句、参数定义、描述、关联数据库等"}, mcpGetApiDetail)
+		mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用已配置的接口，传入接口 ID 和 params 执行并返回数据"}, mcpCallApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "根据关键词搜索数据库中的表，支持指定数据库范围"}, mcpSearchTables)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取指定数据库的完整 schema 信息，包括所有表结构、列定义、索引等"}, mcpGetDbSchema)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明"}, mcpGetDbSQLHints)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
+
+		return server
 	}
-	switch name {
-	case "list_databases":
-		data, err := cli.do(http.MethodGet, "/api/databases", nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
 
-	case "get_tables":
-		var args struct {
-			DatabaseID string `json:"database_id"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.DatabaseID == "" {
-			return nil, fmt.Errorf("database_id 不能为空")
-		}
-		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "describe_table":
-		var args struct {
-			DatabaseID string `json:"database_id"`
-			TableName  string `json:"table_name"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.DatabaseID == "" || args.TableName == "" {
-			return nil, fmt.Errorf("database_id 和 table_name 不能为空")
-		}
-		body, _ := json.Marshal(map[string]interface{}{
-			"database_id": args.DatabaseID,
-			"sql":         "DESCRIBE `" + args.TableName + "`",
-		})
-		data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "execute_sql":
-		var args struct {
-			DatabaseID string        `json:"database_id"`
-			SQL        string        `json:"sql"`
-			Params     []interface{} `json:"params"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.DatabaseID == "" || args.SQL == "" {
-			return nil, fmt.Errorf("database_id 和 sql 不能为空")
-		}
-		// SQL 安全检查
-		if allowed, reason := checkSQLSafety(args.SQL); !allowed {
-			return nil, fmt.Errorf("SQL 安全检查失败: %s", reason)
-		}
-		body, _ := json.Marshal(map[string]interface{}{
-			"database_id": args.DatabaseID,
-			"sql":         args.SQL,
-			"params":      args.Params,
-		})
-		data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "list_apis":
-		data, err := cli.do(http.MethodGet, "/api/apis", nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "get_api_detail":
-		var args struct {
-			ApiID string `json:"api_id"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.ApiID == "" {
-			return nil, fmt.Errorf("api_id 不能为空")
-		}
-		data, err := cli.do(http.MethodGet, "/api/apis/"+args.ApiID, nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "call_api":
-		var args struct {
-			ApiID  string                 `json:"api_id"`
-			Params map[string]interface{} `json:"params"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.ApiID == "" {
-			return nil, fmt.Errorf("api_id 不能为空")
-		}
-		body, _ := json.Marshal(map[string]interface{}{"params": args.Params})
-		data, err := cli.do(http.MethodPost, "/api/apis/"+args.ApiID+"/test", body)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "search_tables":
-		var args struct {
-			Query    string `json:"query"`
-			Database string `json:"database"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.Query == "" {
-			return nil, fmt.Errorf("query 不能为空")
-		}
-		reqBody, _ := json.Marshal(map[string]interface{}{
-			"query":    args.Query,
-			"database": args.Database,
-		})
-		data, err := cli.do(http.MethodPost, "/api/table-retrieval/search", reqBody)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "get_db_schema":
-		var args struct {
-			DatabaseID string `json:"database_id"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.DatabaseID == "" {
-			return nil, fmt.Errorf("database_id 不能为空")
-		}
-		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "get_db_sql_hints":
-		var args struct {
-			DatabaseID string `json:"database_id"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.DatabaseID == "" {
-			return nil, fmt.Errorf("database_id 不能为空")
-		}
-		// 先获取数据库信息以提取类型
-		data, err := cli.do(http.MethodGet, "/api/databases/"+args.DatabaseID, nil)
-		if err != nil {
-			return nil, err
-		}
-		// 从返回数据中提取数据库类型，生成方言提示
-		var dbInfo struct {
-			Data struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(data, &dbInfo); err != nil {
-			return nil, fmt.Errorf("解析数据库信息失败: %w", err)
-		}
-		dbType := strings.ToLower(dbInfo.Data.Type)
-		hints := buildSQLDialectHints(dbType, dbInfo.Data.Name)
-		hintsData, _ := json.Marshal(hints)
-		return textResult(hintsData), nil
-
-	case "create_api":
-		var args struct {
-			Name          string                 `json:"name"`
-			Path          string                 `json:"path"`
-			Method        string                 `json:"method"`
-			SQL           string                 `json:"sql"`
-			Description   string                 `json:"description"`
-			Database      string                 `json:"database"`
-			DefaultParams map[string]interface{} `json:"default_params"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.Name == "" || args.Path == "" || args.Method == "" || args.SQL == "" || args.Database == "" {
-			return nil, fmt.Errorf("name, path, method, sql, database 不能为空")
-		}
-		// 通过数据库名称查找 database_id
-		dbsData, err := cli.do(http.MethodGet, "/api/databases", nil)
-		if err != nil {
-			return nil, fmt.Errorf("获取数据库列表失败: %w", err)
-		}
-		var dbsResp struct {
-			Data []struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(dbsData, &dbsResp); err != nil {
-			return nil, fmt.Errorf("解析数据库列表失败: %w", err)
-		}
-		var databaseID string
-		for _, db := range dbsResp.Data {
-			if db.Name == args.Database {
-				databaseID = db.ID
-				break
-			}
-		}
-		if databaseID == "" {
-			return nil, fmt.Errorf("未找到名为 %q 的数据库", args.Database)
-		}
-		reqBody, _ := json.Marshal(map[string]interface{}{
-			"name":           args.Name,
-			"path":           args.Path,
-			"method":         args.Method,
-			"sql":            args.SQL,
-			"description":    args.Description,
-			"database_id":    databaseID,
-			"default_params": args.DefaultParams,
-		})
-		data, err := cli.do(http.MethodPost, "/api/apis", reqBody)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	case "execute_api":
-		var args struct {
-			Path   string                 `json:"path"`
-			Params map[string]interface{} `json:"params"`
-		}
-		json.Unmarshal(argsRaw, &args)
-		if args.Path == "" {
-			return nil, fmt.Errorf("path 不能为空")
-		}
-		// 构建带查询参数的 URL
-		apiPath := args.Path
-		if !strings.HasPrefix(apiPath, "/") {
-			apiPath = "/" + apiPath
-		}
-		if len(args.Params) > 0 {
-			params := url.Values{}
-			for k, v := range args.Params {
-				params.Set(k, fmt.Sprintf("%v", v))
-			}
-			apiPath += "?" + params.Encode()
-		}
-		data, err := cli.do(http.MethodGet, apiPath, nil)
-		if err != nil {
-			return nil, err
-		}
-		return textResult(data), nil
-
-	default:
-		return nil, fmt.Errorf("未知工具: %s", name)
-	}
+	mcpHTTPHandler = mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+		Stateless:    true,
+		JSONResponse: true,
+	})
 }
 
-// handleMCPHTTP 是内嵌在 HTTP 服务器中的 MCP 端点（JSON-RPC over HTTP）。
-// 仅处理 POST，不依赖 go-sdk HTTP transport，避免 SSE/session 复杂性。
+// handleMCPHTTP 是内嵌在 HTTP 服务器中的 MCP 端点。
+// 使用 go-sdk StreamableHTTPHandler 实现，兼容 PicoClaw 的 streamable-http transport。
 func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
+	// 检查 MCP 是否启用
 	dataOntologyMu.RLock()
 	enabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 	dataOntologyMu.RUnlock()
@@ -711,29 +635,14 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
+	// 鉴权：验证 API Key 或 X-Internal-Call
 	if !verifyToken(r) && r.Header.Get("X-Internal-Call") != "datatoolbox-agent" {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":"未授权，请在 Authorization 头中提供有效的 API Key"}`))
 		return
 	}
 
-	var rpcReq mcpRPCRequest
-	if err := json.NewDecoder(r.Body).Decode(&rpcReq); err != nil {
-		mcpSendError(w, nil, -32700, "解析错误")
-		return
-	}
-
-	// 对于 X-Internal-Call 请求，使用内部 admin token
+	// 对于 X-Internal-Call 请求，注入 admin token 到 context
 	apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if r.Header.Get("X-Internal-Call") == "datatoolbox-agent" {
 		dataOntologyMu.RLock()
@@ -742,121 +651,13 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		dataOntologyMu.RUnlock()
 	}
-	cli := &mcpClient{
-		baseURL: mcpLoopbackAddr,
-		apiKey:  apiKey,
-		client:  &http.Client{Timeout: HTTPClientTimeout},
-	}
 
-	switch rpcReq.Method {
-	case "initialize":
-		mcpSendResult(w, rpcReq.ID, map[string]interface{}{
-			"protocolVersion": mcpProtocolVersion,
-			"capabilities": map[string]interface{}{
-				"tools": map[string]interface{}{},
-			},
-			"serverInfo": map[string]interface{}{
-				"name":    mcpServerName,
-				"version": mcpServerVersion,
-			},
-		})
-	case "notifications/initialized":
-		w.WriteHeader(http.StatusNoContent)
-	case "ping":
-		mcpSendResult(w, rpcReq.ID, map[string]interface{}{})
-	case "tools/list":
-		mcpSendResult(w, rpcReq.ID, map[string]interface{}{
-			"tools": mcpToolsList(),
-		})
-	case "tools/call":
-		var params struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments"`
-		}
-		if err := json.Unmarshal(rpcReq.Params, &params); err != nil {
-			mcpSendError(w, rpcReq.ID, -32602, "参数解析错误")
-			return
-		}
-		result, err := mcpCallTool(cli, params.Name, params.Arguments)
-		if err != nil {
-			mcpSendError(w, rpcReq.ID, -32000, safeErrorMessage(err, "工具调用失败"))
-			return
-		}
-		mcpSendResult(w, rpcReq.ID, result)
-	default:
-		mcpSendError(w, rpcReq.ID, -32601, "方法不存在: "+rpcReq.Method)
-	}
-}
+	// 将 MCP 客户端注入到请求上下文中，供工具处理函数使用
+	cli := newLoopbackMCPClient(apiKey)
+	ctx := context.WithValue(r.Context(), mcpClientContextKey{}, cli)
 
-// ─── Stdio 模式工具函数（供 runMCPServer 使用） ──────────────────────────────
-
-type mcpOutput struct {
-	Result string `json:"result"`
-}
-
-type listDatabasesIn struct{}
-
-func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
-	cli, err := newMCPClient()
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	data, err := cli.do(http.MethodGet, "/api/databases", nil)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	return nil, mcpOutput{Result: string(data)}, nil
-}
-
-type getTablesIn struct {
-	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
-}
-
-func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
-	cli, err := newMCPClient()
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	return nil, mcpOutput{Result: string(data)}, nil
-}
-
-type listApisIn struct{}
-
-func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, mcpOutput, error) {
-	cli, err := newMCPClient()
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	data, err := cli.do(http.MethodGet, "/api/apis", nil)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	return nil, mcpOutput{Result: string(data)}, nil
-}
-
-type callApiIn struct {
-	ApiID  string                `json:"api_id" jsonschema:"required,description=接口 ID"`
-	Params map[string]interface{} `json:"params" jsonschema:"description=请求参数，与接口 SQL 中占位符对应"`
-}
-
-func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*mcp.CallToolResult, mcpOutput, error) {
-	cli, err := newMCPClient()
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	body, _ := json.Marshal(map[string]interface{}{"params": in.Params})
-	if body == nil {
-		body = []byte(`{"params":{}}`)
-	}
-	data, err := cli.do(http.MethodPost, "/api/apis/"+in.ApiID+"/test", body)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	// 委托给 go-sdk StreamableHTTPHandler
+	mcpHTTPHandler.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // ─── Stdio 模式入口 ──────────────────────────────────────────────────────────
@@ -882,10 +683,19 @@ func runMCPServer() {
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, nil)
+	// Stdio 模式注册所有 12 个工具（与 HTTP 模式一致）
 	mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
-	mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出数据本体池中已配置的接口（path、method、关联数据库）"}, mcpListApis)
-	mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用已配置的接口，传入接口 ID 和 params 执行并返回数据"}, mcpCallApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构"}, mcpDescribeTable)
+	mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "在指定数据库上执行 SQL 语句"}, mcpExecuteSQL)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出数据本体池中已配置的接口"}, mcpListApis)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取指定接口的完整详情"}, mcpGetApiDetail)
+	mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用已配置的接口"}, mcpCallApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "根据关键词搜索数据库中的表"}, mcpSearchTables)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取指定数据库的完整 schema"}, mcpGetDbSchema)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示"}, mcpGetDbSQLHints)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)

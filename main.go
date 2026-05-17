@@ -42,6 +42,8 @@ func main() {
 	initWebNav()
 	// 初始化集群模式（Agent）子系统
 	initAgentSubsystem()
+	// 初始化 MCP StreamableHTTPHandler（需在 initAgentSubsystem 之后，依赖 dataOntology 配置）
+	initMCPHTTPHandler()
 
 	// 初始化表检索 SQLite FTS5 索引并异步同步所有数据库
 	if manager := getFTS5Manager(); manager != nil {
