@@ -2008,11 +2008,24 @@
                             <div class="gov-api-example-note">
                                 <strong>说明：</strong>
                                 <ul>
-                                    <li><code>API_KEY</code> 替换为你的 API Key（在「用户管理」中生成）</li>
                                     <li><code>HOST</code> 替换为实际服务地址</li>
                                     <li>文件上传任务：使用 <code>multipart/form-data</code> 格式</li>
                                     <li>参数传递：GET 请求用 URL 参数，POST 请求用 JSON body</li>
+                                    <li>API 调用免鉴权，无需提供 Token 或 API Key</li>
                                 </ul>
+                                <strong>返回格式：</strong>
+                                <pre style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12px;margin-top:8px;overflow-x:auto;">{
+  "success": true,
+  "data": {
+    "output": ["执行步骤1...", "执行步骤2..."],
+    "output_files": [
+      {
+        "name": "报告.docx",
+        "download_url": "/api/governance/download-api-output?task_id=xxx&run_id=yyy&name=报告.docx"
+      }
+    ]
+  }
+}</pre>
                             </div>
                         </div>
                     </div>

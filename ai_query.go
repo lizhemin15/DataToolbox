@@ -925,10 +925,7 @@ func handleApiDispatch(next http.Handler) http.Handler {
 				return
 			}
 
-			if !verifyToken(r) {
-				apiUnauthorized(w, "未授权，请提供有效的 API Key 或 Token")
-				return
-			}
+			// 治理任务 API 调用免鉴权
 
 			// 解析请求参数
 			params := make(map[string]interface{})

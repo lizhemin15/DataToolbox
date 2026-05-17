@@ -1055,20 +1055,8 @@ func handleGovernanceDownloadOutput(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-// handleGovernanceDownloadAPIOutput 下载 API 调用治理任务生成的输出文件
-// 支持 API Key 鉴权（Authorization: Bearer xxx）或用户登录态
+// handleGovernanceDownloadAPIOutput 下载 API 调用治理任务生成的输出文件（免鉴权）
 func handleGovernanceDownloadAPIOutput(w http.ResponseWriter, r *http.Request) {
-	// 鉴权：支持 API Key 或用户登录
-	if !verifyToken(r) {
-		username, authOK := getDataOntologyUserFromRequest(r)
-		if !authOK || username == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未授权，请提供 API Key 或登录"})
-			return
-		}
-	}
-
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持GET"})

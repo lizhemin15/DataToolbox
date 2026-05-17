@@ -8118,22 +8118,20 @@ function updateAPIExample() {
 
 function generateAPIExampleCode(apiPath, method, inputType, taskName) {
     const host = 'HOST';
-    const apiKey = 'API_KEY';
     
     const examples = {
-        curl: generateCurlExample(apiPath, method, inputType, host, apiKey),
-        python: generatePythonExample(apiPath, method, inputType, host, apiKey),
-        javascript: generateJavaScriptExample(apiPath, method, inputType, host, apiKey),
-        go: generateGoExample(apiPath, method, inputType, host, apiKey)
+        curl: generateCurlExample(apiPath, method, inputType, host),
+        python: generatePythonExample(apiPath, method, inputType, host),
+        javascript: generateJavaScriptExample(apiPath, method, inputType, host),
+        go: generateGoExample(apiPath, method, inputType, host)
     };
     
     return examples[currentAPILang] || examples.curl;
 }
 
-function generateCurlExample(apiPath, method, inputType, host, apiKey) {
+function generateCurlExample(apiPath, method, inputType, host) {
     let code = `# ${method} 请求调用任务\n`;
     code += `curl -X ${method} "${host}${apiPath}" \\\n`;
-    code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
     
     if (method === 'POST') {
         if (inputType === 'file' || inputType === 'both') {
@@ -8141,12 +8139,10 @@ function generateCurlExample(apiPath, method, inputType, host, apiKey) {
             code += `  -F "files=@/path/to/another/file.xlsx"\n\n`;
             code += `# JSON 参数方式（如果任务接受参数）\n`;
             code += `curl -X POST "${host}${apiPath}" \\\n`;
-            code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
             code += `  -H "Content-Type: application/json" \\\n`;
             code += `  -d '{"param1": "value1", "param2": "value2"}'\n\n`;
             code += `# 同时上传文件和参数\n`;
             code += `curl -X POST "${host}${apiPath}" \\\n`;
-            code += `  -H "Authorization: Bearer ${apiKey}" \\\n`;
             code += `  -F "files=@/path/to/file.docx" \\\n`;
             code += `  -F "options={\"mode\":\"fast\",\"output\":\"pdf\"}"`;
         } else {
@@ -8161,9 +8157,8 @@ function generateCurlExample(apiPath, method, inputType, host, apiKey) {
     return code;
 }
 
-function generatePythonExample(apiPath, method, inputType, host, apiKey) {
+function generatePythonExample(apiPath, method, inputType, host) {
     let code = `import requests\n\n`;
-    code += `API_KEY = "${apiKey}"\n`;
     code += `HOST = "${host}"\n\n`;
     
     if (method === 'POST') {
@@ -8171,7 +8166,6 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
             code += `# 上传文件调用任务\n`;
             code += `def call_task_with_files(file_paths, params=None):\n`;
             code += `    url = f"{HOST}${apiPath}"\n`;
-            code += `    headers = {"Authorization": f"Bearer {API_KEY}"}\n`;
             code += `    \n`;
             code += `    # 准备文件\n`;
             code += `    files = [("files", open(fp, "rb")) for fp in file_paths]\n`;
@@ -8180,7 +8174,7 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
             code += `    data = {"options": str(params)} if params else None\n`;
             code += `    \n`;
             code += `    try:\n`;
-            code += `        response = requests.post(url, headers=headers, files=files, data=data)\n`;
+            code += `        response = requests.post(url, files=files, data=data)\n`;
             code += `        return response.json()\n`;
             code += `    finally:\n`;
             code += `        for _, f in files:\n`;
@@ -8194,10 +8188,7 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
             code += `# JSON 参数方式（如果任务接受参数）\n`;
             code += `def call_task_with_json(params):\n`;
             code += `    url = f"{HOST}${apiPath}"\n`;
-            code += `    headers = {\n`;
-            code += `        "Authorization": f"Bearer {API_KEY}",\n`;
-            code += `        "Content-Type": "application/json"\n`;
-            code += `    }\n`;
+            code += `    headers = {"Content-Type": "application/json"}\n`;
             code += `    response = requests.post(url, headers=headers, json=params)\n`;
             code += `    return response.json()\n\n`;
             code += `result = call_task_with_json({"param1": "value1"})\n`;
@@ -8206,10 +8197,7 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
             code += `# JSON 参数调用任务\n`;
             code += `def call_task(params):\n`;
             code += `    url = f"{HOST}${apiPath}"\n`;
-            code += `    headers = {\n`;
-            code += `        "Authorization": f"Bearer {API_KEY}",\n`;
-            code += `        "Content-Type": "application/json"\n`;
-            code += `    }\n`;
+            code += `    headers = {"Content-Type": "application/json"}\n`;
             code += `    response = requests.post(url, headers=headers, json=params)\n`;
             code += `    return response.json()\n\n`;
             code += `result = call_task({"param1": "value1"})\n`;
@@ -8219,8 +8207,7 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
         code += `# GET 请求调用任务\n`;
         code += `def call_task(params):\n`;
         code += `    url = f"{HOST}${apiPath}"\n`;
-        code += `    headers = {"Authorization": f"Bearer {API_KEY}"}\n`;
-        code += `    response = requests.get(url, headers=headers, params=params)\n`;
+        code += `    response = requests.get(url, params=params)\n`;
         code += `    return response.json()\n\n`;
         code += `result = call_task({"param1": "value1"})\n`;
         code += `print(result)`;
@@ -8229,9 +8216,8 @@ function generatePythonExample(apiPath, method, inputType, host, apiKey) {
     return code;
 }
 
-function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
-    let code = `const API_KEY = '${apiKey}';\n`;
-    code += `const HOST = '${host}';\n\n`;
+function generateJavaScriptExample(apiPath, method, inputType, host) {
+    let code = `const HOST = '${host}';\n\n`;
     
     if (method === 'POST') {
         if (inputType === 'file' || inputType === 'both') {
@@ -8251,9 +8237,6 @@ function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
             code += `  \n`;
             code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
             code += `    method: 'POST',\n`;
-            code += `    headers: {\n`;
-            code += `      'Authorization': \`Bearer \${API_KEY}\`\n`;
-            code += `    },\n`;
             code += `    body: formData\n`;
             code += `  });\n`;
             code += `  \n`;
@@ -8266,17 +8249,11 @@ function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
             code += `  { mode: 'fast' }\n`;
             code += `);\n`;
             code += `console.log(result);\n\n`;
-            code += `// Node.js 环境（使用 fs 和 fetch）\n`;
-            code += `// const fs = require('fs');\n`;
-            code += `// const file = fs.readFileSync('/path/to/file.docx');\n`;
-            code += `// const blob = new Blob([file]);\n`;
-            code += `// formData.append('files', blob, 'file.docx');\n\n`;
             code += `// JSON 参数方式\n`;
             code += `async function callTaskWithJson(params) {\n`;
             code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
             code += `    method: 'POST',\n`;
             code += `    headers: {\n`;
-            code += `      'Authorization': \`Bearer \${API_KEY}\`,\n`;
             code += `      'Content-Type': 'application/json'\n`;
             code += `    },\n`;
             code += `    body: JSON.stringify(params)\n`;
@@ -8289,7 +8266,6 @@ function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
             code += `  const response = await fetch(\`\${HOST}${apiPath}\`, {\n`;
             code += `    method: 'POST',\n`;
             code += `    headers: {\n`;
-            code += `      'Authorization': \`Bearer \${API_KEY}\`,\n`;
             code += `      'Content-Type': 'application/json'\n`;
             code += `    },\n`;
             code += `    body: JSON.stringify(params)\n`;
@@ -8305,11 +8281,7 @@ function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
         code += `  const url = new URL(\`\${HOST}${apiPath}\`);\n`;
         code += `  Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));\n`;
         code += `  \n`;
-        code += `  const response = await fetch(url, {\n`;
-        code += `    headers: {\n`;
-        code += `      'Authorization': \`Bearer \${API_KEY}\`\n`;
-        code += `    }\n`;
-        code += `  });\n`;
+        code += `  const response = await fetch(url);\n`;
         code += `  return response.json();\n`;
         code += `}\n\n`;
         code += `const result = await callTask({ param1: 'value1' });\n`;
@@ -8319,7 +8291,7 @@ function generateJavaScriptExample(apiPath, method, inputType, host, apiKey) {
     return code;
 }
 
-function generateGoExample(apiPath, method, inputType, host, apiKey) {
+function generateGoExample(apiPath, method, inputType, host) {
     let code = `package main\n\n`;
     code += `import (\n`;
     code += `    "bytes"\n`;
@@ -8330,10 +8302,7 @@ function generateGoExample(apiPath, method, inputType, host, apiKey) {
     code += `    "net/http"\n`;
     code += `    "os"\n`;
     code += `)\n\n`;
-    code += `const (\n`;
-    code += `    apiKey = "${apiKey}"\n`;
-    code += `    host   = "${host}"\n`;
-    code += `)\n\n`;
+    code += `const host = "${host}"\n\n`;
     
     if (method === 'POST') {
         if (inputType === 'file' || inputType === 'both') {
@@ -8361,7 +8330,6 @@ function generateGoExample(apiPath, method, inputType, host, apiKey) {
             code += `    }\n\n`;
             code += `    writer.Close()\n\n`;
             code += `    req, _ := http.NewRequest("POST", host+"${apiPath}", &buf)\n`;
-            code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n`;
             code += `    req.Header.Set("Content-Type", writer.FormDataContentType())\n\n`;
             code += `    resp, err := http.DefaultClient.Do(req)\n`;
             code += `    if err != nil {\n`;
@@ -8372,7 +8340,6 @@ function generateGoExample(apiPath, method, inputType, host, apiKey) {
             code += `    json.NewDecoder(resp.Body).Decode(&result)\n`;
             code += `    return result, nil\n`;
             code += `}\n\n`;
-            code += `// 使用示例\n`;
             code += `func main() {\n`;
             code += `    result, err := callTaskWithFiles(\n`;
             code += `        []string{"/path/to/file1.docx", "/path/to/file2.xlsx"},\n`;
@@ -8388,7 +8355,6 @@ function generateGoExample(apiPath, method, inputType, host, apiKey) {
             code += `func callTask(params map[string]interface{}) (map[string]interface{}, error) {\n`;
             code += `    body, _ := json.Marshal(params)\n`;
             code += `    req, _ := http.NewRequest("POST", host+"${apiPath}", bytes.NewReader(body))\n`;
-            code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n`;
             code += `    req.Header.Set("Content-Type", "application/json")\n\n`;
             code += `    resp, err := http.DefaultClient.Do(req)\n`;
             code += `    if err != nil {\n`;
@@ -8407,8 +8373,7 @@ function generateGoExample(apiPath, method, inputType, host, apiKey) {
     } else {
         code += `// GET 请求调用任务\n`;
         code += `func callTask(params map[string]string) (map[string]interface{}, error) {\n`;
-        code += `    req, _ := http.NewRequest("GET", host+"${apiPath}", nil)\n`;
-        code += `    req.Header.Set("Authorization", "Bearer "+apiKey)\n\n`;
+        code += `    req, _ := http.NewRequest("GET", host+"${apiPath}", nil)\n\n`;
         code += `    q := req.URL.Query()\n`;
         code += `    for k, v := range params {\n`;
         code += `        q.Add(k, v)\n`;

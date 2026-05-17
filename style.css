@@ -216,6 +216,7 @@ body {
     font-weight: 500;
     cursor: pointer;
     transition: all 0.3s;
+    position: relative;
 }
 
 .btn-primary {
@@ -224,7 +225,8 @@ body {
 }
 
 .btn-primary:hover {
-    transform: translateY(-2px);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
@@ -941,12 +943,11 @@ body {
 
 .tables-section-header .btn-primary:hover {
     box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
-    transform: translateY(-2px) scale(1.05);
     background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
 }
 
 .tables-section-header .btn-primary:active {
-    transform: translateY(0) scale(1);
+    background: linear-gradient(135deg, #2f855a 0%, #276749 100%);
 }
 
 .tables-list {
@@ -1252,7 +1253,6 @@ body {
 .skill-card:hover {
     border-color: #4f46e5;
     box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
-    transform: translateY(-2px);
 }
 
 .skill-icon {
@@ -3314,7 +3314,6 @@ textarea#testApiParams {
 
 .preview-actions .btn:hover {
     background: white;
-    transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
@@ -3473,7 +3472,6 @@ textarea#testApiParams {
 }
 
 .btn-icon-delete:hover {
-    transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(238, 90, 82, 0.3);
     background: linear-gradient(135deg, #ff5252 0%, #e63946 100%);
 }
@@ -3571,7 +3569,6 @@ textarea#testApiParams {
 .row-deleted .btn-icon-delete:hover {
     background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.5);
-    transform: translateY(-2px) scale(1.05);
 }
 
 /* 创建表样式 */
@@ -3811,7 +3808,6 @@ textarea#testApiParams {
 }
 
 .stats-badge:hover {
-    transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
@@ -4085,7 +4081,6 @@ textarea#testApiParams {
 }
 
 .gov-tip-card:hover {
-    transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
@@ -5106,7 +5101,6 @@ textarea#testApiParams {
 .onto-feature-card:hover {
     background: rgba(255,255,255,0.08);
     border-color: rgba(102,126,234,0.4);
-    transform: translateY(-2px);
 }
 
 .onto-feature-icon { font-size: 26px; margin-bottom: 7px; }
