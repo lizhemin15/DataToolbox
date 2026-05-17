@@ -608,10 +608,14 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 				// 删除备份
 				os.Remove(backupPath)
 
-				// 重新初始化 SQLite 并加载数据
-				if err := initStoreDB(); err != nil {
-					return nil, fmt.Errorf("重新初始化 SQLite 失败: %v", err)
+				// 直接打开恢复的数据库（不建表，文件已有完整 schema）
+				storeDBMu.Lock()
+				newDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL")
+				storeDBMu.Unlock()
+				if err != nil {
+					return nil, fmt.Errorf("打开恢复的数据库失败: %v", err)
 				}
+				storeDB = newDB
 				if err := sqlLoadAll(); err != nil {
 					return nil, fmt.Errorf("从恢复的数据库加载数据失败: %v", err)
 				}
