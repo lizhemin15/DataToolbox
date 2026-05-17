@@ -13,9 +13,9 @@ import (
 )
 
 func initDataOntology() {
-	// 先尝试加载持久化数据
-	if err := loadDataOntologyStore(); err != nil {
-		log.Printf("加载持久化数据失败: %v", err)
+	// 初始化存储层（SQLite + JSON 自动迁移）
+	if err := initStore(); err != nil {
+		log.Printf("初始化存储层失败: %v", err)
 	}
 	ensureGovernanceExampleFiles()
 

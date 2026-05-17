@@ -45,3 +45,4 @@ node_modules/
 
 # 测试文档
 多层级测试文档.docx
+*.db

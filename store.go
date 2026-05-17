@@ -27,6 +27,76 @@ func getDataOntologyStorePath() string {
 	return filepath.Join(rootDir, "apps", "data-ontology", "data-store.json")
 }
 
+// saveDataOntologyStoreJSON JSON 保存（fallback，SQLite 未初始化时使用）
+func saveDataOntologyStoreJSON() error {
+	storePath := getDataOntologyStorePathFn()
+	storeDir := filepath.Dir(storePath)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+	dataOntologyMu.RLock()
+	governanceShareRunsMu.RLock()
+	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+	for runID, run := range governanceShareRuns {
+		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+		}
+		shareRunsByToken[run.ShareToken][runID] = run
+	}
+	governanceShareRunsMu.RUnlock()
+	store := DataOntologyStore{
+		Users: dataOntologyUsers, Databases: dataOntologyDatabases, Apis: dataOntologyApis,
+		AIConfig: dataOntologyAIConfig, AICapabilities: dataOntologyAICapabilities,
+		Tasks: governanceTasks, TaskLogs: governanceTaskLogs,
+		MCPEnabled: dataOntologyMCPEnabled, MCPSafeConfig: dataOntologyMCPSafeConfig,
+		LLMModels: llmModels, SmallModels: smallModels, ShareRuns: shareRunsByToken,
+	}
+	dataOntologyMu.RUnlock()
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化数据失败: %v", err)
+	}
+	if err := os.WriteFile(storePath, data, 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+	log.Printf("数据已保存到: %s", storePath)
+	return nil
+}
+
+// saveDataOntologyStoreJSONNoLock JSON 保存不加锁版本（fallback）
+func saveDataOntologyStoreJSONNoLock() error {
+	storePath := getDataOntologyStorePathFn()
+	storeDir := filepath.Dir(storePath)
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+	governanceShareRunsMu.RLock()
+	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
+	for runID, run := range governanceShareRuns {
+		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
+			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
+		}
+		shareRunsByToken[run.ShareToken][runID] = run
+	}
+	governanceShareRunsMu.RUnlock()
+	store := DataOntologyStore{
+		Users: dataOntologyUsers, Databases: dataOntologyDatabases, Apis: dataOntologyApis,
+		AIConfig: dataOntologyAIConfig, AICapabilities: dataOntologyAICapabilities,
+		Tasks: governanceTasks, TaskLogs: governanceTaskLogs,
+		MCPEnabled: dataOntologyMCPEnabled, MCPSafeConfig: dataOntologyMCPSafeConfig,
+		LLMModels: llmModels, SmallModels: smallModels, ShareRuns: shareRunsByToken,
+	}
+	data, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化数据失败: %v", err)
+	}
+	if err := os.WriteFile(storePath, data, 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %v", err)
+	}
+	log.Printf("数据已保存到: %s", storePath)
+	return nil
+}
+
 // 加载持久化数据
 
 func loadDataOntologyStore() error {
@@ -181,111 +251,22 @@ func loadDataOntologyStore() error {
 	return nil
 }
 
-// 保存持久化数据
-
+// 保存持久化数据（SQLite 模式：写入 SQLite，不再写 JSON）
 func saveDataOntologyStore() error {
-	storePath := getDataOntologyStorePathFn()
-
-	// 确保目录存在
-	storeDir := filepath.Dir(storePath)
-	if err := os.MkdirAll(storeDir, 0755); err != nil {
-		return fmt.Errorf("创建目录失败: %v", err)
+	if storeDB != nil {
+		return sqlSaveAll()
 	}
-
-	// 构建存储结构
-	dataOntologyMu.RLock()
-	// 构建分享执行记录索引（shareToken -> runID -> run）
-	governanceShareRunsMu.RLock()
-	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
-	for runID, run := range governanceShareRuns {
-		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
-			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
-		}
-		shareRunsByToken[run.ShareToken][runID] = run
-	}
-	governanceShareRunsMu.RUnlock()
-
-	store := DataOntologyStore{
-		Users:          dataOntologyUsers,
-		Databases:      dataOntologyDatabases,
-		Apis:           dataOntologyApis,
-		AIConfig:       dataOntologyAIConfig,
-		AICapabilities: dataOntologyAICapabilities,
-		Tasks:          governanceTasks,
-		TaskLogs:       governanceTaskLogs,
-		MCPEnabled:     dataOntologyMCPEnabled,
-		MCPSafeConfig:  dataOntologyMCPSafeConfig,
-		LLMModels:      llmModels,
-		SmallModels:    smallModels,
-		ShareRuns:      shareRunsByToken,
-	}
-	dataOntologyMu.RUnlock()
-
-	// 序列化为JSON
-	data, err := json.MarshalIndent(store, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化数据失败: %v", err)
-	}
-
-	// 写入文件
-	if err := os.WriteFile(storePath, data, 0644); err != nil {
-		return fmt.Errorf("写入文件失败: %v", err)
-	}
-
-	log.Printf("数据已保存到: %s", storePath)
-	return nil
+	// SQLite 未初始化时回退到 JSON
+	return saveDataOntologyStoreJSON()
 }
 
 // saveDataOntologyStoreNoLock 保存持久化数据（不加锁版本，供已持有锁的函数调用）
-
+// SQLite 模式下 sqlSaveAll 内部有自己的锁，所以这里直接调用
 func saveDataOntologyStoreNoLock() error {
-	storePath := getDataOntologyStorePathFn()
-
-	// 确保目录存在
-	storeDir := filepath.Dir(storePath)
-	if err := os.MkdirAll(storeDir, 0755); err != nil {
-		return fmt.Errorf("创建目录失败: %v", err)
+	if storeDB != nil {
+		return sqlSaveAll()
 	}
-
-	// 构建分享执行记录索引（shareToken -> runID -> run）
-	governanceShareRunsMu.RLock()
-	shareRunsByToken := make(map[string]map[string]*GovernanceShareRun)
-	for runID, run := range governanceShareRuns {
-		if _, ok := shareRunsByToken[run.ShareToken]; !ok {
-			shareRunsByToken[run.ShareToken] = make(map[string]*GovernanceShareRun)
-		}
-		shareRunsByToken[run.ShareToken][runID] = run
-	}
-	governanceShareRunsMu.RUnlock()
-
-	store := DataOntologyStore{
-		Users:          dataOntologyUsers,
-		Databases:      dataOntologyDatabases,
-		Apis:           dataOntologyApis,
-		AIConfig:       dataOntologyAIConfig,
-		AICapabilities: dataOntologyAICapabilities,
-		Tasks:          governanceTasks,
-		TaskLogs:       governanceTaskLogs,
-		MCPEnabled:     dataOntologyMCPEnabled,
-		MCPSafeConfig:  dataOntologyMCPSafeConfig,
-		LLMModels:      llmModels,
-		SmallModels:    smallModels,
-		ShareRuns:      shareRunsByToken,
-	}
-
-	// 序列化为JSON
-	data, err := json.MarshalIndent(store, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化数据失败: %v", err)
-	}
-
-	// 写入文件
-	if err := os.WriteFile(storePath, data, 0644); err != nil {
-		return fmt.Errorf("写入文件失败: %v", err)
-	}
-
-	log.Printf("数据已保存到: %s", storePath)
-	return nil
+	return saveDataOntologyStoreJSONNoLock()
 }
 
 // ====== 数据备份与恢复 API ======
