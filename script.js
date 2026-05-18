@@ -15430,6 +15430,175 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
     return currentBlock;
 }
 
+// ============================================================
+// HITL 人在环路交互卡片渲染
+// ============================================================
+
+function renderHITLCard(evt) {
+    const hitlId = evt.hitl_id;
+    const interactionType = evt.interaction_type;
+    const title = evt.title || '确认';
+    const description = evt.description || '';
+    const options = evt.options || [];
+    const fields = evt.fields || [];
+    const timeoutSeconds = evt.timeout_seconds || 300;
+
+    if (!hitlId) return null;
+
+    const card = document.createElement('div');
+    card.className = 'hitl-card';
+    card.dataset.hitlId = hitlId;
+
+    // Header
+    let html = `<div class="hitl-card-header">
+        <span class="hitl-card-icon">${interactionType === 'confirm' ? '⚠️' : interactionType === 'form' ? '📝' : '❓'}</span>
+        <span class="hitl-card-title">${escapeHtml(title)}</span>
+    </div>`;
+
+    // Description
+    if (description) {
+        html += `<div class="hitl-card-description">${escapeHtml(description)}</div>`;
+    }
+
+    // Body — depends on interaction type
+    html += '<div class="hitl-card-body">';
+
+    if (interactionType === 'confirm') {
+        // Confirm: show options as buttons
+        if (options.length > 0) {
+            html += '<div class="hitl-options">';
+            for (const opt of options) {
+                const style = opt.style || 'default';
+                html += `<button class="hitl-option-btn hitl-option-${style}" data-option-id="${escapeHtml(opt.id)}" onclick="hitlSubmitConfirm('${hitlId}', '${escapeHtml(opt.id)}')">${escapeHtml(opt.label)}</button>`;
+            }
+            html += '</div>';
+        } else {
+            // Default confirm/cancel buttons
+            html += `<div class="hitl-options">
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">✅ 确认</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+            </div>`;
+        }
+    } else if (interactionType === 'form' || interactionType === 'input') {
+        // Form: render fields
+        if (fields.length > 0) {
+            for (const field of fields) {
+                const required = field.required ? ' <span class="hitl-required">*</span>' : '';
+                html += `<div class="hitl-field">
+                    <label class="hitl-field-label">${escapeHtml(field.label)}${required}</label>`;
+                if (field.type === 'select' && field.options && field.options.length > 0) {
+                    html += `<select class="hitl-field-select" data-field-id="${escapeHtml(field.id)}">`;
+                    for (const fo of field.options) {
+                        const selected = field.default_value && fo.id === field.default_value ? ' selected' : '';
+                        html += `<option value="${escapeHtml(fo.id)}"${selected}>${escapeHtml(fo.label)}</option>`;
+                    }
+                    html += '</select>';
+                } else if (field.type === 'textarea') {
+                    html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(field.default_value || '')}</textarea>`;
+                } else {
+                    html += `<input class="hitl-field-input" type="${field.type === 'number' ? 'number' : 'text'}" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(field.default_value || '')}">`;
+                }
+                html += '</div>';
+            }
+            html += `<div class="hitl-options">
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitForm('${hitlId}')">✅ 提交</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+            </div>`;
+        } else {
+            // No fields — just show description + confirm/cancel
+            html += `<div class="hitl-options">
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">✅ 确认</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+            </div>`;
+        }
+    } else if (interactionType === 'single_select') {
+        html += '<div class="hitl-options hitl-options-vertical">';
+        for (const opt of options) {
+            html += `<button class="hitl-option-btn hitl-option-default" onclick="hitlSubmitConfirm('${hitlId}', '${escapeHtml(opt.id)}')">${escapeHtml(opt.label)}</button>`;
+        }
+        html += '</div>';
+    } else if (interactionType === 'multi_select') {
+        html += '<div class="hitl-options hitl-options-vertical">';
+        for (const opt of options) {
+            html += `<label class="hitl-checkbox-label"><input type="checkbox" class="hitl-checkbox" data-option-id="${escapeHtml(opt.id)}"> ${escapeHtml(opt.label)}</label>`;
+        }
+        html += `</div>
+        <div class="hitl-options">
+            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitMultiSelect('${hitlId}')">✅ 提交</button>
+            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+        </div>`;
+    }
+
+    html += '</div>'; // hitl-card-body
+
+    // Timeout indicator
+    html += `<div class="hitl-card-footer">
+        <span class="hitl-timeout-hint">⏱ 等待响应中（超时 ${timeoutSeconds}s）</span>
+    </div>`;
+
+    card.innerHTML = html;
+    return card;
+}
+
+// HITL submit helpers
+function hitlSubmitConfirm(hitlId, optionId) {
+    hitlSubmit(hitlId, 'submit', { confirm: optionId });
+}
+
+function hitlSubmitCancel(hitlId) {
+    hitlSubmit(hitlId, 'cancel', {});
+}
+
+function hitlSubmitForm(hitlId) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    const values = {};
+    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea').forEach(el => {
+        values[el.dataset.fieldId] = el.value;
+    });
+    hitlSubmit(hitlId, 'submit', values);
+}
+
+function hitlSubmitMultiSelect(hitlId) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    const selected = [];
+    card.querySelectorAll('.hitl-checkbox:checked').forEach(el => {
+        selected.push(el.dataset.optionId);
+    });
+    hitlSubmit(hitlId, 'submit', { selected: selected });
+}
+
+function hitlSubmit(hitlId, action, values) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    // Disable buttons
+    if (card) {
+        card.querySelectorAll('.hitl-option-btn').forEach(btn => {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+        });
+        const footer = card.querySelector('.hitl-card-footer');
+        if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">✅ 响应已提交</span>';
+    }
+
+    const token = localStorage.getItem('token') || '';
+    fetch('/api/hitl/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ hitl_id: hitlId, action: action, values: values })
+    }).then(r => r.json()).then(data => {
+        if (!data.success) {
+            console.error('HITL respond failed:', data.message);
+            if (card) {
+                const footer = card.querySelector('.hitl-card-footer');
+                if (footer) footer.innerHTML = `<span class="hitl-timeout-hint" style="color:#dc2626">❌ ${escapeHtml(data.message)}</span>`;
+            }
+        }
+    }).catch(err => {
+        console.error('HITL respond error:', err);
+    });
+}
+
 // 创建可折叠的 trace 块（仿 PicoClaw isCollapsedBlock）
 function createClusterBlock(title, className) {
     const block = document.createElement('div');

@@ -7600,6 +7600,67 @@ img.emoji {
     font-weight: 500;
 }
 
+/* ============================================================
+   HITL 人在环路交互卡片
+   ============================================================ */
+.hitl-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin: 8px 0;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+.hitl-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-bottom: 1px solid #bae6fd;
+}
+.hitl-card-icon { font-size: 16px; }
+.hitl-card-title { font-size: 14px; font-weight: 600; color: #0369a1; }
+.hitl-card-description {
+    padding: 10px 14px; font-size: 13px; color: #374151;
+    line-height: 1.6; white-space: pre-wrap; border-bottom: 1px solid #f3f4f6;
+}
+.hitl-card-body { padding: 12px 14px; }
+.hitl-field { margin-bottom: 10px; }
+.hitl-field-label { display: block; font-size: 12px; font-weight: 500; color: #374151; margin-bottom: 4px; }
+.hitl-required { color: #dc2626; }
+.hitl-field-input, .hitl-field-select, .hitl-field-textarea {
+    width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; color: #1f2937; background: #fff; box-sizing: border-box;
+    outline: none; transition: border-color 0.15s;
+}
+.hitl-field-input:focus, .hitl-field-select:focus, .hitl-field-textarea:focus {
+    border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+.hitl-field-textarea { min-height: 60px; resize: vertical; font-family: 'SF Mono', 'Fira Code', monospace; }
+.hitl-options { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hitl-options-vertical { flex-direction: column; }
+.hitl-option-btn {
+    padding: 7px 16px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer; background: #fff;
+    color: #374151; transition: all 0.15s;
+}
+.hitl-option-btn:hover:not(:disabled) { background: #f9fafb; border-color: #9ca3af; }
+.hitl-option-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.hitl-option-primary:hover:not(:disabled) { background: #2563eb; border-color: #2563eb; }
+.hitl-option-danger { background: #fff; color: #dc2626; border-color: #fca5a5; }
+.hitl-option-danger:hover:not(:disabled) { background: #fef2f2; border-color: #f87171; }
+.hitl-option-warning { background: #fffbeb; color: #d97706; border-color: #fcd34d; }
+.hitl-checkbox-label {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+    font-size: 13px; cursor: pointer; border: 1px solid #e5e7eb;
+    border-radius: 6px; transition: background 0.15s;
+}
+.hitl-checkbox-label:hover { background: #f9fafb; }
+.hitl-checkbox { width: 16px; height: 16px; accent-color: #3b82f6; }
+.hitl-card-footer { padding: 8px 14px; border-top: 1px solid #f3f4f6; background: #fafbfc; }
+.hitl-timeout-hint { font-size: 11px; color: #9ca3af; }
+
 /* Text content area */
 .cluster-text-content {
     padding: 14px 16px;
