@@ -15529,16 +15529,16 @@ async function loadAgentConfigTab(tab) {
     try {
         if (tab === 'mcp') {
             const resp = await fetchWithAuth(`${API_BASE}/api/agent/mcp`);
-            const data = await resp.json();
-            renderMCPConfig(content, data.mcp_servers || []);
+            const json = await resp.json();
+            renderMCPConfig(content, (json.data && json.data.mcp_servers) || []);
         } else if (tab === 'skill') {
             const resp = await fetchWithAuth(`${API_BASE}/api/agent/skill`);
-            const data = await resp.json();
-            renderSkillConfig(content, data.skills || []);
+            const json = await resp.json();
+            renderSkillConfig(content, (json.data && json.data.skills) || []);
         } else if (tab === 'status') {
             const resp = await fetchWithAuth(`${API_BASE}/api/agent/status`);
-            const data = await resp.json();
-            renderAgentStatus(content, data);
+            const json = await resp.json();
+            renderAgentStatus(content, json.data || json);
         }
     } catch (e) {
         content.innerHTML = `<div style="color:#e53e3e;padding:20px;">加载失败: ${escapeHtml(e.message)}</div>`;
