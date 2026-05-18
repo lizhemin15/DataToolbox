@@ -152,6 +152,12 @@ jobs:
           mkdir -p package/data
           echo '{}' > package/data/data-store.json
 
+          # 复制 agent-config 目录（包含 skills）
+          if [ -d "agent-config" ]; then
+            cp -r agent-config package/
+            echo "Copied agent-config directory"
+          fi
+
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
             for f in package/index.html package/script.js; do
