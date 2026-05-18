@@ -156,6 +156,7 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 			for i := 0; i < 5; i++ {
 				fixed += "}"
 				if err := json.Unmarshal([]byte(fixed), &parsed); err == nil {
+					log.Printf("[ask_user] fixed truncated JSON: added %d closing braces, original_len=%d", i+1, len(v))
 					args = parsed
 					break
 				}
@@ -163,6 +164,21 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 			if len(parsed) > 0 {
 				continue
 			}
+			// Try adding both } and ]
+			fixed = v
+			for i := 0; i < 10; i++ {
+				fixed += "}"
+				fixed += "]"
+				if err := json.Unmarshal([]byte(fixed), &parsed); err == nil {
+					log.Printf("[ask_user] fixed truncated JSON with mixed braces: added %d pairs, original_len=%d", i+1, len(v))
+					args = parsed
+					break
+				}
+			}
+			if len(parsed) > 0 {
+				continue
+			}
+			log.Printf("[ask_user] failed to parse raw field: len=%d, first_200=%s", len(v), v[:min(200, len(v))])
 		case map[string]any:
 			args = v
 			continue
