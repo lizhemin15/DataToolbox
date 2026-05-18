@@ -523,11 +523,14 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 		return nil
 	}
 
-	// 6. InitializeWithProvider 后，补充 eventBus 到 HITLManager 注入
-	// 创建独立的 EventBus 用于 HITL 事件推送（AskUserTool → EventBus → Run() 中的订阅者 → SSE）
-	if globalHITLManager != nil {
-		hitlEventBus := runtimeevents.NewBus()
-		orch.SetHITLManager(globalHITLManager, hitlEventBus)
+	// 6. InitializeWithProvider 后，使用 PicoClaw 的 RuntimeEvents 作为 HITL 事件总线
+	// AskUserTool → loop.RuntimeEvents() → Run() 中的订阅者 → SSE
+	if globalHITLManager != nil && orch.GetLoop() != nil {
+		runtimeEvents := orch.GetLoop().RuntimeEvents()
+		if runtimeEvents != nil {
+			orch.SetHITLManager(globalHITLManager, runtimeEvents)
+			log.Printf("[agent] HITL event bus connected to PicoClaw RuntimeEvents for user=%s", username)
+		}
 	}
 
 	// 写入中文 AGENT.md 到用户 workspace（每次都更新，确保最新指令生效）

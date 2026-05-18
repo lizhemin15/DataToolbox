@@ -317,6 +317,13 @@ func (o *Orchestrator) Status() OrchestratorStatus {
 	return status
 }
 
+// GetLoop 返回 PicoClaw AgentLoop
+func (o *Orchestrator) GetLoop() *picoclawagent.AgentLoop {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.loop
+}
+
 // GetConfig 返回当前配置
 func (o *Orchestrator) GetConfig() OrchestratorConfig {
 	o.mu.RLock()
