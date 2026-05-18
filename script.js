@@ -15534,7 +15534,7 @@ async function loadAgentConfigTab(tab) {
         } else if (tab === 'skill') {
             const resp = await fetchWithAuth(`${API_BASE}/api/agent/skill`);
             const json = await resp.json();
-            renderSkillConfig(content, (json.data && json.data.skills) || []);
+            renderSkillConfig(content, json.data || []);
         } else if (tab === 'status') {
             const resp = await fetchWithAuth(`${API_BASE}/api/agent/status`);
             const json = await resp.json();

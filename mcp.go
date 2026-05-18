@@ -400,16 +400,16 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		return nil, mcpOutput{}, fmt.Errorf("获取数据库列表失败: %w", err)
 	}
 	var dbsResp struct {
-		Data []struct {
+		Databases []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
-		} `json:"data"`
+		} `json:"databases"`
 	}
 	if err := json.Unmarshal(dbsData, &dbsResp); err != nil {
 		return nil, mcpOutput{}, fmt.Errorf("解析数据库列表失败: %w", err)
 	}
 	var databaseID string
-	for _, db := range dbsResp.Data {
+	for _, db := range dbsResp.Databases {
 		if db.Name == in.Database {
 			databaseID = db.ID
 			break
