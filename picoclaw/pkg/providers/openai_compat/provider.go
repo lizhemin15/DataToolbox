@@ -589,6 +589,18 @@ func parseStreamResponse(
 		raw := acc.argsJSON.String()
 		if raw != "" {
 			if err := json.Unmarshal([]byte(raw), &args); err != nil {
+				// Try fixing truncated JSON (common with LLM streaming cutoffs)
+				fixed := common.FixTruncatedJSON(raw)
+				if fixed != raw {
+					if err2 := json.Unmarshal([]byte(fixed), &args); err2 == nil {
+						toolCalls = append(toolCalls, ToolCall{
+							ID:        acc.id,
+							Name:      acc.name,
+							Arguments: args,
+						})
+						continue
+					}
+				}
 				log.Printf("openai_compat stream: failed to decode tool call arguments for %q: %v", acc.name, err)
 				args["raw"] = raw
 			}

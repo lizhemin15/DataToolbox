@@ -335,6 +335,192 @@ func normalizeFinishReason(reason string) string {
 	return reason
 }
 
+// FixTruncatedJSON attempts to repair truncated JSON by closing unclosed
+// strings and adding missing closing brackets. This handles the common case
+// where an LLM's tool-call arguments are cut off mid-stream (e.g. by a
+// token limit or a dropped SSE chunk).
+//
+// Strategy:
+//  1. Walk the raw bytes tracking whether we are inside a JSON string.
+//  2. If the input ends while inside a string, close it with '"'.
+//  3. Count unmatched '[' and '{' and append the corresponding ']' / '}'.
+//  4. Try json.Unmarshal; if it still fails, progressively strip the last
+//     key/value pair from objects and retry.
+func FixTruncatedJSON(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	// Quick check — maybe it's already valid.
+	if json.Valid([]byte(raw)) {
+		return raw
+	}
+
+	// --- Phase 1: close unclosed string ---
+	inStr := false
+	escape := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == '\\' {
+			if inStr {
+				escape = true
+			}
+			continue
+		}
+		if ch == '"' {
+			inStr = !inStr
+		}
+	}
+
+	fixed := raw
+	if inStr {
+		// We're inside an unclosed string. Close it.
+		fixed = fixed + "\""
+	}
+
+	// --- Phase 2: count unmatched brackets (outside strings) ---
+	inStr = false
+	escape = false
+	openSquare := 0
+	openCurly := 0
+	for i := 0; i < len(fixed); i++ {
+		ch := fixed[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == '\\' {
+			if inStr {
+				escape = true
+			}
+			continue
+		}
+		if ch == '"' {
+			inStr = !inStr
+			continue
+		}
+		if inStr {
+			continue
+		}
+		switch ch {
+		case '[':
+			openSquare++
+		case ']':
+			openSquare--
+		case '{':
+			openCurly++
+		case '}':
+			openCurly--
+		}
+	}
+
+	// Append closing brackets (inner first: ] before })
+	for i := 0; i < openSquare; i++ {
+		fixed += "]"
+	}
+	for i := 0; i < openCurly; i++ {
+		fixed += "}"
+	}
+
+	if json.Valid([]byte(fixed)) {
+		log.Printf("common: FixTruncatedJSON repaired JSON (closed_string=%v, added_]=%d }=%d, orig_len=%d)",
+			inStr, openSquare, openCurly, len(raw))
+		return fixed
+	}
+
+	// --- Phase 3: progressive truncation of last key/value ---
+	// Find the last comma at the object level and truncate after it.
+	for attempt := 0; attempt < 5; attempt++ {
+		lastComma := -1
+		depth := 0
+		inStr2 := false
+		esc := false
+		for i := 0; i < len(fixed); i++ {
+			ch := fixed[i]
+			if esc {
+				esc = false
+				continue
+			}
+			if ch == '\\' && inStr2 {
+				esc = true
+				continue
+			}
+			if ch == '"' {
+				inStr2 = !inStr2
+				continue
+			}
+			if inStr2 {
+				continue
+			}
+			switch ch {
+			case '[', '{':
+				depth++
+			case ']', '}':
+				depth--
+			case ',':
+				if depth <= 1 {
+					lastComma = i
+				}
+			}
+		}
+		if lastComma <= 0 {
+			break
+		}
+		// Truncate after the comma, then re-close brackets.
+		truncated := fixed[:lastComma]
+		// Re-count brackets in truncated string
+		inStr2 = false
+		esc = false
+		os, oc := 0, 0
+		for i := 0; i < len(truncated); i++ {
+			ch := truncated[i]
+			if esc {
+				esc = false
+				continue
+			}
+			if ch == '\\' && inStr2 {
+				esc = true
+				continue
+			}
+			if ch == '"' {
+				inStr2 = !inStr2
+				continue
+			}
+			if inStr2 {
+				continue
+			}
+			switch ch {
+			case '[':
+				os++
+			case ']':
+				os--
+			case '{':
+				oc++
+			case '}':
+				oc--
+			}
+		}
+		for j := 0; j < os; j++ {
+			truncated += "]"
+		}
+		for j := 0; j < oc; j++ {
+			truncated += "}"
+		}
+		if json.Valid([]byte(truncated)) {
+			log.Printf("common: FixTruncatedJSON repaired JSON via progressive truncation (attempt=%d, orig_len=%d, fixed_len=%d)",
+				attempt+1, len(raw), len(truncated))
+			return truncated
+		}
+		fixed = truncated
+	}
+
+	log.Printf("common: FixTruncatedJSON failed to repair JSON (orig_len=%d)", len(raw))
+	return raw
+}
+
 // DecodeToolCallArguments decodes a tool call's arguments from raw JSON.
 func DecodeToolCallArguments(raw json.RawMessage, name string) map[string]any {
 	arguments := make(map[string]any)
@@ -345,17 +531,32 @@ func DecodeToolCallArguments(raw json.RawMessage, name string) map[string]any {
 
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
+		// Try fixing truncated JSON before giving up
+		fixed := FixTruncatedJSON(string(raw))
+		if fixed != string(raw) {
+			if err2 := json.Unmarshal([]byte(fixed), &decoded); err2 == nil {
+				goto decoded
+			}
+		}
 		log.Printf("common: failed to decode tool call arguments payload for %q: %v", name, err)
 		arguments["raw"] = string(raw)
 		return arguments
 	}
 
+decoded:
 	switch v := decoded.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
 			return arguments
 		}
 		if err := json.Unmarshal([]byte(v), &arguments); err != nil {
+			// Try fixing truncated JSON
+			fixed := FixTruncatedJSON(v)
+			if fixed != v {
+				if err2 := json.Unmarshal([]byte(fixed), &arguments); err2 == nil {
+					return arguments
+				}
+			}
 			log.Printf("common: failed to decode tool call arguments for %q: %v", name, err)
 			arguments["raw"] = v
 		}
