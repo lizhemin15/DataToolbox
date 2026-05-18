@@ -112,8 +112,9 @@ func (o *Orchestrator) pushHITLEvent(evt Event) {
 			Payload: evt.Data,
 			Source:  runtimeevents.Source{Component: "datatoolbox", Name: "ask_user"},
 		}
-		o.eventBus.PublishNonBlocking(runtimeEvt)
-		log.Printf("[orchestrator] HITL event published to EventBus: type=%s", evt.Type)
+		result := o.eventBus.PublishNonBlocking(runtimeEvt)
+		log.Printf("[orchestrator] HITL event published to EventBus: type=%s, matched=%d, delivered=%d, dropped=%d, blocked=%d",
+			evt.Type, result.Matched, result.Delivered, result.Dropped, result.Blocked)
 	} else {
 		log.Printf("[orchestrator] HITL event skipped (no EventBus): type=%s", evt.Type)
 	}
