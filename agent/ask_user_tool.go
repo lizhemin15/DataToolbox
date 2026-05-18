@@ -335,6 +335,8 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 		}
 
 		// 正常提交 — 将用户响应序列化为 JSON 返回给 AI
+		// 标记 session 已通过 HITL 确认，允许后续 create_api 调用
+		SetHITLConfirmed(sessionID)
 		return tools.NewToolResult(fmt.Sprintf("User responded:\n%s", string(respJSON)))
 
 	case <-ctx.Done():
