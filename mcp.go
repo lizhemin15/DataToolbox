@@ -609,7 +609,7 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "根据关键词搜索数据库中的表，支持指定数据库范围"}, mcpSearchTables)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取指定数据库的完整 schema 信息，包括所有表结构、列定义、索引等"}, mcpGetDbSchema)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明"}, mcpGetDbSQLHints)
-		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "【重要】创建接口前必须先调用 ask_user 工具让用户确认配置！创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
 
 		return server
