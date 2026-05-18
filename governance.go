@@ -2461,3 +2461,160 @@ var (
 )
 
 // getSFTPSession 线程安全地获取并刷新会话最后使用时间
+
+// handleGovernanceTaskAPI 处理注册为 API 的治理任务调用
+// 路由: POST /api/tasks/{api_path}
+func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
+		return
+	}
+	
+	// 提取 api_path
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少API路径"})
+		return
+	}
+	apiPath := pathParts[0]
+	
+	// 根据 api_path 查找任务
+	dataOntologyMu.RLock()
+	var matchedTask *GovernanceTask
+	for _, task := range governanceTasks {
+		if task.APIPath == "/api/tasks/"+apiPath && task.RegisterAsAPI {
+			matchedTask = task
+			break
+		}
+	}
+	dataOntologyMu.RUnlock()
+	
+	if matchedTask == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "API不存在"})
+		return
+	}
+	
+	// 检查任务是否启用
+	if !matchedTask.Enabled {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该任务已禁用", "error_code": "FORBIDDEN"})
+		return
+	}
+	
+	// 复用 handleGovernanceTaskRun 的逻辑
+	// 但 API 调用可能不需要鉴权（根据任务配置）
+	token := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	// API 调用允许无 token（公开 API）或使用内部调用鉴权
+	if token == "" {
+		// 检查是否是内部调用
+		if r.Header.Get("X-Internal-Call") == "" {
+			// 公开 API，使用 admin token
+			token = "internal-api-call"
+		}
+	}
+	
+	// 解析请求
+	var inputText string
+	var filePaths []string
+	
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		maxSize := int64(100 * 1024 * 1024)
+		r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+		if err := r.ParseMultipartForm(maxSize); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "解析表单失败: " + err.Error()})
+			return
+		}
+		inputText = r.FormValue("input_text")
+		
+		files := r.MultipartForm.File["files"]
+		for _, fileHeader := range files {
+			safeFilename, err := sanitizeFilename(fileHeader.Filename)
+			if err != nil {
+				continue
+			}
+			file, err := fileHeader.Open()
+			if err != nil {
+				continue
+			}
+			tmpDir := filepath.Join(os.TempDir(), "gov-tasks", matchedTask.ID)
+			if err := os.MkdirAll(tmpDir, 0755); err != nil {
+				file.Close()
+				continue
+			}
+			tmpPath := filepath.Join(tmpDir, safeFilename)
+			dst, err := os.Create(tmpPath)
+			if err != nil {
+				file.Close()
+				continue
+			}
+			io.Copy(dst, file)
+			file.Close()
+			dst.Close()
+			filePaths = append(filePaths, tmpPath)
+		}
+	} else {
+		var req struct {
+			InputText string `json:"input_text"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		inputText = req.InputText
+	}
+	
+	// 创建任务
+	runID := uuid.New().String()
+	startedAt := time.Now().Format(time.RFC3339)
+	job := &GovernanceJob{
+		TaskID:     matchedTask.ID,
+		RunID:      runID,
+		Token:      token,
+		InputFiles: filePaths,
+		InputText:  inputText,
+		ShareToken: matchedTask.ShareToken,
+	}
+	
+	// 更新任务状态
+	dataOntologyMu.Lock()
+	matchedTask.Status = "running"
+	matchedTask.RunID = runID
+	matchedTask.StartedAt = startedAt
+	matchedTask.TotalFiles = len(filePaths)
+	matchedTask.ProcessedFiles = 0
+	matchedTask.Percent = 0
+	dataOntologyMu.Unlock()
+	
+	// 写入运行中日志
+	governanceAppendRunningLog(matchedTask.ID, job, startedAt)
+	
+	// 入队
+	select {
+	case governanceJobQueue <- job:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"run_id":  runID,
+			"message": "任务已入队，正在后台执行",
+		})
+	default:
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[matchedTask.ID]; ok {
+			t.Status = "idle"
+			t.RunID = ""
+		}
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "任务队列已满，请稍后重试",
+		})
+	}
+}
