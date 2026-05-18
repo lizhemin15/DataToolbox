@@ -138,6 +138,38 @@ func (t *AskUserTool) Parameters() map[string]any {
 }
 
 func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.ToolResult {
+	// 0. 解包 raw 字段（某些 provider 会把参数包装成 {"raw": "..."} 格式）
+	for {
+		raw, ok := args["raw"]
+		if !ok {
+			break
+		}
+		switch v := raw.(type) {
+		case string:
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+				args = parsed
+				continue
+			}
+			// Try to fix truncated JSON
+			fixed := v
+			for i := 0; i < 5; i++ {
+				fixed += "}"
+				if err := json.Unmarshal([]byte(fixed), &parsed); err == nil {
+					args = parsed
+					break
+				}
+			}
+			if len(parsed) > 0 {
+				continue
+			}
+		case map[string]any:
+			args = v
+			continue
+		}
+		break
+	}
+
 	// 1. 提取参数
 	interactionType, _ := args["interaction_type"].(string)
 	title, _ := args["title"].(string)
