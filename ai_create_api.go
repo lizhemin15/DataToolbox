@@ -722,7 +722,7 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Confi
 
 	// 默认 agent 配置
 	cfg.Agents.Defaults.ModelName = aiConfig.Model
-	cfg.Agents.Defaults.MaxTokens = 4096
+	cfg.Agents.Defaults.MaxTokens = 8192
 	temp := 0.7
 	cfg.Agents.Defaults.Temperature = &temp
 	cfg.Agents.Defaults.MaxParallelTurns = 1
