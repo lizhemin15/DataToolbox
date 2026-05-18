@@ -376,27 +376,36 @@ func loadAgentConfig() {
 		if !os.IsNotExist(err) {
 			log.Printf("[agent] 读取配置文件失败: %v", err)
 		}
-		return
+	} else {
+		var cfg agentClusterConfigJSON
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			log.Printf("[agent] 解析配置文件失败: %v", err)
+		} else {
+			// 加载 providers
+			for _, p := range cfg.Providers {
+				agentProviderRegistry.Add(p)
+			}
+			// 加载 MCP
+			for _, m := range cfg.MCP {
+				agentMCPSupervisor.AddConfig(m)
+			}
+			// 加载 skills
+			for _, s := range cfg.Skills {
+				agentSkillRegistry.Add(s)
+			}
+			log.Printf("[agent] 已加载配置: %d providers, %d mcp_servers, %d skills",
+				len(cfg.Providers), len(cfg.MCP), len(cfg.Skills))
+		}
 	}
-	var cfg agentClusterConfigJSON
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		log.Printf("[agent] 解析配置文件失败: %v", err)
-		return
+
+	// 从 skills 目录加载内置 skills
+	exePath, _ := os.Executable()
+	skillsDir := filepath.Join(filepath.Dir(exePath), "agent-config", "skills")
+	if err := agentSkillRegistry.LoadFromDir(skillsDir); err != nil {
+		log.Printf("[agent] 加载 skills 目录失败: %v", err)
+	} else {
+		log.Printf("[agent] 已从目录加载 skills: %s", skillsDir)
 	}
-	// 加载 providers
-	for _, p := range cfg.Providers {
-		agentProviderRegistry.Add(p)
-	}
-	// 加载 MCP
-	for _, m := range cfg.MCP {
-		agentMCPSupervisor.AddConfig(m)
-	}
-	// 加载 skills
-	for _, s := range cfg.Skills {
-		agentSkillRegistry.Add(s)
-	}
-	log.Printf("[agent] 已加载配置: %d providers, %d mcp_servers, %d skills",
-		len(cfg.Providers), len(cfg.MCP), len(cfg.Skills))
 }
 
 // saveAgentConfig 保存集群模式配置到 agent-config.json
