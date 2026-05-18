@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -393,7 +394,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 	// 强制 HITL 确认：创建接口前必须先调用 ask_user 让用户确认配置
 	if !agent.IsHITLConfirmed("default") {
 		confirmMsg := fmt.Sprintf("⚠️ 创建接口前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 名称: %s\n- 路径: %s\n- 方法: %s\n- SQL: %s\n- 数据库: %s\n- 描述: %s", in.Name, in.Path, in.Method, in.SQL, in.Database, in.Description)
-		return mcp.NewToolResultError(confirmMsg), mcpOutput{}, nil
+		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
 	}
 
 	cli, err := getMCPClientFromContext(ctx)
