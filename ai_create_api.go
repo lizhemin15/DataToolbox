@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 	picoclawcfg "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/config"
-	runtimeevents "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/events"
 )
 
 type AICompletionRequest struct {
@@ -524,11 +523,11 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 	}
 
 	// 6. InitializeWithProvider 后，使用 PicoClaw 的 RuntimeEvents 作为 HITL 事件总线
-	// AskUserTool → loop.RuntimeEvents() → Run() 中的订阅者 → SSE
+	// AskUserTool → loop.RuntimeEventBus() → Run() 中的订阅者 → SSE
 	if globalHITLManager != nil && orch.GetLoop() != nil {
-		runtimeEvents := orch.GetLoop().RuntimeEvents()
-		if runtimeEvents != nil {
-			orch.SetHITLManager(globalHITLManager, runtimeEvents)
+		runtimeEventBus := orch.GetLoop().RuntimeEventBus()
+		if runtimeEventBus != nil {
+			orch.SetHITLManager(globalHITLManager, runtimeEventBus)
 			log.Printf("[agent] HITL event bus connected to PicoClaw RuntimeEvents for user=%s", username)
 		}
 	}
