@@ -15581,7 +15581,7 @@ function hitlSubmit(hitlId, action, values) {
         if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">✅ 响应已提交</span>';
     }
 
-    const token = localStorage.getItem('token') || '';
+    const token = localStorage.getItem('dataOntologyToken') || '';
     fetch('/api/hitl/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
