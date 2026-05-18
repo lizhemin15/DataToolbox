@@ -179,57 +179,57 @@ type mcpOutput struct {
 type listDatabasesIn struct{}
 
 type getTablesIn struct {
-	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+	DatabaseID string `json:"database_id" jsonschema:"数据库 ID"`
 }
 
 type describeTableIn struct {
-	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
-	TableName  string `json:"table_name" jsonschema:"required,description=表名"`
+	DatabaseID string `json:"database_id" jsonschema:"数据库 ID"`
+	TableName  string `json:"table_name" jsonschema:"表名"`
 }
 
 type executeSQLIn struct {
-	DatabaseID string        `json:"database_id" jsonschema:"required,description=数据库 ID"`
-	SQL        string        `json:"sql" jsonschema:"required,description=要执行的 SQL 语句"`
-	Params     []interface{} `json:"params" jsonschema:"description=SQL 占位符参数（可选）"`
+	DatabaseID string        `json:"database_id" jsonschema:"数据库 ID"`
+	SQL        string        `json:"sql" jsonschema:"要执行的 SQL 语句"`
+	Params     []interface{} `json:"params,omitempty" jsonschema:"SQL 占位符参数（可选）"`
 }
 
 type listApisIn struct{}
 
 type getApiDetailIn struct {
-	ApiID string `json:"api_id" jsonschema:"required,description=接口 ID"`
+	ApiID string `json:"api_id" jsonschema:"接口 ID"`
 }
 
 type callApiIn struct {
-	ApiID  string                 `json:"api_id" jsonschema:"required,description=接口 ID"`
-	Params map[string]interface{} `json:"params" jsonschema:"description=请求参数，与接口 SQL 中占位符对应"`
+	ApiID  string                 `json:"api_id" jsonschema:"接口 ID"`
+	Params map[string]interface{} `json:"params,omitempty" jsonschema:"请求参数，与接口 SQL 中占位符对应"`
 }
 
 type searchTablesIn struct {
-	Query    string `json:"query" jsonschema:"required,description=搜索关键词"`
-	Database string `json:"database" jsonschema:"description=数据库名称（可选，用于限定搜索范围）"`
+	Query    string `json:"query" jsonschema:"搜索关键词"`
+	Database string `json:"database,omitempty" jsonschema:"数据库名称（可选，用于限定搜索范围）"`
 }
 
 type getDbSchemaIn struct {
-	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+	DatabaseID string `json:"database_id" jsonschema:"数据库 ID"`
 }
 
 type getDbSQLHintsIn struct {
-	DatabaseID string `json:"database_id" jsonschema:"required,description=数据库 ID"`
+	DatabaseID string `json:"database_id" jsonschema:"数据库 ID"`
 }
 
 type createApiIn struct {
-	Name          string                 `json:"name" jsonschema:"required,description=接口名称"`
-	Path          string                 `json:"path" jsonschema:"required,description=接口路径（如 /api/users）"`
-	Method        string                 `json:"method" jsonschema:"required,description=HTTP 方法（GET/POST 等）"`
-	SQL           string                 `json:"sql" jsonschema:"required,description=接口关联的 SQL 语句"`
-	Description   string                 `json:"description" jsonschema:"description=接口描述"`
-	Database      string                 `json:"database" jsonschema:"required,description=数据库名称"`
-	DefaultParams map[string]interface{} `json:"default_params" jsonschema:"description=默认参数定义"`
+	Name          string                 `json:"name" jsonschema:"接口名称"`
+	Path          string                 `json:"path" jsonschema:"接口路径（如 /api/users）"`
+	Method        string                 `json:"method" jsonschema:"HTTP 方法（GET/POST 等）"`
+	SQL           string                 `json:"sql" jsonschema:"接口关联的 SQL 语句"`
+	Description   string                 `json:"description,omitempty" jsonschema:"接口描述"`
+	Database      string                 `json:"database" jsonschema:"数据库名称"`
+	DefaultParams map[string]interface{} `json:"default_params,omitempty" jsonschema:"默认参数定义"`
 }
 
 type executeApiIn struct {
-	Path   string                 `json:"path" jsonschema:"required,description=接口路径（如 /users）"`
-	Params map[string]interface{} `json:"params" jsonschema:"description=查询参数"`
+	Path   string                 `json:"path" jsonschema:"接口路径（如 /users）"`
+	Params map[string]interface{} `json:"params,omitempty" jsonschema:"查询参数"`
 }
 
 // ─── 工具处理函数（HTTP 模式和 Stdio 模式共用） ──────────────────────────────

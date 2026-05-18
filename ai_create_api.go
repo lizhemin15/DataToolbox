@@ -922,8 +922,32 @@ func handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 			agent.MCPServerConfig
 			Transport string `json:"transport"`
 			Status    string `json:"status"`
+			Builtin   bool   `json:"builtin"` // 标识内置 MCP（不可删除）
 		}
-		views := make([]mcpServerView, 0, len(configs))
+		views := make([]mcpServerView, 0, len(configs)+1)
+
+		// 首先添加内置的 DataToolbox MCP（如果启用）
+		dataOntologyMu.RLock()
+		mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+		dataOntologyMu.RUnlock()
+		if mcpEnabled {
+			views = append(views, mcpServerView{
+				MCPServerConfig: agent.MCPServerConfig{
+					ID:          "builtin-datatoolbox",
+					Name:        "DataToolbox MCP (内置)",
+					Type:        "streamable-http",
+					URL:         mcpLoopbackAddr + "/mcp",
+					Headers:     map[string]string{"X-Internal-Call": "datatoolbox-agent"},
+					Enabled:     true,
+					Description: "DataToolbox 内置 MCP 服务，提供数据库查询、接口调用等 12 个工具",
+				},
+				Transport: "streamable-http",
+				Status:    "running", // 内置 MCP 总是 running（随主服务启动）
+				Builtin:   true,
+			})
+		}
+
+		// 然后添加用户配置的外部 MCP
 		for _, cfg := range configs {
 			transport := "stdio"
 			if cfg.Type != "" {
@@ -942,6 +966,7 @@ func handleAgentMCP(w http.ResponseWriter, r *http.Request) {
 				MCPServerConfig: cfg,
 				Transport:       transport,
 				Status:          status,
+				Builtin:         false,
 			})
 		}
 		apiSuccess(w, map[string]interface{}{"mcp_servers": views})
