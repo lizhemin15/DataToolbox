@@ -953,7 +953,7 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 	log.Printf("[agent] 集群模式查询完成: user=%s, session=%s, events=%d", username, sessionID, eventCount)
 
 	// 清除 HITL 确认标记，下次查询需要重新确认
-	ClearHITLConfirmed(sessionID)
+	agent.ClearHITLConfirmed(sessionID)
 }
 
 // handleAgentMCP MCP Server配置管理 (CRUD)

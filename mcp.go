@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,37 +24,6 @@ var mcpLoopbackAddr = "http://127.0.0.1:8080"
 
 const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
-
-// hitlConfirmedSessions 记录已通过 ask_user 确认的 session
-// key: sessionID, value: true 表示已确认
-var hitlConfirmedSessions = struct {
-	sync.RWMutex
-	m map[string]bool
-}{m: make(map[string]bool)}
-
-// SetHITLConfirmed 标记 session 已通过 HITL 确认（由 ask_user 工具调用）
-func SetHITLConfirmed(sessionID string) {
-	hitlConfirmedSessions.Lock()
-	hitlConfirmedSessions.m[sessionID] = true
-	hitlConfirmedSessions.Unlock()
-}
-
-// isHITLConfirmed 检查 session 是否已通过 HITL 确认
-func isHITLConfirmed(ctx context.Context) bool {
-	// 从 MCP 请求中提取 session 信息
-	// 由于 MCP 通过 HTTP 传入，无法直接获取 PicoClaw session ID
-	// 简化方案：检查是否有任何 session 已确认（在同一个用户上下文中）
-	hitlConfirmedSessions.RLock()
-	defer hitlConfirmedSessions.RUnlock()
-	return len(hitlConfirmedSessions.m) > 0
-}
-
-// ClearHITLConfirmed 清除 HITL 确认标记（每次查询结束后调用）
-func ClearHITLConfirmed(sessionID string) {
-	hitlConfirmedSessions.Lock()
-	delete(hitlConfirmedSessions.m, sessionID)
-	hitlConfirmedSessions.Unlock()
-}
 
 // ─── SQL 安全检查 ───────────────────────────────────────────────────────────
 
@@ -423,8 +391,7 @@ func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQL
 
 func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn) (*mcp.CallToolResult, mcpOutput, error) {
 	// 强制 HITL 确认：创建接口前必须先调用 ask_user 让用户确认配置
-	// 如果 session 中没有 HITL 确认标记，则拒绝创建并引导调用 ask_user
-	if !isHITLConfirmed(ctx) {
+	if !agent.IsHITLConfirmed("default") {
 		confirmMsg := fmt.Sprintf("⚠️ 创建接口前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 名称: %s\n- 路径: %s\n- 方法: %s\n- SQL: %s\n- 数据库: %s\n- 描述: %s", in.Name, in.Path, in.Method, in.SQL, in.Database, in.Description)
 		return mcp.NewToolResultError(confirmMsg), mcpOutput{}, nil
 	}

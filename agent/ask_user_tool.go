@@ -53,15 +53,17 @@ Response format:
 
 // AskUserTool 让 AI agent 能向用户发起人在环路交互请求
 type AskUserTool struct {
-	hitlMgr   *HITLManager
-	pushEvent func(Event) // 回调：推送 SSE 事件到前端
+	hitlMgr     *HITLManager
+	pushEvent   func(Event) // 回调：推送 SSE 事件到前端
+	onConfirmed func()      // 回调：用户确认后调用，用于标记 HITL 已确认
 }
 
 // NewAskUserTool 创建 ask_user 工具
-func NewAskUserTool(hitlMgr *HITLManager, pushEvent func(Event)) *AskUserTool {
+func NewAskUserTool(hitlMgr *HITLManager, pushEvent func(Event), onConfirmed func()) *AskUserTool {
 	return &AskUserTool{
-		hitlMgr:   hitlMgr,
-		pushEvent: pushEvent,
+		hitlMgr:     hitlMgr,
+		pushEvent:   pushEvent,
+		onConfirmed: onConfirmed,
 	}
 }
 
@@ -336,7 +338,9 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 
 		// 正常提交 — 将用户响应序列化为 JSON 返回给 AI
 		// 标记 session 已通过 HITL 确认，允许后续 create_api 调用
-		SetHITLConfirmed(sessionID)
+		if t.onConfirmed != nil {
+			t.onConfirmed()
+		}
 		return tools.NewToolResult(fmt.Sprintf("User responded:\n%s", string(respJSON)))
 
 	case <-ctx.Done():

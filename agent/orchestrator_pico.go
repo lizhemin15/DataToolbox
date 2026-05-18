@@ -96,7 +96,7 @@ func (o *Orchestrator) registerDataToolboxTools() {
 
 		// 注册 AskUserTool（如果 HITLManager 已设置）
 		if o.hitlMgr != nil {
-			askUserTool := NewAskUserTool(o.hitlMgr, o.pushHITLEvent)
+			askUserTool := NewAskUserTool(o.hitlMgr, o.pushHITLEvent, func() { SetHITLConfirmed("default") })
 			agent.Tools.Register(askUserTool)
 			log.Printf("[orchestrator] registered ask_user tool for agent=%s", agentID)
 		}
