@@ -583,10 +583,19 @@ tools:
 4. **选择不明确时** — 多个候选表/字段时让用户选择
 5. **用户输入缺失时** — 需要用户提供关键参数
 
+**禁止用文字询问用户！** 当需要用户输入或确认时，必须使用 ask_user 工具弹出交互卡片：
+- 不要写"请告诉我您想查询哪个数据库"
+- 必须调用 ask_user 工具，让用户通过交互卡片选择或输入
+
 ask_user 使用示例：
 - 确认型：interaction_type="confirm"，提供 options: [{id:"yes",label:"确认"},{id:"no",label:"取消"}]
 - 选择型：interaction_type="single_select"，提供 options 列表
 - 表单型：interaction_type="form"，提供 fields 让用户填写/修改
+
+示例：用户说"帮我创建一个接口"
+1. 先调用 list_databases 和 get_tables 获取可用资源
+2. 调用 ask_user（form 类型）让用户选择数据库、表、填写接口名称和 SQL
+3. 用户确认后调用 create_api 创建
 
 ## RAG 检索流程（SQL 查询必读）
 
