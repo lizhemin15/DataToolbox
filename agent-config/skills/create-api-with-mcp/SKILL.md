@@ -17,18 +17,33 @@ version: 2.0.0
 
 ## 工作流程
 
-### 1. 确认数据库和表
+### ⚠️ 强制规则：必须先探索数据，再与用户交互
+
+**绝对不允许跳过步骤 1-3 直接调用 ask_user！** 如果 ask_user 的 fields 中没有填入从数据库获取的真实数据（如表名、字段名、SQL），则说明你跳过了数据探索步骤，这是严重错误。
+
+### 1. 获取可用数据库列表
+
+**如果用户没有指定数据库，必须先调用 `list_databases` 获取可用数据库：**
+
+```
+调用: list_databases
+期望结果: 返回可用数据库列表（含 id 和 name）
+```
+
+如果只有一个数据库，直接使用它。如果有多个数据库，使用 `ask_user`（interaction_type="single_select"）让用户选择。
+
+### 2. 确认数据库和表
 
 调用 `get_tables` 确认目标数据库有连接：
 
 ```
 调用: get_tables
-参数: {"database_id": "<数据库名或ID>"}
+参数: {"database_id": "<步骤1获取的数据库ID>"}
 ```
 
 如果返回错误，先检查数据库配置。
 
-### 2. 了解表结构
+### 3. 了解表结构
 
 调用 `describe_table` 获取字段信息：
 
@@ -37,7 +52,7 @@ version: 2.0.0
 参数: {"database_id": "<数据库ID>", "table_name": "<表名>"}
 ```
 
-### 3. 设计接口方案
+### 4. 设计接口方案
 
 根据表结构，设计接口的：
 - 名称
@@ -46,7 +61,7 @@ version: 2.0.0
 - SQL 语句
 - 参数定义
 
-### 4. ⚠️ 关键步骤：用户确认（必须执行）
+### 5. ⚠️ 关键步骤：用户确认（必须执行）
 
 **在创建接口之前，必须使用 `ask_user` 工具让用户确认方案！**
 
@@ -105,7 +120,7 @@ version: 2.0.0
 - 用户点击"取消" → 不创建接口，询问用户需要什么调整
 - 超时 → 提示用户响应超时，等待用户重新发起请求
 
-### 5. 创建接口
+### 6. 创建接口
 
 使用用户确认后的参数调用 `create_api`：
 
@@ -121,7 +136,7 @@ version: 2.0.0
 }
 ```
 
-### 6. 测试接口
+### 7. 测试接口
 
 创建后调用 `execute_api` 测试：
 
@@ -130,7 +145,7 @@ version: 2.0.0
 参数: {"path": "<接口路径>", "params": {"参数名": "测试值"}}
 ```
 
-### 7. 汇报结果
+### 8. 汇报结果
 
 向用户汇报：
 - 接口已创建成功
@@ -146,6 +161,15 @@ SELECT * FROM users WHERE status = :status AND name LIKE :name
 ```
 
 ## 常见错误
+
+### ❌ 错误：跳过数据探索直接弹空表单
+
+```
+错误: 用户说"帮我创建个接口"，AI 直接调用 ask_user 弹出空表单
+原因: 没有先调用 list_databases → get_tables → describe_table 获取真实数据
+后果: 表单中没有真实的表名、字段名、SQL，用户无法审核，等于让用户自己从头设计
+正确: 必须先完成步骤 1-3，获取真实数据后再弹表单让用户审核
+```
 
 ### ❌ 错误：直接创建不确认
 
@@ -185,19 +209,20 @@ SELECT * FROM users WHERE status = :status AND name LIKE :name
 用户: 帮我创建一个查询用户列表的接口
 
 智能体:
-1. 调用 get_tables 确认数据库连接
-2. 调用 describe_table 获取 users 表结构
-3. 发现字段: id, name, email, status, created_at
-4. 设计接口方案：
+1. 调用 list_databases 获取可用数据库列表
+2. 调用 get_tables 确认数据库连接，找到 users 表
+3. 调用 describe_table 获取 users 表结构
+4. 发现字段: id, name, email, status, created_at
+5. 设计接口方案：
    - name: 用户列表查询
    - path: /api/users
    - method: GET
    - sql: SELECT id, name, email, status FROM users WHERE status = :status LIMIT 100
-5. ⚠️ 调用 ask_user 让用户确认方案（form 类型）
-6. 用户审核后点击提交（可能修改了 SQL 或名称）
-7. 使用用户确认的值调用 create_api
-8. 调用 execute_api 测试接口
-9. 汇报结果给用户
+6. ⚠️ 调用 ask_user 让用户确认方案（form 类型，fields 中填入真实数据）
+7. 用户审核后点击提交（可能修改了 SQL 或名称）
+8. 使用用户确认的值调用 create_api
+9. 调用 execute_api 测试接口
+10. 汇报结果给用户
 ```
 
 ## 注意事项
