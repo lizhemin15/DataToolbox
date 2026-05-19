@@ -15375,8 +15375,10 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
                 if (evt.partial === false) {
                     textEl.innerHTML = formatClusterMarkdown(content);
                 } else {
-                    const existing = textEl.textContent || '';
-                    textEl.textContent = existing + content;
+                    // 流式增量文本：拼接后重新渲染
+                    const existing = textEl._rawText || '';
+                    textEl._rawText = existing + content;
+                    textEl.innerHTML = formatClusterMarkdown(textEl._rawText);
                 }
             }
             break;
@@ -15666,27 +15668,55 @@ function toggleClusterBlock(headerEl) {
 // 简易 Markdown 渲染（不依赖库）
 function formatClusterMarkdown(text) {
     if (!text) return '';
-    let html = escapeHtml(text);
-    // bold
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    // italic
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    // inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    // code block
-    html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-    // headers
-    html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
-    // bullet list
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-    // numbered list
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-    // line breaks
-    html = html.replace(/\n/g, '<br>');
-    return html;
+    // 先处理 think 标签：提取思考内容到折叠块
+    let thinkContent = '';
+    let mainContent = text;
+
+    const closedThinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    let match;
+    while ((match = closedThinkRegex.exec(text)) !== null) {
+        thinkContent += match[1];
+    }
+
+    const openThinkRegex = /<think>([\s\S]*)$/;
+    const openMatch = openThinkRegex.exec(text.replace(closedThinkRegex, ''));
+    if (openMatch) {
+        thinkContent += openMatch[1];
+    }
+
+    mainContent = text.replace(closedThinkRegex, '').replace(/<think>[\s\S]*$/, '').trim();
+
+    let result = '';
+    if (thinkContent.trim()) {
+        let thinkHtml = escapeHtml(thinkContent.trim());
+        thinkHtml = thinkHtml.replace(/\n/g, '<br>');
+        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${thinkHtml}</div></details>`;
+    }
+
+    if (mainContent.trim()) {
+        let html = escapeHtml(mainContent);
+        // bold
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // italic
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        // inline code
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // code block
+        html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+        // headers
+        html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+        // bullet list
+        html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+        html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+        // numbered list
+        html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+        // line breaks
+        html = html.replace(/\n/g, '<br>');
+        result += html;
+    }
+    return result;
 }
 
 // Show agent configuration panel
