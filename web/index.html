@@ -922,12 +922,19 @@
             <div class="ai-assistant-container">
                 <div class="ai-session-sidebar" id="aiSessionSidebar">
                     <div class="ai-sidebar-toggle" id="aiSidebarToggle" onclick="toggleAISidebar()" title="折叠/展开会话栏">
-                        <span class="sidebar-toggle-icon" id="sidebarToggleIcon">◀</span>
+                        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" fill="none" style="width:18px;height:18px;transition:transform 0.25s ease;">
+                            <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                     </div>
                     <div class="ai-sidebar-body" id="aiSidebarBody">
                         <div class="ai-new-session-bar">
-                            <button class="ai-new-session-btn" onclick="createNewSession()" title="🚀 新会话">🚀</button>
-
+                            <button class="ai-new-session-btn" onclick="createNewSession()">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;margin-right:6px;">
+                                    <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                                新会话
+                            </button>
                         </div>
                         <div class="ai-session-list" id="aiSessionList">
                             <!-- 会话列表动态生成 -->
