@@ -6902,9 +6902,9 @@ function renderGovOutput(text) {
 function formatAIText(text) {
     let processed = text;
     
-    // 处理 <tool_call> 标签：提取思考内容并折叠显示
+    // 处理 <think> 标签：提取思考内容并折叠显示
     // 1. 先处理完整闭合的 ...
-    const thinkRegex = /<tool_call>([\s\S]*?)<\/think>/g;
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
     let thinkMatch;
     let thinkBlocks = [];
     let thinkIndex = 0;
@@ -6918,7 +6918,7 @@ function formatAIText(text) {
     }
     
     // 2. 处理未闭合的 ...（流式输出中）
-    const openThinkRegex = /<tool_call>(?![\s\S]*?<\/think>)([\s\S]*)$/;
+    const openThinkRegex = /<think>(?![\s\S]*?<\/think>)([\s\S]*)$/;
     const openMatch = processed.match(openThinkRegex);
     if (openMatch) {
         const thinkContent = openMatch[1].trim();
