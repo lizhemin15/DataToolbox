@@ -1293,14 +1293,18 @@ func cleanAIResponse(response string) string {
 	response = strings.ReplaceAll(response, "\r", "\n")
 
 	// 处理 think 标签：删除标签及其内容，保留标签外的内容
-	for strings.Contains(response, "<think>") {
-		start := strings.Index(response, "<think>")
-		endTag := strings.Index(response[start:], "</think>")
+	// 如果只有开标签没有闭标签，保留开标签后面的内容（流式输出可能还没收到闭标签）
+	for strings.Contains(response, "<tool_call>") {
+		start := strings.Index(response, "<tool_call>")
+		endTag := strings.Index(response[start:], "`)
 		if endTag < 0 {
-			response = response[:start]
+			// 只有开标签，没有闭标签：保留开标签后面的内容
+			response = response[start:]
 			break
 		}
-		response = response[:start] + response[start+endTag+len("</think>"):]	}
+		// 有完整的 think 标签，删除标签及其内容
+		response = response[:start] + response[start+endTag+len("")]
+	}
 
 	// 处理其他标记
 	for _, marker := range []string{"<analysis>", "</analysis>"} {
