@@ -367,13 +367,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
 }
 
 
@@ -6900,9 +6900,49 @@ function renderGovOutput(text) {
 }
 
 function formatAIText(text) {
-    let escaped = escapeHtml(text).trim();
+    let processed = text;
+    
+    // 处理 <tool_call> 标签：提取思考内容并折叠显示
+    // 1. 先处理完整闭合的 ...
+    const thinkRegex = /<tool_call>([\s\S]*?)<\/think>/g;
+    let thinkMatch;
+    let thinkBlocks = [];
+    let thinkIndex = 0;
+    
+    while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
+        const thinkContent = thinkMatch[1].trim();
+        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
+        thinkBlocks.push({ placeholder, content: thinkContent, closed: true });
+        processed = processed.replace(thinkMatch[0], placeholder);
+        thinkIndex++;
+    }
+    
+    // 2. 处理未闭合的 ...（流式输出中）
+    const openThinkRegex = /<tool_call>(?![\s\S]*?<\/think>)([\s\S]*)$/;
+    const openMatch = processed.match(openThinkRegex);
+    if (openMatch) {
+        const thinkContent = openMatch[1].trim();
+        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
+        thinkBlocks.push({ placeholder, content: thinkContent, closed: false });
+        processed = processed.replace(openMatch[0], placeholder);
+    }
+    
+    // 转义剩余内容
+    let escaped = escapeHtml(processed).trim();
     escaped = escaped.replace(/\n{2,}/g, '\n');
     escaped = escaped.replace(/\n/g, '<br>');
+    
+    // 恢复思考块为折叠显示
+    for (const block of thinkBlocks) {
+        const statusIcon = block.closed ? '✅' : '⏳';
+        const statusText = block.closed ? '思考完成' : '思考中...';
+        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;" ${!block.closed ? 'open' : ''}>
+            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">${statusIcon} ${statusText}</summary>
+            <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
+        </details>`;
+        escaped = escaped.replace(block.placeholder, thinkHtml);
+    }
+    
     return escaped;
 }
 
@@ -15633,7 +15673,34 @@ function toggleClusterBlock(headerEl) {
 // 简易 Markdown 渲染（不依赖库）
 function formatClusterMarkdown(text) {
     if (!text) return '';
-    let html = escapeHtml(text);
+    
+    // 处理  标签：提取思考内容并折叠显示
+    let processed = text;
+    const thinkRegex = /([\s\S]*?)<\/think>/g;
+    let thinkMatch;
+    let thinkBlocks = [];
+    let thinkIndex = 0;
+    
+    while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
+        const thinkContent = thinkMatch[1].trim();
+        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
+        thinkBlocks.push({ placeholder, content: thinkContent });
+        processed = processed.replace(thinkMatch[0], placeholder);
+        thinkIndex++;
+    }
+    
+    // 转义剩余内容
+    let html = escapeHtml(processed);
+    
+    // 恢复思考块为折叠显示
+    for (const block of thinkBlocks) {
+        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">💭 思考过程</summary>
+            <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
+        </details>`;
+        html = html.replace(block.placeholder, thinkHtml);
+    }
+    
     // bold
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // italic
