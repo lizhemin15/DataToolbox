@@ -367,13 +367,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=2026.05.19.1455.1455.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=2026.05.19.1455.1455.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=2026.05.19.1455.1455.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=2026.05.19.1455.1455.1706.1706.1249.1249.1450.1450');
 }
 
 
@@ -1013,7 +1013,6 @@ function initEventListeners() {
         const btn = document.getElementById('apikeyTriggerBtn');
         popover.classList.toggle('show');
         if (popover.classList.contains('show')) {
-            loadApiKey(); // 弹窗显示时加载 API Key
             var rect = btn.getBoundingClientRect();
             var popoverW = 270;
             var sidebarWidth = 330;
@@ -2205,7 +2204,6 @@ async function loadDatabaseDetail(dbId) {
 }
 
 // 渲染数据表列表。
-// 渲染数据表列表。
 function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
     
@@ -2245,74 +2243,7 @@ function renderTablesList(tables) {
         `;
     }).join('');
     
-    listEl.innerHTML = tablesHtml;
-    
-    // 更新表数量显示
-    const countEl = document.getElementById('tablesCount');
-    if (countEl) {
-        countEl.textContent = `(${tables.length})`;
-    }
-    
-    // 存储原始表列表用于搜索过滤
-    window._allTablesList = tables;
-}
-
-// 折叠/展开表列表面板
-function toggleTablesPanel() {
-    const panel = document.getElementById('tablesPanel');
-    if (panel) {
-        panel.classList.toggle('collapsed');
-    }
-}
-
-// 过滤表列表
-function filterTablesList() {
-    const searchInput = document.getElementById('tableSearchInput');
-    if (!searchInput) return;
-    
-    const keyword = searchInput.value.toLowerCase().trim();
-    const tables = window._allTablesList || [];
-    
-    const listEl = document.getElementById('tablesList');
-    if (!listEl) return;
-    
-    if (!keyword) {
-        // 显示全部
-        renderTablesList(tables);
-        return;
-    }
-    
-    // 过滤匹配的表
-    const filtered = tables.filter(table => {
-        const tableName = typeof table === 'string' ? table : table.name;
-        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
-        return tableName.toLowerCase().includes(keyword) || 
-               tableComment.toLowerCase().includes(keyword);
-    });
-    
-    if (filtered.length === 0) {
-        listEl.innerHTML = `
-            <div style="text-align:center;color:#718096;padding:20px;font-size:13px;">
-                无匹配结果
-            </div>
-        `;
-        return;
-    }
-    
-    const tablesHtml = filtered.map(table => {
-        const tableName = typeof table === 'string' ? table : table.name;
-        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
-        const displayName = tableComment 
-            ? `<span class="table-name">${escapeHtml(tableName)}</span><span class="table-comment">${escapeHtml(tableComment)}</span>`
-            : escapeHtml(tableName);
-        return `
-            <div class="table-item" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
-                ${displayName}
-            </div>
-        `;
-    }).join('');
-    
-    listEl.innerHTML = tablesHtml;
+    listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
 }
 
 // 当前预览的表。
@@ -6969,36 +6900,9 @@ function renderGovOutput(text) {
 }
 
 function formatAIText(text) {
-    let processed = text;
-    
-    // 处理 <think> 标签：提取思考内容并折叠显示
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-    let thinkMatch;
-    let thinkBlocks = [];
-    let thinkIndex = 0;
-    
-    while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
-        const thinkContent = thinkMatch[1].trim();
-        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
-        thinkBlocks.push({ placeholder, content: thinkContent });
-        processed = processed.replace(thinkMatch[0], placeholder);
-        thinkIndex++;
-    }
-    
-    // 转义剩余内容
-    let escaped = escapeHtml(processed).trim();
+    let escaped = escapeHtml(text).trim();
     escaped = escaped.replace(/\n{2,}/g, '\n');
     escaped = escaped.replace(/\n/g, '<br>');
-    
-    // 恢复思考块为折叠显示
-    for (const block of thinkBlocks) {
-        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">💭 思考过程</summary>
-            <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
-        </details>`;
-        escaped = escaped.replace(block.placeholder, thinkHtml);
-    }
-    
     return escaped;
 }
 

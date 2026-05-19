@@ -169,10 +169,12 @@ copy_package_to() {
       cp -r "$SCRIPT_DIR/$dir" "$dest/"
     fi
   done
-  # 复制 index.html
-  if [[ -f "$SCRIPT_DIR/index.html" ]]; then
-    cp -f "$SCRIPT_DIR/index.html" "$dest/"
-  fi
+  # 复制所有根目录静态文件（html, css, js 等）
+  for f in "$SCRIPT_DIR"/*.html "$SCRIPT_DIR"/*.css "$SCRIPT_DIR"/*.js; do
+    if [[ -f "$f" ]]; then
+      cp -f "$f" "$dest/"
+    fi
+  done
   chmod +x "$dest/$bin_name" 2>/dev/null || true
   [[ -f "$dest/start.sh" ]] && chmod +x "$dest/start.sh" 2>/dev/null || true
 }
