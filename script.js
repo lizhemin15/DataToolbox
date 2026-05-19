@@ -2127,7 +2127,6 @@ function showDatabaseLoading() {
     `;
     
     document.getElementById('tablePreview').style.display = 'none';
-    document.getElementById('previewPlaceholder').style.display = 'flex';
 }
 
 // 加载数据库详情。
@@ -2181,7 +2180,6 @@ async function loadDatabaseDetail(dbId) {
 
             renderTablesList(data.database.tables || []);
             document.getElementById('tablePreview').style.display = 'none';
-            document.getElementById('previewPlaceholder').style.display = 'flex';
         } else {
             // 数据库未连接时展示错误状态。
             const listEl = document.getElementById('tablesList');
@@ -2205,6 +2203,7 @@ async function loadDatabaseDetail(dbId) {
     }
 }
 
+// 渲染数据表列表。
 // 渲染数据表列表。
 function renderTablesList(tables) {
     const listEl = document.getElementById('tablesList');
@@ -2328,23 +2327,13 @@ async function previewTable(tableName, keepEditMode = false) {
 
     currentPreviewTable = tableName;
     
-    // 高亮当前选中的表
-    const tableItems = document.querySelectorAll('.tables-list-compact .table-item');
-    tableItems.forEach(item => {
-        item.classList.remove('active');
-        if (item.getAttribute('onclick')?.includes(tableName)) {
-            item.classList.add('active');
-        }
-    });
-    
     // 默认退出编辑模式。
     if (!keepEditMode) {
         isTableEditMode = false;
     }
 
-    // 显示表格预览区域，隐藏占位符。
-    document.getElementById('tablePreview').style.display = 'flex';
-    document.getElementById('previewPlaceholder').style.display = 'none';
+    // 显示表格预览区域。
+    document.getElementById('tablePreview').style.display = 'block';
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
         <div style="text-align:center;padding:60px;color:#718096;">
@@ -2363,8 +2352,7 @@ async function previewTable(tableName, keepEditMode = false) {
         const data = await dataResponse.json();
 
         if (data.success) {
-            document.getElementById('tablePreview').style.display = 'flex';
-            document.getElementById('previewPlaceholder').style.display = 'none';
+            document.getElementById('tablePreview').style.display = 'block';
             
             // 更新预览头部按钮。
             updatePreviewHeader();
@@ -2930,13 +2918,8 @@ async function dropTable() {
 // 关闭表格预览。
 function closePreview() {
     document.getElementById('tablePreview').style.display = 'none';
-    document.getElementById('previewPlaceholder').style.display = 'flex';
     currentPreviewTable = null;
     isTableEditMode = false;
-    
-    // 移除高亮
-    const tableItems = document.querySelectorAll('.tables-list-compact .table-item');
-    tableItems.forEach(item => item.classList.remove('active'));
 }
 
 // 打开结构编辑弹窗。
@@ -6988,7 +6971,6 @@ function formatAIText(text) {
     let processed = text;
     
     // 处理 <think> 标签：提取思考内容并折叠显示
-    // 1. 先处理完整闭合的 ...
     const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
     let thinkMatch;
     let thinkBlocks = [];
@@ -6997,19 +6979,9 @@ function formatAIText(text) {
     while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
         const thinkContent = thinkMatch[1].trim();
         const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
-        thinkBlocks.push({ placeholder, content: thinkContent, closed: true });
+        thinkBlocks.push({ placeholder, content: thinkContent });
         processed = processed.replace(thinkMatch[0], placeholder);
         thinkIndex++;
-    }
-    
-    // 2. 处理未闭合的 ...（流式输出中）
-    const openThinkRegex = /<think>(?![\s\S]*?<\/think>)([\s\S]*)$/;
-    const openMatch = processed.match(openThinkRegex);
-    if (openMatch) {
-        const thinkContent = openMatch[1].trim();
-        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
-        thinkBlocks.push({ placeholder, content: thinkContent, closed: false });
-        processed = processed.replace(openMatch[0], placeholder);
     }
     
     // 转义剩余内容
@@ -7019,10 +6991,8 @@ function formatAIText(text) {
     
     // 恢复思考块为折叠显示
     for (const block of thinkBlocks) {
-        const statusIcon = block.closed ? '✅' : '⏳';
-        const statusText = block.closed ? '思考完成' : '思考中...';
-        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;" ${!block.closed ? 'open' : ''}>
-            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">${statusIcon} ${statusText}</summary>
+        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">💭 思考过程</summary>
             <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
         </details>`;
         escaped = escaped.replace(block.placeholder, thinkHtml);
@@ -15758,34 +15728,7 @@ function toggleClusterBlock(headerEl) {
 // 简易 Markdown 渲染（不依赖库）
 function formatClusterMarkdown(text) {
     if (!text) return '';
-    
-    // 处理  标签：提取思考内容并折叠显示
-    let processed = text;
-    const thinkRegex = /([\s\S]*?)<\/think>/g;
-    let thinkMatch;
-    let thinkBlocks = [];
-    let thinkIndex = 0;
-    
-    while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
-        const thinkContent = thinkMatch[1].trim();
-        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
-        thinkBlocks.push({ placeholder, content: thinkContent });
-        processed = processed.replace(thinkMatch[0], placeholder);
-        thinkIndex++;
-    }
-    
-    // 转义剩余内容
-    let html = escapeHtml(processed);
-    
-    // 恢复思考块为折叠显示
-    for (const block of thinkBlocks) {
-        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
-            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">💭 思考过程</summary>
-            <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
-        </details>`;
-        html = html.replace(block.placeholder, thinkHtml);
-    }
-    
+    let html = escapeHtml(text);
     // bold
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // italic

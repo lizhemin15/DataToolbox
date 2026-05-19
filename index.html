@@ -41,7 +41,13 @@
         <div class="login-container">
             <div class="login-box">
                 <div class="login-header">
-                    <div class="login-icon">📦</div>
+                    <div class="login-icon">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
                     <h1>数据本体池</h1>
                     <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象 · 数据血缘</p>
                 </div>
@@ -66,7 +72,14 @@
         <div class="header">
             <div class="header-content">
                 <div class="header-left">
-                    <h1>📦 数据本体池</h1>
+                    <h1>
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;display:inline-block;vertical-align:middle;margin-right:8px;">
+                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        数据本体池
+                    </h1>
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
@@ -121,7 +134,13 @@
 
                 <div class="main-content">
                     <div id="welcomeView" class="welcome-view">
-                        <div class="welcome-icon">📦</div>
+                        <div class="welcome-icon">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:64px;height:64px;">
+                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 17L12 22L22 17" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 12L12 17L22 12" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
                         <h2>欢迎使用数据库管理</h2>
                         <p>请在左侧添加或选择一个数据库开始使用</p>
                     </div>
@@ -166,42 +185,27 @@
                             </div>
                         </div>
 
-                        <div class="db-content-layout">
-                            <!-- 左侧：可折叠的表列表面板 -->
-                            <div class="tables-panel" id="tablesPanel">
-                                <div class="tables-panel-header" onclick="toggleTablesPanel()">
-                                    <h3>📊 数据表列表 <span class="tables-count" id="tablesCount">(0)</span></h3>
-                                    <button class="tables-panel-toggle" id="tablesPanelToggle" title="折叠/展开">◀</button>
-                                </div>
-                                <div class="tables-panel-body" id="tablesPanelBody">
-                                    <div class="tables-panel-toolbar">
-                                        <input type="text" id="tableSearchInput" placeholder="搜索表名..." oninput="filterTablesList()">
-                                        <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
-                                    </div>
-                                    <div id="tablesList" class="tables-list-compact">
-                                        <!-- 表列表将动态生成 -->
-                                    </div>
+                        <div class="tables-section">
+                            <div class="tables-section-header">
+                                <h3>数据表列表</h3>
+                                <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
+                            </div>
+                            <div id="tablesList" class="tables-list">
+                                <!-- 表列表将动态生成 -->
+                            </div>
+                        </div>
+
+                        <div id="tablePreview" class="table-preview" style="display:none;">
+                            <div class="preview-header">
+                                <h3 id="previewTableName">表名</h3>
+                                <div class="preview-actions">
+                                    <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+                                    <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
+                                    <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
                                 </div>
                             </div>
-
-                            <!-- 右侧：表格预览区 -->
-                            <div class="preview-panel" id="previewPanel">
-                                <div id="tablePreview" class="table-preview" style="display:none;">
-                                    <div class="preview-header">
-                                        <h3 id="previewTableName">表名</h3>
-                                        <div class="preview-actions">
-                                            <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
-                                            <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
-                                        </div>
-                                    </div>
-                                    <div id="previewContent" class="preview-content">
-                                        <!-- 表数据将动态生成 -->
-                                    </div>
-                                </div>
-                                <div id="previewPlaceholder" class="preview-placeholder">
-                                    <div class="preview-placeholder-icon">📋</div>
-                                    <p>点击左侧表名查看数据</p>
-                                </div>
+                            <div id="previewContent" class="preview-content">
+                                <!-- 表数据将动态生成 -->
                             </div>
                         </div>
                     </div>
@@ -918,12 +922,19 @@
             <div class="ai-assistant-container">
                 <div class="ai-session-sidebar" id="aiSessionSidebar">
                     <div class="ai-sidebar-toggle" id="aiSidebarToggle" onclick="toggleAISidebar()" title="折叠/展开会话栏">
-                        <span class="sidebar-toggle-icon" id="sidebarToggleIcon">◀</span>
+                        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" fill="none" style="width:18px;height:18px;transition:transform 0.25s ease;">
+                            <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                     </div>
                     <div class="ai-sidebar-body" id="aiSidebarBody">
                         <div class="ai-new-session-bar">
-                            <button class="ai-new-session-btn" onclick="createNewSession()" title="🚀 新会话">🚀</button>
-
+                            <button class="ai-new-session-btn" onclick="createNewSession()">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;margin-right:6px;">
+                                    <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                                新会话
+                            </button>
                         </div>
                         <div class="ai-session-list" id="aiSessionList">
                             <!-- 会话列表动态生成 -->
@@ -932,44 +943,54 @@
                 </div>
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
-                        <h3>🤖 智能助手</h3>
+                        <h3>
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;display:inline-block;vertical-align:middle;margin-right:6px;">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                                <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            智能助手
+                        </h3>
                         <div class="ai-header-controls">
-                            <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">🧩</button>
-                            <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
+                            <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;">
+                                    <rect x="3" y="3" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="14" y="3" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="3" y="14" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="14" y="14" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                </svg>
+                            </button>
+                            <button id="aiSettingsBtn" class="btn btn-sm" title="设置">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;">
+                                    <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-chat-messages-inner">
-                            <div class="ai-welcome-message">
-                                <div class="ai-welcome-icon">🤖</div>
-                                <h3>欢迎使用智能助手</h3>
-                                <p>使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
-                                <div class="ai-tip">
-                                    <div style="font-weight: 600; margin-bottom: 8px;">💡 智能上下文：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • 首次提问需要使用 <strong>@数据库名</strong><br>
-                                        • 后续对话会记住数据库，无需重复 @<br>
-                                        • 使用新的 @ 会切换到新数据库<br>
-                                        • 点击右上角 ✕ 可清除上下文
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">📝 查询示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 有哪些表？"<br>
-                                        • "users表有哪些字段？" <span style="color: #718096; font-size: 12px;">← 继续使用之前的数据库</span><br>
-                                        • "查看products表的前10条数据"<br>
-                                        • "查询价格大于100的产品"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔌 创建接口示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 帮我创建一个查询用户的接口"<br>
-                                        • "生成一个获取产品列表的API，按价格排序"<br>
-                                        • "创建接口：根据ID查询订单详情"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔧 数据治理任务示例：</div>
-                                    <div style="text-align: left; padding-left: 20px;">
-                                        • "<strong>@数据治理</strong> <strong>@数据库</strong> 创建一个定时任务每天凌晨 2 点导入数据"<br>
-                                        • "生成一个交互任务：上传 Excel 后写入指定表"<br>
-                                        • 生成/修改后需在界面确认才会真正创建或更新任务
+<div class="ai-welcome-message">
+                                <div class="ai-welcome-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:36px;height:36px;color:white;">
+                                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                                        <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        <line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                        <line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                                <h3>智能助手</h3>
+                                <p style="color:#6b7280;font-size:14px;margin-bottom:16px;">自然语言驱动的数据库操作 · 接口生成 · 数据治理</p>
+                                <div class="ai-tip" style="text-align:left;padding:20px 24px;">
+                                    <div style="font-weight:600;margin-bottom:12px;color:#111827;font-size:15px;">开始对话</div>
+                                    <div style="color:#4b5563;font-size:13px;line-height:1.8;margin-bottom:16px;">
+                                        <div style="margin-bottom:6px;">使用 <strong style="color:#6366f1;">@数据库名</strong> 指定数据库，然后描述你的需求</div>
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                                            <span style="background:#f3f4f6;padding:6px 12px;border-radius:8px;font-size:12px;color:#374151;border:1px solid #e5e7eb;">@db 有哪些表</span>
+                                            <span style="background:#f3f4f6;padding:6px 12px;border-radius:8px;font-size:12px;color:#374151;border:1px solid #e5e7eb;">查询users前10条</span>
+                                            <span style="background:#f3f4f6;padding:6px 12px;border-radius:8px;font-size:12px;color:#374151;border:1px solid #e5e7eb;">创建查询接口</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
