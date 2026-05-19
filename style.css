@@ -1893,7 +1893,7 @@ body {
 }
 
 .apikey-popover {
-    display: none;
+    display: none !important;
     position: fixed;
     top: -9999px;
     left: -9999px;
@@ -1909,7 +1909,7 @@ body {
 }
 
 .apikey-popover.show {
-    display: block;
+    display: block !important;
 }
 
 .apikey-popover-title {
