@@ -1013,6 +1013,7 @@ function initEventListeners() {
         const btn = document.getElementById('apikeyTriggerBtn');
         popover.classList.toggle('show');
         if (popover.classList.contains('show')) {
+            loadApiKey(); // 弹窗显示时加载 API Key
             var rect = btn.getBoundingClientRect();
             var popoverW = 270;
             var sidebarWidth = 330;
