@@ -2264,11 +2264,14 @@ textarea#testApiParams {
     background: #ffffff;
     overflow: hidden;
     transition: width 0.25s ease;
-    border-right: 1px solid #e5e7eb;
 }
 
 .ai-session-sidebar.collapsed {
-    width: 0;
+    width: 40px;
+}
+
+.ai-session-sidebar.collapsed .ai-sidebar-body {
+    display: none;
 }
 
 .ai-sidebar-toggle {
@@ -2282,7 +2285,6 @@ textarea#testApiParams {
     color: #9ca3af;
     font-size: 16px;
     transition: all 0.2s;
-    border-right: 1px solid #e5e7eb;
 }
 
 .ai-sidebar-toggle:hover {
