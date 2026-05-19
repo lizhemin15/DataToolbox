@@ -1,9 +1,9 @@
 module github.com/YOUR_USERNAME/DataToolbox
 
-go 1.25
+go 1.25.0
 
 require (
-	gitee.com/chunanyong/dm v1.8.14
+	gitee.com/chunanyong/dm v1.8.23
 	github.com/anthropics/anthropic-sdk-go v1.43.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
