@@ -2127,6 +2127,7 @@ function showDatabaseLoading() {
     `;
     
     document.getElementById('tablePreview').style.display = 'none';
+    document.getElementById('previewPlaceholder').style.display = 'flex';
 }
 
 // 加载数据库详情。
@@ -2180,6 +2181,7 @@ async function loadDatabaseDetail(dbId) {
 
             renderTablesList(data.database.tables || []);
             document.getElementById('tablePreview').style.display = 'none';
+            document.getElementById('previewPlaceholder').style.display = 'flex';
         } else {
             // 数据库未连接时展示错误状态。
             const listEl = document.getElementById('tablesList');
@@ -2243,7 +2245,74 @@ function renderTablesList(tables) {
         `;
     }).join('');
     
-    listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
+    listEl.innerHTML = tablesHtml;
+    
+    // 更新表数量显示
+    const countEl = document.getElementById('tablesCount');
+    if (countEl) {
+        countEl.textContent = `(${tables.length})`;
+    }
+    
+    // 存储原始表列表用于搜索过滤
+    window._allTablesList = tables;
+}
+
+// 折叠/展开表列表面板
+function toggleTablesPanel() {
+    const panel = document.getElementById('tablesPanel');
+    if (panel) {
+        panel.classList.toggle('collapsed');
+    }
+}
+
+// 过滤表列表
+function filterTablesList() {
+    const searchInput = document.getElementById('tableSearchInput');
+    if (!searchInput) return;
+    
+    const keyword = searchInput.value.toLowerCase().trim();
+    const tables = window._allTablesList || [];
+    
+    const listEl = document.getElementById('tablesList');
+    if (!listEl) return;
+    
+    if (!keyword) {
+        // 显示全部
+        renderTablesList(tables);
+        return;
+    }
+    
+    // 过滤匹配的表
+    const filtered = tables.filter(table => {
+        const tableName = typeof table === 'string' ? table : table.name;
+        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
+        return tableName.toLowerCase().includes(keyword) || 
+               tableComment.toLowerCase().includes(keyword);
+    });
+    
+    if (filtered.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align:center;color:#718096;padding:20px;font-size:13px;">
+                无匹配结果
+            </div>
+        `;
+        return;
+    }
+    
+    const tablesHtml = filtered.map(table => {
+        const tableName = typeof table === 'string' ? table : table.name;
+        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
+        const displayName = tableComment 
+            ? `<span class="table-name">${escapeHtml(tableName)}</span><span class="table-comment">${escapeHtml(tableComment)}</span>`
+            : escapeHtml(tableName);
+        return `
+            <div class="table-item" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
+                ${displayName}
+            </div>
+        `;
+    }).join('');
+    
+    listEl.innerHTML = tablesHtml;
 }
 
 // 当前预览的表。
@@ -2259,13 +2328,23 @@ async function previewTable(tableName, keepEditMode = false) {
 
     currentPreviewTable = tableName;
     
+    // 高亮当前选中的表
+    const tableItems = document.querySelectorAll('.tables-list-compact .table-item');
+    tableItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('onclick')?.includes(tableName)) {
+            item.classList.add('active');
+        }
+    });
+    
     // 默认退出编辑模式。
     if (!keepEditMode) {
         isTableEditMode = false;
     }
 
-    // 显示表格预览区域。
-    document.getElementById('tablePreview').style.display = 'block';
+    // 显示表格预览区域，隐藏占位符。
+    document.getElementById('tablePreview').style.display = 'flex';
+    document.getElementById('previewPlaceholder').style.display = 'none';
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
         <div style="text-align:center;padding:60px;color:#718096;">
@@ -2284,7 +2363,8 @@ async function previewTable(tableName, keepEditMode = false) {
         const data = await dataResponse.json();
 
         if (data.success) {
-            document.getElementById('tablePreview').style.display = 'block';
+            document.getElementById('tablePreview').style.display = 'flex';
+            document.getElementById('previewPlaceholder').style.display = 'none';
             
             // 更新预览头部按钮。
             updatePreviewHeader();
@@ -2850,8 +2930,13 @@ async function dropTable() {
 // 关闭表格预览。
 function closePreview() {
     document.getElementById('tablePreview').style.display = 'none';
+    document.getElementById('previewPlaceholder').style.display = 'flex';
     currentPreviewTable = null;
     isTableEditMode = false;
+    
+    // 移除高亮
+    const tableItems = document.querySelectorAll('.tables-list-compact .table-item');
+    tableItems.forEach(item => item.classList.remove('active'));
 }
 
 // 打开结构编辑弹窗。

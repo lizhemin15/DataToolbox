@@ -1023,42 +1023,262 @@ body {
     transform: rotate(-10deg) scale(1.1);
 }
 
+/* 数据库内容双栏布局 */
+.db-content-layout {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* 左侧表列表面板 */
+.tables-panel {
+    width: 280px;
+    min-width: 280px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: width 0.3s ease, min-width 0.3s ease;
+    overflow: hidden;
+}
+
+.tables-panel.collapsed {
+    width: 40px;
+    min-width: 40px;
+}
+
+.tables-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.tables-panel.collapsed .tables-panel-header {
+    padding: 12px 8px;
+    justify-content: center;
+}
+
+.tables-panel-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tables-panel.collapsed .tables-panel-header h3 {
+    display: none;
+}
+
+.tables-count {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.tables-panel-toggle {
+    background: transparent;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.tables-panel-toggle:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.tables-panel.collapsed .tables-panel-toggle {
+    transform: rotate(180deg);
+}
+
+.tables-panel-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.tables-panel.collapsed .tables-panel-body {
+    display: none;
+}
+
+.tables-panel-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.tables-panel-toolbar input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+    background: white;
+}
+
+.tables-panel-toolbar input:focus {
+    border-color: #667eea;
+}
+
+/* 紧凑型表列表 */
+.tables-list-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.tables-list-compact .table-item {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    background: white;
+    font-size: 13px;
+}
+
+.tables-list-compact .table-item:hover {
+    border-color: #667eea;
+    background: #edf2f7;
+    transform: translateX(2px);
+}
+
+.tables-list-compact .table-item.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+}
+
+.tables-list-compact .table-item::before {
+    content: "📋";
+    font-size: 14px;
+    margin-right: 6px;
+}
+
+.tables-list-compact .table-item::after {
+    display: none;
+}
+
+.tables-list-compact .table-name {
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.tables-list-compact .table-comment {
+    font-size: 11px;
+    color: #718096;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 右侧预览面板 */
+.preview-panel {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    color: #a0aec0;
+    padding: 40px;
+}
+
+.preview-placeholder-icon {
+    font-size: 48px;
+    opacity: 0.5;
+    margin-bottom: 16px;
+}
+
+.preview-placeholder p {
+    font-size: 14px;
+}
+
 .table-preview {
-    margin-top: 30px;
-    border-top: 3px solid transparent;
-    border-image: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    border-image-slice: 1;
-    padding-top: 30px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 16px;
+}
+
+.table-preview {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
 }
 
 .preview-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    padding: 16px 20px;
+    margin-bottom: 16px;
+    padding: 12px 16px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+    flex-shrink: 0;
 }
 
 .preview-header h3 {
-    font-size: 20px;
+    font-size: 16px;
     color: white;
     margin: 0;
     font-weight: 600;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .preview-header h3::before {
-    content: "📋";
-    font-size: 24px;
+    content: none;
 }
 
 .preview-content {
     overflow-x: auto;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
     padding-bottom: 8px;
 }
 
