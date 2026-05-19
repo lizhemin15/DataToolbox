@@ -216,11 +216,17 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 
 	switch kind {
 	case runtimeevents.KindAgentLLMDelta:
-		// LLM 流式文本增量 — 转发为 thinking（让用户看到 AI 正在生成）
+		// LLM 流式文本增量
 		if p, ok := payload.(picoclawagent.LLMDeltaPayload); ok {
 			if p.ReasoningDeltaLen > 0 {
 				out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
 					"content": fmt.Sprintf("推理中... (+%d tokens)", p.ReasoningDeltaLen),
+					"agent":   evt.Source.Name,
+				}}
+			}
+			if p.ContentDeltaLen > 0 {
+				out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
+					"content": fmt.Sprintf("生成中... (+%d tokens)", p.ContentDeltaLen),
 					"agent":   evt.Source.Name,
 				}}
 			}
@@ -285,6 +291,18 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 			"content": "智能体开始处理任务...",
 			"agent":   evt.Source.Name,
 		}}
+
+	case runtimeevents.KindAgentTurnEnd:
+		// Turn 结束：将 AI 的最终正文输出作为 text 事件发送
+		if p, ok := payload.(picoclawagent.TurnEndPayload); ok {
+			if p.FinalContent != "" {
+				out <- Event{Type: EventTypeText, Data: map[string]interface{}{
+					"content": p.FinalContent,
+					"agent":   evt.Source.Name,
+					"partial": false,
+				}}
+			}
+		}
 
 	case runtimeevents.KindAgentError:
 		if p, ok := payload.(picoclawagent.ErrorPayload); ok {
