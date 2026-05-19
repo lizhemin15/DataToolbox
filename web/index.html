@@ -41,7 +41,13 @@
         <div class="login-container">
             <div class="login-box">
                 <div class="login-header">
-                    <div class="login-icon">📦</div>
+                    <div class="login-icon">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
                     <h1>数据本体池</h1>
                     <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象 · 数据血缘</p>
                 </div>
@@ -66,7 +72,14 @@
         <div class="header">
             <div class="header-content">
                 <div class="header-left">
-                    <h1>📦 数据本体池</h1>
+                    <h1>
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;display:inline-block;vertical-align:middle;margin-right:8px;">
+                            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        数据本体池
+                    </h1>
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
@@ -121,7 +134,13 @@
 
                 <div class="main-content">
                     <div id="welcomeView" class="welcome-view">
-                        <div class="welcome-icon">📦</div>
+                        <div class="welcome-icon">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:64px;height:64px;">
+                                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 17L12 22L22 17" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 12L12 17L22 12" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
                         <h2>欢迎使用数据库管理</h2>
                         <p>请在左侧添加或选择一个数据库开始使用</p>
                     </div>
@@ -906,16 +925,9 @@
                         <span class="sidebar-toggle-icon" id="sidebarToggleIcon">◀</span>
                     </div>
                     <div class="ai-sidebar-body" id="aiSidebarBody">
-                        <div class="ai-sidebar-brand">
-                            <div class="ai-sidebar-brand-icon">🤖</div>
-                            <div class="ai-sidebar-brand-text">
-                                <div class="ai-sidebar-brand-title">智能助手</div>
-                                <div class="ai-sidebar-brand-sub">AI ASSISTANT</div>
-                            </div>
-                        </div>
                         <div class="ai-new-session-bar">
-                            <button class="ai-new-session-btn" data-mode="fast" onclick="createNewSession('fast')" title="⚡ 极速模式">⚡</button>
-                            <button class="ai-new-session-btn" data-mode="cluster" onclick="createNewSession('cluster')" title="🤖 集群模式">🤖</button>
+                            <button class="ai-new-session-btn" onclick="createNewSession()" title="🚀 新会话">🚀</button>
+
                         </div>
                         <div class="ai-session-list" id="aiSessionList">
                             <!-- 会话列表动态生成 -->
@@ -924,16 +936,43 @@
                 </div>
                 <div class="ai-chat-area">
                     <div class="ai-chat-header">
-                        <h3>🤖 智能助手</h3>
+                        <h3>
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;display:inline-block;vertical-align:middle;margin-right:6px;">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                                <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            智能助手
+                        </h3>
                         <div class="ai-header-controls">
-                            <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">🧩</button>
-                            <button id="aiSettingsBtn" class="btn btn-sm" title="设置">⚙️</button>
+                            <button id="agentConfigBtn" class="btn btn-sm" title="智能体配置" onclick="showAgentConfigPanel()">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;">
+                                    <rect x="3" y="3" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="14" y="3" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="3" y="14" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                    <rect x="14" y="14" width="7" height="7" stroke="currentColor" stroke-width="2" rx="1"/>
+                                </svg>
+                            </button>
+                            <button id="aiSettingsBtn" class="btn btn-sm" title="设置">
+                                <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;">
+                                    <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-chat-messages-inner">
                             <div class="ai-welcome-message">
-                                <div class="ai-welcome-icon">🤖</div>
+                                <div class="ai-welcome-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:48px;height:48px;">
+                                        <circle cx="12" cy="12" r="10" stroke="#667eea" stroke-width="2"/>
+                                        <path d="M8 14s1.5 2 4 2 4-2 4-2" stroke="#667eea" stroke-width="2" stroke-linecap="round"/>
+                                        <line x1="9" y1="9" x2="9.01" y2="9" stroke="#667eea" stroke-width="2" stroke-linecap="round"/>
+                                        <line x1="15" y1="9" x2="15.01" y2="9" stroke="#667eea" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
                                 <h3>欢迎使用智能助手</h3>
                                 <p>使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
                                 <div class="ai-tip">
