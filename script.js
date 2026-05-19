@@ -6900,10 +6900,43 @@ function renderGovOutput(text) {
 }
 
 function formatAIText(text) {
-    let escaped = escapeHtml(text).trim();
-    escaped = escaped.replace(/\n{2,}/g, '\n');
-    escaped = escaped.replace(/\n/g, '<br>');
-    return escaped;
+    if (!text) return '';
+    // 处理 <think>...</think> 标签：提取思考内容到折叠块，正文继续正常显示
+    // 支持流式输出时未闭合的 <think> 标签（只有开头没有结尾）
+    let thinkContent = '';
+    let mainContent = text;
+
+    // 匹配闭合的 <think>...</think>
+    const closedThinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    let match;
+    while ((match = closedThinkRegex.exec(text)) !== null) {
+        thinkContent += match[1];
+    }
+
+    // 匹配未闭合的 <think>...（流式输出中）
+    const openThinkRegex = /<think>([\s\S]*)$/;
+    const openMatch = openThinkRegex.exec(text.replace(closedThinkRegex, ''));
+    if (openMatch) {
+        thinkContent += openMatch[1];
+    }
+
+    // 移除所有 think 标签及内容，得到正文
+    mainContent = text.replace(closedThinkRegex, '').replace(/<think>[\s\S]*$/, '').trim();
+
+    let result = '';
+    // 渲染思考过程为折叠块
+    if (thinkContent.trim()) {
+        const escapedThink = escapeHtml(thinkContent.trim()).replace(/\n/g, '<br>');
+        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${escapedThink}</div></details>`;
+    }
+    // 渲染正文
+    if (mainContent.trim()) {
+        let escaped = escapeHtml(mainContent).trim();
+        escaped = escaped.replace(/\n{2,}/g, '\n');
+        escaped = escaped.replace(/\n/g, '<br>');
+        result += escaped;
+    }
+    return result;
 }
 
 // 更新AI上下文显示

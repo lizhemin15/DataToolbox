@@ -3054,6 +3054,58 @@ textarea#testApiParams {
     line-height: 1.5;
 }
 
+/* AI 思考过程折叠块 */
+.ai-think-block {
+    margin: 8px 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.ai-think-summary {
+    padding: 8px 12px;
+    background: #f7fafc;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #718096;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s;
+}
+
+.ai-think-summary::-webkit-details-marker {
+    display: none;
+}
+
+.ai-think-summary::before {
+    content: '▶';
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.ai-think-block[open] .ai-think-summary::before {
+    transform: rotate(90deg);
+}
+
+.ai-think-summary:hover {
+    background: #edf2f7;
+}
+
+.ai-think-content {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #718096;
+    line-height: 1.6;
+    background: #f7fafc;
+    border-top: 1px solid #e2e8f0;
+    max-height:300px;
+    overflow-y: auto;
+}
+
 /* AI 处理过程时间线样式 */
 .ai-process-timeline {
     margin: 8px 0;
