@@ -101,13 +101,11 @@ function getCurrentSession() {
     return aiSessions.find(s => s.id === currentSessionId) || null;
 }
 
-function createNewSession(mode) {
-    mode = mode || 'cluster';
-    const icon = mode === 'fast' ? '⚡' : '🤖';
+function createNewSession() {
     const session = {
         id: 'sess-' + Date.now(),
-        title: icon + ' 新会话',
-        mode: mode,
+        title: '🚀 新会话',
+        mode: 'cluster',
         messages: [],
         databases: [],
         modules: [],
@@ -291,22 +289,6 @@ function saveCurrentSessionMessage(role, content, blocksData) {
     renderSessionList();
 }
 
-function formatSessionTime(isoStr) {
-    try {
-        const d = new Date(isoStr);
-        const now = new Date();
-        const diffMs = now - d;
-        const diffMin = Math.floor(diffMs / 60000);
-        if (diffMin < 1) return '刚刚';
-        if (diffMin < 60) return diffMin + '分钟前';
-        const diffHr = Math.floor(diffMin / 60);
-        if (diffHr < 24) return diffHr + '小时前';
-        const diffDay = Math.floor(diffHr / 24);
-        if (diffDay < 7) return diffDay + '天前';
-        return (d.getMonth()+1) + '/' + d.getDate();
-    } catch(e) { return ''; }
-}
-
 function renderSessionList() {
     const listEl = document.getElementById('aiSessionList');
     if (!listEl) return;
@@ -318,14 +300,8 @@ function renderSessionList() {
     
     listEl.innerHTML = aiSessions.map(s => {
         const isActive = s.id === currentSessionId;
-        const icon = s.mode === 'fast' ? '⚡' : '🤖';
-        const ts = s.updatedAt ? formatSessionTime(s.updatedAt) : '';
         return `<div class="ai-session-item ${isActive ? 'active' : ''}" onclick="switchToSession('${s.id}')">
-            <span class="session-icon">${icon}</span>
-            <div class="session-meta">
-                <span class="session-title">${escapeHtml(s.title)}</span>
-                ${ts ? `<span class="session-timestamp">${ts}</span>` : ''}
-            </div>
+            <span class="session-title">${escapeHtml(s.title)}</span>
             <button class="session-delete" onclick="deleteSession('${s.id}', event)" title="删除">✕</button>
         </div>`;
     }).join('');
@@ -391,13 +367,13 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=2026.05.19.1235.1235.1706.1706.1249.1249.1450.1450');
 }
 
 
@@ -6924,9 +6900,36 @@ function renderGovOutput(text) {
 }
 
 function formatAIText(text) {
-    let escaped = escapeHtml(text).trim();
+    let processed = text;
+    
+    // 处理 <think> 标签：提取思考内容并折叠显示
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    let thinkMatch;
+    let thinkBlocks = [];
+    let thinkIndex = 0;
+    
+    while ((thinkMatch = thinkRegex.exec(processed)) !== null) {
+        const thinkContent = thinkMatch[1].trim();
+        const placeholder = `__THINK_BLOCK_${thinkIndex}__`;
+        thinkBlocks.push({ placeholder, content: thinkContent });
+        processed = processed.replace(thinkMatch[0], placeholder);
+        thinkIndex++;
+    }
+    
+    // 转义剩余内容
+    let escaped = escapeHtml(processed).trim();
     escaped = escaped.replace(/\n{2,}/g, '\n');
     escaped = escaped.replace(/\n/g, '<br>');
+    
+    // 恢复思考块为折叠显示
+    for (const block of thinkBlocks) {
+        const thinkHtml = `<details class="ai-think-block" style="margin:8px 0;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+            <summary style="cursor:pointer;font-size:12px;color:#6b7280;font-weight:500;">💭 思考过程</summary>
+            <div style="margin-top:8px;font-size:13px;color:#374151;white-space:pre-wrap;">${escapeHtml(block.content)}</div>
+        </details>`;
+        escaped = escaped.replace(block.placeholder, thinkHtml);
+    }
+    
     return escaped;
 }
 

@@ -7441,6 +7441,31 @@ img.emoji {
     gap: 8px;
 }
 
+.ai-header-controls .btn {
+    background: #f3f4f6;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
+    padding: 8px;
+    font-size: 14px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 36px;
+}
+
+.ai-header-controls .btn:hover {
+    background: #e5e7eb;
+    color: #111827;
+}
+
+.ai-header-controls .btn svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
 /* Mode switch slider */
 .agent-mode-switch {
     display: flex;
