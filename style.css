@@ -1012,7 +1012,7 @@ body {
 }
 
 .table-item::before {
-    content: "📋";
+    content: none;
     font-size: 22px;
     filter: grayscale(0.3);
     transition: all 0.3s ease;
@@ -1177,7 +1177,7 @@ body {
 }
 
 .tables-list-compact .table-item::before {
-    content: "📋";
+    content: none;
     font-size: 14px;
     margin-right: 6px;
 }
