@@ -964,7 +964,7 @@
                     </div>
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-chat-messages-inner">
-                            <div class="ai-welcome-message">
+<div class="ai-welcome-message">
                                 <div class="ai-welcome-icon">
                                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:48px;height:48px;">
                                         <circle cx="12" cy="12" r="10" stroke="#667eea" stroke-width="2"/>
@@ -973,34 +973,22 @@
                                         <line x1="15" y1="9" x2="15.01" y2="9" stroke="#667eea" stroke-width="2" stroke-linecap="round"/>
                                     </svg>
                                 </div>
-                                <h3>欢迎使用智能助手</h3>
-                                <p>使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
-                                <div class="ai-tip">
-                                    <div style="font-weight: 600; margin-bottom: 8px;">💡 智能上下文：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • 首次提问需要使用 <strong>@数据库名</strong><br>
-                                        • 后续对话会记住数据库，无需重复 @<br>
-                                        • 使用新的 @ 会切换到新数据库<br>
-                                        • 点击右上角 ✕ 可清除上下文
+                                <h3>智能助手</h3>
+                                <p style="color:#64748b;font-size:14px;margin-bottom:20px;">自然语言驱动的数据库操作 · 接口生成 · 数据治理</p>
+                                <div class="ai-tip" style="text-align:left;padding:16px 20px;background:linear-gradient(135deg,rgba(102,126,234,0.05) 0%,rgba(118,75,162,0.05) 100%);border-radius:12px;border:1px solid #e2e8f0;">
+                                    <div style="font-weight:600;margin-bottom:12px;color:#334155;font-size:14px;">快速开始</div>
+                                    <div style="color:#475569;font-size:13px;line-height:1.8;margin-bottom:16px;">
+                                        <div style="margin-bottom:8px;"><strong style="color:#667eea;">@数据库名</strong> + 你的问题 → 自动生成SQL并执行</div>
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                                            <span style="background:#f1f5f9;padding:4px 10px;border-radius:6px;font-size:12px;color:#475569;">@db 有哪些表</span>
+                                            <span style="background:#f1f5f9;padding:4px 10px;border-radius:6px;font-size:12px;color:#475569;">查询users前10条</span>
+                                            <span style="background:#f1f5f9;padding:4px 10px;border-radius:6px;font-size:12px;color:#475569;">创建查询接口</span>
+                                        </div>
                                     </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">📝 查询示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 有哪些表？"<br>
-                                        • "users表有哪些字段？" <span style="color: #718096; font-size: 12px;">← 继续使用之前的数据库</span><br>
-                                        • "查看products表的前10条数据"<br>
-                                        • "查询价格大于100的产品"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔌 创建接口示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 帮我创建一个查询用户的接口"<br>
-                                        • "生成一个获取产品列表的API，按价格排序"<br>
-                                        • "创建接口：根据ID查询订单详情"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔧 数据治理任务示例：</div>
-                                    <div style="text-align: left; padding-left: 20px;">
-                                        • "<strong>@数据治理</strong> <strong>@数据库</strong> 创建一个定时任务每天凌晨 2 点导入数据"<br>
-                                        • "生成一个交互任务：上传 Excel 后写入指定表"<br>
-                                        • 生成/修改后需在界面确认才会真正创建或更新任务
+                                    <div style="font-weight:600;margin-bottom:8px;color:#334155;font-size:14px;border-top:1px solid #e2e8f0;padding-top:12px;">模式切换</div>
+                                    <div style="color:#475569;font-size:13px;line-height:1.7;">
+                                        <div><strong style="color:#667eea;">极速模式</strong>：单轮对话，快速查询</div>
+                                        <div><strong style="color:#f59e0b;">集群模式</strong>：多智能体协作，复杂任务编排</div>
                                     </div>
                                 </div>
                             </div>
