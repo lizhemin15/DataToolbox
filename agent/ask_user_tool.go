@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -207,6 +208,44 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	}
 	if !validTypes[interactionType] {
 		return tools.ErrorResult(fmt.Sprintf("invalid interaction_type: %s (must be confirm, single_select, multi_select, input, form)", interactionType))
+	}
+
+	// 强制规则：创建接口的 form 必须包含从数据库获取的真实数据
+	// 如果 form 的 title 包含"接口"/"创建"/"API"，但所有 fields 的 default_value 都为空，
+	// 说明 AI 跳过了 list_databases → get_tables → describe_table 的数据探索步骤
+	if interactionType == "form" {
+		titleLower := strings.ToLower(title)
+		isApiCreation := strings.Contains(titleLower, "接口") || strings.Contains(titleLower, "创建") ||
+			strings.Contains(titleLower, "api") || strings.Contains(titleLower, "确认")
+		if isApiCreation {
+			// 检查是否有 fields 带有 default_value
+			hasAnyDefault := false
+			if rawFields, ok := args["fields"].([]any); ok {
+				for _, raw := range rawFields {
+					if fieldMap, ok := raw.(map[string]any); ok {
+						dv := strVal(fieldMap["default_value"])
+						if dv != "" {
+							hasAnyDefault = true
+							break
+						}
+					}
+				}
+			}
+			if !hasAnyDefault {
+				errMsg := `⚠️ 数据探索步骤缺失！你跳过了 list_databases → get_tables → describe_table 步骤。
+
+创建接口前必须先获取真实数据：
+1. 调用 list_databases 获取可用数据库列表
+2. 调用 get_tables 获取表列表
+3. 调用 describe_table 获取表字段信息
+4. 根据获取的真实数据设计接口方案
+5. 然后再调用 ask_user（form 类型），fields 中必须填入从数据库获取的真实 default_value
+
+请先完成步骤 1-4，获取真实数据后再调用 ask_user。`
+				log.Printf("[ask_user] rejected empty form: title=%s, no default_values found — AI skipped data exploration", title)
+				return tools.ErrorResult(errMsg)
+			}
+		}
 	}
 
 	// 解析 options
