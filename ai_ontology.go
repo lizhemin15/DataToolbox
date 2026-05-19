@@ -1303,7 +1303,7 @@ func cleanAIResponse(response string) string {
 			break
 		}
 		// 有完整的 think 标签，删除标签及其内容
-		response = response[:start] + response[start+endTag+len("</think>")]
+		response = response[:start] + response[start+endTag+8:]
 	}
 
 	// 处理其他标记
