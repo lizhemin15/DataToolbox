@@ -1007,37 +1007,9 @@ function initEventListeners() {
     });
 
     // API 与鉴权逻辑。
-    document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
-        e.stopPropagation();
-        const popover = document.getElementById('apikeyPopover');
-        const btn = document.getElementById('apikeyTriggerBtn');
-        popover.classList.toggle('show');
-        if (popover.classList.contains('show')) {
-            var rect = btn.getBoundingClientRect();
-            var popoverW = 270;
-            var sidebarWidth = 330;
-            // 避免弹层被左侧栏遮挡，固定到右侧安全区域。
-            var targetLeft = Math.max(rect.right, sidebarWidth);
-            if (targetLeft + popoverW <= window.innerWidth) {
-                popover.style.left = targetLeft + 'px';
-                popover.style.right = 'auto';
-            } else {
-                popover.style.right = '20px';
-                popover.style.left = 'auto';
-            }
-            popover.style.top = rect.top + 'px';
-        }
+    document.getElementById('apikeyTriggerBtn').addEventListener('click', function() {
+        document.getElementById('apikeyModal').classList.add('show');
     });
-    // API Key 弹层点击空白处自动关闭。
-    if (!window._apikeyPopoverClickHandler) {
-        window._apikeyPopoverClickHandler = function(e) {
-            const popover = document.getElementById('apikeyPopover');
-            if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
-                popover.classList.remove('show');
-            }
-        };
-        document.addEventListener('click', window._apikeyPopoverClickHandler);
-    }
     document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
     document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
     document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
@@ -4170,6 +4142,11 @@ async function loadDatabasesForSelect() {
     } catch (error) {
         console.error('刷新API列表失败', error);
     }
+}
+
+// 关闭 API Key 弹窗。
+function closeApikeyModal() {
+    document.getElementById('apikeyModal').classList.remove('show');
 }
 
 // 关闭新增 API 弹窗。

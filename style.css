@@ -1892,33 +1892,7 @@ body {
     flex-shrink: 0;
 }
 
-.apikey-popover {
-    display: none !important;
-    position: fixed;
-    top: -9999px;
-    left: -9999px;
-    z-index: 10000;
-    width: 270px;
-    max-width: 270px;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    padding: 14px;
-    animation: fadeIn 0.15s;
-}
-
-.apikey-popover.show {
-    display: block !important;
-}
-
-.apikey-popover-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #2d3748;
-    margin-bottom: 10px;
-}
-
+/* API Key 弹窗内容样式（已改为 modal，不再用 popover） */
 .apikey-content {
     margin-bottom: 10px;
     min-height: 28px;
