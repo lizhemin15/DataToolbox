@@ -1,10 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 )
 
-// RegisterRoutesV1 注册 v1 版本 API 路由
+// registerAPIV1Routes 注册 v1 版本 API 路由
 func registerAPIV1Routes(mux *http.ServeMux) {
 	// ==================== 系统 API ====================
 	// 认证
@@ -27,14 +28,16 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/system/restore", handleDataOntologyRestore)
 	mux.HandleFunc("/api/v1/system/restore-upload", handleDataOntologyRestoreUpload)
 	
+	// 版本号
+	mux.HandleFunc("/api/v1/system/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"version": Version})
+	})
+	
 	// ==================== 数据库 API ====================
 	mux.HandleFunc("/api/v1/databases", handleDatabases)
 	mux.HandleFunc("/api/v1/databases/", handleDatabaseDetailV1)
 	mux.HandleFunc("/api/v1/databases/test-connection", handleTestConnection)
-	
-	// ==================== 开放接口 API ====================
-	mux.HandleFunc("/api/v1/openapis", handleApis)
-	mux.HandleFunc("/api/v1/openapis/", handleOpenAPIDetail)
 	
 	// ==================== MCP API ====================
 	mux.HandleFunc("/api/v1/mcp/tools", handleMCPTools)
@@ -42,10 +45,6 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/mcp/config", handleMCPConfig)
 	mux.HandleFunc("/api/v1/mcp/safe-config", handleMCPSafeConfig)
 	mux.HandleFunc("/api/v1/mcp/port", handleMCPPort)
-	
-	// MCP 协议入口（保持不变）
-	mux.Handle("/mcp", http.HandlerFunc(handleMCPHTTP))
-	mux.Handle("/mcp/", http.HandlerFunc(handleMCPHTTP))
 	
 	// ==================== 数据治理 API ====================
 	mux.HandleFunc("/api/v1/gov/tasks", handleGovernanceTasks)
@@ -56,6 +55,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/gov/download-api-output", handleGovernanceDownloadAPIOutput)
 	mux.HandleFunc("/api/v1/gov/execute-sql", handleGovernanceExecuteSQL)
 	mux.HandleFunc("/api/v1/gov/parse-text", handleGovParseText)
+	mux.HandleFunc("/api/v1/gov/task-api/", handleGovernanceTaskAPI)
 	
 	// ==================== 分享 API ====================
 	mux.HandleFunc("/api/v1/share/", handleGovernanceShareV1)
@@ -71,6 +71,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	// AI 配置
 	mux.HandleFunc("/api/v1/agent/config", handleAIConfig)
 	mux.HandleFunc("/api/v1/agent/embedding-config", handleAIEmbeddingConfig)
+	mux.HandleFunc("/api/v1/agent/table-retrieval-config", handleTableRetrievalConfig)
 	mux.HandleFunc("/api/v1/agent/capabilities", handleAICapabilities)
 	mux.HandleFunc("/api/v1/agent/ai-query", handleAIQuery)
 	mux.HandleFunc("/api/v1/agent/confirm-execute", handleAIConfirmExecute)
@@ -111,11 +112,4 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	
 	// ==================== 质量审计 API ====================
 	mux.HandleFunc("/api/v1/quality-audit/", handleQualityAuditAPI)
-}
-
-// RegisterLegacyRoutes 注册旧版路由（兼容性）
-// 添加 Deprecation 响应头
-func RegisterLegacyRoutes(mux *http.ServeMux) {
-	// 旧路由保持不变，但添加 deprecation 中间件
-	// 这里只是占位，实际路由在 main.go 中注册
 }
