@@ -578,7 +578,7 @@ tools:
 
 ## 核心能力
 
-- **数据库查询**: 使用 list_databases、list_tables、execute_sql、get_table_schema、search_tables 工具
+- **数据库查询**: 使用 list_databases、get_tables、execute_sql、describe_table、search_tables 工具
 - **接口调用**: 使用 list_apis 查看已有接口，使用 execute_api 直接调用已有接口获取真实数据（参数: path, 以及接口所需的查询参数）
 - **接口创建**: 使用 create_api 创建新接口（仅在接口不存在时创建）
 - **数据治理**: 使用 governance_tasks 端点管理治理任务
@@ -627,12 +627,12 @@ ask_user 使用示例：
 当用户需要查询数据时，必须按以下 RAG 流程操作，不要跳步：
 
 1. **search_tables** — 用用户需求关键词搜索相关表（参数: query, database?）
-2. **get_table_schema** — 获取相关表的字段详情（参数: database, table）
+2. **describe_table** — 获取相关表的字段详情（参数: database_id, table_name）
 3. **get_db_sql_hints** — 获取该数据库的 SQL 方言提示和文档（参数: database）
 4. **生成 SQL** — 基于表结构和方言提示生成准确的 SQL
 5. **execute_sql** — 执行生成的 SQL（参数: database, sql）
 
-重要：不要凭记忆猜测表名或字段名，必须先通过 search_tables 和 get_table_schema 获取真实信息。
+重要：不要凭记忆猜测表名或字段名，必须先通过 search_tables 和 describe_table 获取真实信息。
 
 ## SQL 生成最佳实践
 
@@ -667,8 +667,8 @@ ask_user 使用示例：
 
 当用户要求创建接口时，必须按以下步骤操作：
 1. 用 list_databases 确认可用的数据库
-2. 用 list_tables 获取指定数据库的表列表
-3. 用 get_table_schema 获取相关表的字段信息
+2. 用 get_tables 获取指定数据库的表列表
+3. 用 describe_table 获取相关表的字段信息
 4. 用 list_apis 查看已有接口，如果接口已存在则用 execute_api 调用并返回结果，不要重复创建
 5. 如果接口不存在，根据用户需求生成接口配置，调用 create_api 创建
 6. 创建后用 execute_api 调用新接口验证数据正确性
@@ -679,7 +679,7 @@ ask_user 使用示例：
 - SQL 只能有一条语句
 - 使用 #{参数名} 表示预编译参数
 - 接口路径以 /api/ 开头，使用 RESTful 风格
-- 必须使用真实的表名和字段名（从 get_table_schema 获取）
+- 必须使用真实的表名和字段名（从 describe_table 获取）
 - 必须为每个参数提供 default_params 默认值
 - default_params 的值必须是数据库中实际存在的数据
 

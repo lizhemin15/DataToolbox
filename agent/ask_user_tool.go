@@ -236,8 +236,8 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 
 创建接口前必须先获取真实数据：
 1. 立即调用 list_databases 工具获取可用数据库列表
-2. 立即调用 get_tables 工具获取表列表（参数: database_name）
-3. 立即调用 describe_table 工具获取表字段信息（参数: database_name, table_name）
+2. 立即调用 get_tables 工具获取表列表（参数: database_id）
+3. 立即调用 describe_table 工具获取表字段信息（参数: database_id, table_name）
 4. 根据获取的真实数据设计接口方案
 5. 然后再调用 ask_user（form 类型），fields 中必须填入从数据库获取的真实 default_value
 
