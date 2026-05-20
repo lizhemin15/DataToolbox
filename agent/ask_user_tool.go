@@ -235,13 +235,13 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 				errMsg := `⚠️ 数据探索步骤缺失！你跳过了 list_databases → get_tables → describe_table 步骤。
 
 创建接口前必须先获取真实数据：
-1. 调用 list_databases 获取可用数据库列表
-2. 调用 get_tables 获取表列表
-3. 调用 describe_table 获取表字段信息
+1. 立即调用 list_databases 工具获取可用数据库列表
+2. 立即调用 get_tables 工具获取表列表（参数: database_name）
+3. 立即调用 describe_table 工具获取表字段信息（参数: database_name, table_name）
 4. 根据获取的真实数据设计接口方案
 5. 然后再调用 ask_user（form 类型），fields 中必须填入从数据库获取的真实 default_value
 
-请先完成步骤 1-4，获取真实数据后再调用 ask_user。`
+现在请立即调用 list_databases 工具开始数据探索！不要再次调用 ask_user！`
 				log.Printf("[ask_user] rejected empty form: title=%s, no default_values found — AI skipped data exploration", title)
 				return tools.ErrorResult(errMsg)
 			}
