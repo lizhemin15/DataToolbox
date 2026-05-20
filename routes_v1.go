@@ -39,6 +39,10 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/databases/", handleDatabaseDetailV1)
 	mux.HandleFunc("/api/v1/databases/test-connection", handleTestConnection)
 	
+	// ==================== 开放接口 API ====================
+	mux.HandleFunc("/api/v1/openapis", handleApis)
+	mux.HandleFunc("/api/v1/openapis/", handleOpenAPIDetail)
+	
 	// ==================== MCP API ====================
 	mux.HandleFunc("/api/v1/mcp/tools", handleMCPTools)
 	mux.HandleFunc("/api/v1/mcp/tools/", handleMCPToolDetail)
