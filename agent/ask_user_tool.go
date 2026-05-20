@@ -218,8 +218,12 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 		isApiCreation := strings.Contains(titleLower, "接口") || strings.Contains(titleLower, "创建") ||
 			strings.Contains(titleLower, "api") || strings.Contains(titleLower, "确认")
 		if isApiCreation {
-			// 检查是否有 fields 带有 default_value
+			// 检查是否有真实数据（两种格式都支持）
+			// 格式1: fields[].default_value
+			// 格式2: 顶层 default_params (某些模型如 Qwen3-32B 使用这种格式)
 			hasAnyDefault := false
+			
+			// 检查 fields[].default_value
 			if rawFields, ok := args["fields"].([]any); ok {
 				for _, raw := range rawFields {
 					if fieldMap, ok := raw.(map[string]any); ok {
@@ -231,6 +235,19 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 					}
 				}
 			}
+			
+			// 检查顶层 default_params
+			if !hasAnyDefault {
+				if defaultParams, ok := args["default_params"].(map[string]any); ok {
+					for _, v := range defaultParams {
+						if strVal(v) != "" {
+							hasAnyDefault = true
+							break
+						}
+					}
+				}
+			}
+			
 			if !hasAnyDefault {
 				errMsg := `⚠️ 数据探索步骤缺失！你跳过了 list_databases → get_tables → describe_table 步骤。
 
