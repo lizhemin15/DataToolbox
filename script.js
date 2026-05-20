@@ -3533,7 +3533,7 @@ function updateMcpDisplay() {
 // 加载 API 列表。
 async function loadApis() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis`);
 
         const data = await response.json();
 
@@ -3613,7 +3613,7 @@ async function toggleApiEnabled(apiId, forceEnabled) {
     if (!api) return;
     const next = forceEnabled !== undefined ? forceEnabled : (api.enabled === false);
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis/${apiId}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${apiId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3645,7 +3645,7 @@ function toggleApiEnabledFromDetail() {
 // 加载 API 详情。
 async function loadApiDetail(apiId) {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis/${apiId}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${apiId}`);
 
         const data = await response.json();
 
@@ -4112,7 +4112,7 @@ async function quickFixSql() {
     
     // 处理API类型
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis/${currentApi.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -4313,8 +4313,8 @@ async function handleAddApi(e) {
 
     try {
         const url = isEditApiMode 
-            ? `${API_BASE}/api/apis/${editingApiId}`
-            : `${API_BASE}/api/apis`;
+            ? `${API_BASE}/api/v1/openapis/${editingApiId}`
+            : `${API_BASE}/api/v1/openapis`;
         
         const method = isEditApiMode ? 'PUT' : 'POST';
         
@@ -4468,7 +4468,7 @@ async function handleDeleteApi() {
     deleteBtn.textContent = '删除中...';
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis/${currentApi.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
             method: 'DELETE'
         });
 
@@ -4563,7 +4563,7 @@ async function executeApiTest() {
     const startTime = Date.now();
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis/${currentApi.id}/test`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}/test`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -6287,7 +6287,7 @@ async function confirmCreateApiFromAI(config, messageId) {
     }
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apis`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

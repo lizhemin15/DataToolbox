@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // registerAPIV1Routes 注册 v1 版本 API 路由
@@ -38,6 +39,17 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/databases", handleDatabases)
 	mux.HandleFunc("/api/v1/databases/", handleDatabaseDetailV1)
 	mux.HandleFunc("/api/v1/databases/test-connection", handleTestConnection)
+	
+	// ==================== 开放接口 API ====================
+	mux.HandleFunc("/api/v1/openapis", handleApis)
+	mux.HandleFunc("/api/v1/openapis/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/test") {
+			handleApiTest(w, r)
+		} else {
+			handleApiDetail(w, r)
+		}
+	})
 	
 	// ==================== MCP API ====================
 	mux.HandleFunc("/api/v1/mcp/tools", handleMCPTools)
