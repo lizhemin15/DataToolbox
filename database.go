@@ -58,15 +58,12 @@ func buildDSN(config *DatabaseConfig) (string, string, error) {
 			log.Printf("DM: Port为0，使用默认值 5236")
 		}
 
-		// URL 编码用户名和密码，避免特殊字符（如 @、:、/ 等）导致 DSN 解析错误
-		encodedUser := url.QueryEscape(config.User)
-		encodedPassword := url.QueryEscape(config.Password)
-
+		// DM 驱动自行解析 DSN，不做 URL 编码（编码后密码中的特殊字符会被当作编码值，导致认证失败）
 		dsn := fmt.Sprintf("dm://%s:%s@%s:%d?timeout=10",
-			encodedUser, encodedPassword, host, port)
+			config.User, config.Password, host, port)
 		if config.Database != "" {
 			dsn = fmt.Sprintf("dm://%s:%s@%s:%d/%s?timeout=10",
-				encodedUser, encodedPassword, host, port, config.Database)
+				config.User, config.Password, host, port, config.Database)
 		}
 
 		// 安全：不在日志中输出包含密码的 DSN
