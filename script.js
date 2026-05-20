@@ -600,7 +600,7 @@ function demoOntologyJsonResponse(obj, status) {
 }
 
 function parseDemoOntologyApiPath(pathname) {
-    const prefix = '/api/databases/' + DEMO_ONTOLOGY_DB_ID;
+    const prefix = '/api/v1/databases/' + DEMO_ONTOLOGY_DB_ID;
     if (!pathname.startsWith(prefix)) return null;
     const rest = pathname.slice(prefix.length);
     if (!rest || rest === '/') return { kind: 'detail' };
@@ -691,7 +691,7 @@ function handleDemoOntologyFetch(url, init) {
     const origFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
         const url = typeof input === 'string' ? input : (input && input.url);
-        if (typeof url === 'string' && url.indexOf('/api/databases/' + DEMO_ONTOLOGY_DB_ID) !== -1) {
+        if (typeof url === 'string' && url.indexOf('/api/v1/databases/' + DEMO_ONTOLOGY_DB_ID) !== -1) {
             const r = handleDemoOntologyFetch(url, init);
             if (r) return r;
         }
@@ -1218,7 +1218,7 @@ async function handleLogin(e) {
     const errorEl = document.getElementById('loginError');
 
     try {
-        const response = await fetch(`${API_BASE}/api/login`, {
+        const response = await fetch(`${API_BASE}/api/v1/system/auth/login`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1536,7 +1536,7 @@ async function loadUsers() {
     const listEl = document.getElementById('userMgmtList');
     if (!listEl) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/users`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users`);
         const data = await response.json();
         if (!data.success) {
             listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
@@ -1591,7 +1591,7 @@ function renderUserMgmtList(users) {
                 return;
             }
             try {
-                const response = await fetchWithAuth(`${API_BASE}/api/apikey`, {
+                const response = await fetchWithAuth(`${API_BASE}/api/v1/system/apikeys`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1668,7 +1668,7 @@ async function submitUserPasswordChange() {
     }
     if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/users/${encodeURIComponent(userPasswordTarget)}/password`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/${encodeURIComponent(userPasswordTarget)}/password`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -1699,7 +1699,7 @@ async function userMgmtDelete(username) {
     btn.textContent = '删除中...';
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/users/${encodeURIComponent(username)}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/${encodeURIComponent(username)}`, {
             method: 'DELETE',
         });
         const data = await response.json();
@@ -1738,7 +1738,7 @@ async function handleCreateUser() {
     }
     if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/users`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1803,7 +1803,7 @@ async function handleImportUsers(e) {
             return;
         }
         
-        const response = await fetchWithAuth(`${API_BASE}/api/users/batch`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/batch`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1881,7 +1881,7 @@ async function testConnection() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/test-connection`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/test-connection`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1988,8 +1988,8 @@ async function handleAddDatabase(e) {
 
     try {
         const url = isEditMode 
-            ? `${API_BASE}/api/databases/${editingDbId}`
-            : `${API_BASE}/api/databases`;
+            ? `${API_BASE}/api/v1/databases/${editingDbId}`
+            : `${API_BASE}/api/v1/databases`;
         
         const method = isEditMode ? 'PUT' : 'POST';
         
@@ -2032,7 +2032,7 @@ async function handleAddDatabase(e) {
  */
 async function loadDatabases() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases`);
 
         const data = await response.json();
 
@@ -2132,7 +2132,7 @@ function showDatabaseLoading() {
 // 加载数据库详情。
 async function loadDatabaseDetail(dbId) {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${dbId}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${dbId}`);
 
         const data = await response.json();
 
@@ -2309,11 +2309,11 @@ async function previewTable(tableName, keepEditMode = false) {
 
     try {
         // 先加载字段结构。
-        const structureResponse = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
         const structureData = await structureResponse.json();
         
         // 再加载表数据。
-        const dataResponse = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}`);
+        const dataResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}`);
         const data = await dataResponse.json();
 
         if (data.success) {
@@ -2332,7 +2332,7 @@ async function previewTable(tableName, keepEditMode = false) {
                 columns = Object.keys(data.data[0]);
             } else {
                 // 如果结构接口失败，重试一次以避免偶发网络错误。
-                const retryResp = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
+                const retryResp = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
                 const retryData = await retryResp.json();
                 if (retryData.success && retryData.columns && retryData.columns.length > 0) {
                     columns = retryData.columns.map(col => col.name);
@@ -2438,7 +2438,7 @@ async function loadStructureAndRenderTable(addOneRow) {
     structureLoadingLock = true;
     previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载结构...</div>';
     try {
-        const structureResponse = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
         });
         const structureData = await structureResponse.json();
         if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
@@ -2820,7 +2820,7 @@ async function saveTableData() {
     
     // 清理欢迎区。
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${currentPreviewTable}/data`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -2862,7 +2862,7 @@ async function dropTable() {
     }
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${currentPreviewTable}`, {
             method: 'DELETE'
         });
         
@@ -2893,7 +2893,7 @@ async function showEditStructureModal() {
     
     try {
         // 读取当前表结构。
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`);
         const data = await response.json();
         
         if (!data.success) {
@@ -3053,7 +3053,7 @@ async function saveTableStructure() {
     }
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${currentPreviewTable}/structure`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3105,7 +3105,7 @@ async function submitRenameTable() {
         return;
     }
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${currentPreviewTable}/rename`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3140,7 +3140,7 @@ async function handleDeleteDatabase() {
     deleteBtn.textContent = '删除中...';
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}`, {
             method: 'DELETE'
         });
 
@@ -3171,7 +3171,7 @@ async function handleDeleteDatabase() {
 
 async function loadApiKey() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apikey`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/apikeys`);
         const data = await response.json();
         if (data.success) {
             currentApiKey = data.api_key || '';
@@ -3185,7 +3185,7 @@ async function loadApiKey() {
 
 async function generateApiKey() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/apikeys`, {
             method: 'POST',
         });
         const data = await response.json();
@@ -3211,7 +3211,7 @@ async function deleteApiKey() {
     deleteBtn.textContent = '删除中...';
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/apikey`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/apikeys`, {
             method: 'DELETE',
         });
         const data = await response.json();
@@ -3267,7 +3267,7 @@ let mcpConfigPort = 0;
 async function loadMcpInfo() {
     await loadApiKey();
     try {
-        const r = await fetchWithAuth(`${API_BASE}/api/mcp/config`);
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/config`);
         const data = await r.json();
         if (data.success) {
             mcpConfigEnabled = data.enabled !== false;
@@ -3288,7 +3288,7 @@ async function toggleMcpEnabled() {
     if (!cb) return;
     const next = cb.checked;
     try {
-        const r = await fetchWithAuth(`${API_BASE}/api/mcp/config`, {
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/config`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3306,7 +3306,7 @@ async function toggleMcpEnabled() {
 // MCP 安全配置
 async function loadMcpSafeConfig() {
     try {
-        const r = await fetchWithAuth(`${API_BASE}/api/mcp/safe-config`);
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/safe-config`);
         const data = await r.json();
         if (data.success && data.config) {
             const config = data.config;
@@ -3343,7 +3343,7 @@ async function saveMcpSafeConfig() {
     };
     
     try {
-        const r = await fetchWithAuth(`${API_BASE}/api/mcp/safe-config`, {
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/safe-config`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -3388,7 +3388,7 @@ function installSkill(type) {
     const apiBase = API_BASE || window.location.origin;
     const token = localStorage.getItem('dataOntologyToken') || currentApiKey;
     
-    fetch(apiBase + '/api/skills/export?type=' + type, {
+    fetch(apiBase + '/api/v1/skills/export?type=' + type, {
         headers: { 'Authorization': 'Bearer ' + token }
     })
     .then(res => res.json())
@@ -4182,7 +4182,7 @@ async function showAddApiModal() {
     // 加载API列表
 async function loadDatabasesForSelect() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases`);
 
         const data = await response.json();
 
@@ -5191,7 +5191,7 @@ async function exportSystemData() {
         statusEl.style.color = '#a0aec0';
 
         const token = localStorage.getItem('token');
-        const resp = await fetch('/api/backup', {
+        const resp = await fetch('/api/v1/system/backup', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
 
@@ -5250,7 +5250,7 @@ async function importSystemData(input) {
         formData.append('backup', file);
         formData.append('mode', mode);
 
-        const resp = await fetch('/api/restore-upload', {
+        const resp = await fetch('/api/v1/system/restore-upload', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token },
             body: formData
@@ -5297,7 +5297,7 @@ function applyEmbedMode(enabled) {
 // 获取用户设置
 async function loadUserSettings() {
     try {
-        const resp = await fetchWithAuth(API_BASE + '/api/settings');
+        const resp = await fetchWithAuth(API_BASE + '/api/v1/system/settings');
         const data = await resp.json();
         if (data.success && data.settings) {
             return data.settings;
@@ -5311,7 +5311,7 @@ async function loadUserSettings() {
 // 加载用户设置成功
 async function saveUserSettings(settings) {
     try {
-        const resp = await fetchWithAuth(API_BASE + '/api/settings', {
+        const resp = await fetchWithAuth(API_BASE + '/api/v1/system/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
@@ -6360,7 +6360,7 @@ async function confirmCreateGovTaskFromAI(messageId) {
         accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
     };
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(taskData)
@@ -6562,7 +6562,7 @@ async function handleCreateTable(e) {
     successEl.classList.remove('show');
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -6658,7 +6658,7 @@ let govSelectedFiles = [];
  */
 async function loadGovernanceTasks() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks`);
         const data = await response.json();
         if (data.success) {
             govTasks = data.tasks || [];
@@ -6916,7 +6916,7 @@ function showGovTaskDetail(task) {
 async function loadGovTaskLogs() {
     if (!currentGovTask) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/logs`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/logs`);
         const data = await response.json();
         if (data.success) {
             renderGovLogs(data.logs || []);
@@ -6954,7 +6954,7 @@ async function deleteGovTaskLog(logId) {
     if (!currentGovTask || !logId) return;
     if (!confirm('确定要删除这条执行日志吗？')) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/logs/${logId}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/logs/${logId}`, {
             method: 'DELETE'
         });
         const data = await response.json();
@@ -6974,7 +6974,7 @@ async function clearGovTaskLogs() {
     if (!currentGovTask) return;
     if (!confirm('确定要清空所有执行日志吗？此操作不可恢复。')) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/logs-clear`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/logs-clear`, {
             method: 'DELETE'
         });
         const data = await response.json();
@@ -7219,7 +7219,7 @@ function onGovOpenModeChange() {
         const taskName = document.getElementById('govTaskNameInput').value.trim();
         if (taskName) {
             const initials = chineseToPinyinInitials(taskName);
-            document.getElementById('govAPIPathInput').value = `/api/tasks/${initials}`;
+            document.getElementById('govAPIPathInput').value = `/api/v1/gov/tasks/${initials}`;
         }
     }
     
@@ -7335,7 +7335,7 @@ function switchAPILang(lang) {
 }
 
 function updateAPIExample() {
-    const apiPath = document.getElementById('govAPIPathInput').value || '/api/tasks/my-task';
+    const apiPath = document.getElementById('govAPIPathInput').value || '/api/v1/gov/tasks/my-task';
     const method = document.getElementById('govAPIMethodInput').value || 'POST';
     const inputType = document.getElementById('govInputTypeSelect')?.value || 'file';
     const taskName = document.getElementById('govTaskNameInput').value || '我的任务';
@@ -7682,7 +7682,7 @@ async function handleGovTaskSubmit(e) {
                 // 自动重新生成 api_path
                 const taskName = document.getElementById('govTaskNameInput').value.trim();
                 const initials = chineseToPinyinInitials(taskName);
-                apiPath = `/api/tasks/${initials}-${generateShareToken().substring(0, 4)}`;
+                apiPath = `/api/v1/gov/tasks/${initials}-${generateShareToken().substring(0, 4)}`;
                 document.getElementById('govAPIPathInput').value = apiPath;
                 updateAPIExample();
                 showToast(`API 路径已冲突，自动重新生成: ${apiPath}`, 'info');
@@ -7724,8 +7724,8 @@ async function handleGovTaskSubmit(e) {
 
     try {
         const url = isEditGovMode
-            ? `${API_BASE}/api/governance/tasks/${editingGovTaskId}`
-            : `${API_BASE}/api/governance/tasks`;
+            ? `${API_BASE}/api/v1/gov/tasks/${editingGovTaskId}`
+            : `${API_BASE}/api/v1/gov/tasks`;
         const method = isEditGovMode ? 'PUT' : 'POST';
         const response = await fetchWithAuth(url, {
             method: method,
@@ -7826,7 +7826,7 @@ async function toggleShareGovTask() {
         const isShared = currentGovTask.share_enabled;
         const method = isShared ? 'DELETE' : 'POST';
         const response = await fetchWithAuth(
-            `${API_BASE}/api/governance/tasks/${currentGovTask.id}/share`,
+            `${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/share`,
             { method }
         );
         const data = await response.json();
@@ -7898,7 +7898,7 @@ async function deleteGovTask() {
     }
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}`, {
             method: 'DELETE'
         });
         const data = await response.json();
@@ -7946,7 +7946,7 @@ async function runGovTask() {
 async function toggleGovTask() {
     if (!currentGovTask) return;
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/toggle`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/toggle`, {
             method: 'POST'
         });
         const data = await response.json();
@@ -7964,7 +7964,7 @@ async function refreshGovTaskStatus() {
     if (!currentGovTask) return;
     console.log('[refreshGovTaskStatus] 开始刷新, 当前状态:', currentGovTask.status);
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}`);
         const data = await response.json();
         if (data.success && data.task) {
             console.log('[refreshGovTaskStatus] 后端返回状态:', data.task.status);
@@ -8108,7 +8108,7 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
                     formData.append('files', f);
                 }
             }
-            await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
                 method: 'POST',
                 body: formData
             });
@@ -8116,7 +8116,7 @@ async function executeGovTaskAggregateInBrowser(files, inputText) {
             // 无文件或未开启分享，只传 JSON
             const inputFileNames = files ? files.map(f => f.name || f) : [];
             const shareEnabled = currentGovTask.share_enabled ? true : false;
-            await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8161,7 +8161,7 @@ async function executeGovTaskOnBackend(files, inputText) {
         }
 
         // 提交执行请求。
-        const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${taskId}/run`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/run`, {
             method: 'POST',
             body: formData
         });
@@ -8202,7 +8202,7 @@ async function pollTaskProgress(taskId, runId) {
     const poll = async () => {
         try {
             console.log('[pollTaskProgress] 轮询中...');
-            const response = await fetchWithAuth(`${API_BASE}/api/governance/tasks/${taskId}/progress`);
+            const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/progress`);
             const data = await response.json();
 
             if (!data.success) {
@@ -8362,7 +8362,7 @@ function createGovHelper(logLines, uploadedFiles) {
     }
 
     async function _runSQL(databaseId, sql, params = []) {
-        const resp = await fetchWithAuth(`${API_BASE}/api/governance/execute-sql`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/execute-sql`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ database_id: databaseId, sql, params })
@@ -9500,7 +9500,7 @@ async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverri
     if (currentGovTask) {
         const taskId = currentGovTask.id;
         try {
-            await fetchWithAuth(`${API_BASE}/api/governance/tasks/${taskId}/save-log`, {
+            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/save-log`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
@@ -9638,7 +9638,7 @@ async function executeGovTaskInBrowser(code, file, inputText, files) {
                     formData.append('files', f);
                 }
             }
-            await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
                 method: 'POST',
                 body: formData
             });
@@ -9646,7 +9646,7 @@ async function executeGovTaskInBrowser(code, file, inputText, files) {
             // 无文件或未开启分享，只传 JSON
             const inputFileNames = filesToUpload.map(f => f.name || f);
             const shareEnabled = currentGovTask.share_enabled ? true : false;
-            await fetchWithAuth(`${API_BASE}/api/governance/tasks/${currentGovTask.id}/frontend-run`, {
+            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -11166,7 +11166,7 @@ async function loadLineageGraph() {
     }
     lineageFocusTableId = null;
     try {
-        const res = await fetchWithAuth(`${API_BASE}/api/databases/${lineageSelectedDbId}/lineage`);
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/databases/${lineageSelectedDbId}/lineage`);
         const data = await res.json();
         if (!data.success) {
             showOntoToast(data.message || '加载失败', true);
@@ -11474,7 +11474,7 @@ function initModelsTab() {
 
 async function loadLLMModels() {
     try {
-        const resp = await fetchWithAuth(`${API_BASE}/api/models/llm`);
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/models/llm`);
         const data = await resp.json();
         if (data.success) {
             llmModels = data.models || [];
@@ -11564,8 +11564,8 @@ async function handleLLMModelSubmit(e) {
     
     try {
         const url = editingLLMModelId
-            ? `${API_BASE}/api/models/llm/${editingLLMModelId}`
-            : `${API_BASE}/api/models/llm`;
+            ? `${API_BASE}/api/v1/models/llm/${editingLLMModelId}`
+            : `${API_BASE}/api/v1/models/llm`;
         const method = editingLLMModelId ? 'PUT' : 'POST';
         const resp = await fetchWithAuth(url, {
             method,
@@ -11587,7 +11587,7 @@ async function handleLLMModelSubmit(e) {
 async function deleteLLMModel(id) {
     if (!confirm('确定删除这个模型吗？')) return;
     try {
-        const resp = await fetchWithAuth(`${API_BASE}/api/models/llm/${id}`, { method: 'DELETE' });
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/models/llm/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadLLMModels();
         else showToast(result.message || '删除失败', 'error');
@@ -11600,7 +11600,7 @@ async function deleteLLMModel(id) {
 
 async function loadSmallModels() {
     try {
-        const resp = await fetchWithAuth(`${API_BASE}/api/models/small`);
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/models/small`);
         const data = await resp.json();
         if (data.success) {
             smallModels = data.models || [];
@@ -11696,8 +11696,8 @@ async function handleSmallModelSubmit(e) {
     
     try {
         const url = editingSmallModelId
-            ? `${API_BASE}/api/models/small/${editingSmallModelId}`
-            : `${API_BASE}/api/models/small`;
+            ? `${API_BASE}/api/v1/models/small/${editingSmallModelId}`
+            : `${API_BASE}/api/v1/models/small`;
         const method = editingSmallModelId ? 'PUT' : 'POST';
         const resp = await fetchWithAuth(url, {
             method,
@@ -11719,7 +11719,7 @@ async function handleSmallModelSubmit(e) {
 async function deleteSmallModel(id) {
     if (!confirm('确定删除这个小模型吗？')) return;
     try {
-        const resp = await fetchWithAuth(`${API_BASE}/api/models/small/${id}`, { method: 'DELETE' });
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/models/small/${id}`, { method: 'DELETE' });
         const result = await resp.json();
         if (result.success) loadSmallModels();
         else showToast(result.message || '删除失败', 'error');
@@ -11736,7 +11736,7 @@ async function runSmallModel(id) {
     if (inputText === null) return;
     
     try {
-        const resp = await fetchWithAuth(`${API_BASE}/api/models/small/${id}/run`, {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/models/small/${id}/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ input_text: inputText })
@@ -11791,7 +11791,7 @@ async function refreshDbOntologyRelations() {
     loading.style.display = 'flex';
 
     try {
-        const res = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/ontology/relations`);
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/ontology/relations`);
         const data = await res.json();
 
         if (data.success) {
@@ -11838,7 +11838,7 @@ async function deleteDbOntologyRelation(relId) {
     }
 
     try {
-        const res = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/ontology/relations/${relId}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/ontology/relations/${relId}`, {
             method: 'DELETE'
         });
         const data = await res.json();
@@ -11867,7 +11867,7 @@ async function scanDbOntologyRelations() {
         showToast('正在获取表列表...', 'info');
 
         // 先获取表列表
-        const tablesRes = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables`);
+        const tablesRes = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables`);
         const tablesData = await tablesRes.json();
 
         if (!tablesData.success) {
@@ -11893,7 +11893,7 @@ async function scanDbOntologyRelations() {
 
         showToast('正在扫描...', 'info');
 
-        const res = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/ontology/scan`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/ontology/scan`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -12136,7 +12136,7 @@ async function addDbCandidateAsRelation(idx) {
     if (!cand || !currentDb) return;
     
     try {
-        const res = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/ontology/relations`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/ontology/relations`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -12173,7 +12173,7 @@ async function saveMcpPort() {
     }
 
     try {
-        const r = await fetchWithAuth(`${API_BASE}/api/mcp/port`, {
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/port`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -13741,7 +13741,7 @@ function closeRelationPreviewModal() {
 async function showAddRelationModal() {
     try {
         // 获取表列表
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables`);
         const data = await response.json();
 
         if (!data.success) {
@@ -13829,7 +13829,7 @@ async function loadSourceFields() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
         const data = await response.json();
 
         if (data.success) {
@@ -13855,7 +13855,7 @@ async function loadTargetFields() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
         const data = await response.json();
 
         if (data.success) {
@@ -13926,7 +13926,7 @@ async function showEditRelationModal(relationId) {
 
     try {
         // 获取表列表
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables`);
         const data = await response.json();
 
         if (!data.success) {
@@ -14028,7 +14028,7 @@ async function loadEditSourceFields() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
         const data = await response.json();
 
         if (data.success) {
@@ -14054,7 +14054,7 @@ async function loadEditTargetFields() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
         const data = await response.json();
 
         if (data.success) {
@@ -14188,7 +14188,7 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
     
     // 使用批量打包接口下载
     try {
-        const res = await fetch(`${API_BASE}/api/governance/examples/download`, {
+        const res = await fetch(`${API_BASE}/api/v1/gov/examples/download`, {
             method: 'POST',
             headers: { 
                 'Authorization': `Bearer ${token}`,
@@ -14634,7 +14634,7 @@ function hitlSubmit(hitlId, action, values) {
     }
 
     const token = localStorage.getItem('dataOntologyToken') || '';
-    fetch('/api/hitl/respond', {
+    fetch('/api/v1/agent/hitl/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ hitl_id: hitlId, action: action, values: values })
@@ -14777,15 +14777,15 @@ async function loadAgentConfigTab(tab) {
 
     try {
         if (tab === 'mcp') {
-            const resp = await fetchWithAuth(`${API_BASE}/api/agent/mcp`);
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/mcp`);
             const json = await resp.json();
             renderMCPConfig(content, (json.data && json.data.mcp_servers) || []);
         } else if (tab === 'skill') {
-            const resp = await fetchWithAuth(`${API_BASE}/api/agent/skill`);
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`);
             const json = await resp.json();
             renderSkillConfig(content, json.data || []);
         } else if (tab === 'status') {
-            const resp = await fetchWithAuth(`${API_BASE}/api/agent/status`);
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/status`);
             const json = await resp.json();
             renderAgentStatus(content, json.data || json);
         }
@@ -14863,7 +14863,7 @@ function renderAgentStatus(container, data) {
 // MCP Server actions
 async function toggleMCPServer(id, action) {
     try {
-        await fetchWithAuth(`${API_BASE}/api/agent/mcp`, {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/mcp`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: id, action: action })
@@ -14875,7 +14875,7 @@ async function toggleMCPServer(id, action) {
 async function removeMCPServer(id) {
     if (!confirm('确定删除此 MCP Server?')) return;
     try {
-        await fetchWithAuth(`${API_BASE}/api/agent/mcp?id=${id}`, { method: 'DELETE' });
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/mcp?id=${id}`, { method: 'DELETE' });
         loadAgentConfigTab('mcp');
     } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
 }
@@ -14902,7 +14902,7 @@ function showAddMCPForm() {
     }
     const desc = prompt('描述 (可选):');
     if (desc) body.description = desc;
-    fetchWithAuth(`${API_BASE}/api/agent/mcp`, {
+    fetchWithAuth(`${API_BASE}/api/v1/agent/mcp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
@@ -14912,7 +14912,7 @@ function showAddMCPForm() {
 // Skill actions
 async function toggleSkill(id, enabled) {
     try {
-        await fetchWithAuth(`${API_BASE}/api/agent/skill`, {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, enabled })
@@ -14923,7 +14923,7 @@ async function toggleSkill(id, enabled) {
 
 async function reloadSkill(id) {
     try {
-        await fetchWithAuth(`${API_BASE}/api/agent/skill`, {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, action: 'reload' })
@@ -14936,7 +14936,7 @@ async function reloadSkill(id) {
 async function removeSkill(id) {
     if (!confirm('确定删除此 Skill?')) return;
     try {
-        await fetchWithAuth(`${API_BASE}/api/agent/skill?id=${id}`, { method: 'DELETE' });
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill?id=${id}`, { method: 'DELETE' });
         loadAgentConfigTab('skill');
     } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
 }
@@ -14946,7 +14946,7 @@ function showAddSkillForm() {
     if (!name) return;
     const sourcePath = prompt('SKILL.md 文件路径:');
     if (!sourcePath) return;
-    fetchWithAuth(`${API_BASE}/api/agent/skill`, {
+    fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, source_path: sourcePath, enabled: true })

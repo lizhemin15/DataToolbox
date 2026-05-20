@@ -1338,7 +1338,7 @@
                 </div>
                 <div class="form-group">
                     <label for="apiPathInput">接口路径</label>
-                    <input type="text" id="apiPathInput" placeholder="例如: /api/users" required>
+                    <input type="text" id="apiPathInput" placeholder="例如: /api/v1/system/users" required>
                     <small>路径必须以 / 开头</small>
                 </div>
                 <div class="form-group">
@@ -1986,7 +1986,7 @@
                         <div class="form-row">
                             <div class="form-group form-group-half">
                                 <label for="govAPIPathInput">API 路径</label>
-                                <input type="text" id="govAPIPathInput" placeholder="/api/tasks/my-task" onchange="updateAPIExample()" oninput="updateAPIExample()">
+                                <input type="text" id="govAPIPathInput" placeholder="/api/v1/gov/tasks/my-task" onchange="updateAPIExample()" oninput="updateAPIExample()">
                                 <small>以 /api/ 开头的路径</small>
                             </div>
                             <div class="form-group form-group-half">
@@ -2030,7 +2030,7 @@
     "output_files": [
       {
         "name": "报告.docx",
-        "download_url": "/api/governance/download-api-output?task_id=xxx&run_id=yyy&name=报告.docx"
+        "download_url": "/api/v1/gov/download-api-output?task_id=xxx&run_id=yyy&name=报告.docx"
       }
     ]
   }
@@ -2385,7 +2385,7 @@
     <!-- 版本号显示 -->
     <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#aaa;z-index:9999;pointer-events:none;user-select:none;"></div>
     <script>
-    fetch('/api/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
+    fetch('/api/v1/system/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
     </script>
 
     <!-- === Agent Cluster Mode: 智能体配置面板 === -->
