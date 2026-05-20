@@ -67,9 +67,15 @@ func main() {
 	mux := http.NewServeMux()
 
 	// WebSocket路由
+	// 注册 API v1 路由（新版）
+	registerAPIV1Routes(mux)
+
+	// ==================== 旧版 API 路由（已弃用）====================
+	// 保留 6 个月过渡期，添加 Deprecation 警告
+
+	// WebSocket路由
 	mux.HandleFunc("/ws/chat", handleWebSocket)
 	mux.HandleFunc("/ws/ops/ssh", handleSSHWebSocket)
-
 
 	// 版本号 API（无需鉴权）
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
@@ -77,27 +83,27 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"version": Version})
 	})
 
-	// 数据本体池API路由
-	mux.HandleFunc("/api/login", handleDataOntologyLogin)
-	mux.HandleFunc("/api/users", handleDataOntologyUsers)
-	mux.HandleFunc("/api/users/batch", handleDataOntologyUsersBatch)
-	mux.HandleFunc("/api/users/", handleDataOntologyUsersDetail)
-	mux.HandleFunc("/api/apikey", handleApiKey)
-	mux.HandleFunc("/api/settings", handleUserSettings)
-	mux.HandleFunc("/api/test-connection", handleTestConnection)
-	mux.HandleFunc("/api/databases", handleDatabases)
-	mux.HandleFunc("/api/table-retrieval/sync", handleTableRetrievalSync)
-	mux.HandleFunc("/api/table-retrieval/status", handleTableRetrievalStatus)
-	mux.HandleFunc("/api/table-retrieval/embedding-status", handleTableRetrievalEmbeddingStatus)
-	mux.HandleFunc("/api/table-retrieval/relation-status", handleTableRetrievalRelationStatus)
-	mux.HandleFunc("/api/table-retrieval/embedding-sync", handleTableRetrievalEmbeddingSync)
-	mux.HandleFunc("/api/table-retrieval/relation-scan", handleTableRetrievalRelationScan)
-	mux.HandleFunc("/api/table-retrieval/relation-confirm", handleTableRetrievalRelationConfirm)
-	mux.HandleFunc("/api/table-retrieval/embedding-preview", handleTableRetrievalEmbeddingPreview)
-	mux.HandleFunc("/api/table-retrieval/relation-preview", handleTableRetrievalRelationPreview)
-	mux.HandleFunc("/api/table-retrieval/search", handleTableRetrievalSearch)
-	mux.HandleFunc("/api/table-retrieval/vectors", handleTableRetrievalVectorList)
-	mux.HandleFunc("/api/table-retrieval/relations", handleTableRetrievalRelationList)
+	// 数据本体池API路由（旧版）
+	mux.HandleFunc("/api/login", deprecationMiddleware(handleDataOntologyLogin, "/api/v1/system/auth/login"))
+	mux.HandleFunc("/api/users", deprecationMiddleware(handleDataOntologyUsers, "/api/v1/system/users"))
+	mux.HandleFunc("/api/users/batch", deprecationMiddleware(handleDataOntologyUsersBatch, "/api/v1/system/users/batch"))
+	mux.HandleFunc("/api/users/", deprecationMiddleware(handleDataOntologyUsersDetail, "/api/v1/system/users/{id}"))
+	mux.HandleFunc("/api/apikey", deprecationMiddleware(handleApiKey, "/api/v1/system/apikeys"))
+	mux.HandleFunc("/api/settings", deprecationMiddleware(handleUserSettings, "/api/v1/system/settings"))
+	mux.HandleFunc("/api/test-connection", deprecationMiddleware(handleTestConnection, "/api/v1/databases/{id}/test"))
+	mux.HandleFunc("/api/databases", deprecationMiddleware(handleDatabases, "/api/v1/databases"))
+	mux.HandleFunc("/api/table-retrieval/sync", deprecationMiddleware(handleTableRetrievalSync, "/api/v1/retrieval/sync"))
+	mux.HandleFunc("/api/table-retrieval/status", deprecationMiddleware(handleTableRetrievalStatus, "/api/v1/retrieval/status"))
+	mux.HandleFunc("/api/table-retrieval/embedding-status", deprecationMiddleware(handleTableRetrievalEmbeddingStatus, "/api/v1/retrieval/embedding/status"))
+	mux.HandleFunc("/api/table-retrieval/relation-status", deprecationMiddleware(handleTableRetrievalRelationStatus, "/api/v1/retrieval/relations/status"))
+	mux.HandleFunc("/api/table-retrieval/embedding-sync", deprecationMiddleware(handleTableRetrievalEmbeddingSync, "/api/v1/retrieval/embedding/sync"))
+	mux.HandleFunc("/api/table-retrieval/relation-scan", deprecationMiddleware(handleTableRetrievalRelationScan, "/api/v1/retrieval/relations/scan"))
+	mux.HandleFunc("/api/table-retrieval/relation-confirm", deprecationMiddleware(handleTableRetrievalRelationConfirm, "/api/v1/retrieval/relations/confirm"))
+	mux.HandleFunc("/api/table-retrieval/embedding-preview", deprecationMiddleware(handleTableRetrievalEmbeddingPreview, "/api/v1/retrieval/embedding/preview"))
+	mux.HandleFunc("/api/table-retrieval/relation-preview", deprecationMiddleware(handleTableRetrievalRelationPreview, "/api/v1/retrieval/relations/preview"))
+	mux.HandleFunc("/api/table-retrieval/search", deprecationMiddleware(handleTableRetrievalSearch, "/api/v1/retrieval/search"))
+	mux.HandleFunc("/api/table-retrieval/vectors", deprecationMiddleware(handleTableRetrievalVectorList, "/api/v1/retrieval/vectors"))
+	mux.HandleFunc("/api/table-retrieval/relations", deprecationMiddleware(handleTableRetrievalRelationList, "/api/v1/retrieval/relations"))
 	mux.HandleFunc("/api/databases/", func(w http.ResponseWriter, r *http.Request) {
 		trimPath := strings.Trim(r.URL.Path, "/")
 		parts := strings.Split(trimPath, "/")
