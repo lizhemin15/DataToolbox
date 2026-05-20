@@ -1176,7 +1176,7 @@ func handleDataOntologyUsersBatch(w http.ResponseWriter, r *http.Request) {
 
 func handleDataOntologyUsersDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	base := "/api/users/"
+	base := "/api/v1/system/users/"
 	if !strings.HasPrefix(r.URL.Path, base) {
 		http.NotFound(w, r)
 		return

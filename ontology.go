@@ -962,7 +962,7 @@ func handleGovernanceShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// 解析路径: /api/share/{token}[/run[/run_id[/download]]]
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/share/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/share/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少分享token"})
 		return

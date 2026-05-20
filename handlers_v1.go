@@ -28,7 +28,7 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 调用原有 handler（复用逻辑）
-	r.URL.Path = "/api/databases/" + id
+	r.URL.Path = "/api/v1/databases/" + id
 	handleDatabaseDetail(w, r)
 }
 
@@ -43,7 +43,7 @@ func handleOpenAPIDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 调用原有 handler（复用逻辑）
-	r.URL.Path = "/api/apis/" + id
+	r.URL.Path = "/api/v1/openapis/" + id
 	handleApiDetail(w, r)
 }
 
@@ -86,7 +86,7 @@ func handleGovernanceTaskDetailV1(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 调用原有 handler
-	r.URL.Path = "/api/governance/tasks/" + id
+	r.URL.Path = "/api/v1/gov/tasks/" + id
 	handleGovernanceTaskDetail(w, r)
 }
 
@@ -111,7 +111,7 @@ func handleGovernanceShareV1(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 调用原有 handler
-	r.URL.Path = "/api/share/" + token
+	r.URL.Path = "/api/v1/share/" + token
 	handleGovernanceShare(w, r)
 }
 

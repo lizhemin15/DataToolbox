@@ -240,7 +240,7 @@ func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatab
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/databases", nil)
+	data, err := cli.do(http.MethodGet, "api/v1/databases", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -252,7 +252,7 @@ func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -266,7 +266,7 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 	}
 	
 	// 先获取数据库类型
-	dbData, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	dbData, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -300,7 +300,7 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 		"database_id": in.DatabaseID,
 		"sql":         sql,
 	})
-	data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
+	data, err := cli.do(http.MethodPost, "api/v1/gov/execute-sql", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -321,7 +321,7 @@ func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLI
 		"sql":         in.SQL,
 		"params":      in.Params,
 	})
-	data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
+	data, err := cli.do(http.MethodPost, "api/v1/gov/execute-sql", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -333,7 +333,7 @@ func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/apis", nil)
+	data, err := cli.do(http.MethodGet, "api/v1/openapis", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -345,7 +345,7 @@ func mcpGetApiDetail(ctx context.Context, req *mcp.CallToolRequest, in getApiDet
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/apis/"+in.ApiID, nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/openapis/"+in.ApiID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -361,7 +361,7 @@ func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*m
 	if body == nil {
 		body = []byte(`{"params":{}}`)
 	}
-	data, err := cli.do(http.MethodPost, "/api/apis/"+in.ApiID+"/test", body)
+	data, err := cli.do(http.MethodPost, "/api/v1/openapis/"+in.ApiID+"/test", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -377,7 +377,7 @@ func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTab
 		"query":    in.Query,
 		"database": in.Database,
 	})
-	data, err := cli.do(http.MethodPost, "/api/table-retrieval/search", reqBody)
+	data, err := cli.do(http.MethodPost, "api/v1/retrieval/search", reqBody)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -389,7 +389,7 @@ func mcpGetDbSchema(ctx context.Context, req *mcp.CallToolRequest, in getDbSchem
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -402,7 +402,7 @@ func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQL
 		return nil, mcpOutput{}, err
 	}
 	// 先获取数据库信息以提取类型
-	data, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -434,7 +434,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		return nil, mcpOutput{}, err
 	}
 	// 通过数据库名称查找 database_id
-	dbsData, err := cli.do(http.MethodGet, "/api/databases", nil)
+	dbsData, err := cli.do(http.MethodGet, "api/v1/databases", nil)
 	if err != nil {
 		return nil, mcpOutput{}, fmt.Errorf("获取数据库列表失败: %w", err)
 	}
@@ -466,7 +466,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		"database_id":    databaseID,
 		"default_params": in.DefaultParams,
 	})
-	data, err := cli.do(http.MethodPost, "/api/apis", reqBody)
+	data, err := cli.do(http.MethodPost, "api/v1/openapis", reqBody)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -707,7 +707,7 @@ func runMCPServer() {
 		fmt.Fprintf(os.Stderr, "MCP 启动失败: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := cli.do(http.MethodGet, "/api/mcp/config", nil)
+	data, err := cli.do(http.MethodGet, "api/v1/mcp/config", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 无法连接服务端: %v\n", err)
 		os.Exit(1)

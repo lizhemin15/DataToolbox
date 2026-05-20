@@ -2316,7 +2316,7 @@ func buildCreateApiPrompt(userMessage string, dbSchemas []map[string]interface{}
 	prompt += "```json\n"
 	prompt += "{\n"
 	prompt += "  \"name\": \"查询员工薪资\",\n"
-	prompt += "  \"path\": \"/api/hr/salary\",\n"
+	prompt += "  \"path\": \"/api/v1/openapis/hr/salary\",\n"
 	prompt += "  \"method\": \"GET\",\n"
 	prompt += "  \"sql\": \"SELECT he.EMP_NAME, hsr.BASE_SALARY, hsr.BONUS, hsr.ACTUAL_PAY FROM HR_EMPLOYEE he JOIN HR_SALARY_RECORD hsr ON he.EMP_ID = hsr.EMP_ID WHERE hsr.YEAR_MONTH = #{year_month}\",\n"
 	prompt += "  \"description\": \"查询指定月份的员工薪资信息\",\n"

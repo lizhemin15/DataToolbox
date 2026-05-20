@@ -26,7 +26,7 @@ import (
 func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/governance/tasks/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/gov/tasks/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少任务ID"})
 		return
@@ -784,9 +784,9 @@ func handleGovernanceExamplesList(w http.ResponseWriter, r *http.Request) {
 // handleGovernanceExampleDownload GET …/examples/{filename}；POST …/examples/reload 为预置示例热更新
 
 func handleGovernanceExampleDownload(w http.ResponseWriter, r *http.Request) {
-	rawPath := strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
+	rawPath := strings.TrimPrefix(r.URL.Path, "/api/v1/gov/examples/")
 	if rawPath == r.URL.Path {
-		rawPath = strings.TrimPrefix(r.URL.Path, "/api/governance/examples/")
+		rawPath = strings.TrimPrefix(r.URL.Path, "/api/v1/gov/examples/")
 	}
 	rawPath = strings.TrimPrefix(rawPath, "/")
 
@@ -1775,7 +1775,7 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 			q.Set("task_id", task.ID)
 			q.Set("run_id", runID)
 			q.Set("name", safe)
-			downloadURL := "/api/governance/download-api-output?" + q.Encode()
+			downloadURL := "/api/v1/gov/download-api-output?" + q.Encode()
 			outputFiles = append(outputFiles, map[string]string{
 				"name":         safe,
 				"download_url": downloadURL,
@@ -2461,7 +2461,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 提取 api_path
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/tasks/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/gov/tasks/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少API路径"})
 		return
@@ -2472,7 +2472,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.RLock()
 	var matchedTask *GovernanceTask
 	for _, task := range governanceTasks {
-		if task.APIPath == "/api/tasks/"+apiPath && task.RegisterAsAPI {
+		if task.APIPath == "/api/v1/gov/tasks/"+apiPath && task.RegisterAsAPI {
 			matchedTask = task
 			break
 		}
