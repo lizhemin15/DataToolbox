@@ -23,7 +23,7 @@ import (
 )
 
 // mcpLoopbackAddr 由 server.go 的 main() 在监听前设置
-var mcpLoopbackAddr = "http://127.0.0.1:8080"
+var mcpLoopbackAddr = "http://127.0.0.1:8080/"
 
 const mcpServerName = "data-ontology"
 const mcpServerVersion = "1.0.0"
@@ -154,6 +154,7 @@ func newMCPClient() (*mcpClient, error) {
 
 func (c *mcpClient) do(method, path string, body []byte) ([]byte, error) {
 	reqURL := c.baseURL + path
+	log.Printf("[MCP] 请求: %s %s", method, reqURL)
 	var req *http.Request
 	var err error
 	if body != nil {

@@ -31,7 +31,7 @@ func main() {
 	}
 
 	// MCP 回环与 gov-runner 回调本机 API（需在 init 之前，避免非默认端口时回调错误）
-	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d/", port)
 	govRunnerAPIBase = mcpLoopbackAddr
 
 	// 初始化数据本体池
