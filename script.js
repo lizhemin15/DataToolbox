@@ -13381,7 +13381,7 @@ async function deleteVector(tableName) {
 async function showAddVectorModal() {
     // 先获取该数据库的表列表
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/tables?db_id=${currentDb.id}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables`);
         const data = await response.json();
 
         if (!data.success) {
