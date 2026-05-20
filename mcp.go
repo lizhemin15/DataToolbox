@@ -264,10 +264,13 @@ type executeApiIn struct {
 func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
+		log.Printf("[MCP] list_databases: getMCPClientFromContext error: %v", err)
 		return nil, mcpOutput{}, err
 	}
+	log.Printf("[MCP] list_databases: client baseURL=%s, apiKeyLen=%d", cli.baseURL, len(cli.apiKey))
 	data, err := cli.do(http.MethodGet, "/api/v1/databases", nil)
 	if err != nil {
+		log.Printf("[MCP] list_databases: cli.do error: %v", err)
 		return nil, mcpOutput{}, err
 	}
 	return nil, mcpOutput{Result: string(data)}, nil
@@ -532,9 +535,11 @@ type mcpClientContextKey struct{}
 // Stdio 模式：创建新的客户端
 func getMCPClientFromContext(ctx context.Context) (*mcpClient, error) {
 	if cli, ok := ctx.Value(mcpClientContextKey{}).(*mcpClient); ok && cli != nil {
+		log.Printf("[MCP] getMCPClientFromContext: got client from context, baseURL=%s, apiKeyLen=%d", cli.baseURL, len(cli.apiKey))
 		return cli, nil
 	}
 	// 回退：创建新的客户端（Stdio 模式）
+	log.Printf("[MCP] getMCPClientFromContext: no client in context, falling back to newMCPClient()")
 	return newMCPClient()
 }
 
@@ -719,6 +724,7 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 将 MCP 客户端注入到请求上下文中，供工具处理函数使用
 	cli := newLoopbackMCPClient(apiKey)
+	log.Printf("[MCP] handleMCPHTTP: injecting client, baseURL=%s, apiKeyLen=%d, apiKeyPrefix=%s", cli.baseURL, len(cli.apiKey), func() string { if len(cli.apiKey) >= 8 { return cli.apiKey[:8] }; return cli.apiKey }())
 	ctx := context.WithValue(r.Context(), mcpClientContextKey{}, cli)
 
 	// 委托给 go-sdk StreamableHTTPHandler
