@@ -14293,7 +14293,13 @@ async function sendClusterQuery(message, databases, modules) {
         const response = await fetchWithAuth(`${API_BASE}/api/ai/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, databases, modules, mode: 'cluster' })
+            body: JSON.stringify({ 
+                message, 
+                databases, 
+                modules, 
+                mode: 'cluster',
+                session_id: currentSessionId || 'default'
+            })
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

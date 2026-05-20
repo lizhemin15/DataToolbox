@@ -383,11 +383,12 @@ type RelationCandidate struct {
 // AIQueryRequest AI查询请求
 
 type AIQueryRequest struct {
-	Message   string                   `json:"message"`
-	Databases []string                 `json:"databases"`
-	Modules   []string                 `json:"modules,omitempty"`
-	History   []map[string]interface{} `json:"history,omitempty"`
-	Mode      string                   `json:"mode,omitempty"` // "fast"(默认) 或 "cluster"
+	Message    string                   `json:"message"`
+	Databases  []string                 `json:"databases"`
+	Modules    []string                 `json:"modules,omitempty"`
+	History    []map[string]interface{} `json:"history,omitempty"`
+	Mode       string                   `json:"mode,omitempty"`      // "fast"(默认) 或 "cluster"
+	SessionID  string                   `json:"session_id,omitempty"` // 会话ID，用于隔离不同会话的记忆
 }
 
 // AICodegenRequest 数据治理入库代码 AI 生成请求（与 AI 助手共用 url/api_key/model）

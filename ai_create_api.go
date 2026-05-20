@@ -444,23 +444,27 @@ func initAgentSubsystem() {
 	// Orchestrator 改为懒初始化（每用户首次查询时创建），无需启动时预创建
 }
 
-// getOrchestratorForUser 获取指定用户的 Orchestrator（懒初始化）
+// getOrchestratorForSession 获取指定会话的 Orchestrator（懒初始化）
+// 每个会话独立 workspace，避免记忆污染
 
-func getOrchestratorForUser(username string) *agent.Orchestrator {
+func getOrchestratorForSession(username string, sessionID string) *agent.Orchestrator {
+	// sessionKey = username + sessionID
+	sessionKey := fmt.Sprintf("%s:%s", username, sessionID)
+	
 	agentOrchestratorMu.RLock()
-	orch, exists := agentOrchestrators[username]
+	orch, exists := agentOrchestrators[sessionKey]
 	agentOrchestratorMu.RUnlock()
 	if exists && orch != nil {
 		return orch
 	}
 
-	// 懒初始化：为该用户创建独立 Orchestrator
+	// 懒初始化：为该会话创建独立 Orchestrator
 	agentOrchestratorMu.Lock()
 	defer agentOrchestratorMu.Unlock()
 
 	// double-check
-	if agentOrchestrators[username] != nil {
-		return agentOrchestrators[username]
+	if agentOrchestrators[sessionKey] != nil {
+		return agentOrchestrators[sessionKey]
 	}
 
 	dataOntologyMu.RLock()
@@ -468,7 +472,7 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 	dataOntologyMu.RUnlock()
 
 	if aiConfig == nil || aiConfig.APIKey == "" || aiConfig.Model == "" {
-		log.Printf("[agent] AI config not ready for user=%s", username)
+		log.Printf("[agent] AI config not ready for user=%s session=%s", username, sessionID)
 		return nil
 	}
 
@@ -498,7 +502,7 @@ func getOrchestratorForUser(username string) *agent.Orchestrator {
 	}
 
 	// 2. 构建 PicoClaw Config（每用户独立 workspace）
-	picoCfg := buildPicoClawConfig(aiConfig, username)
+	picoCfg := buildPicoClawConfig(aiConfig, username, sessionID)
 
 	// 3. 创建 Orchestrator 并初始化
 	orch, err = agent.NewOrchestrator(agent.OrchestratorConfig{
@@ -698,13 +702,13 @@ ask_user 使用示例：
 `
 		os.MkdirAll(agentWorkspace, 0755)
 	if err := os.WriteFile(agentMDPath, []byte(agentMDContent), 0644); err != nil {
-		log.Printf("[agent] failed to write AGENT.md for user=%s: %v", username, err)
+		log.Printf("[agent] failed to write AGENT.md for user=%s session=%s: %v", username, sessionID, err)
 	} else {
-		log.Printf("[agent] wrote AGENT.md for user=%s at %s", username, agentMDPath)
+		log.Printf("[agent] wrote AGENT.md for user=%s session=%s at %s", username, sessionID, agentMDPath)
 	}
 
-	agentOrchestrators[username] = orch
-	log.Printf("[agent] orchestrator initialized for user=%s with workspace=%s", username, picoCfg.Agents.Defaults.Workspace)
+	agentOrchestrators[sessionKey] = orch
+	log.Printf("[agent] orchestrator initialized for user=%s session=%s with workspace=%s", username, sessionID, picoCfg.Agents.Defaults.Workspace)
 	return orch
 }
 
@@ -725,9 +729,9 @@ func sanitizePathName(name string) string {
 	return result
 }
 
-// buildPicoClawConfig 构建 PicoClaw 配置（每用户独立 workspace）
+// buildPicoClawConfig 构建 PicoClaw 配置（每会话独立 workspace）
 
-func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Config {
+func buildPicoClawConfig(aiConfig *AIConfig, username string, sessionID string) *picoclawcfg.Config {
 	cfg := &picoclawcfg.Config{}
 
 	// 默认 agent 配置
@@ -737,12 +741,13 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string) *picoclawcfg.Confi
 	cfg.Agents.Defaults.Temperature = &temp
 	cfg.Agents.Defaults.MaxParallelTurns = 1
 
-	// 沙箱隔离 — 每用户独立 workspace，限制在安装目录/agent-workspace/username/
+	// 沙箱隔离 — 每会话独立 workspace，限制在安装目录/agent-workspace/username/sessionID/
 	// 路径从可执行文件位置推导，不硬编码
 	exePath, _ := os.Executable()
 	installDir := filepath.Dir(exePath)
 	safeUsername := sanitizePathName(username)
-	agentWorkspace := filepath.Join(installDir, "agent-workspace", safeUsername)
+	safeSessionID := sanitizePathName(sessionID)
+	agentWorkspace := filepath.Join(installDir, "agent-workspace", safeUsername, safeSessionID)
 	cfg.Agents.Defaults.Workspace = agentWorkspace
 	cfg.Agents.Defaults.RestrictToWorkspace = true
 	cfg.Agents.Defaults.SubTurn.MaxDepth = 3
@@ -862,8 +867,13 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 	sendSSE(w, "start", map[string]interface{}{"message": "🤖 集群模式已启动，智能体正在规划任务..."})
 	flusher.Flush()
 
-	// 懒初始化：获取该用户的 Orchestrator（每用户独立 workspace）
-	orch := getOrchestratorForUser(username)
+	// 懒初始化：获取该会话的 Orchestrator（每会话独立 workspace）
+	sessionID := queryReq.SessionID
+	if sessionID == "" {
+		// 如果前端没传 sessionID，生成一个默认的（兼容旧前端）
+		sessionID = "default"
+	}
+	orch := getOrchestratorForSession(username, sessionID)
 	if orch == nil {
 		sendSSE(w, "error", map[string]interface{}{"message": "请先配置AI设置（API Key、模型）"})
 		sendSSE(w, "done", map[string]interface{}{})
@@ -887,8 +897,6 @@ func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flus
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
 	defer cancel()
-
-	sessionID := fmt.Sprintf("cluster-%s", username)
 
 	// 构建增强消息：注入意图检测、数据库和模块上下文
 	enhancedMessage := queryReq.Message
