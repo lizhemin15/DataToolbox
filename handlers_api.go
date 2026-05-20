@@ -731,14 +731,21 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	// 从URL中提取数据库ID
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	if len(parts) < 4 {
+	// 兼容 /api/v1/databases/{id} 和 /api/databases/{id}
+	dbID := ""
+	for i, p := range parts {
+		if p == "databases" && i+1 < len(parts) && parts[i+1] != "" {
+			dbID = parts[i+1]
+			break
+		}
+	}
+	if dbID == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"message": "无效的请求路径",
 		})
 		return
 	}
-	dbID := parts[3]
 
 	dataOntologyMu.RLock()
 	config, exists := dataOntologyDatabases[dbID]

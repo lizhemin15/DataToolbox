@@ -186,7 +186,7 @@ func (c *mcpClient) do(method, path string, body []byte) ([]byte, error) {
 // newLoopbackMCPClient 创建回环 MCP 客户端（用于 HTTP 模式的工具处理函数）
 func newLoopbackMCPClient(apiKey string) *mcpClient {
 	return &mcpClient{
-		baseURL: mcpLoopbackAddr,
+		baseURL: strings.TrimSuffix(mcpLoopbackAddr, "/"),
 		apiKey:  apiKey,
 		client:  &http.Client{Timeout: HTTPClientTimeout},
 	}
@@ -329,7 +329,7 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 		"database_id": in.DatabaseID,
 		"sql":         sql,
 	})
-	data, err := cli.do(http.MethodPost, "api/v1/gov/execute-sql", body)
+	data, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -350,7 +350,7 @@ func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLI
 		"sql":         in.SQL,
 		"params":      in.Params,
 	})
-	data, err := cli.do(http.MethodPost, "api/v1/gov/execute-sql", body)
+	data, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", body)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -362,7 +362,7 @@ func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "api/v1/openapis", nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/openapis", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -406,7 +406,7 @@ func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTab
 		"query":    in.Query,
 		"database": in.Database,
 	})
-	data, err := cli.do(http.MethodPost, "api/v1/retrieval/search", reqBody)
+	data, err := cli.do(http.MethodPost, "/api/v1/retrieval/search", reqBody)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -463,7 +463,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		return nil, mcpOutput{}, err
 	}
 	// 通过数据库名称查找 database_id
-	dbsData, err := cli.do(http.MethodGet, "api/v1/databases", nil)
+	dbsData, err := cli.do(http.MethodGet, "/api/v1/databases", nil)
 	if err != nil {
 		return nil, mcpOutput{}, fmt.Errorf("获取数据库列表失败: %w", err)
 	}
@@ -495,7 +495,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		"database_id":    databaseID,
 		"default_params": in.DefaultParams,
 	})
-	data, err := cli.do(http.MethodPost, "api/v1/openapis", reqBody)
+	data, err := cli.do(http.MethodPost, "/api/v1/openapis", reqBody)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
@@ -712,12 +712,12 @@ func handleMCPHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 对于 X-Internal-Call 请求，注入 admin token 到 context
+	// 对于 X-Internal-Call 请求，注入 admin API Key 到 context
 	apiKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if r.Header.Get("X-Internal-Call") == "datatoolbox-agent" {
 		dataOntologyMu.RLock()
-		if user, ok := dataOntologyUsers["admin"]; ok {
-			apiKey = user.Token
+		if user, ok := dataOntologyUsers["admin"]; ok && user.ApiKey != "" {
+			apiKey = user.ApiKey
 		}
 		dataOntologyMu.RUnlock()
 	}
@@ -739,7 +739,7 @@ func runMCPServer() {
 		fmt.Fprintf(os.Stderr, "MCP 启动失败: %v\n", err)
 		os.Exit(1)
 	}
-	data, err := cli.do(http.MethodGet, "api/v1/mcp/config", nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/mcp/config", nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 无法连接服务端: %v\n", err)
 		os.Exit(1)
