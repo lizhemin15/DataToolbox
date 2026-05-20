@@ -962,9 +962,9 @@ body {
 
 /* 折叠状态 */
 .collapsible-column.collapsed {
-    width: 40px !important;
-    flex: 0 0 40px !important;
-    min-width: 40px !important;
+    width: 60px !important;
+    flex: 0 0 60px !important;
+    min-width: 60px !important;
     padding: 12px 8px !important;
     overflow: hidden;
 }
@@ -979,11 +979,14 @@ body {
 
 .collapsible-column.collapsed .column-title-row {
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
 }
 
 .collapsible-column.collapsed .column-title-row h3 {
-    display: none;
+    display: block;
+    font-size: 12px;
+    text-align: center;
+    white-space: nowrap;
 }
 
 .collapsible-column.collapsed #dbList,
