@@ -1341,6 +1341,11 @@ async function switchTab(tabName) {
     } else if (tabName === 'mcp') {
         loadMcpInfo();
     } else if (tabName === 'ai') {
+        // 首次进入智能助手 tab 时初始化会话系统
+        if (!window._aiSessionInitialized) {
+            window._aiSessionInitialized = true;
+            initAgentMode();
+        }
         loadAiConfig();
         updateAiContextDisplay();
     } else if (tabName === 'governance') {
