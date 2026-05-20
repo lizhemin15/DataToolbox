@@ -264,9 +264,41 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
+	
+	// 先获取数据库类型
+	dbData, err := cli.do(http.MethodGet, "/api/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	var dbInfo struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(dbData, &dbInfo); err != nil {
+		return nil, mcpOutput{}, err
+	}
+	
+	// 根据数据库类型选择表结构查询 SQL
+	var sql string
+	tableName := strings.Trim(in.TableName, "\"`'") // 去掉可能的引号
+	switch dbInfo.Data.Type {
+	case "dm", "DM", "达梦":
+		// 达梦数据库使用 USER_TAB_COLUMNS
+		sql = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
+	case "mysql", "MySQL":
+		sql = "DESCRIBE `" + tableName + "`"
+	case "postgres", "postgresql", "PostgreSQL":
+		sql = fmt.Sprintf("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+	default:
+		// 默认尝试 DESCRIBE
+		sql = "DESCRIBE `" + tableName + "`"
+	}
+	
 	body, _ := json.Marshal(map[string]interface{}{
 		"database_id": in.DatabaseID,
-		"sql":         "DESCRIBE `" + in.TableName + "`",
+		"sql":         sql,
 	})
 	data, err := cli.do(http.MethodPost, "/api/governance/execute-sql", body)
 	if err != nil {
