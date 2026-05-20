@@ -717,12 +717,10 @@ func sanitizeGovernanceExampleFilename(s string) string {
 }
 
 func getGovernanceExampleFile(safe string) ([]byte, error) {
+	// 只从磁盘读取，不再使用 embed fallback
 	dataDir := filepath.Dir(getDataOntologyStorePath())
 	diskPath := filepath.Join(dataDir, "example_files", safe)
-	if b, err := os.ReadFile(diskPath); err == nil {
-		return b, nil
-	}
-	return governanceExamplesFS.ReadFile("examples/governance/" + safe)
+	return os.ReadFile(diskPath)
 }
 
 type ExampleFile struct {
@@ -730,34 +728,17 @@ type ExampleFile struct {
 	Size int64  `json:"size"`
 }
 
+// 只从磁盘读取示例文件列表
 func listGovernanceExampleFiles() ([]ExampleFile, error) {
 	dataDir := filepath.Dir(getDataOntologyStorePath())
 	exampleDir := filepath.Join(dataDir, "example_files")
-	seen := map[string]bool{}
 	var examples []ExampleFile
-	if entries, err := os.ReadDir(exampleDir); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".docx") {
-				continue
-			}
-			info, err := entry.Info()
-			size := int64(0)
-			if err == nil {
-				size = info.Size()
-			}
-			examples = append(examples, ExampleFile{Name: entry.Name(), Size: size})
-			seen[entry.Name()] = true
-		}
-	}
-	entries, err := governanceExamplesFS.ReadDir("examples/governance")
+	entries, err := os.ReadDir(exampleDir)
 	if err != nil {
-		if len(examples) > 0 {
-			return examples, nil
-		}
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".docx") || seen[entry.Name()] {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".docx") {
 			continue
 		}
 		info, err := entry.Info()

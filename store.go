@@ -1350,7 +1350,10 @@ func handleWebNavLinkByID(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func loadGovernanceAggregateDailyReportJS() string {
-	b, err := governanceExamplesFS.ReadFile("scripts/aggregate-daily-report.js")
+	execPath, _ := os.Executable()
+	exeDir := filepath.Dir(execPath)
+	scriptPath := filepath.Join(exeDir, "scripts", "aggregate-daily-report.js")
+	b, err := os.ReadFile(scriptPath)
 	if err != nil {
 		log.Printf("读取 aggregate-daily-report.js 失败: %v", err)
 		return ""
@@ -1359,7 +1362,10 @@ func loadGovernanceAggregateDailyReportJS() string {
 }
 
 func loadGovernancePresetJS(name string) string {
-	b, err := governanceExamplesFS.ReadFile("scripts/" + name)
+	execPath, _ := os.Executable()
+	exeDir := filepath.Dir(execPath)
+	scriptPath := filepath.Join(exeDir, "scripts", name)
+	b, err := os.ReadFile(scriptPath)
 	if err != nil {
 		log.Printf("读取治理预置脚本 %s 失败: %v", name, err)
 		return ""

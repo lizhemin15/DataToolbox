@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"embed"
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -11,10 +10,6 @@ import (
 )
 
 var Version = "dev"
-
-//go:embed examples/governance scripts
-
-var governanceExamplesFS embed.FS
 
 // 条件编译：仅在支持CGO时导入这些驱动
 // SQLite, DuckDB, ClickHouse, Neo4j, Godror 需要CGO或特殊编译环境
