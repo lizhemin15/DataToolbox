@@ -11,12 +11,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -113,12 +115,35 @@ type mcpClient struct {
 func newMCPClient() (*mcpClient, error) {
 	baseURL := os.Getenv("DATA_ONTOLOGY_BASE_URL")
 	if baseURL == "" {
-		baseURL = "http://127.0.0.1:8080"
+		baseURL = mcpLoopbackAddr // 使用服务实际监听地址
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
+	
+	// 优先使用环境变量，其次自动获取 admin 用户的 API Key
 	apiKey := os.Getenv("DATA_ONTOLOGY_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("请设置环境变量 DATA_ONTOLOGY_API_KEY（在数据本体池中生成 API Key）")
+		// 自动获取 admin 用户的 API Key（开箱即用）
+		dataOntologyMu.Lock()
+		adminUser, ok := dataOntologyUsers["admin"]
+		if ok && adminUser != nil && adminUser.ApiKey != "" {
+			apiKey = adminUser.ApiKey
+		}
+		dataOntologyMu.Unlock()
+	}
+	if apiKey == "" {
+		// 如果 admin 没有 API Key，自动生成一个
+		dataOntologyMu.Lock()
+		adminUser, ok := dataOntologyUsers["admin"]
+		if ok && adminUser != nil {
+			adminUser.ApiKey = "dok_" + uuid.New().String()
+			apiKey = adminUser.ApiKey
+			dataOntologyMu.Unlock()
+			saveDataOntologyStore()
+			log.Printf("[MCP] 自动生成 admin API Key: %s", apiKey[:12]+"...")
+		} else {
+			dataOntologyMu.Unlock()
+			return nil, fmt.Errorf("无法获取 API Key：admin 用户不存在")
+		}
 	}
 	return &mcpClient{
 		baseURL: baseURL,
