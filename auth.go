@@ -26,8 +26,10 @@ func initDataOntology() {
 		dataOntologyUsers["admin"] = &User{
 			Username: "admin",
 			Password: hashedPassword,
+			ApiKey:   "dok_" + uuid.New().String(), // 自动生成 API Key
 		}
 		log.Println("已创建默认管理员账号: admin/admin1234")
+		log.Printf("已自动生成 API Key: %s...", dataOntologyUsers["admin"].ApiKey[:12])
 
 		// 保存初始数据
 		dataOntologyMu.Unlock()
@@ -35,6 +37,37 @@ func initDataOntology() {
 			log.Printf("保存初始数据失败: %v", err)
 		}
 		dataOntologyMu.Lock()
+	} else {
+		// 确保 admin 用户有 API Key
+		if adminUser, ok := dataOntologyUsers["admin"]; ok && adminUser.ApiKey == "" {
+			adminUser.ApiKey = "dok_" + uuid.New().String()
+			log.Printf("已为 admin 用户生成 API Key: %s...", adminUser.ApiKey[:12])
+			dataOntologyMu.Unlock()
+			if err := saveDataOntologyStore(); err != nil {
+				log.Printf("保存 API Key 失败: %v", err)
+			}
+			dataOntologyMu.Lock()
+		}
+	}
+	
+	// 设置默认 AI 配置（如果未配置）
+	if dataOntologyAIConfig == nil {
+		trueVal := true
+		falseVal := false
+		dataOntologyAIConfig = &AIConfig{
+			URL:               "https://api.siliconflow.cn/v1",
+			APIKey:            "", // 用户需要自行配置
+			Model:             "Qwen/Qwen3-32B",
+			Timeout:           120,
+			EnableFunctionCall: &trueVal,
+			EnableThinking:    &trueVal,
+			EnableStreaming:   &trueVal,
+			EnableJSONMode:    &falseVal,
+		}
+		log.Println("已设置默认 Agent 服务模型配置:")
+		log.Printf("  URL: %s", dataOntologyAIConfig.URL)
+		log.Printf("  Model: %s", dataOntologyAIConfig.Model)
+		log.Println("  提示: 请在前端配置 API Key 后使用智能助手功能")
 	}
 	dataOntologyMu.Unlock()
 
