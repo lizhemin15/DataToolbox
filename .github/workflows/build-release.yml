@@ -135,7 +135,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go mod tidy
-          go build -tags release,nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
+          go build -tags nogov -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" -o ${{ matrix.output }} .
 
       - name: Prepare package files
         run: |
