@@ -1997,6 +1997,28 @@ body {
     flex-shrink: 0;
 }
 
+/* API Key 提示条 */
+.api-key-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, #fef3cd 0%, #fff8e1 100%);
+    border-bottom: 1px solid #f0d060;
+    font-size: 13px;
+    color: #856404;
+}
+.api-key-banner-icon {
+    font-size: 15px;
+}
+.api-key-banner-text {
+    flex: 1;
+}
+.api-key-banner .btn {
+    font-size: 12px;
+    padding: 3px 12px;
+}
+
 .apikey-popover {
     display: none;
     position: fixed;

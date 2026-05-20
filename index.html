@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
-<link rel="stylesheet" href="/style.css?v=202605202110">
+<link rel="stylesheet" href="/style.css?v=202605202200">
     <script src="/lib/d3.min.js"></script>
     <script src="/lib/three.min.js"></script>
     <script src="/lib/orbit-controls-wrapper.js"></script>
@@ -607,6 +607,12 @@
         </div>
 
         <div id="apiTab" class="tab-content">
+            <!-- API Key 提示条 -->
+            <div id="apiKeyBanner" class="api-key-banner" style="display:none;">
+                <span class="api-key-banner-icon">🔑</span>
+                <span class="api-key-banner-text">API Key 未生成，部分功能受限</span>
+                <button id="bannerGenerateApikeyBtn" class="btn btn-sm btn-primary" onclick="generateApiKey()">生成</button>
+            </div>
             <div class="container">
                 <div class="sidebar">
                     <div class="sidebar-header">
@@ -2348,7 +2354,7 @@
     <script src="/lib/pizzip.js"></script>
     <script src="/lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
-    <script src="/script.js?v=202605202110"></script>
+    <script src="/script.js?v=202605202200"></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->
     <script src="/lib/twemoji.min.js"></script>
     <script>

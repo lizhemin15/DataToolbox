@@ -3247,6 +3247,7 @@ function renderApiKeyUI() {
     const generateBtn = document.getElementById('generateApikeyBtn');
     const copyBtn = document.getElementById('copyApikeyBtn');
     const deleteBtn = document.getElementById('deleteApikeyBtn');
+    const banner = document.getElementById('apiKeyBanner');
 
     if (currentApiKey) {
         const masked = currentApiKey.substring(0, 8) + '********' + currentApiKey.substring(currentApiKey.length - 4);
@@ -3256,11 +3257,13 @@ function renderApiKeyUI() {
         generateBtn.textContent = '重新生成';
         copyBtn.style.display = '';
         deleteBtn.style.display = '';
+        if (banner) banner.style.display = 'none';
     } else {
         contentEl.innerHTML = '<span class="apikey-placeholder">未生成</span>';
         generateBtn.textContent = '生成';
         copyBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
+        if (banner) banner.style.display = 'flex';
     }
     updateMcpDisplay();
     initMcpSubTabs();
