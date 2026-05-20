@@ -4802,7 +4802,7 @@ function escapeHtml(text) {
 // 加载 AI 配置。
 async function loadAiConfig() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/config`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`);
 
         const data = await response.json();
 
@@ -4911,7 +4911,7 @@ function hideAiSettingsModal() {
 // 加载AI能力信息
 async function loadAiCapabilities() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/capabilities`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/capabilities`);
         const data = await response.json();
         if (data.success && data.capabilities) {
             aiCapabilities = data.capabilities;
@@ -4987,7 +4987,7 @@ async function detectAiCapabilities() {
             timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120
         };
         
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/config`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -5618,7 +5618,7 @@ async function handleSaveAiSettings(e) {
 
     try {
         // 保存 AI 配置
-        const aiResponse = await fetchWithAuth(`${API_BASE}/api/ai/config`, {
+        const aiResponse = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -5635,7 +5635,7 @@ async function handleSaveAiSettings(e) {
         }
 
         // 保存 RAG 配置
-        const trResponse = await fetchWithAuth(`${API_BASE}/api/ai/table-retrieval-config`, {
+        const trResponse = await fetchWithAuth(`${API_BASE}/api/v1/agent/table-retrieval-config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(trConfig)
@@ -8846,7 +8846,7 @@ function createGovHelper(logLines, uploadedFiles) {
         },
         // 调用 AI 接口；会自动携带 AI 配置的 URL/API Key/超时等参数
         async callAI(prompt) {
-            const resp = await fetchWithAuth(`${API_BASE}/api/ai/completion`, {
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
@@ -10599,7 +10599,7 @@ function startOntologyExtract() {
         document.getElementById('ontoAiProgressBar').style.width = progress2 + '%';
     }, 300);
 
-    fetchWithAuth(`${API_BASE}/api/ontology/extract`, {
+    fetchWithAuth(`${API_BASE}/api/v1/ontology/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ databases: dbIds }),
@@ -10719,7 +10719,7 @@ async function doOntologyQuery() {
     resultEl.innerHTML = '<span style="color:#667eea">AI 正在分析本体...</span>';
 
     try {
-        const res = await fetchWithAuth(`${API_BASE}/api/ontology/query`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/ontology/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, ontology: ontoData }),
@@ -12201,7 +12201,7 @@ let embeddingConfig = null;
 // 加载表检索配置
 async function loadTableRetrievalConfig() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/table-retrieval-config`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/table-retrieval-config`);
         const data = await response.json();
         if (data.success && data.config) {
             tableRetrievalConfig = data.config;
@@ -12223,7 +12223,7 @@ async function loadTableRetrievalConfig() {
 // 加载 Embedding 配置
 async function loadEmbeddingConfig() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/embedding-config`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/embedding-config`);
         const data = await response.json();
         if (data.success && data.config) {
             embeddingConfig = data.config;
@@ -12248,7 +12248,7 @@ async function handleSyncTableRetrieval() {
     btn.disabled = true;
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/sync`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
@@ -12259,7 +12259,7 @@ async function handleSyncTableRetrieval() {
             btn.textContent = '同步已启动';
             // 轮询检查状态
             setTimeout(async () => {
-                const statusResponse = await fetchWithAuth(`${API_BASE}/api/table-retrieval/embedding-status`);
+                const statusResponse = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/embedding-status`);
                 const statusData = await statusResponse.json();
                 if (statusData.success) {
                     const total = statusData.total_vectors || 0;
@@ -12308,7 +12308,7 @@ async function showSyncIndexModal() {
     
     // 加载当前 Embedding 配置
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/embedding-config`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/embedding-config`);
         const data = await response.json();
         if (data.success && data.config) {
             document.getElementById('syncEmbEnabled').checked = data.config.enabled || false;
@@ -12368,7 +12368,7 @@ async function handleSyncIndex() {
 
     try {
         // 1. 保存 Embedding 配置
-        const embResponse = await fetchWithAuth(`${API_BASE}/api/ai/embedding-config`, {
+        const embResponse = await fetchWithAuth(`${API_BASE}/api/v1/agent/embedding-config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(embConfig)
@@ -12388,7 +12388,7 @@ async function handleSyncIndex() {
         if (syncRelations) syncTypes.push('关系数据');
         progressEl.textContent = `正在同步: ${syncTypes.join('、')}...`;
 
-        const syncResponse = await fetchWithAuth(`${API_BASE}/api/table-retrieval/sync`, {
+        const syncResponse = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -12414,7 +12414,7 @@ async function handleSyncIndex() {
         const pollStatus = async () => {
             attempts++;
             try {
-                const statusResponse = await fetchWithAuth(`${API_BASE}/api/table-retrieval/embedding-status`);
+                const statusResponse = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/embedding-status`);
                 const statusData = await statusResponse.json();
 
                 if (statusData.success) {
@@ -12593,7 +12593,7 @@ async function executeVectorIndex() {
         }
         // 增量同步不需要额外参数
 
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/embedding-sync`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/embedding-sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
@@ -12768,7 +12768,7 @@ async function handleRelationIndex() {
     document.body.insertAdjacentHTML('beforeend', scanModalHtml);
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relation-scan`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relation-scan`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ db_id: currentDb.id, rules: selectedRules })
@@ -13134,7 +13134,7 @@ async function confirmRelationCandidates() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relation-confirm`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relation-confirm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ db_id: currentDb.id, relations: relationIds })
@@ -13213,7 +13213,7 @@ async function loadVectorPreviewPage(page) {
     const infoEl = document.getElementById('vectorPreviewInfo');
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/vectors?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/vectors?db_id=${currentDb.id}&page=${page}&page_size=${pageSize}`);
         const data = await response.json();
 
         if (data.success) {
@@ -13314,7 +13314,7 @@ async function deleteSelectedVectors() {
     const tableNames = Array.from(checked).map(cb => cb.value);
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/vectors`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/vectors`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -13349,7 +13349,7 @@ async function deleteVector(tableName) {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/vectors`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/vectors`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -13443,7 +13443,7 @@ async function createVectors() {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/vectors`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/vectors`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -13478,7 +13478,7 @@ function showEditVectorModal(tableName) {
 // 更新向量
 async function updateVector(tableName) {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/vectors`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/vectors`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -13575,7 +13575,7 @@ async function loadRelationPreviewPage(page) {
 
     try {
         // 调用 relation-preview API（从 data-store.json 读取）
-        let url = `${API_BASE}/api/table-retrieval/relation-preview?db_id=${currentDb.id}`;
+        let url = `${API_BASE}/api/v1/retrieval/relation-preview?db_id=${currentDb.id}`;
         
         const response = await fetchWithAuth(url);
         const data = await response.json();
@@ -13711,7 +13711,7 @@ async function deleteSelectedRelations() {
     const relationIDs = Array.from(checked).map(cb => parseInt(cb.value));
     
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relations`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relations`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -13897,7 +13897,7 @@ async function createRelation() {
             body.relation_name = relationName;
         }
 
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relations`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relations`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -14097,7 +14097,7 @@ async function updateRelation(relationId) {
             body.relation_name = relationName;
         }
 
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relations`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relations`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -14130,7 +14130,7 @@ async function deleteRelation(relationId) {
     }
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/table-retrieval/relations`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/retrieval/relations`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -14290,7 +14290,7 @@ async function sendClusterQuery(message, databases, modules) {
     let fullText = '';
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/ai/query`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/ai-query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
