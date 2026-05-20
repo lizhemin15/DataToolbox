@@ -240,7 +240,7 @@ func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatab
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
-	data, err := cli.do(http.MethodGet, "api/v1/databases", nil)
+	data, err := cli.do(http.MethodGet, "/api/v1/databases", nil)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
