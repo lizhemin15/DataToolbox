@@ -93,7 +93,18 @@
         <!-- 嵌入模式浮动设置按钮 -->
         <button id="embedSettingsBtn" class="embed-settings-btn" title="设置" style="display:none;">⚙️</button>
 
-        <!-- API Key 提示条：在接口分发 tab 内容区顶部内嵌显示 -->
+        <!-- API Key 弹层：放在主页面内、侧栏外，避免遮挡接口列表 -->
+        <div id="apikeyPopover" class="apikey-popover">
+            <div class="apikey-popover-title">API Key</div>
+            <div id="apikeyContent" class="apikey-content">
+                <span class="apikey-placeholder">未生成</span>
+            </div>
+            <div class="apikey-actions">
+                <button id="generateApikeyBtn" class="btn btn-sm btn-primary apikey-btn">生成</button>
+                <button id="copyApikeyBtn" class="btn btn-sm apikey-btn" style="display:none;">复制</button>
+                <button id="deleteApikeyBtn" class="btn btn-sm btn-danger apikey-btn" style="display:none;">删除</button>
+            </div>
+        </div>
 
         <!-- 数据库管理标签页 -->
         <div id="databaseTab" class="tab-content active">
@@ -587,20 +598,12 @@
         </div>
 
         <div id="apiTab" class="tab-content">
-            <!-- API Key 提示条：tab 标题栏下方内嵌显示 -->
-            <div id="apikeyBanner" class="apikey-banner">
-                <span class="apikey-banner-icon">🔑</span>
-                <span id="apikeyBannerText" class="apikey-banner-text">API Key 未生成</span>
-                <code id="apikeyBannerValue" class="apikey-banner-value" style="display:none;"></code>
-                <button id="generateApikeyBtn" class="btn btn-sm btn-primary apikey-banner-btn">生成</button>
-                <button id="copyApikeyBtn" class="btn btn-sm apikey-banner-btn" style="display:none;">复制</button>
-                <button id="deleteApikeyBtn" class="btn btn-sm btn-danger apikey-banner-btn" style="display:none;">删除</button>
-            </div>
             <div class="container">
                 <div class="sidebar">
                     <div class="sidebar-header">
                         <h3>接口列表</h3>
                         <div class="sidebar-header-actions">
+                            <button id="apikeyTriggerBtn" class="btn btn-sm" title="API Key 管理">🔑</button>
                             <button id="addApiBtn" class="btn btn-sm btn-primary">+ 添加</button>
                         </div>
                     </div>

@@ -1005,7 +1005,38 @@ function initEventListeners() {
         }
     });
 
-    // API Key 提示条按钮事件。
+    // API 与鉴权逻辑。
+    document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        const popover = document.getElementById('apikeyPopover');
+        const btn = document.getElementById('apikeyTriggerBtn');
+        popover.classList.toggle('show');
+        if (popover.classList.contains('show')) {
+            var rect = btn.getBoundingClientRect();
+            var popoverW = 270;
+            var sidebarWidth = 330;
+            // 避免弹层被左侧栏遮挡，固定到右侧安全区域。
+            var targetLeft = Math.max(rect.right, sidebarWidth);
+            if (targetLeft + popoverW <= window.innerWidth) {
+                popover.style.left = targetLeft + 'px';
+                popover.style.right = 'auto';
+            } else {
+                popover.style.right = '20px';
+                popover.style.left = 'auto';
+            }
+            popover.style.top = rect.top + 'px';
+        }
+    });
+    // API Key 弹层点击空白处自动关闭。
+    if (!window._apikeyPopoverClickHandler) {
+        window._apikeyPopoverClickHandler = function(e) {
+            const popover = document.getElementById('apikeyPopover');
+            if (popover && !popover.contains(e.target) && e.target.id !== 'apikeyTriggerBtn') {
+                popover.classList.remove('show');
+            }
+        };
+        document.addEventListener('click', window._apikeyPopoverClickHandler);
+    }
     document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
     document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
     document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
@@ -3173,9 +3204,7 @@ function copyApiKey() {
 }
 
 function renderApiKeyUI() {
-    const banner = document.getElementById('apikeyBanner');
-    const bannerText = document.getElementById('apikeyBannerText');
-    const bannerValue = document.getElementById('apikeyBannerValue');
+    const contentEl = document.getElementById('apikeyContent');
     const generateBtn = document.getElementById('generateApikeyBtn');
     const copyBtn = document.getElementById('copyApikeyBtn');
     const deleteBtn = document.getElementById('deleteApikeyBtn');
@@ -3184,18 +3213,12 @@ function renderApiKeyUI() {
         const masked = currentApiKey.substring(0, 8) + '********' + currentApiKey.substring(currentApiKey.length - 4);
         const safeKey = escapeHtml(currentApiKey);
         const safeMasked = escapeHtml(masked);
-        bannerText.textContent = 'API Key:';
-        bannerValue.textContent = safeMasked;
-        bannerValue.title = safeKey;
-        bannerValue.style.display = '';
-        banner.classList.add('has-key');
+        contentEl.innerHTML = `<code class="apikey-value" title="${safeKey}">${safeMasked}</code>`;
         generateBtn.textContent = '重新生成';
         copyBtn.style.display = '';
         deleteBtn.style.display = '';
     } else {
-        bannerText.textContent = 'API Key 未生成';
-        bannerValue.style.display = 'none';
-        banner.classList.remove('has-key');
+        contentEl.innerHTML = '<span class="apikey-placeholder">未生成</span>';
         generateBtn.textContent = '生成';
         copyBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
