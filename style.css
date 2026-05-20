@@ -892,6 +892,91 @@ body {
     color: #742a2a;
 }
 
+/* 数据库三列布局 */
+.db-three-column {
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+}
+
+.db-sidebar {
+    width: 220px;
+    flex: 0 0 220px;
+}
+
+.db-tables-column {
+    width: 280px;
+    flex: 0 0 280px;
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.tables-column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.tables-column-header h3 {
+    font-size: 15px;
+    color: #2d3748;
+    margin: 0;
+}
+
+.db-detail-column {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    min-height: 0;
+}
+
+/* 紧凑表列表 */
+.tables-list-compact {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.tables-list-compact .table-item-compact {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 6px;
+    background: #fafafa;
+    font-size: 13px;
+    color: #2d3748;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tables-list-compact .table-item-compact:hover {
+    border-color: #667eea;
+    background: #f0f4ff;
+}
+
+.tables-list-compact .table-item-compact.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    font-weight: 500;
+}
+
 .tables-section {
     margin-top: 30px;
 }

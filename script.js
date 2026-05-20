@@ -2232,17 +2232,17 @@ function renderTablesList(tables) {
     const tablesHtml = tables.map(table => {
         const tableName = typeof table === 'string' ? table : table.name;
         const tableComment = typeof table === 'object' ? (table.comment || '') : '';
-        const displayName = tableComment 
-            ? `<span class="table-name">${escapeHtml(tableName)}</span><span class="table-comment">${escapeHtml(tableComment)}</span>`
-            : escapeHtml(tableName);
+        const isActive = currentPreviewTable === tableName;
+        const activeClass = isActive ? ' active' : '';
+        const displayText = tableComment ? `${tableName} (${tableComment})` : tableName;
         return `
-            <div class="table-item" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
-                ${displayName}
+            <div class="table-item-compact${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
+                ${escapeHtml(displayText)}
             </div>
         `;
     }).join('');
     
-    listEl.innerHTML = '<div class="tables-grid">' + tablesHtml + '</div>';
+    listEl.innerHTML = tablesHtml;
 }
 
 // 当前预览的表。
