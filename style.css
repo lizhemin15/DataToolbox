@@ -933,6 +933,88 @@ body {
     margin: 0;
 }
 
+.column-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.collapse-btn {
+    background: #f0f4ff;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #667eea;
+    transition: all 0.2s;
+}
+
+.collapse-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+/* 折叠状态 */
+.collapsible-column.collapsed {
+    width: 32px !important;
+    flex: 0 0 32px !important;
+    min-width: 32px !important;
+    padding: 8px !important;
+    overflow: hidden;
+}
+
+.collapsible-column.collapsed .sidebar-header,
+.collapsible-column.collapsed .tables-column-header {
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: 8px;
+}
+
+.collapsible-column.collapsed .sidebar-header h3,
+.collapsible-column.collapsed .tables-column-header h3 {
+    display: none;
+}
+
+.collapsible-column.collapsed .column-header-actions {
+    flex-direction: column;
+    gap: 4px;
+}
+
+.collapsible-column.collapsed #dbList,
+.collapsible-column.collapsed #tablesList {
+    display: none;
+}
+
+.collapsible-column.collapsed .collapse-btn {
+    transform: rotate(180deg);
+}
+
+/* 展开按钮（折叠状态下显示在详情列边缘） */
+.expand-handle {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 48px;
+    background: #667eea;
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    z-index: 10;
+    transition: all 0.2s;
+}
+
+.expand-handle:hover {
+    background: #5a67d8;
+    width: 28px;
+}
+
 .db-detail-column {
     flex: 1 1 auto;
     min-width: 0;

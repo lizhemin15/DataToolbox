@@ -893,6 +893,7 @@ function setupGlobalErrorHandlers() {
 document.addEventListener('DOMContentLoaded', async function() {
     setupGlobalErrorHandlers();
     initToastContainer();
+    restoreColumnState();
     
     if (!checkServerAvailability()) {
         return;
@@ -2199,6 +2200,39 @@ async function loadDatabaseDetail(dbId) {
                 <div>无法加载数据库详情，请稍后重试</div>
             </div>
         `;
+    }
+}
+
+// 折叠/展开列
+function toggleColumn(columnId) {
+    const column = document.getElementById(columnId);
+    if (!column) return;
+    
+    column.classList.toggle('collapsed');
+    
+    // 保存折叠状态到 localStorage
+    const collapsedState = {
+        dbSidebar: document.getElementById('dbSidebar')?.classList.contains('collapsed'),
+        tablesColumn: document.getElementById('tablesColumn')?.classList.contains('collapsed')
+    };
+    localStorage.setItem('dbColumnCollapsed', JSON.stringify(collapsedState));
+}
+
+// 恢复列折叠状态
+function restoreColumnState() {
+    try {
+        const saved = localStorage.getItem('dbColumnCollapsed');
+        if (saved) {
+            const collapsedState = JSON.parse(saved);
+            if (collapsedState.dbSidebar) {
+                document.getElementById('dbSidebar')?.classList.add('collapsed');
+            }
+            if (collapsedState.tablesColumn) {
+                document.getElementById('tablesColumn')?.classList.add('collapsed');
+            }
+        }
+    } catch (e) {
+        console.error('恢复列状态失败:', e);
     }
 }
 

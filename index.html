@@ -110,10 +110,13 @@
         <div id="databaseTab" class="tab-content active">
             <div class="container db-three-column">
                 <!-- 左列：数据库列表 -->
-                <div class="sidebar db-sidebar">
+                <div class="sidebar db-sidebar collapsible-column" id="dbSidebar">
                     <div class="sidebar-header">
                         <h3>数据库</h3>
-                        <button id="addDbBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                        <div class="column-header-actions">
+                            <button id="addDbBtn" class="btn btn-sm btn-primary">+ 添加</button>
+                            <button class="collapse-btn" onclick="toggleColumn('dbSidebar')" title="折叠">◀</button>
+                        </div>
                     </div>
                     <div id="dbList" class="db-list">
                         <!-- 数据库列表将动态生成 -->
@@ -121,10 +124,13 @@
                 </div>
 
                 <!-- 中列：数据表列表 -->
-                <div class="db-tables-column">
+                <div class="db-tables-column collapsible-column" id="tablesColumn">
                     <div class="tables-column-header">
                         <h3>数据表</h3>
-                        <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
+                        <div class="column-header-actions">
+                            <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
+                            <button class="collapse-btn" onclick="toggleColumn('tablesColumn')" title="折叠">◀</button>
+                        </div>
                     </div>
                     <div id="tablesList" class="tables-list-compact">
                         <!-- 表列表将动态生成 -->
