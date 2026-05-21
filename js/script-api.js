@@ -1,1270 +1,1250 @@
-async function loadApis() {
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis`);
 
-        const data = await response.json();
-
-        if (data.success) {
-            apis = data.apis || [];
-            renderApiList();
-        }
-    } catch (error) {
-        console.error('加载 API 列表失败', error);
-        showToast('加载 API 列表失败', 'error');
-    }
-}
-
-// 过滤 API 列表。
-function filterApiList() {
-    renderApiList();
-}
-
-// 渲染 API 列表。
-function renderApiList() {
-    const listEl = document.getElementById('apiList');
-    const searchInput = document.getElementById('apiSearchInput');
-    const keyword = (searchInput ? searchInput.value : '').trim().toLowerCase();
+// 显示编辑数据库弹窗。
+function handleEditDatabase() {
+    if (!currentDb) return;
     
-    const filtered = keyword
-        ? apis.filter(api => 
-            api.name.toLowerCase().includes(keyword) || 
-            api.path.toLowerCase().includes(keyword) ||
-            api.method.toLowerCase().includes(keyword))
-        : apis;
-
-    if (filtered.length === 0) {
-        listEl.innerHTML = `<div style="text-align:center;color:#718096;padding:20px;">${keyword ? '未找到匹配 API' : '暂无 API'}</div>`;
-        return;
-    }
-
-    listEl.innerHTML = filtered.map(api => {
-        const methodColor = {
-            'GET': '#48bb78',
-            'POST': '#4299e1',
-            'PUT': '#ed8936',
-            'DELETE': '#f56565'
-        }[api.method] || '#718096';
-        const enabled = api.enabled !== false;
-        const safeApiId = escapeHtml(api.id);
-        const safeApiName = escapeHtml(api.name);
-        const safeApiPath = escapeHtml(api.path);
-        return `
-            <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${safeApiId}')">
-                <div class="db-item-main">
-                    <div class="db-item-name">${safeApiName}</div>
-                    <div class="db-item-info">
-                        <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${safeApiPath}
-                    </div>
-                </div>
-                <label class="switch-wrap" onclick="event.stopPropagation(); toggleApiEnabled('${safeApiId}')" title="${enabled ? '禁用' : '启用'}" style="flex-shrink:0;">
-                    <input type="checkbox" ${enabled ? 'checked' : ''} onchange="event.stopPropagation()">
-                    <span class="switch-slider"></span>
-                </label>
-            </div>
-        `;
-    }).join('');
-}
-
-// 选择 API。
-function selectApi(apiId) {
-    currentApi = apis.find(api => api.id === apiId);
-    if (currentApi) {
-        renderApiList();
-        loadApiDetail(apiId);
-    }
-}
-
-// 切换 API 启用状态，forceEnabled 为 undefined 时自动翻转。
-async function toggleApiEnabled(apiId, forceEnabled) {
-    const api = apis.find(a => a.id === apiId);
-    if (!api) return;
-    const next = forceEnabled !== undefined ? forceEnabled : (api.enabled === false);
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${apiId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ enabled: next })
-        });
-        const data = await response.json();
-        if (data.success) {
-            api.enabled = next;
-            renderApiList();
-            if (currentApi && currentApi.id === apiId) {
-                const cb = document.getElementById('apiDetailEnabledCheck');
-                if (cb) cb.checked = next;
-            }
+    isEditMode = true;
+    editingDbId = currentDb.id;
+    document.getElementById('modalTitle').textContent = '编辑数据库';
+    document.getElementById('addDbModal').classList.add('show');
+    
+    // 已存在的数据库
+    document.getElementById('dbTypeInput').value = currentDb.type;
+    document.getElementById('dbTypeInput').disabled = true; // 数据库类型不可编辑
+    document.getElementById('dbNameInput').value = currentDb.name;
+    
+    if (dbTypeDefaults[currentDb.type].isFile) {
+        document.getElementById('dbPathInput').value = currentDb.path || '';
+    } else {
+        document.getElementById('dbHostInput').value = currentDb.host || '';
+        document.getElementById('dbPortInput').value = currentDb.port || '';
+        document.getElementById('dbUserInput').value = currentDb.user || '';
+        document.getElementById('dbPasswordInput').value = ''; // 编辑时默认不回填密码。
+        document.getElementById('dbPasswordInput').placeholder = '请输入新密码（可留空）';
+        if (dbTypeDefaults[currentDb.type].requiresDb) {
+            document.getElementById('dbDatabaseInput').value = currentDb.database || '';
         }
+    }
+    
+    handleDbTypeChange();
+    document.getElementById('dbFormError').classList.remove('show');
+    document.getElementById('dbFormSuccess').classList.remove('show');
+}
+
+// 隐藏新增/编辑数据库弹窗。
+function hideAddDbModal() {
+    document.getElementById('addDbModal').classList.remove('show');
+    document.getElementById('dbPasswordInput').placeholder = '请输入密码';
+    isEditMode = false;
+    editingDbId = null;
+}
+
+function openUserMgmtPanel() {
+    if (currentUser !== 'admin') return;
+    userMgmtMode = true;
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.add('open');
+        root.setAttribute('aria-hidden', 'false');
+    }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.add('active');
+    renderDatabaseList();
+    loadUsers();
+}
+
+function closeUserMgmtPanel(skipRender) {
+    userMgmtMode = false;
+    const root = document.getElementById('userMgmtDrawerRoot');
+    if (root) {
+        root.classList.remove('open');
+        root.setAttribute('aria-hidden', 'true');
+    }
+    const hb = document.getElementById('userMgmtHeaderBtn');
+    if (hb) hb.classList.remove('active');
+    if (!skipRender) renderDatabaseList();
+}
+
+async function loadUsers() {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users`);
+        const data = await response.json();
+        if (!data.success) {
+            listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(data.message || '加载失败') + '</div>';
+            return;
+        }
+        renderUserMgmtList(data.users || []);
     } catch (e) {
-        console.error('切换 API 状态失败', e);
-        showToast('切换 API 状态失败', 'error');
+        listEl.innerHTML = '<div style="padding:16px;color:#e53e3e;">' + escapeHtml(e.message) + '</div>';
     }
 }
 
-function toggleApiEnabledFromDetail() {
-    if (!currentApi) return;
-    const cb = document.getElementById('apiDetailEnabledCheck');
-    if (!cb) return;
-    toggleApiEnabled(currentApi.id, cb.checked);
-}
-
-// 加载 API 详情。
-async function loadApiDetail(apiId) {
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${apiId}`);
-
-        const data = await response.json();
-
-        if (data.success) {
-            // 同步当前选中的 API。
-            currentApi = data.api;
-            
-            document.getElementById('apiWelcomeView').style.display = 'none';
-            document.getElementById('apiDetailView').style.display = 'block';
-            
-            const api = data.api;
-            document.getElementById('apiName').textContent = api.name;
-            const detailEnabledCb = document.getElementById('apiDetailEnabledCheck');
-            if (detailEnabledCb) detailEnabledCb.checked = api.enabled !== false;
-            document.getElementById('apiPath').textContent = api.path;
-            document.getElementById('apiMethod').textContent = api.method;
-
-            const apiType = api.type || 'query';
-            document.getElementById('apiTypeDisplay').textContent = apiType === 'forward' ? 'HTTP 转发' : '查询接口';
-
-            if (apiType === 'forward') {
-                document.getElementById('apiDatabaseRow').style.display = 'none';
-                document.getElementById('apiForwardUrlRow').style.display = '';
-                document.getElementById('apiForwardUrlDisplay').textContent = api.forward_url || '';
-                document.getElementById('apiSqlSection').style.display = 'none';
-                document.getElementById('apiParamsSection').style.display = 'none';
-            } else {
-                document.getElementById('apiDatabaseRow').style.display = '';
-                document.getElementById('apiForwardUrlRow').style.display = 'none';
-                document.getElementById('apiSqlSection').style.display = '';
-                document.getElementById('apiParamsSection').style.display = '';
-                document.getElementById('apiDatabase').textContent = api.database_name || api.database_id;
-                document.getElementById('apiSqlDisplay').textContent = api.sql;
-            }
-            
-            // 查询接口才需要解析参数。
-            const params = apiType === 'forward' ? [] : parseMyBatisParams(api.sql || '');
-            renderApiParams(params);
-            
-            // 渲染代码示例。
-            renderCodeExamples(api);
-        }
-    } catch (error) {
-        console.error('加载 API 详情失败', error);
-        showToast('加载 API 详情失败', 'error');
-    }
-}
-
-// 解析 MyBatis 参数。
-function parseMyBatisParams(sql) {
-    const paramsMap = new Map();
-    
-    // 匹配 #{paramName} 形式的参数。
-    const hashPattern = /#\{([^}]+)\}/g;
-    let match;
-    while ((match = hashPattern.exec(sql)) !== null) {
-        const paramName = match[1].trim();
-        if (!paramsMap.has(paramName)) {
-            paramsMap.set(paramName, {
-                name: paramName,
-                type: 'prepared',
-                required: true
-            });
-        }
-    }
-    
-    // 匹配 ${paramName} 形式的直接替换参数。
-    const dollarPattern = /\$\{([^}]+)\}/g;
-    while ((match = dollarPattern.exec(sql)) !== null) {
-        const paramName = match[1].trim();
-        if (!paramsMap.has(paramName)) {
-            paramsMap.set(paramName, {
-                name: paramName,
-                type: 'direct',
-                required: true
-            });
-        }
-    }
-    
-    return Array.from(paramsMap.values());
-}
-
-// 渲染 SQL 参数区。
-function renderApiParams(params) {
-    const displayEl = document.getElementById('apiParamsDisplay');
-    
-    let sqlWarningHtml = '';
-    if (currentApi && currentApi.sql) {
-        const warnings = validateSqlSyntax(currentApi.sql);
-        if (warnings.length > 0) {
-            const errorWarnings = warnings.filter(w => w.type === 'error');
-            if (errorWarnings.length > 0) {
-                sqlWarningHtml = `
-                    <div class="sql-syntax-error">
-                        <div class="error-icon">⚠️</div>
-                        <div class="error-content">
-                            <div class="error-title">SQL 语法异常</div>
-                            <div class="error-message">${errorWarnings[0].message}</div>
-                            <div class="error-fix">
-                                <strong>修复建议</strong>
-                                <div class="fix-example">
-                                    <div class="fix-before">原始：${escapeHtml(currentApi.sql)}</div>
-                                    <div class="fix-after">修正：${escapeHtml(currentApi.sql.replace(/#\{/g, '${'))}</div>
-                                </div>
-                                <button class="btn btn-sm btn-primary" onclick="quickFixSql()" style="margin-top:8px;">一键修复</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-    }
-    
-    if (params.length === 0) {
-        displayEl.innerHTML = sqlWarningHtml + '<div style="text-align:center;color:#718096;padding:12px;">暂无参数</div>';
-        return;
-    }
-    
-    const paramsHtml = params.map(param => {
-        const typeLabel = param.type === 'prepared' ? '预编译' : '直接拼接';
-        const typeClass = param.required ? 'required' : 'optional';
-        const requiredLabel = param.required ? '必填' : '可选';
-        
-        let defaultValue = '';
-        if (currentApi && currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
-            const val = currentApi.default_params[param.name];
-            defaultValue = `<span style="color:#48bb78;margin-left:8px;font-size:12px;">默认值: ${typeof val === 'string' ? '"' + val + '"' : val}</span>`;
-        }
-        
-        return `
-            <div class="param-item">
-                <span class="param-name">${param.name}</span>
-                <span class="param-type ${typeClass}">${requiredLabel}</span>
-                <span style="color:#718096;margin-left:8px;font-size:13px;">(${typeLabel})</span>
-                ${defaultValue}
-            </div>
-        `;
-    }).join('');
-    
-    displayEl.innerHTML = sqlWarningHtml + paramsHtml;
-}
-
-// 代码示例上下文。
-function getCodeExampleContext(api) {
-    const apiType = api.type || 'query';
-    let exampleParams = {};
-    if (apiType === 'forward') {
-        exampleParams = api.default_params ? { ...api.default_params } : {};
-    } else {
-        const params = parseMyBatisParams(api.sql || '');
-        params.forEach(p => {
-            if (api.default_params && api.default_params[p.name] !== undefined) {
-                exampleParams[p.name] = api.default_params[p.name];
-            } else {
-                exampleParams[p.name] = '';
-            }
-        });
-    }
-    const hasParams = Object.keys(exampleParams).length > 0;
-    const method = (api.method || 'GET').toUpperCase();
-    const isBodyMethod = method === 'POST' || method === 'PUT' || method === 'PATCH';
-    const baseUrl = `${window.location.origin}${api.path}`;
-    const token = currentApiKey || localStorage.getItem('dataOntologyToken') || '<YOUR_TOKEN>';
-
-    let fullUrl = baseUrl;
-    if (!isBodyMethod && hasParams) {
-        const qs = Object.entries(exampleParams)
-            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-            .join('&');
-        fullUrl = `${baseUrl}?${qs}`;
-    }
-
-    return { params: exampleParams, hasParams, method, isBodyMethod, baseUrl, fullUrl, token };
-}
-
-function generateCodeExamples(api) {
-    const ctx = getCodeExampleContext(api);
-    return [
-        { id: 'javascript', label: 'JavaScript', code: genJavaScript(ctx) },
-        { id: 'python', label: 'Python', code: genPython(ctx) },
-        { id: 'java', label: 'Java', code: genJava(ctx) },
-        { id: 'golang', label: 'Go', code: genGolang(ctx) },
-        { id: 'node', label: 'Node.js', code: genNode(ctx) },
-        { id: 'php', label: 'PHP', code: genPhp(ctx) },
-        { id: 'curl', label: 'cURL', code: genCurl(ctx) },
-    ];
-}
-
-/**
- * Generate JavaScript/Node.js example code.
- * @param {Object} ctx - Example context.
- * @returns {string} Generated code.
- */
-function genJavaScriptOrNode(ctx) {
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyJson = JSON.stringify(ctx.params, null, 4);
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer ${ctx.token}"
-    },
-    body: JSON.stringify(${bodyJson})
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    if (ctx.isBodyMethod) {
-        return `const response = await fetch("${ctx.baseUrl}", {
-    method: "${ctx.method}",
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
-    }
-    return `const response = await fetch("${ctx.fullUrl}", {
-    headers: {
-        "Authorization": "Bearer ${ctx.token}"
-    }
-});
-
-const data = await response.json();
-console.log(data);`;
-}
-
-// JavaScript 与 Node.js 共用同一模板。
-const genJavaScript = genJavaScriptOrNode;
-const genNode = genJavaScriptOrNode;
-
-function genPython(ctx) {
-    const lines = [];
-    lines.push('import requests');
-    lines.push('');
-    lines.push(`url = "${ctx.baseUrl}"`);
-    lines.push(`headers = {`);
-    lines.push(`    "Authorization": "Bearer ${ctx.token}"`);
-    lines.push(`}`);
-
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const items = Object.entries(ctx.params)
-            .map(([k, v]) => `    "${k}": ${typeof v === 'string' ? `"${v}"` : v}`)
-            .join(',\n');
-        lines.push(`data = {\n${items}\n}`);
-        lines.push('');
-        lines.push(`response = requests.${ctx.method.toLowerCase()}(url, json=data, headers=headers)`);
-    } else if (ctx.isBodyMethod) {
-        lines.push('');
-        lines.push(`response = requests.${ctx.method.toLowerCase()}(url, headers=headers)`);
-    } else if (ctx.hasParams) {
-        const items = Object.entries(ctx.params)
-            .map(([k, v]) => `    "${k}": ${typeof v === 'string' ? `"${v}"` : v}`)
-            .join(',\n');
-        lines.push(`params = {\n${items}\n}`);
-        lines.push('');
-        lines.push(`response = requests.get(url, params=params, headers=headers)`);
-    } else {
-        lines.push('');
-        lines.push(`response = requests.get(url, headers=headers)`);
-    }
-    lines.push('print(response.json())');
-    return lines.join('\n');
-}
-
-function genJava(ctx) {
-    const lines = [];
-    lines.push('import java.net.URI;');
-    lines.push('import java.net.http.HttpClient;');
-    lines.push('import java.net.http.HttpRequest;');
-    lines.push('import java.net.http.HttpResponse;');
-    lines.push('');
-    lines.push('HttpClient client = HttpClient.newHttpClient();');
-
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyEsc = JSON.stringify(JSON.stringify(ctx.params));
-        lines.push(`String body = ${bodyEsc};`);
-        lines.push('');
-        lines.push('HttpRequest request = HttpRequest.newBuilder()');
-        lines.push(`    .uri(URI.create("${ctx.baseUrl}"))`);
-        lines.push('    .header("Content-Type", "application/json")');
-        lines.push(`    .header("Authorization", "Bearer ${ctx.token}")`);
-        lines.push(`    .${ctx.method}(HttpRequest.BodyPublishers.ofString(body))`);
-        lines.push('    .build();');
-    } else {
-        const methodCall = ctx.isBodyMethod
-            ? `${ctx.method}(HttpRequest.BodyPublishers.noBody())`
-            : 'GET()';
-        lines.push('');
-        lines.push('HttpRequest request = HttpRequest.newBuilder()');
-        lines.push(`    .uri(URI.create("${ctx.fullUrl}"))`);
-        lines.push(`    .header("Authorization", "Bearer ${ctx.token}")`);
-        lines.push(`    .${methodCall}`);
-        lines.push('    .build();');
-    }
-
-    lines.push('');
-    lines.push('HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());');
-    lines.push('System.out.println(response.body());');
-    return lines.join('\n');
-}
-
-function genGolang(ctx) {
-    const lines = [];
-    lines.push('package main');
-    lines.push('');
-    lines.push('import (');
-    lines.push('    "fmt"');
-    lines.push('    "io"');
-    lines.push('    "net/http"');
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        lines.push('    "strings"');
-    }
-    lines.push(')');
-    lines.push('');
-    lines.push('func main() {');
-
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyEsc = JSON.stringify(ctx.params).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        lines.push(`    body := strings.NewReader("${bodyEsc}")`);
-        lines.push(`    req, _ := http.NewRequest("${ctx.method}", "${ctx.baseUrl}", body)`);
-        lines.push('    req.Header.Set("Content-Type", "application/json")');
-    } else {
-        lines.push(`    req, _ := http.NewRequest("${ctx.method}", "${ctx.fullUrl}", nil)`);
-    }
-
-    lines.push(`    req.Header.Set("Authorization", "Bearer ${ctx.token}")`);
-    lines.push('');
-    lines.push('    resp, err := http.DefaultClient.Do(req)');
-    lines.push('    if err != nil {');
-    lines.push('        panic(err)');
-    lines.push('    }');
-    lines.push('    defer resp.Body.Close()');
-    lines.push('');
-    lines.push('    data, _ := io.ReadAll(resp.Body)');
-    lines.push('    fmt.Println(string(data))');
-    lines.push('}');
-    return lines.join('\n');
-}
-
-function genPhp(ctx) {
-    const lines = [];
-    lines.push('<?php');
-
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        lines.push(`$url = '${ctx.baseUrl}';`);
-        const items = Object.entries(ctx.params)
-            .map(([k, v]) => `    '${k}' => ${typeof v === 'string' ? `'${v}'` : v}`)
-            .join(',\n');
-        lines.push(`$data = [\n${items}\n];`);
-        lines.push('');
-        lines.push('$ch = curl_init($url);');
-        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
-        lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
-        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
-        lines.push("    'Content-Type: application/json',");
-        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
-        lines.push(']);');
-        lines.push('curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));');
-    } else {
-        lines.push(`$url = '${ctx.fullUrl}';`);
-        lines.push('');
-        lines.push('$ch = curl_init($url);');
-        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
-        if (ctx.method !== 'GET') {
-            lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
-        }
-        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
-        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
-        lines.push(']);');
-    }
-
-    lines.push('');
-    lines.push('$response = curl_exec($ch);');
-    lines.push('curl_close($ch);');
-    lines.push('');
-    lines.push('echo $response;');
-    return lines.join('\n');
-}
-
-function genCurl(ctx) {
-    const lines = [];
-    if (ctx.isBodyMethod && ctx.hasParams) {
-        const bodyEsc = JSON.stringify(ctx.params).replace(/'/g, "'\\''");
-        lines.push(`curl -X ${ctx.method} '${ctx.baseUrl}' \\`);
-        lines.push(`  -H 'Content-Type: application/json' \\`);
-        lines.push(`  -H 'Authorization: Bearer ${ctx.token}' \\`);
-        lines.push(`  -d '${bodyEsc}'`);
-    } else {
-        if (ctx.method === 'GET') {
-            lines.push(`curl '${ctx.fullUrl}' \\`);
-        } else {
-            lines.push(`curl -X ${ctx.method} '${ctx.fullUrl}' \\`);
-        }
-        lines.push(`  -H 'Authorization: Bearer ${ctx.token}'`);
-    }
-    return lines.join('\n');
-}
-
-function renderCodeExamples(api) {
-    const container = document.getElementById('apiCodeExamples');
-    if (!container) return;
-
-    const languages = generateCodeExamples(api);
-    const activeTab = container.dataset.activeTab || languages[0].id;
-
-    const tabsHtml = languages.map(lang =>
-        `<button class="code-tab ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}">${lang.label}</button>`
-    ).join('');
-
-    const panelsHtml = languages.map(lang =>
-        `<div class="code-panel ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}"><pre><code>${escapeHtml(lang.code)}</code></pre></div>`
-    ).join('');
-
-    container.innerHTML = `
-        <div class="code-tabs-header">
-            <div class="code-tabs">${tabsHtml}</div>
-            <button class="code-copy-btn" title="复制代码">复制</button>
-        </div>
-        <div class="code-panels">${panelsHtml}</div>
-    `;
-
-    container.dataset.activeTab = activeTab;
-
-    container.querySelectorAll('.code-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            const lang = tab.dataset.lang;
-            container.dataset.activeTab = lang;
-            container.querySelectorAll('.code-tab').forEach(t => t.classList.toggle('active', t.dataset.lang === lang));
-            container.querySelectorAll('.code-panel').forEach(p => p.classList.toggle('active', p.dataset.lang === lang));
-        });
-    });
-
-    container.querySelector('.code-copy-btn').addEventListener('click', () => {
-        const activePanel = container.querySelector('.code-panel.active code');
-        if (activePanel) {
-            const text = activePanel.textContent;
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = container.querySelector('.code-copy-btn');
-                const original = btn.textContent;
-                btn.textContent = '已复制';
-                btn.classList.add('copied');
-                setTimeout(() => {
-                    btn.textContent = original;
-                    btn.classList.remove('copied');
-                }, 2000);
-            });
-        }
-    });
-}
-
-// 快速修复 SQL 参数语法。
-async function quickFixSql() {
-    if (!currentApi) return;
-    
-    if (!confirm('将 SQL 中的 #{} 与 ${} 参数写法统一为合法格式吗？')) {
-        return;
-    }
-    
-    // 替换 SQL 中的参数占位符。
-    const fixedSql = currentApi.sql.replace(/#\{/g, '${');
-    
-    // 处理API类型
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                name: currentApi.name,
-                path: currentApi.path,
-                method: currentApi.method,
-                database_id: currentApi.database_id,
-                sql: fixedSql,
-                description: currentApi.description,
-                default_params: currentApi.default_params
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showToast('修复成功', 'success');
-            loadApiDetail(currentApi.id);
-        } else {
-            showToast('修复失败：' + (data.message || '未知错误'), 'error');
-        }
-    } catch (error) {
-        showToast('修复失败：' + error.message, 'error');
-    }
-}
-
-// 切换 API 类型表单字段。
-function switchApiTypeFields(type) {
-    const queryFields = document.getElementById('apiQueryFields');
-    const forwardFields = document.getElementById('apiForwardFields');
-    const dbSelect = document.getElementById('apiDbSelect');
-    const sqlInput = document.getElementById('apiSqlInput');
-    const forwardUrlInput = document.getElementById('apiForwardUrlInput');
-    if (type === 'forward') {
-        queryFields.style.display = 'none';
-        forwardFields.style.display = '';
-        dbSelect.required = false;
-        sqlInput.required = false;
-        forwardUrlInput.required = true;
-    } else {
-        queryFields.style.display = '';
-        forwardFields.style.display = 'none';
-        dbSelect.required = true;
-        sqlInput.required = true;
-        forwardUrlInput.required = false;
-    }
-}
-
-// 打开新增 API 弹窗。
-async function showAddApiModal() {
-    isEditApiMode = false;
-    editingApiId = null;
-    document.getElementById('apiModalTitle').textContent = '新增 API';
-    document.getElementById('addApiModal').classList.add('show');
-    document.getElementById('addApiForm').reset();
-    document.getElementById('apiFormError').classList.remove('show');
-    document.getElementById('apiFormSuccess').classList.remove('show');
-    // 默认选择查询接口。
-    document.getElementById('apiTypeQuery').checked = true;
-    switchApiTypeFields('query');
-    // 填充默认参数。
-    await loadDatabasesForSelect();
-}
-
-    // 加载API列表
-async function loadDatabasesForSelect() {
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases`);
-
-        const data = await response.json();
-
-        if (data.success) {
-            const selectEl = document.getElementById('apiDbSelect');
-            const currentValue = selectEl.value;
-            
-            selectEl.innerHTML = '<option value="">请选择数据库</option>' + 
-                (data.databases || []).map(db => 
-                    `<option value="${db.id}">${db.name}</option>`
-                ).join('');
-            
-            // 保留当前选中的数据库。
-            if (currentValue) {
-                selectEl.value = currentValue;
-            }
-        }
-    } catch (error) {
-        console.error('刷新API列表失败', error);
-    }
-}
-
-// 关闭新增 API 弹窗。
-function hideAddApiModal() {
-    const form = document.getElementById('addApiForm');
-    document.getElementById('addApiModal').classList.remove('show');
-    isEditApiMode = false;
-    editingApiId = null;
-    
-    // 清除 AI 填充标记。
-    delete form.dataset.fromAi;
-    delete form.dataset.aiMessageId;
-    
-    // 刷新API列表
-    form.reset();
-}
-
-// 提交新增或编辑 API 表单。
-async function handleAddApi(e) {
-    e.preventDefault();
-
-    const apiType = document.querySelector('input[name="apiType"]:checked')?.value || 'query';
-
-    const apiData = {
-        name: document.getElementById('apiNameInput').value.trim(),
-        path: document.getElementById('apiPathInput').value.trim(),
-        method: document.getElementById('apiMethodInput').value,
-        type: apiType,
-        description: document.getElementById('apiDescInput').value.trim()
-    };
-
-    // 初始化一行默认列。
-    if (!apiData.name) {
-        showApiFormError('请输入 API 名称');
-        return;
-    }
-
-    // 删除API
-    if (!apiData.path) {
-        showApiFormError('请输入请求路径');
-        return;
-    }
-
-    // 初始化默认列。
-    if (!apiData.path.startsWith('/')) {
-        showApiFormError('路径必须以 / 开头');
-        return;
-    }
-
-    if (apiType === 'forward') {
-        apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
-        if (!apiData.forward_url) {
-            showApiFormError('请输入转发 URL');
-            return;
-        }
-        // URL参数解析
-        try {
-            new URL(apiData.forward_url);
-        } catch {
-            showApiFormError('请输入有效的 URL');
-            return;
-        }
-    } else {
-        apiData.database_id = document.getElementById('apiDbSelect').value;
-        apiData.sql = document.getElementById('apiSqlInput').value.trim();
-        
-        // SQL校验
-        if (!apiData.sql) {
-            showApiFormError('请输入 SQL');
-            return;
-        }
-    }
-
-    // 解析MyBatis参数
-    const defaultParamsText = document.getElementById('apiDefaultParamsInput').value.trim();
-    if (defaultParamsText) {
-        try {
-            apiData.default_params = JSON.parse(defaultParamsText);
-        } catch (error) {
-            showApiFormError('默认参数必须是合法 JSON');
-            return;
-        }
-    }
-
-    // query类型需要校验SQL
-    if (apiType !== 'forward') {
-        const sqlWarnings = validateSqlSyntax(apiData.sql);
-        if (sqlWarnings.length > 0) {
-            const errors = sqlWarnings.filter(w => w.type === 'error');
-            if (errors.length > 0) {
-                showApiFormError(errors[0].message);
+function renderUserMgmtList(users) {
+    const listEl = document.getElementById('userMgmtList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'user-mgmt-row um-head';
+    head.innerHTML = '<div class="um-col">用户名</div><div class="um-col">API Key</div><div class="um-actions">操作</div>';
+    listEl.appendChild(head);
+    users.forEach(u => {
+        const name = u.username || '';
+        const key = u.api_key || '';
+        const keyShow = key ? (key.length > 48 ? key.slice(0, 24) + '…' + key.slice(-8) : key) : '未生成';
+        const row = document.createElement('div');
+        row.className = 'user-mgmt-row';
+        const col1 = document.createElement('div');
+        col1.className = 'um-col';
+        col1.textContent = name;
+        const col2 = document.createElement('div');
+        col2.className = 'um-col';
+        const span = document.createElement('span');
+        span.className = 'user-mgmt-apikey';
+        span.title = key;
+        span.textContent = keyShow;
+        col2.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'um-actions';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-sm';
+        copyBtn.textContent = key ? '复制 Key' : '生成 Key';
+        copyBtn.onclick = async function () {
+            if (key) {
+                const label = copyBtn.textContent;
+                try {
+                    await navigator.clipboard.writeText(key);
+                    copyBtn.textContent = '已复制';
+                    setTimeout(() => { copyBtn.textContent = label; }, 1000);
+                } catch (e) {
+                    console.error(e);
+                }
                 return;
             }
-            const warnings = sqlWarnings.filter(w => w.type === 'warning');
-            if (warnings.length > 0) {
-                const warningMsg = warnings.map(w => w.message).join('\n\n');
-                if (!confirm('SQL 存在警告，是否仍然继续保存？\n\n' + warningMsg + '\n\n继续将按当前内容提交。')) {
-                    return;
+            try {
+                const response = await fetchWithAuth(`${API_BASE}/api/v1/system/apikeys`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: name })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast('API Key 已生成', 'success');
+                    loadUsers();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast(e.message || '操作失败', 'error');
+            }
+        };
+        const passBtn = document.createElement('button');
+        passBtn.type = 'button';
+        passBtn.className = 'btn btn-sm';
+        passBtn.textContent = '改密';
+        passBtn.onclick = function () {
+            openUserPasswordModal(name);
+        };
+        actions.appendChild(copyBtn);
+        actions.appendChild(passBtn);
+        if (name !== 'admin') {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn btn-sm btn-danger';
+            delBtn.textContent = '删除';
+            delBtn.onclick = function () {
+                userMgmtDelete(name);
+            };
+            actions.appendChild(delBtn);
+        }
+        row.appendChild(col1);
+        row.appendChild(col2);
+        row.appendChild(actions);
+        listEl.appendChild(row);
+    });
+}
+
+function openUserPasswordModal(username) {
+    userPasswordTarget = username;
+    const title = document.getElementById('userPasswordModalTitle');
+    if (title) title.textContent = '修改密码 · ' + username;
+    const inp = document.getElementById('editPasswordInput');
+    if (inp) inp.value = '';
+    const inp2 = document.getElementById('editPasswordConfirmInput');
+    if (inp2) inp2.value = '';
+    const err = document.getElementById('userPasswordModalErr');
+    if (err) err.classList.remove('show');
+    clearUserPasswordModalPwdHint();
+    document.getElementById('userPasswordModal').classList.add('show');
+}
+
+function hideUserPasswordModal() {
+    document.getElementById('userPasswordModal').classList.remove('show');
+    userPasswordTarget = null;
+}
+
+async function submitUserPasswordChange() {
+    const pwd = document.getElementById('editPasswordInput').value;
+    const pwdConfirm = document.getElementById('editPasswordConfirmInput').value;
+    const errEl = document.getElementById('userPasswordModalErr');
+    const hintEl = document.getElementById('userPasswordModalPwdHint');
+    if (!userPasswordTarget) return;
+    errEl.classList.remove('show');
+    if (!pwd || !pwdConfirm) {
+        errEl.textContent = '请先输入新密码和确认密码';
+        errEl.classList.add('show');
+        return;
+    }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/${encodeURIComponent(userPasswordTarget)}/password`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('密码已更新', 'success');
+            hideUserPasswordModal();
+            if (userMgmtMode) loadUsers();
+        } else {
+            errEl.textContent = data.message || '操作失败';
+            errEl.classList.add('show');
+        }
+    } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.add('show');
+    }
+}
+
+async function userMgmtDelete(username) {
+    if (!confirm('确定删除用户 ' + username + ' 吗？')) return;
+    
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '删除中...';
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/${encodeURIComponent(username)}`, {
+            method: 'DELETE',
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            loadUsers();
+        } else {
+            showToast(data.message || '操作失败', 'error');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (e) {
+        showToast(e.message || '操作失败', 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+async function handleCreateUser() {
+    const name = document.getElementById('newUserName').value.trim();
+    const pwd = document.getElementById('newUserPassword').value;
+    const pwdConfirm = document.getElementById('newUserPasswordConfirm').value;
+    const msgEl = document.getElementById('userMgmtCreateMsg');
+    const hintEl = document.getElementById('userMgmtCreatePwdHint');
+    msgEl.classList.remove('show');
+    clearUserMgmtCreatePwdHint();
+    if (!name) {
+        msgEl.textContent = '请输入用户名';
+        msgEl.classList.add('show');
+        return;
+    }
+    if (!pwd || !pwdConfirm) {
+        msgEl.textContent = '请输入密码并再次确认';
+        msgEl.classList.add('show');
+        return;
+    }
+    if (!validateUserPasswordPair(pwd, pwdConfirm, hintEl)) return;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username: name, password: pwd })
+        });
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('newUserName').value = '';
+            document.getElementById('newUserPassword').value = '';
+            document.getElementById('newUserPasswordConfirm').value = '';
+            loadUsers();
+        } else {
+            msgEl.textContent = data.message || '操作失败';
+            msgEl.classList.add('show');
+        }
+    } catch (e) {
+        msgEl.textContent = e.message;
+        msgEl.classList.add('show');
+    }
+}
+
+// 下载用户导入模板
+function handleDownloadUserTemplate() {
+    // 使用 SheetJS 创建 Excel
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+        ['用户名', '密码'],
+        ['user1', 'password1'],
+        ['user2', 'password2'],
+        ['user3', 'password3']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    // 设置列宽
+    ws['!cols'] = [{ wch: 20 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws, '用户列表');
+    XLSX.writeFile(wb, '用户导入模板.xlsx');
+}
+
+// 导入用户 Excel
+async function handleImportUsers(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const msgEl = document.getElementById('userMgmtImportMsg');
+    msgEl.classList.remove('show');
+    
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: ['username', 'password'] });
+        
+        // 跳过表头
+        const users = json.slice(1).filter(row => row.username && row.password);
+        
+        if (users.length === 0) {
+            msgEl.textContent = 'Excel 中没有有效的用户数据';
+            msgEl.classList.add('show');
+            e.target.value = '';
+            return;
+        }
+        
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/system/users/batch`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ users })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const successCount = result.success_count || 0;
+            const failCount = result.fail_count || 0;
+            let message = `导入完成：成功 ${successCount} 个`;
+            if (failCount > 0) {
+                message += `，失败 ${failCount} 个`;
+                if (result.fail_list && result.fail_list.length > 0) {
+                    message += '\n失败原因：\n' + result.fail_list.map(f => `${f.username}: ${f.message}`).join('\n');
                 }
             }
+            showToast(message, failCount > 0 ? 'warning' : 'success');
+            loadUsers();
+        } else {
+            msgEl.textContent = result.message || '导入失败';
+            msgEl.classList.add('show');
+        }
+    } catch (err) {
+        msgEl.textContent = '解析文件失败: ' + err.message;
+        msgEl.classList.add('show');
+    }
+    
+    e.target.value = '';
+}
+
+// 测试数据库连接。
+async function testConnection() {
+    const dbType = document.getElementById('dbTypeInput').value;
+    const config = {
+        type: dbType
+    };
+
+    if (dbTypeDefaults[dbType].isFile) {
+        config.path = document.getElementById('dbPathInput').value;
+    } else {
+        config.host = document.getElementById('dbHostInput').value;
+        config.port = parseInt(document.getElementById('dbPortInput').value);
+        config.user = document.getElementById('dbUserInput').value;
+        
+        // 编辑模式下，如果密码为空则复用旧密码。
+        const password = document.getElementById('dbPasswordInput').value;
+        if (isEditMode && password === '' && currentDb) {
+            // 编辑时必须输入旧密码才能进行连通性测试。
+            const errorEl = document.getElementById('dbFormError');
+            errorEl.textContent = '编辑模式下测试连接需要输入密码';
+            errorEl.classList.add('show');
+            return;
+        }
+        config.password = password;
+        
+        if (dbTypeDefaults[dbType].requiresDb) {
+            config.database = document.getElementById('dbDatabaseInput').value;
         }
     }
 
-    const errorEl = document.getElementById('apiFormError');
-    const successEl = document.getElementById('apiFormSuccess');
+    const errorEl = document.getElementById('dbFormError');
+    const successEl = document.getElementById('dbFormSuccess');
     errorEl.classList.remove('show');
     successEl.classList.remove('show');
 
+    // 绑定测试按钮状态。
+    const testBtn = document.getElementById('testConnectionBtn');
+    const originalText = testBtn ? testBtn.textContent : '';
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.textContent = '测试中...';
+    }
+
     try {
-        const url = isEditApiMode 
-            ? `${API_BASE}/api/v1/openapis/${editingApiId}`
-            : `${API_BASE}/api/v1/openapis`;
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/test-connection`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            successEl.textContent = '连接成功';
+            successEl.classList.add('show');
+        } else {
+            errorEl.textContent = data.message || '测试失败';
+            errorEl.classList.add('show');
+        }
+    } catch (error) {
+        errorEl.textContent = '测试失败：' + error.message;
+        errorEl.classList.add('show');
+    } finally {
+        // 恢复按钮状态。
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.textContent = originalText || '测试连接';
+        }
+    }
+}
+
+// 新增或编辑数据库。
+async function handleAddDatabase(e) {
+    e.preventDefault();
+
+    const dbType = document.getElementById('dbTypeInput').value;
+    const dbName = document.getElementById('dbNameInput').value.trim();
+    
+    const errorEl = document.getElementById('dbFormError');
+    const successEl = document.getElementById('dbFormSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+    
+    // 校验数据库名称。
+    if (!dbName) {
+        errorEl.textContent = '请输入数据库名称';
+        errorEl.classList.add('show');
+        return;
+    }
+    
+    const config = {
+        type: dbType,
+        name: dbName
+    };
+
+    if (dbTypeDefaults[dbType].isFile) {
+        const dbPath = document.getElementById('dbPathInput').value.trim();
+        if (!dbPath) {
+            errorEl.textContent = '请输入文件路径';
+            errorEl.classList.add('show');
+            return;
+        }
+        config.path = dbPath;
+    } else {
+        const dbHost = document.getElementById('dbHostInput').value.trim();
+        const dbPort = document.getElementById('dbPortInput').value.trim();
+        const dbUser = document.getElementById('dbUserInput').value.trim();
         
-        const method = isEditApiMode ? 'PUT' : 'POST';
+        if (!dbHost) {
+            errorEl.textContent = '请输入主机地址';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbPort || isNaN(parseInt(dbPort)) || parseInt(dbPort) <= 0) {
+            errorEl.textContent = '请输入正确的端口号';
+            errorEl.classList.add('show');
+            return;
+        }
+        if (!dbUser) {
+            errorEl.textContent = '请输入用户名';
+            errorEl.classList.add('show');
+            return;
+        }
+        
+        config.host = dbHost;
+        config.port = parseInt(dbPort);
+        config.user = dbUser;
+        const password = document.getElementById('dbPasswordInput').value;
+        
+        // 编辑时若未输入密码，则沿用原密码。
+        if (isEditMode && password === '') {
+            // 不回填密码字段。
+        } else {
+            config.password = password;
+        }
+        
+        if (dbTypeDefaults[dbType].requiresDb) {
+            const dbDatabase = document.getElementById('dbDatabaseInput').value.trim();
+            if (!dbDatabase) {
+                errorEl.textContent = '请输入数据库名';
+                errorEl.classList.add('show');
+                return;
+            }
+            config.database = dbDatabase;
+        }
+    }
+
+    try {
+        const url = isEditMode 
+            ? `${API_BASE}/api/v1/databases/${editingDbId}`
+            : `${API_BASE}/api/v1/databases`;
+        
+        const method = isEditMode ? 'PUT' : 'POST';
         
         const response = await fetchWithAuth(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(apiData)
+            body: JSON.stringify(config)
         });
 
         const data = await response.json();
 
         if (data.success) {
-            const isFromAi = e.target.dataset.fromAi === 'true';
-            
-            successEl.textContent = isEditApiMode ? 'API 已更新' : 'API 已创建';
+            successEl.textContent = isEditMode ? '数据库已更新' : '数据库已添加';
             successEl.classList.add('show');
-            
             setTimeout(() => {
-                hideAddApiModal();
-                loadApis();
-                
-                // 如果是 AI 生成的表单，回写成功消息。
-                if (isFromAi) {
-                    const messagesEl = document.getElementById('aiChatMessages');
-                    const messageId = 'msg-success-' + Date.now();
-                    const messageHtml = `
-                        <div class="ai-message assistant" id="${messageId}">
-                            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
-                            <div class="ai-message-content">
-                                <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
-                                    <strong>创建成功</strong><br>
-                                    <span style="font-size: 13px; margin-top: 4px; display: block;">
-                                        名称：${escapeHtml(apiData.name)}<br>
-                                        路径：${escapeHtml(apiData.path)}<br>
-                                        已同步到“API 列表”中。
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
-                    messagesEl.scrollTop = messagesEl.scrollHeight;
-                    
-                    // 清理 AI 标记。
-                    delete e.target.dataset.fromAi;
-                    delete e.target.dataset.aiMessageId;
-                }
-                
-                if (isEditApiMode && currentApi && currentApi.id === editingApiId) {
+                hideAddDbModal();
+                loadDatabases();
+                if (isEditMode && currentDb && currentDb.id === editingDbId) {
+                    // 刷新详情视图。
                     setTimeout(() => {
-                        loadApiDetail(editingApiId);
+                        loadDatabaseDetail(editingDbId);
                     }, 300);
                 }
             }, 1000);
         } else {
-            showApiFormError(data.message || (isEditApiMode ? '更新失败' : '创建失败'));
+            errorEl.textContent = data.message || (isEditMode ? '更新失败' : '新增失败');
+            errorEl.classList.add('show');
         }
     } catch (error) {
-        showApiFormError((isEditApiMode ? '更新失败：' : '创建失败：') + error.message);
+        errorEl.textContent = (isEditMode ? '更新失败：' : '新增失败：') + error.message;
+        errorEl.classList.add('show');
     }
 }
 
-// 显示 API 表单错误。
-function showApiFormError(message) {
-    const errorEl = document.getElementById('apiFormError');
-    errorEl.textContent = message;
-    errorEl.classList.add('show');
-}
-
-// 校验 SQL 语法风险。
-function validateSqlSyntax(sql) {
-    const warnings = [];
-    
-    // DDL 与参数占位符冲突时给出错误提示。
-    const isDDL = /^\s*(CREATE|DROP|ALTER|TRUNCATE)\s+/i.test(sql);
-    const hasPreparedParams = /#\{[^}]+\}/g.test(sql);
-    
-    if (isDDL && hasPreparedParams) {
-        warnings.push({
-            type: 'error',
-            message: 'DDL 语句不应同时使用 #{} 预编译参数；请改用 ${} 或普通 SQL。'
-        });
-    }
-    
-    // 检测 ${} 风险占位符。
-    const hasDirectReplace = /\$\{[^}]+\}/g.test(sql);
-    if (hasDirectReplace && !isDDL) {
-        warnings.push({
-            type: 'warning',
-            message: '检测到 ${} 直接拼接参数，若参数来自用户输入，建议改为 #{} 预编译参数。'
-        });
-    }
-    
-    return warnings;
-}
-
-// 打开编辑 API 弹窗。
-async function handleEditApi() {
-    if (!currentApi) return;
-    
-    isEditApiMode = true;
-    editingApiId = currentApi.id;
-    document.getElementById('apiModalTitle').textContent = '编辑 API';
-    document.getElementById('addApiModal').classList.add('show');
-    
-    // 执行SQL查询
-    document.getElementById('apiNameInput').value = currentApi.name;
-    document.getElementById('apiPathInput').value = currentApi.path;
-    document.getElementById('apiMethodInput').value = currentApi.method;
-    document.getElementById('apiDescInput').value = currentApi.description || '';
-    
-    // 恢复编辑模式时同步配置。
-    const editType = currentApi.type || 'query';
-    document.getElementById(editType === 'forward' ? 'apiTypeForward' : 'apiTypeQuery').checked = true;
-    switchApiTypeFields(editType);
-    
-    if (editType === 'forward') {
-        document.getElementById('apiForwardUrlInput').value = currentApi.forward_url || '';
-    } else {
-        document.getElementById('apiSqlInput').value = currentApi.sql || '';
-    }
-    
-    // 切换API类型
-    if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
-        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(currentApi.default_params, null, 2);
-    } else {
-        document.getElementById('apiDefaultParamsInput').value = '';
-    }
-    
-    // 如果有结果，则把结果表附在消息下方。
-    await loadDatabasesForSelect();
-    document.getElementById('apiDbSelect').value = currentApi.database_id;
-    
-    document.getElementById('apiFormError').classList.remove('show');
-    document.getElementById('apiFormSuccess').classList.remove('show');
-}
-
-// 删除当前 API。
-async function handleDeleteApi() {
-    if (!currentApi) return;
-
-    if (!confirm(`确定删除 API “${currentApi.name}” 吗？此操作不可恢复。`)) {
-        return;
-    }
-
-    const deleteBtn = document.getElementById('deleteApiBtn');
-    const originalText = deleteBtn.textContent;
-    deleteBtn.disabled = true;
-    deleteBtn.textContent = '删除中...';
-
+// 加载数据库列表并刷新当前选中项。
+/**
+ * @returns {Promise<void>}
+ */
+async function loadDatabases() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
-            method: 'DELETE'
-        });
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases`);
 
         const data = await response.json();
 
         if (data.success) {
-            deleteBtn.disabled = false;
-            deleteBtn.textContent = originalText;
-            currentApi = null;
-            document.getElementById('apiWelcomeView').style.display = 'flex';
-            document.getElementById('apiDetailView').style.display = 'none';
-            loadApis();
-        } else {
-            showToast(data.message || '删除失败', 'error');
-            deleteBtn.disabled = false;
-            deleteBtn.textContent = originalText;
-        }
-    } catch (error) {
-        showToast('删除失败：' + error.message, 'error');
-        deleteBtn.disabled = false;
-        deleteBtn.textContent = originalText;
-    }
-}
-
-// 打开测试 API 弹窗。
-function showTestApiModal() {
-    if (!currentApi) return;
-    
-    document.getElementById('testApiModal').classList.add('show');
-    document.getElementById('testApiPath').textContent = currentApi.path;
-    document.getElementById('testApiMethod').textContent = currentApi.method;
-    document.getElementById('testApiParams').value = '';
-    document.getElementById('testApiError').classList.remove('show');
-    document.getElementById('testApiResultGroup').style.display = 'none';
-    
-    // 勾选设置?
-    const apiType = currentApi.type || 'query';
-    if (apiType === 'forward') {
-        // 显示API测试结果弹窗
-        if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
-            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
-        }
-    } else {
-        // query类型 SQL 参数
-        const params = parseMyBatisParams(currentApi.sql);
-        if (params.length > 0) {
-            const exampleParams = {};
-            params.forEach(param => {
-                if (currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
-                    exampleParams[param.name] = currentApi.default_params[param.name];
+            databases = data.databases || [];
+            initDemoData();
+            renderDatabaseList();
+            
+            // 如果当前数据库仍存在，则同步刷新引用。
+            if (currentDb) {
+                const updatedDb = databases.find(db => db.id === currentDb.id);
+                if (updatedDb) {
+                    currentDb = updatedDb;
                 } else {
-                    exampleParams[param.name] = '';
+                    currentDb = null;
+                    document.getElementById('welcomeView').style.display = 'block';
+                    document.getElementById('dbDetailView').style.display = 'none';
                 }
-            });
-            document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
-        } else if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
-            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
+            }
         }
+    } catch (error) {
+        console.error('加载数据库详情失败', error);
+        showToast('加载数据库列表失败', 'error');
     }
 }
 
-// 关闭测试 API 弹窗。
-function hideTestApiModal() {
-    document.getElementById('testApiModal').classList.remove('show');
-}
-
-// 执行 API 测试。
-// 存储测试结果数据
-let testResultData = null;
-
-async function executeApiTest() {
-    if (!currentApi) return;
-
-    const paramsText = document.getElementById('testApiParams').value.trim();
-    let params = {};
-
-    // 搜索数据库
-    if (paramsText) {
-        try {
-            params = JSON.parse(paramsText);
-        } catch (error) {
-            showTestApiError('测试参数必须是合法 JSON');
-            return;
-        }
+// 渲染数据库列表。
+function renderDatabaseList() {
+    const listEl = document.getElementById('dbList');
+    
+    if (databases.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;color:#718096;padding:20px;">暂无数据库</div>';
+        return;
     }
 
-    const errorEl = document.getElementById('testApiError');
-    const resultGroup = document.getElementById('testApiResultGroup');
-    errorEl.classList.remove('show');
-    resultGroup.style.display = 'none';
+    // 达梦和 Oracle 排在前面。
+    const priorityTypes = ['dm', 'oracle'];
+    const sortedDatabases = [...databases].sort((a, b) => {
+        const aIsPriority = priorityTypes.includes(a.type);
+        const bIsPriority = priorityTypes.includes(b.type);
+        if (aIsPriority && !bIsPriority) return -1;
+        if (!aIsPriority && bIsPriority) return 1;
+        return 0;
+    });
 
-    const startTime = Date.now();
+    listEl.innerHTML = sortedDatabases.map(db => {
+        const typeIcon = dbTypeIcons[db.type] || '🗃️';
+        const isFileDb = dbTypeDefaults[db.type]?.isFile;
+        const info = isFileDb ? (db.path || '未配置') : `${db.host || ''}:${db.port || ''}`;
+        
+        const isActive = !userMgmtMode && currentDb && currentDb.id === db.id;
+        const safeDbId = escapeHtml(db.id);
+        const safeName = escapeHtml(db.name);
+        const safeInfo = escapeHtml(info);
+        return `
+            <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${safeDbId}')">
+                <div class="db-item-name">${typeIcon} ${safeName}</div>
+                <div class="db-item-info">${safeInfo}</div>
+            </div>
+        `;
+    }).join('');
+}
 
+// 选择数据库并加载详情。
+function selectDatabase(dbId) {
+    closeUserMgmtPanel(true);
+    currentDb = databases.find(db => db.id === dbId);
+    if (currentDb) {
+        renderDatabaseList();
+        showDatabaseLoading();
+        loadDatabaseDetail(dbId);
+    }
+}
+
+// 显示数据库加载状态。
+function showDatabaseLoading() {
+    closeUserMgmtPanel(true);
+    document.getElementById('welcomeView').style.display = 'none';
+    document.getElementById('dbDetailView').style.display = 'block';
+    
+    // 先显示占位信息。
+    document.getElementById('dbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
+    document.getElementById('dbStatus').textContent = '加载中...';
+    document.getElementById('dbStatus').className = 'info-value status';
+    
+    const listEl = document.getElementById('tablesList');
+    listEl.innerHTML = `
+        <div style="text-align:center;padding:40px;color:#718096;">
+            <div class="loading-spinner"></div>
+            <div style="margin-top:12px;">正在加载数据库详情...</div>
+        </div>
+    `;
+    
+    document.getElementById('tablePreview').style.display = 'none';
+}
+
+// 加载数据库详情。
+async function loadDatabaseDetail(dbId) {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}/test`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ params })
-        });
-
-        const endTime = Date.now();
-        const duration = endTime - startTime;
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${dbId}`);
 
         const data = await response.json();
 
         if (data.success) {
-            // 保存结果数据
-            testResultData = data.data;
+            document.getElementById('welcomeView').style.display = 'none';
+            document.getElementById('dbDetailView').style.display = 'block';
+            
+            const typeNames = {
+                mysql: 'MySQL',
+                mariadb: 'MariaDB',
+                postgresql: 'PostgreSQL',
+                sqlserver: 'SQL Server',
+                oracle: 'Oracle',
+                dm: '达梦',
+                sqlite: 'SQLite',
+                duckdb: 'DuckDB',
+                tidb: 'TiDB',
+                cockroachdb: 'CockroachDB',
+                mongodb: 'MongoDB',
+                redis: 'Redis',
+                memcached: 'Memcached',
+                clickhouse: 'ClickHouse',
+                cassandra: 'Cassandra',
+                hbase: 'HBase',
+                influxdb: 'InfluxDB',
+                timescaledb: 'TimescaleDB',
+                elasticsearch: 'Elasticsearch',
+                neo4j: 'Neo4j'
+            };
+            
+            const isFileDb = dbTypeDefaults[data.database.type]?.isFile;
+            document.getElementById('dbName').textContent = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
+            document.getElementById('dbHost').textContent = isFileDb ? data.database.path : data.database.host;
+            document.getElementById('dbPort').textContent = isFileDb ? '-' : data.database.port;
+            document.getElementById('dbDatabase').textContent = data.database.database || '-';
+            
+            const statusEl = document.getElementById('dbStatus');
+            if (data.database.connected) {
+                statusEl.textContent = '已连接';
+                statusEl.className = 'info-value status connected';
+            } else {
+                statusEl.textContent = '未连接';
+                statusEl.className = 'info-value status disconnected';
+            }
 
-            document.getElementById('testResultStatus').textContent = '成功';
-            document.getElementById('testResultStatus').style.color = '#38a169';
-            document.getElementById('testResultTime').textContent = duration;
-            document.getElementById('testResultContent').textContent = JSON.stringify(data.data, null, 2);
-
-            // 渲染表格视图
-            renderTestResultTable(data.data);
-
-            resultGroup.style.display = 'block';
-
-            // 重置为 JSON 视图
-            switchTestResultView('json');
+            renderTablesList(data.database.tables || []);
+            document.getElementById('tablePreview').style.display = 'none';
         } else {
-            showTestApiError(data.message || '测试失败');
+            // 数据库未连接时展示错误状态。
+            const listEl = document.getElementById('tablesList');
+            listEl.innerHTML = `
+                <div style="text-align:center;padding:40px;color:#e53e3e;">
+                    <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                    <div>加载失败：${escapeHtml(data.message || '未知错误')}</div>
+                </div>
+            `;
         }
     } catch (error) {
-        showTestApiError('测试失败：' + error.message);
+        console.error('加载数据库详情失败', error);
+        // 退回到通用错误状态。
+        const listEl = document.getElementById('tablesList');
+        listEl.innerHTML = `
+            <div style="text-align:center;padding:40px;color:#e53e3e;">
+                <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                <div>无法加载数据库详情，请稍后重试</div>
+            </div>
+        `;
     }
 }
 
-// 显示测试 API 错误。
-function showTestApiError(message) {
-    const errorEl = document.getElementById('testApiError');
-    errorEl.textContent = message;
-    errorEl.classList.add('show');
+// 折叠/展开列
+function toggleColumn(columnId) {
+    const column = document.getElementById(columnId);
+    if (!column) return;
+    
+    column.classList.toggle('collapsed');
+    
+    // 保存折叠状态到 localStorage
+    const collapsedState = {
+        dbSidebar: document.getElementById('dbSidebar')?.classList.contains('collapsed'),
+        tablesColumn: document.getElementById('tablesColumn')?.classList.contains('collapsed')
+    };
+    localStorage.setItem('dbColumnCollapsed', JSON.stringify(collapsedState));
 }
 
-// 切换测试结果视图
-function switchTestResultView(view) {
-    const jsonView = document.getElementById('testResultJson');
-    const tableView = document.getElementById('testResultTable');
-    const buttons = document.querySelectorAll('.view-toggle-btn');
-
-    buttons.forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.view === view) {
-            btn.classList.add('active');
+// 恢复列折叠状态
+function restoreColumnState() {
+    try {
+        const saved = localStorage.getItem('dbColumnCollapsed');
+        if (saved) {
+            const collapsedState = JSON.parse(saved);
+            if (collapsedState.dbSidebar) {
+                document.getElementById('dbSidebar')?.classList.add('collapsed');
+            }
+            if (collapsedState.tablesColumn) {
+                document.getElementById('tablesColumn')?.classList.add('collapsed');
+            }
         }
-    });
-
-    if (view === 'json') {
-        jsonView.style.display = 'block';
-        tableView.style.display = 'none';
-    } else {
-        jsonView.style.display = 'none';
-        tableView.style.display = 'block';
+    } catch (e) {
+        console.error('恢复列状态失败:', e);
     }
 }
 
-// 渲染测试结果表格
-function renderTestResultTable(data) {
-    const container = document.getElementById('testResultTableContent');
-
-    if (!data) {
-        container.innerHTML = '<div class="table-empty">暂无数据</div>';
+// 渲染数据表列表。
+function renderTablesList(tables) {
+    const listEl = document.getElementById('tablesList');
+    
+    if (tables.length === 0) {
+        const dbNameEl = document.getElementById('dbDatabase');
+        const currentDbName = dbNameEl ? dbNameEl.textContent : '';
+        
+        let hint = '';
+        if (currentDb && currentDb.type === 'mongodb') {
+            hint = `<div style="margin-top:12px;font-size:13px;color:#a0aec0;">
+                当前库：<strong style="color:#718096;">${currentDbName}</strong><br/>
+                如果是 MongoDB，请先检查是否选择了示例库 sample_mflix。
+            </div>`;
+        }
+        
+        listEl.innerHTML = `
+            <div style="text-align:center;color:#718096;padding:40px;">
+                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">📭</div>
+                <div style="font-size:16px;">当前没有表数据</div>
+                ${hint}
+            </div>
+        `;
         return;
     }
 
-    // 如果是数组
-    if (Array.isArray(data)) {
-        if (data.length === 0) {
-            container.innerHTML = '<div class="table-empty">空数组</div>';
+    // tables 可能是字符串数组或对象数组
+    const tablesHtml = tables.map(table => {
+        const tableName = typeof table === 'string' ? table : table.name;
+        const tableComment = typeof table === 'object' ? (table.comment || '') : '';
+        const isActive = currentPreviewTable === tableName;
+        const activeClass = isActive ? ' active' : '';
+        const displayText = tableComment ? `${tableName} (${tableComment})` : tableName;
+        return `
+            <div class="table-item-compact${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
+                ${escapeHtml(displayText)}
+            </div>
+        `;
+    }).join('');
+    
+    listEl.innerHTML = tablesHtml;
+}
+
+// 当前预览的表。
+let currentPreviewTable = null;
+let isTableEditMode = false;
+
+// 预览指定数据表。
+async function previewTable(tableName, keepEditMode = false) {
+    if (!currentDb) {
+        console.error('当前没有选中数据库');
+        return;
+    }
+
+    currentPreviewTable = tableName;
+    
+    // 默认退出编辑模式。
+    if (!keepEditMode) {
+        isTableEditMode = false;
+    }
+
+    // 显示表格预览区域。
+    document.getElementById('tablePreview').style.display = 'block';
+    const previewContent = document.getElementById('previewContent');
+    previewContent.innerHTML = `
+        <div style="text-align:center;padding:60px;color:#718096;">
+            <div class="loading-spinner"></div>
+            <div style="margin-top:16px;">正在加载表结构...</div>
+        </div>
+    `;
+
+    try {
+        // 先加载字段结构。
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const structureData = await structureResponse.json();
+        
+        // 再加载表数据。
+        const dataResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}`);
+        const data = await dataResponse.json();
+
+        if (data.success) {
+            document.getElementById('tablePreview').style.display = 'block';
+            
+            // 更新预览头部按钮。
+            updatePreviewHeader();
+            
+            const previewContent = document.getElementById('previewContent');
+            
+            // 优先使用结构接口返回的字段名，其次使用首行数据推断。
+            let columns = [];
+            if (structureData.success && structureData.columns && structureData.columns.length > 0) {
+                columns = structureData.columns.map(col => col.name);
+            } else if (data.data && data.data.length > 0) {
+                columns = Object.keys(data.data[0]);
+            } else {
+                // 如果结构接口失败，重试一次以避免偶发网络错误。
+                const retryResp = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
+                const retryData = await retryResp.json();
+                if (retryData.success && retryData.columns && retryData.columns.length > 0) {
+                    columns = retryData.columns.map(col => col.name);
+                }
+            }
+            if (columns.length === 0) {
+                // 仍然无法获取字段时，显示空状态。
+                previewContent.innerHTML = `
+                    <div style="text-align:center;padding:40px;">
+                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">📭</div>
+                        <div style="color:#718096;font-size:16px;margin-bottom:12px;">当前表没有字段</div>
+                        <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">请先确认数据库表结构是否可访问</div>
+                        <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">重新加载</button>
+                    </div>
+                `;
+                return;
+            }
+            
+            // 数据库连接测试与提交。
+            const hasData = data.data && data.data.length > 0;
+            const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
+            
+            // 构建字段备注映射
+            const columnComments = {};
+            if (structureData.success && structureData.columns) {
+                structureData.columns.forEach(col => {
+                    if (col.comment) {
+                        columnComments[col.name] = col.comment;
+                    }
+                });
+            }
+            
+            const tableHtml = `
+                <table class="preview-table" id="dataTable">
+                    <thead>
+                        <tr>
+                            ${columns.map(col => {
+                                const comment = columnComments[col];
+                                return comment 
+                                    ? `<th title="${escapeHtml(comment)}">${escapeHtml(col)}<span class="column-comment">${escapeHtml(comment)}</span></th>`
+                                    : `<th>${escapeHtml(col)}</th>`;
+                            }).join('')}
+                            ${actionColumnHtml}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${hasData ? data.data.map((row, rowIndex) => {
+                            const rowId = 'row-' + Date.now() + '-' + rowIndex;
+                            return `
+                                <tr data-row-id="${rowId}" data-row-index="${rowIndex}">
+                                    ${columns.map(col => {
+                                        const value = row[col];
+                                        const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
+                                        return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
+                                    }).join('')}
+                                    ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button></td>` : ''}
+                                </tr>
+                            `;
+                        }).join('') : `
+                            <tr class="empty-row">
+                                <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
+                                    ${isTableEditMode ? '当前无数据，可点击“添加行”继续编辑' : '暂无数据'}
+                                </td>
+                            </tr>
+                        `}
+                    </tbody>
+                </table>
+            `;
+            
+            previewContent.innerHTML = tableHtml;
+            previewContent.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            
+            // 隐藏新增数据库弹窗
+            const table = document.getElementById('dataTable');
+            if (isTableEditMode) {
+                table.classList.add('editing-mode');
+                enableTableEditing();
+            } else {
+                table.classList.remove('editing-mode');
+                // 关闭编辑数据库弹窗
+                const statsEl = document.getElementById('editStats');
+                if (statsEl) {
+                    statsEl.remove();
+                }
+            }
+        }
+    } catch (error) {
+        console.error('预览表格失败', error);
+        const previewContent = document.getElementById('previewContent');
+        previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + escapeHtml(error.message) + '</div>';
+    }
+}
+
+// 防止重复加载表结构。
+let structureLoadingLock = false;
+
+// 加载表结构并渲染空表格骨架。
+async function loadStructureAndRenderTable(addOneRow) {
+    if (!currentDb || !currentPreviewTable) return;
+    if (structureLoadingLock) return;
+    const previewContent = document.getElementById('previewContent');
+    if (!previewContent) return;
+    structureLoadingLock = true;
+    previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#718096;">正在加载结构...</div>';
+    try {
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(currentPreviewTable)}/structure`, {
+        });
+        const structureData = await structureResponse.json();
+        if (!structureData.success || !structureData.columns || structureData.columns.length === 0) {
+            const msg = (structureData.message && structureData.message.trim()) ? structureData.message : '无法获取表结构';
+            previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">' + escapeHtml(msg) + '</div>';
+            structureLoadingLock = false;
             return;
         }
-        container.innerHTML = renderArrayTable(data);
+        const columns = structureData.columns.map(col => col.name);
+        const actionColumnHtml = isTableEditMode ? '<th class="action-column">操作</th>' : '';
+        const emptyRowHtml = `
+            <tr class="empty-row">
+                <td colspan="${columns.length + (isTableEditMode ? 1 : 0)}" style="text-align:center;color:#718096;padding:20px;">
+                    当前无数据，可点击“添加行”继续编辑
+                </td>
+            </tr>
+        `;
+        const tableHtml = `
+            <table class="preview-table" id="dataTable">
+                <thead>
+                    <tr>
+                        ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+                        ${actionColumnHtml}
+                    </tr>
+                </thead>
+                <tbody>${emptyRowHtml}</tbody>
+            </table>
+        `;
+        previewContent.innerHTML = tableHtml;
+        const table = document.getElementById('dataTable');
+        if (!table) {
+            structureLoadingLock = false;
+            return;
+        }
+        if (isTableEditMode) {
+            table.classList.add('editing-mode');
+            enableTableEditing();
+        }
+        if (addOneRow) addTableRow();
+    } catch (e) {
+        previewContent.innerHTML = '<div style="text-align:center;padding:40px;color:#e53e3e;">加载失败：' + escapeHtml(e.message) + '</div>';
     }
-    // 如果是对象
-    else if (typeof data === 'object') {
-        container.innerHTML = renderObjectTable(data);
-    }
-    // 其他类型
-    else {
-        container.innerHTML = renderPrimitiveValue(data);
-    }
+    structureLoadingLock = false;
 }
 
-// 渲染数组表格
-function renderArrayTable(arr) {
-    if (arr.length === 0) return '<div class="table-empty">空数组</div>';
+// 更新预览头部按钮与表名。
+function updatePreviewHeader() {
+    const actionsContainer = document.querySelector('#tablePreview .preview-actions');
+    const tableNameEl = document.getElementById('previewTableName');
+    
+    if (!actionsContainer || !tableNameEl) {
+        console.error('预览头部容器缺失');
+        return;
+    }
+    
+    // 更新当前表名。
+    tableNameEl.textContent = currentPreviewTable;
+    
+    // 根据是否编辑模式生成按钮。
+    const actionsHtml = isTableEditMode ? `
+        <button id="addRowBtn" class="btn btn-sm btn-primary" onclick="addTableRow()">+ 添加行</button>
+        <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">保存数据</button>
+        <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
+    ` : `
+        <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">编辑数据</button>
+        <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">编辑结构</button>
+        <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">重命名</button>
+        <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除</button>
+        <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
+    `;
+    
+    actionsContainer.innerHTML = actionsHtml;
+}
 
-    // 检查数组元素是否都是对象
-    const isObjectArray = arr.every(item => typeof item === 'object' && item !== null && !Array.isArray(item));
+// 启用表格编辑模式。
+function enableTableEditMode() {
+    if (!currentPreviewTable) {
+        showToast('请先选择表', 'warning');
+        return;
+    }
 
-    if (isObjectArray) {
-        // 获取所有可能的键
-        const allKeys = new Set();
-        arr.forEach(item => {
-            if (item && typeof item === 'object') {
-                Object.keys(item).forEach(key => allKeys.add(key));
+    if (!currentDb) {
+        showToast('请先选择数据库表', 'warning');
+        return;
+    }
+    
+    isTableEditMode = true;
+    
+    // 显示编辑模式加载态。
+    const previewContent = document.getElementById('previewContent');
+    if (previewContent) {
+        const loadingHtml = '<div style="text-align:center;padding:40px;color:#667eea;"><div style="font-size:24px;margin-bottom:12px;">⏳</div><div>正在进入编辑模式...</div></div>';
+        previewContent.innerHTML = loadingHtml;
+    }
+    
+    // 创建流式消息占位。
+    previewTable(currentPreviewTable, true);
+}
+
+// 启用表格单元格编辑。
+function enableTableEditing() {
+    const cells = document.querySelectorAll('.editable-cell');
+    cells.forEach(cell => {
+        cell.contentEditable = 'true';
+        cell.classList.add('editing');
+        
+        // 清空 NULL 占位符。
+        const focusHandler = function() {
+            const nullEl = this.querySelector('.null-value');
+            if (nullEl) {
+                this.textContent = '';
             }
-        });
-        const keys = Array.from(allKeys);
-
-        let html = '<div class="table-wrapper"><table class="data-table">';
-        html += '<thead><tr>';
-        keys.forEach(key => {
-            html += `<th>${escapeHtml(key)}</th>`;
-        });
-        html += '</tr></thead><tbody>';
-
-        arr.forEach((item, index) => {
-            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
-            keys.forEach(key => {
-                const value = item && item[key];
-                html += `<td>${renderCellValue(value)}</td>`;
-            });
-            html += '</tr>';
-        });
-
-        html += '</tbody></table></div>';
-        return html;
-    } else {
-        // 简单数组
-        let html = '<div class="table-wrapper"><table class="data-table">';
-        html += '<thead><tr><th>索引</th><th>值</th></tr></thead><tbody>';
-
-        arr.forEach((item, index) => {
-            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
-            html += `<td>${index}</td>`;
-            html += `<td>${renderCellValue(item)}</td>`;
-            html += '</tr>';
-        });
-
-        html += '</tbody></table></div>';
-        return html;
-    }
-}
-
-// 渲染对象表格
-function renderObjectTable(obj) {
-    const keys = Object.keys(obj);
-
-    if (keys.length === 0) {
-        return '<div class="table-empty">空对象</div>';
-    }
-
-    let html = '<div class="table-wrapper"><table class="data-table">';
-    html += '<thead><tr><th>键</th><th>值</th></tr></thead><tbody>';
-
-    keys.forEach((key, index) => {
-        html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
-        html += `<td><strong>${escapeHtml(key)}</strong></td>`;
-        html += `<td>${renderCellValue(obj[key])}</td>`;
-        html += '</tr>';
+        };
+        
+        const blurHandler = function() {
+            if (this.textContent.trim() === '') {
+                this.innerHTML = '<i class="null-value">NULL</i>';
+            }
+            // 刷新编辑统计。
+            updateEditStats();
+        };
+        
+        // 绑定一次焦点和失焦事件。
+        cell.removeEventListener('focus', focusHandler);
+        cell.removeEventListener('blur', blurHandler);
+        
+        // 绑定焦点和失焦事件。
+        cell.addEventListener('focus', focusHandler);
+        cell.addEventListener('blur', blurHandler);
+        
+        // 保存事件句柄，便于后续清理。
+        cell._focusHandler = focusHandler;
+        cell._blurHandler = blurHandler;
     });
-
-    html += '</tbody></table></div>';
-    return html;
+    
+    // 更新编辑统计。
+    updateEditStats();
 }
 
-// 渲染单元格值
-function renderCellValue(value, depth = 0) {
-    if (depth > 3) {
-        return '<span class="value-deep">...</span>';
-    }
-
-    if (value === null) {
-        return '<span class="value-null">null</span>';
-    }
-
-    if (value === undefined) {
-        return '<span class="value-undefined">undefined</span>';
-    }
-
-    if (typeof value === 'boolean') {
-        return `<span class="value-boolean">${value}</span>`;
-    }
-
-    if (typeof value === 'number') {
-        return `<span class="value-number">${value}</span>`;
-    }
-
-    if (typeof value === 'string') {
-        return `<span class="value-string">"${escapeHtml(value)}"</span>`;
-    }
-
-    if (Array.isArray(value)) {
-        if (value.length === 0) {
-            return '<span class="value-array">[]</span>';
-        }
-        if (value.length <= 5 && depth < 2) {
-            const items = value.map(item => renderCellValue(item, depth + 1)).join(', ');
-            return `<span class="value-array">[${items}]</span>`;
-        }
-        return `<span class="value-array">Array(${value.length})</span>`;
-    }
-
-    if (typeof value === 'object') {
-        const keys = Object.keys(value);
-        if (keys.length === 0) {
-            return '<span class="value-object">{}</span>';
-        }
-        if (keys.length <= 3 && depth < 2) {
-            const items = keys.map(key => {
-                return `<span class="object-key">${escapeHtml(key)}</span>: ${renderCellValue(value[key], depth + 1)}`;
-            }).join(', ');
-            return `<span class="value-object">{${items}}</span>`;
-        }
-        return `<span class="value-object">Object{${keys.length} keys}</span>`;
-    }
-
-    return escapeHtml(String(value));
+// 显示保存成功提示。
+function showSaveSuccess(message) {
+    // 创建成功提示浮层。
+    const toast = document.createElement('div');
+    toast.className = 'save-success-toast';
+    toast.innerHTML = `
+        <div class="toast-icon">✓</div>
+        <div class="toast-message">${message.replace(/\n/g, '<br>')}</div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // 解析用户输入的 JSON 参数。
+    setTimeout(() => toast.classList.add('show'), 10);
+    
+    // 结束后自动消失。
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 1200);
 }
 
-// 渲染原始值
-function renderPrimitiveValue(value) {
-    return `<div class="primitive-value">${renderCellValue(value)}</div>`;
+// 更新编辑统计。
+function updateEditStats() {
+    const table = document.getElementById('dataTable');
+    if (!table || !isTableEditMode) return;
+    
+    const rows = table.querySelectorAll('tbody tr:not(.empty-row)');
+    let newCount = 0;
+    let deletedCount = 0;
+    let normalCount = 0;
+    
+    rows.forEach(row => {
+        const isNew = row.dataset.isNew === 'true';
+        const isDeleted = row.dataset.deleted === 'true';
+        
+        if (isNew) {
+            newCount++;
+        } else if (isDeleted) {
+            deletedCount++;
+        } else {
+            normalCount++;
+        }
+    });
+    
+    // 如果统计条还不存在则创建。
+    let statsEl = document.getElementById('editStats');
+    if (!statsEl) {
+        statsEl = document.createElement('div');
+        statsEl.id = 'editStats';
+        statsEl.className = 'edit-stats';
+        const previewContent = document.getElementById('previewContent');
+        previewContent.insertBefore(statsEl, previewContent.firstChild);
+    }
+    
+    const totalChanges = newCount + deletedCount;
+    const statsHtml = totalChanges > 0 ? `
+        <span class="stats-item">
+            <span class="stats-label">编辑统计</span>
+            ${normalCount > 0 ? `<span class="stats-badge stats-normal">${normalCount} 行原始</span>` : ''}
+            ${newCount > 0 ? `<span class="stats-badge stats-new">+ ${newCount} 行新增</span>` : ''}
+            ${deletedCount > 0 ? `<span class="stats-badge stats-deleted">- ${deletedCount} 行删除</span>` : ''}
+        </span>
+    ` : '<span class="stats-item"><span class="stats-label">无改动</span></span>';
+    
+    statsEl.innerHTML = statsHtml;
 }
 
-// HTML 转义
-function escapeHtml(text) {
-    if (text == null) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// 禁用表格编辑。
+function disableTableEditing() {
+    const cells = document.querySelectorAll('.editable-cell');
+    cells.forEach(cell => {
+        cell.contentEditable = 'false';
+        cell.classList.remove('editing');
+    });
 }
 
-// ==================== AI 配置 ====================
+// 取消表格编辑。
+function cancelTableEdit() {
+    isTableEditMode = false;
+    disableTableEditing();
+    
+    // 移除编辑统计条。
+    const statsEl = document.getElementById('editStats');
+    if (statsEl) {
+        statsEl.remove();
+    }
+    
+    previewTable(currentPreviewTable);
+}
 
-// 加载 AI 配置。
-async function loadAiConfig() {
+// 新增表格行。
+function addTableRow() {
+    const table = document.getElementById('dataTable');
+    if (!table) {
+        // 如果表格不存在，先加载结构再继续。
+        loadStructureAndRenderTable(true);
+        return;
+    }
+    const tbody = table.querySelector('tbody');
+    const headers = Array.from(table.querySelectorAll('thead th'))
+        .slice(0, -1) // 去掉操作列
+        .map(th => th.textContent);
+    
+    // 去除空状态行。
+    const emptyRow = tbody.querySelector('.empty-row');
+    if (emptyRow) {
+        emptyRow.remove();
+    }
+    
+    const rowId = 'row-new-' + Date.now();
+    const newRow = document.createElement('tr');
+    newRow.dataset.rowId = rowId;
+    newRow.dataset.isNew = 'true';
+    newRow.innerHTML = headers.map(col => 
+        `<td data-column="${escapeHtml(col)}" class="editable-cell editing" contenteditable="true"><i class="null-value">NULL</i></td>`
+    ).join('') + `
+        <td class="action-column">
+            <button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button>
+        </td>
+    `;
+    
+    tbody.appendChild(newRow);
+    
+    // 自动聚焦第一格。
+    const firstCell = newRow.querySelector('.editable-cell');
+    if (firstCell) {
+        firstCell.focus();
+        // 清除默认 NULL 占位。
+        if (firstCell.querySelector('.null-value')) {
+            firstCell.textContent = '';
+        }
+    }
+    
+    // 刷新统计。
+    updateEditStats();
+}

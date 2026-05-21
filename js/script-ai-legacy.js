@@ -1,246 +1,336 @@
-function renderGovOutput(text) {
-    if (typeof text !== 'string') return escapeHtml(String(text));
 
-    // 先将字面量 \n 转换为真正的换行符
-    text = text.replace(/\\n/g, '\n');
+function genPhp(ctx) {
+    const lines = [];
+    lines.push('<?php');
 
-    const prefix = '__TABLE__:';
-    const tryRender = function (jsonStr) {
-        try {
-            const data = JSON.parse(jsonStr);
-            if (!Array.isArray(data) || data.length === 0) {
-                return '<div class="gov-table-empty">暂无数据</div>';
-            }
-            const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
-            let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
-            keys.forEach(key => {
-                html += `<th>${escapeHtml(key)}</th>`;
-            });
-            html += '</tr></thead><tbody>';
-            data.forEach(row => {
-                html += '<tr>';
-                keys.forEach(key => {
-                    const val = row[key];
-                    html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
-                });
-                html += '</tr>';
-            });
-            html += '</tbody></table></div>';
-            return html;
-        } catch (e) {
-            return escapeHtml(prefix + jsonStr);
-        }
-    };
-
-    // 处理多行文本，逐行检查是否有 __TABLE__: 标记
-    const lines = text.split('\n');
-    const result = lines.map(line => {
-        if (line.startsWith(prefix)) {
-            return tryRender(line.substring(prefix.length));
-        }
-        if (line.startsWith('__TABLE_ROWS__:')) {
-            return tryRender(line.substring('__TABLE_ROWS__'.length));
-        }
-        return escapeHtml(line);
-    });
-    return result.join('<br>');
-}
-
-function formatAIText(text) {
-    if (!text) return '';
-    // 处理 <think>...</think> 标签：提取思考内容到折叠块，正文继续正常显示
-    // 支持流式输出时未闭合的 <think> 标签（只有开头没有结尾）
-    let thinkContent = '';
-    let mainContent = text;
-
-    // 匹配闭合的 <think>...</think>
-    const closedThinkRegex = /<think>([\s\S]*?)<\/think>/g;
-    let match;
-    while ((match = closedThinkRegex.exec(text)) !== null) {
-        thinkContent += match[1];
-    }
-
-    // 匹配未闭合的 <think>...（流式输出中）
-    const openThinkRegex = /<think>([\s\S]*)$/;
-    const openMatch = openThinkRegex.exec(text.replace(closedThinkRegex, ''));
-    if (openMatch) {
-        thinkContent += openMatch[1];
-    }
-
-    // 移除所有 think 标签及内容，得到正文
-    mainContent = text.replace(closedThinkRegex, '').replace(/<think>[\s\S]*$/, '').trim();
-
-    let result = '';
-    // 渲染思考过程为折叠块
-    if (thinkContent.trim()) {
-        const escapedThink = escapeHtml(thinkContent.trim()).replace(/\n/g, '<br>');
-        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${escapedThink}</div></details>`;
-    }
-    // 渲染正文
-    if (mainContent.trim()) {
-        let escaped = escapeHtml(mainContent).trim();
-        escaped = escaped.replace(/\n{2,}/g, '\n');
-        escaped = escaped.replace(/\n/g, '<br>');
-        result += escaped;
-    }
-    return result;
-}
-
-// 更新AI上下文显示
-function updateAiContextDisplay() {
-    const header = document.querySelector('#aiTab .ai-chat-header');
-    if (!header) return;
-
-    let contextEl = document.getElementById('aiContextDisplay');
-    const input = document.getElementById('aiInput');
-    const hasDbs = aiSessionContext.databases.length > 0;
-    const hasMods = aiSessionContext.modules.length > 0;
-
-    if (hasDbs || hasMods) {
-        if (!contextEl) {
-            contextEl = document.createElement('div');
-            contextEl.id = 'aiContextDisplay';
-            contextEl.className = 'ai-context-display';
-            const h3 = header.querySelector('h3');
-            h3.parentNode.insertBefore(contextEl, h3.nextSibling);
-        }
-
-        let tagsHtml = '';
-        if (hasMods) {
-            tagsHtml += aiSessionContext.modules.map(m =>
-                `<span class="ai-context-tag ai-context-tag-module">${m.icon} ${escapeHtml(m.name)}</span>`
-            ).join('');
-        }
-        if (hasDbs) {
-            tagsHtml += aiSessionContext.databases.map(db => {
-                const icon = dbTypeIcons[db.type] || '🗃️';
-                return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
-            }).join('');
-        }
-
-        contextEl.innerHTML = `
-            <div class="ai-context-info">
-                <span class="ai-context-label">当前上下文:</span>
-                <span class="ai-context-value">${tagsHtml}</span>
-                <button class="ai-context-clear" onclick="clearAiContext()" title="清空当前上下文">×</button>
-            </div>
-        `;
-
-        if (input) {
-            input.placeholder = '输入消息...（可用 @ 引用上下文）';
-        }
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        lines.push(`$url = '${ctx.baseUrl}';`);
+        const items = Object.entries(ctx.params)
+            .map(([k, v]) => `    '${k}' => ${typeof v === 'string' ? `'${v}'` : v}`)
+            .join(',\n');
+        lines.push(`$data = [\n${items}\n];`);
+        lines.push('');
+        lines.push('$ch = curl_init($url);');
+        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
+        lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
+        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
+        lines.push("    'Content-Type: application/json',");
+        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
+        lines.push(']);');
+        lines.push('curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));');
     } else {
-        if (contextEl) {
-            contextEl.remove();
+        lines.push(`$url = '${ctx.fullUrl}';`);
+        lines.push('');
+        lines.push('$ch = curl_init($url);');
+        lines.push('curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);');
+        if (ctx.method !== 'GET') {
+            lines.push(`curl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${ctx.method}');`);
         }
-        if (input) {
-            input.placeholder = '输入消息...（输入 @ 选择上下文）';
+        lines.push('curl_setopt($ch, CURLOPT_HTTPHEADER, [');
+        lines.push(`    'Authorization: Bearer ${ctx.token}'`);
+        lines.push(']);');
+    }
+
+    lines.push('');
+    lines.push('$response = curl_exec($ch);');
+    lines.push('curl_close($ch);');
+    lines.push('');
+    lines.push('echo $response;');
+    return lines.join('\n');
+}
+
+function genCurl(ctx) {
+    const lines = [];
+    if (ctx.isBodyMethod && ctx.hasParams) {
+        const bodyEsc = JSON.stringify(ctx.params).replace(/'/g, "'\\''");
+        lines.push(`curl -X ${ctx.method} '${ctx.baseUrl}' \\`);
+        lines.push(`  -H 'Content-Type: application/json' \\`);
+        lines.push(`  -H 'Authorization: Bearer ${ctx.token}' \\`);
+        lines.push(`  -d '${bodyEsc}'`);
+    } else {
+        if (ctx.method === 'GET') {
+            lines.push(`curl '${ctx.fullUrl}' \\`);
+        } else {
+            lines.push(`curl -X ${ctx.method} '${ctx.fullUrl}' \\`);
         }
+        lines.push(`  -H 'Authorization: Bearer ${ctx.token}'`);
+    }
+    return lines.join('\n');
+}
+
+function renderCodeExamples(api) {
+    const container = document.getElementById('apiCodeExamples');
+    if (!container) return;
+
+    const languages = generateCodeExamples(api);
+    const activeTab = container.dataset.activeTab || languages[0].id;
+
+    const tabsHtml = languages.map(lang =>
+        `<button class="code-tab ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}">${lang.label}</button>`
+    ).join('');
+
+    const panelsHtml = languages.map(lang =>
+        `<div class="code-panel ${lang.id === activeTab ? 'active' : ''}" data-lang="${lang.id}"><pre><code>${escapeHtml(lang.code)}</code></pre></div>`
+    ).join('');
+
+    container.innerHTML = `
+        <div class="code-tabs-header">
+            <div class="code-tabs">${tabsHtml}</div>
+            <button class="code-copy-btn" title="复制代码">复制</button>
+        </div>
+        <div class="code-panels">${panelsHtml}</div>
+    `;
+
+    container.dataset.activeTab = activeTab;
+
+    container.querySelectorAll('.code-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const lang = tab.dataset.lang;
+            container.dataset.activeTab = lang;
+            container.querySelectorAll('.code-tab').forEach(t => t.classList.toggle('active', t.dataset.lang === lang));
+            container.querySelectorAll('.code-panel').forEach(p => p.classList.toggle('active', p.dataset.lang === lang));
+        });
+    });
+
+    container.querySelector('.code-copy-btn').addEventListener('click', () => {
+        const activePanel = container.querySelector('.code-panel.active code');
+        if (activePanel) {
+            const text = activePanel.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = container.querySelector('.code-copy-btn');
+                const original = btn.textContent;
+                btn.textContent = '已复制';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+    });
+}
+
+// 快速修复 SQL 参数语法。
+async function quickFixSql() {
+    if (!currentApi) return;
+    
+    if (!confirm('将 SQL 中的 #{} 与 ${} 参数写法统一为合法格式吗？')) {
+        return;
+    }
+    
+    // 替换 SQL 中的参数占位符。
+    const fixedSql = currentApi.sql.replace(/#\{/g, '${');
+    
+    // 处理API类型
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: currentApi.name,
+                path: currentApi.path,
+                method: currentApi.method,
+                database_id: currentApi.database_id,
+                sql: fixedSql,
+                description: currentApi.description,
+                default_params: currentApi.default_params
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('修复成功', 'success');
+            loadApiDetail(currentApi.id);
+        } else {
+            showToast('修复失败：' + (data.message || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('修复失败：' + error.message, 'error');
     }
 }
 
-// 清空 AI 上下文。
-function clearAiContext() {
-    if (confirm('确定清空当前 AI 上下文吗？')) {
-        aiSessionContext.databases = [];
-        aiSessionContext.modules = [];
-        aiSessionContext.history = [];
-        updateAiContextDisplay();
-
-        const messagesEl = document.getElementById('aiChatMessages');
-        const messageId = 'msg-clear-' + Date.now();
-        const messageHtml = `
-            <div class="ai-message assistant" id="${messageId}" style="opacity: 0.8;">
-                <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
-                <div class="ai-message-content">
-                    <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
-                        当前上下文已清空，可继续通过 @ 选择数据库或模块。
-                    </div>
-                </div>
-            </div>
-        `;
-        messagesEl.insertAdjacentHTML('beforeend', messageHtml);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+// 切换 API 类型表单字段。
+function switchApiTypeFields(type) {
+    const queryFields = document.getElementById('apiQueryFields');
+    const forwardFields = document.getElementById('apiForwardFields');
+    const dbSelect = document.getElementById('apiDbSelect');
+    const sqlInput = document.getElementById('apiSqlInput');
+    const forwardUrlInput = document.getElementById('apiForwardUrlInput');
+    if (type === 'forward') {
+        queryFields.style.display = 'none';
+        forwardFields.style.display = '';
+        dbSelect.required = false;
+        sqlInput.required = false;
+        forwardUrlInput.required = true;
+    } else {
+        queryFields.style.display = '';
+        forwardFields.style.display = 'none';
+        dbSelect.required = true;
+        sqlInput.required = true;
+        forwardUrlInput.required = false;
     }
 }
 
-// ==================== AI 配置确认 ====================
-
-// 从 AI 生成的配置中打开编辑弹窗。
-function editApiConfigFromAI(messageId, config) {
-    // 切换到新增模式。
+// 打开新增 API 弹窗。
+async function showAddApiModal() {
     isEditApiMode = false;
     editingApiId = null;
     document.getElementById('apiModalTitle').textContent = '新增 API';
     document.getElementById('addApiModal').classList.add('show');
-    
-    // 默认按 query 接口填充。
-    document.getElementById('apiTypeQuery').checked = true;
-    switchApiTypeFields('query');
-    document.getElementById('apiNameInput').value = config.name || '';
-    document.getElementById('apiPathInput').value = config.path || '';
-    document.getElementById('apiMethodInput').value = config.method || 'GET';
-    document.getElementById('apiSqlInput').value = config.sql || '';
-    document.getElementById('apiDescInput').value = config.description || '';
-    
-    // 填充默认参数。
-    if (config.default_params && Object.keys(config.default_params).length > 0) {
-        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(config.default_params, null, 2);
-    } else {
-        document.getElementById('apiDefaultParamsInput').value = '';
-    }
-    
-    // 加载数据库后再选中目标库。
-    loadDatabasesForSelect().then(() => {
-        if (config.database_id) {
-            document.getElementById('apiDbSelect').value = config.database_id;
-        }
-    });
-    
-    // 标记为 AI 生成来源。
-    document.getElementById('addApiForm').dataset.fromAi = 'true';
-    document.getElementById('addApiForm').dataset.aiMessageId = messageId;
-    
+    document.getElementById('addApiForm').reset();
     document.getElementById('apiFormError').classList.remove('show');
     document.getElementById('apiFormSuccess').classList.remove('show');
+    // 默认选择查询接口。
+    document.getElementById('apiTypeQuery').checked = true;
+    switchApiTypeFields('query');
+    // 填充默认参数。
+    await loadDatabasesForSelect();
 }
 
-// 确认创建 AI 生成的 API。
-async function confirmCreateApiFromAI(config, messageId) {
-    // 显示处理中状态。
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
-    }
-    
-    // 先刷新数据库下拉框。
-    await loadDatabasesForSelect();
-    
-    const apiData = {
-        name: config.name,
-        path: config.path,
-        method: config.method,
-        type: 'query',
-        database_id: config.database_id || aiSessionContext.databases[0]?.id,
-        sql: config.sql,
-        description: config.description || ''
-    };
-    
-    // 复制默认参数。
-    if (config.default_params) {
-        apiData.default_params = config.default_params;
-    }
-    
-    if (!apiData.database_id) {
-        if (contentEl) {
-            contentEl.innerHTML = '<div class="ai-error">请先选择一个数据库</div>';
+    // 加载API列表
+async function loadDatabasesForSelect() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/databases`);
+
+        const data = await response.json();
+
+        if (data.success) {
+            const selectEl = document.getElementById('apiDbSelect');
+            const currentValue = selectEl.value;
+            
+            selectEl.innerHTML = '<option value="">请选择数据库</option>' + 
+                (data.databases || []).map(db => 
+                    `<option value="${db.id}">${db.name}</option>`
+                ).join('');
+            
+            // 保留当前选中的数据库。
+            if (currentValue) {
+                selectEl.value = currentValue;
+            }
         }
+    } catch (error) {
+        console.error('刷新API列表失败', error);
+    }
+}
+
+// 关闭新增 API 弹窗。
+function hideAddApiModal() {
+    const form = document.getElementById('addApiForm');
+    document.getElementById('addApiModal').classList.remove('show');
+    isEditApiMode = false;
+    editingApiId = null;
+    
+    // 清除 AI 填充标记。
+    delete form.dataset.fromAi;
+    delete form.dataset.aiMessageId;
+    
+    // 刷新API列表
+    form.reset();
+}
+
+// 提交新增或编辑 API 表单。
+async function handleAddApi(e) {
+    e.preventDefault();
+
+    const apiType = document.querySelector('input[name="apiType"]:checked')?.value || 'query';
+
+    const apiData = {
+        name: document.getElementById('apiNameInput').value.trim(),
+        path: document.getElementById('apiPathInput').value.trim(),
+        method: document.getElementById('apiMethodInput').value,
+        type: apiType,
+        description: document.getElementById('apiDescInput').value.trim()
+    };
+
+    // 初始化一行默认列。
+    if (!apiData.name) {
+        showApiFormError('请输入 API 名称');
         return;
     }
-    
+
+    // 删除API
+    if (!apiData.path) {
+        showApiFormError('请输入请求路径');
+        return;
+    }
+
+    // 初始化默认列。
+    if (!apiData.path.startsWith('/')) {
+        showApiFormError('路径必须以 / 开头');
+        return;
+    }
+
+    if (apiType === 'forward') {
+        apiData.forward_url = document.getElementById('apiForwardUrlInput').value.trim();
+        if (!apiData.forward_url) {
+            showApiFormError('请输入转发 URL');
+            return;
+        }
+        // URL参数解析
+        try {
+            new URL(apiData.forward_url);
+        } catch {
+            showApiFormError('请输入有效的 URL');
+            return;
+        }
+    } else {
+        apiData.database_id = document.getElementById('apiDbSelect').value;
+        apiData.sql = document.getElementById('apiSqlInput').value.trim();
+        
+        // SQL校验
+        if (!apiData.sql) {
+            showApiFormError('请输入 SQL');
+            return;
+        }
+    }
+
+    // 解析MyBatis参数
+    const defaultParamsText = document.getElementById('apiDefaultParamsInput').value.trim();
+    if (defaultParamsText) {
+        try {
+            apiData.default_params = JSON.parse(defaultParamsText);
+        } catch (error) {
+            showApiFormError('默认参数必须是合法 JSON');
+            return;
+        }
+    }
+
+    // query类型需要校验SQL
+    if (apiType !== 'forward') {
+        const sqlWarnings = validateSqlSyntax(apiData.sql);
+        if (sqlWarnings.length > 0) {
+            const errors = sqlWarnings.filter(w => w.type === 'error');
+            if (errors.length > 0) {
+                showApiFormError(errors[0].message);
+                return;
+            }
+            const warnings = sqlWarnings.filter(w => w.type === 'warning');
+            if (warnings.length > 0) {
+                const warningMsg = warnings.map(w => w.message).join('\n\n');
+                if (!confirm('SQL 存在警告，是否仍然继续保存？\n\n' + warningMsg + '\n\n继续将按当前内容提交。')) {
+                    return;
+                }
+            }
+        }
+    }
+
+    const errorEl = document.getElementById('apiFormError');
+    const successEl = document.getElementById('apiFormSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis`, {
-            method: 'POST',
+        const url = isEditApiMode 
+            ? `${API_BASE}/api/v1/openapis/${editingApiId}`
+            : `${API_BASE}/api/v1/openapis`;
+        
+        const method = isEditApiMode ? 'PUT' : 'POST';
+        
+        const response = await fetchWithAuth(url, {
+            method: method,
             headers: {
                 'Content-Type': 'application/json'
             },
@@ -250,139 +340,86 @@ async function confirmCreateApiFromAI(config, messageId) {
         const data = await response.json();
 
         if (data.success) {
-            // 生成成功后显示结果。
-            if (contentEl) {
-                contentEl.innerHTML = `
-                    <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
-                        <strong>创建成功</strong><br>
-                        <span style="font-size: 13px; margin-top: 4px; display: block;">
-                            名称：${escapeHtml(apiData.name)}<br>
-                            路径：${escapeHtml(apiData.path)}<br>
-                            已同步到“API 列表”。
-                        </span>
-                    </div>
-                `;
-            }
+            const isFromAi = e.target.dataset.fromAi === 'true';
             
-            // 如果当前停留在 API 页，则刷新列表。
-            if (document.querySelector('[data-tab="api"]').classList.contains('active')) {
+            successEl.textContent = isEditApiMode ? 'API 已更新' : 'API 已创建';
+            successEl.classList.add('show');
+            
+            setTimeout(() => {
+                hideAddApiModal();
                 loadApis();
-            }
+                
+                // 如果是 AI 生成的表单，回写成功消息。
+                if (isFromAi) {
+                    const messagesEl = document.getElementById('aiChatMessages');
+                    const messageId = 'msg-success-' + Date.now();
+                    const messageHtml = `
+                        <div class="ai-message assistant" id="${messageId}">
+                            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+                            <div class="ai-message-content">
+                                <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
+                                    <strong>创建成功</strong><br>
+                                    <span style="font-size: 13px; margin-top: 4px; display: block;">
+                                        名称：${escapeHtml(apiData.name)}<br>
+                                        路径：${escapeHtml(apiData.path)}<br>
+                                        已同步到“API 列表”中。
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    
+                    // 清理 AI 标记。
+                    delete e.target.dataset.fromAi;
+                    delete e.target.dataset.aiMessageId;
+                }
+                
+                if (isEditApiMode && currentApi && currentApi.id === editingApiId) {
+                    setTimeout(() => {
+                        loadApiDetail(editingApiId);
+                    }, 300);
+                }
+            }, 1000);
         } else {
-            if (contentEl) {
-                contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(data.message || '未知错误')}</div>`;
-            }
+            showApiFormError(data.message || (isEditApiMode ? '更新失败' : '创建失败'));
         }
     } catch (error) {
-        if (contentEl) {
-            contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(error.message)}</div>`;
-        }
+        showApiFormError((isEditApiMode ? '更新失败：' : '创建失败：') + error.message);
     }
 }
 
-// 取消 AI 生成的 API 创建。
-function cancelCreateApiFromAI(messageId) {
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = `
-            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
-                已取消创建。
-            </div>
-        `;
-    }
+// 显示 API 表单错误。
+function showApiFormError(message) {
+    const errorEl = document.getElementById('apiFormError');
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
 }
 
-// 创建治理任务草稿并提交。
-async function confirmCreateGovTaskFromAI(messageId) {
-    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
-    if (!draft) return;
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
-    }
-    const taskData = {
-        name: draft.name,
-        type: draft.type,
-        description: draft.description || '',
-        js_code: draft.js_code,
-        database_id: draft.database_id || '',
-        cron_expr: draft.type === 'scheduled' ? (draft.cron_expr || '0 0 * * *') : '',
-        enabled: draft.type === 'scheduled',
-        input_type: draft.type === 'interactive' ? (draft.input_type || 'file') : '',
-        accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
-    };
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(taskData)
+// 校验 SQL 语法风险。
+function validateSqlSyntax(sql) {
+    const warnings = [];
+    
+    // DDL 与参数占位符冲突时给出错误提示。
+    const isDDL = /^\s*(CREATE|DROP|ALTER|TRUNCATE)\s+/i.test(sql);
+    const hasPreparedParams = /#\{[^}]+\}/g.test(sql);
+    
+    if (isDDL && hasPreparedParams) {
+        warnings.push({
+            type: 'error',
+            message: 'DDL 语句不应同时使用 #{} 预编译参数；请改用 ${} 或普通 SQL。'
         });
-        const data = await response.json();
-        if (data.success && contentEl) {
-            contentEl.innerHTML = `
-                <div style="padding: 12px; background: #e6ffed; border-left: 3px solid #52c41a; border-radius: 6px; color: #389e0d; font-size: 13px;">
-                    治理任务创建成功。
-                </div>
-            `;
-            loadGovernanceTasks();
-        } else if (contentEl) {
-            contentEl.innerHTML = `
-                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
-                    ${escapeHtml(data.message || '创建失败')}
-                </div>
-            `;
-        }
-    } catch (err) {
-        if (contentEl) {
-            contentEl.innerHTML = `
-                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
-                    ${escapeHtml('创建失败：' + err.message)}
-                </div>
-            `;
-        }
     }
-    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
-}
-
-function cancelGovTaskDraft(messageId) {
-    const contentEl = document.getElementById(`${messageId}-content`);
-    if (contentEl) {
-        contentEl.innerHTML = `
-            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
-                已取消治理任务草稿。
-            </div>
-        `;
+    
+    // 检测 ${} 风险占位符。
+    const hasDirectReplace = /\$\{[^}]+\}/g.test(sql);
+    if (hasDirectReplace && !isDDL) {
+        warnings.push({
+            type: 'warning',
+            message: '检测到 ${} 直接拼接参数，若参数来自用户输入，建议改为 #{} 预编译参数。'
+        });
     }
-    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
+    
+    return warnings;
 }
-
-// 从 AI 草稿打开治理任务编辑弹窗。
-function editGovTaskDraftFromAI(messageId) {
-    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
-    if (!draft) return;
-    isEditGovMode = false;
-    editingGovTaskId = null;
-    document.getElementById('govModalTitle').textContent = '编辑治理任务';
-    document.getElementById('govTaskNameInput').value = draft.name || '';
-    document.getElementById('govTaskTypeInput').value = draft.type || 'interactive';
-    document.getElementById('govTaskDescInput').value = draft.description || '';
-    document.getElementById('govCodeInput').value = draft.js_code || '';
-    document.getElementById('govCronInput').value = draft.cron_expr || '';
-    document.getElementById('govEnabledInput').checked = true;
-    document.getElementById('govEnabledLabel').textContent = '启用';
-    document.getElementById('govInputTypeSelect').value = draft.input_type || 'file';
-    document.getElementById('govAcceptExtsInput').value = (draft.accept_exts || []).join(', ');
-    populateGovDbSelect();
-    document.getElementById('govTaskDbSelect').value = draft.database_id || '';
-    onGovTaskTypeChange();
-    document.getElementById('govFormError').textContent = '';
-    document.getElementById('govFormError').classList.remove('show');
-    document.getElementById('govFormSuccess').textContent = '';
-    document.getElementById('govFormSuccess').classList.remove('show');
-    document.getElementById('govTaskModal').classList.add('show');
-}
-
-// ==================== 表结构管理 ====================
-
-// 打开创建表弹窗。
-function showCreateTableModal() {

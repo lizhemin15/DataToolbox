@@ -1,3 +1,2026 @@
+
+// 打开编辑 API 弹窗。
+async function handleEditApi() {
+    if (!currentApi) return;
+    
+    isEditApiMode = true;
+    editingApiId = currentApi.id;
+    document.getElementById('apiModalTitle').textContent = '编辑 API';
+    document.getElementById('addApiModal').classList.add('show');
+    
+    // 执行SQL查询
+    document.getElementById('apiNameInput').value = currentApi.name;
+    document.getElementById('apiPathInput').value = currentApi.path;
+    document.getElementById('apiMethodInput').value = currentApi.method;
+    document.getElementById('apiDescInput').value = currentApi.description || '';
+    
+    // 恢复编辑模式时同步配置。
+    const editType = currentApi.type || 'query';
+    document.getElementById(editType === 'forward' ? 'apiTypeForward' : 'apiTypeQuery').checked = true;
+    switchApiTypeFields(editType);
+    
+    if (editType === 'forward') {
+        document.getElementById('apiForwardUrlInput').value = currentApi.forward_url || '';
+    } else {
+        document.getElementById('apiSqlInput').value = currentApi.sql || '';
+    }
+    
+    // 切换API类型
+    if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(currentApi.default_params, null, 2);
+    } else {
+        document.getElementById('apiDefaultParamsInput').value = '';
+    }
+    
+    // 如果有结果，则把结果表附在消息下方。
+    await loadDatabasesForSelect();
+    document.getElementById('apiDbSelect').value = currentApi.database_id;
+    
+    document.getElementById('apiFormError').classList.remove('show');
+    document.getElementById('apiFormSuccess').classList.remove('show');
+}
+
+// 删除当前 API。
+async function handleDeleteApi() {
+    if (!currentApi) return;
+
+    if (!confirm(`确定删除 API “${currentApi.name}” 吗？此操作不可恢复。`)) {
+        return;
+    }
+
+    const deleteBtn = document.getElementById('deleteApiBtn');
+    const originalText = deleteBtn.textContent;
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '删除中...';
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
+            currentApi = null;
+            document.getElementById('apiWelcomeView').style.display = 'flex';
+            document.getElementById('apiDetailView').style.display = 'none';
+            loadApis();
+        } else {
+            showToast(data.message || '删除失败', 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = originalText;
+        }
+    } catch (error) {
+        showToast('删除失败：' + error.message, 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = originalText;
+    }
+}
+
+// 打开测试 API 弹窗。
+function showTestApiModal() {
+    if (!currentApi) return;
+    
+    document.getElementById('testApiModal').classList.add('show');
+    document.getElementById('testApiPath').textContent = currentApi.path;
+    document.getElementById('testApiMethod').textContent = currentApi.method;
+    document.getElementById('testApiParams').value = '';
+    document.getElementById('testApiError').classList.remove('show');
+    document.getElementById('testApiResultGroup').style.display = 'none';
+    
+    // 勾选设置?
+    const apiType = currentApi.type || 'query';
+    if (apiType === 'forward') {
+        // 显示API测试结果弹窗
+        if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
+        }
+    } else {
+        // query类型 SQL 参数
+        const params = parseMyBatisParams(currentApi.sql);
+        if (params.length > 0) {
+            const exampleParams = {};
+            params.forEach(param => {
+                if (currentApi.default_params && currentApi.default_params[param.name] !== undefined) {
+                    exampleParams[param.name] = currentApi.default_params[param.name];
+                } else {
+                    exampleParams[param.name] = '';
+                }
+            });
+            document.getElementById('testApiParams').value = JSON.stringify(exampleParams, null, 2);
+        } else if (currentApi.default_params && Object.keys(currentApi.default_params).length > 0) {
+            document.getElementById('testApiParams').value = JSON.stringify(currentApi.default_params, null, 2);
+        }
+    }
+}
+
+// 关闭测试 API 弹窗。
+function hideTestApiModal() {
+    document.getElementById('testApiModal').classList.remove('show');
+}
+
+// 执行 API 测试。
+// 存储测试结果数据
+let testResultData = null;
+
+async function executeApiTest() {
+    if (!currentApi) return;
+
+    const paramsText = document.getElementById('testApiParams').value.trim();
+    let params = {};
+
+    // 搜索数据库
+    if (paramsText) {
+        try {
+            params = JSON.parse(paramsText);
+        } catch (error) {
+            showTestApiError('测试参数必须是合法 JSON');
+            return;
+        }
+    }
+
+    const errorEl = document.getElementById('testApiError');
+    const resultGroup = document.getElementById('testApiResultGroup');
+    errorEl.classList.remove('show');
+    resultGroup.style.display = 'none';
+
+    const startTime = Date.now();
+
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis/${currentApi.id}/test`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ params })
+        });
+
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 保存结果数据
+            testResultData = data.data;
+
+            document.getElementById('testResultStatus').textContent = '成功';
+            document.getElementById('testResultStatus').style.color = '#38a169';
+            document.getElementById('testResultTime').textContent = duration;
+            document.getElementById('testResultContent').textContent = JSON.stringify(data.data, null, 2);
+
+            // 渲染表格视图
+            renderTestResultTable(data.data);
+
+            resultGroup.style.display = 'block';
+
+            // 重置为 JSON 视图
+            switchTestResultView('json');
+        } else {
+            showTestApiError(data.message || '测试失败');
+        }
+    } catch (error) {
+        showTestApiError('测试失败：' + error.message);
+    }
+}
+
+// 显示测试 API 错误。
+function showTestApiError(message) {
+    const errorEl = document.getElementById('testApiError');
+    errorEl.textContent = message;
+    errorEl.classList.add('show');
+}
+
+// 切换测试结果视图
+function switchTestResultView(view) {
+    const jsonView = document.getElementById('testResultJson');
+    const tableView = document.getElementById('testResultTable');
+    const buttons = document.querySelectorAll('.view-toggle-btn');
+
+    buttons.forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.view === view) {
+            btn.classList.add('active');
+        }
+    });
+
+    if (view === 'json') {
+        jsonView.style.display = 'block';
+        tableView.style.display = 'none';
+    } else {
+        jsonView.style.display = 'none';
+        tableView.style.display = 'block';
+    }
+}
+
+// 渲染测试结果表格
+function renderTestResultTable(data) {
+    const container = document.getElementById('testResultTableContent');
+
+    if (!data) {
+        container.innerHTML = '<div class="table-empty">暂无数据</div>';
+        return;
+    }
+
+    // 如果是数组
+    if (Array.isArray(data)) {
+        if (data.length === 0) {
+            container.innerHTML = '<div class="table-empty">空数组</div>';
+            return;
+        }
+        container.innerHTML = renderArrayTable(data);
+    }
+    // 如果是对象
+    else if (typeof data === 'object') {
+        container.innerHTML = renderObjectTable(data);
+    }
+    // 其他类型
+    else {
+        container.innerHTML = renderPrimitiveValue(data);
+    }
+}
+
+// 渲染数组表格
+function renderArrayTable(arr) {
+    if (arr.length === 0) return '<div class="table-empty">空数组</div>';
+
+    // 检查数组元素是否都是对象
+    const isObjectArray = arr.every(item => typeof item === 'object' && item !== null && !Array.isArray(item));
+
+    if (isObjectArray) {
+        // 获取所有可能的键
+        const allKeys = new Set();
+        arr.forEach(item => {
+            if (item && typeof item === 'object') {
+                Object.keys(item).forEach(key => allKeys.add(key));
+            }
+        });
+        const keys = Array.from(allKeys);
+
+        let html = '<div class="table-wrapper"><table class="data-table">';
+        html += '<thead><tr>';
+        keys.forEach(key => {
+            html += `<th>${escapeHtml(key)}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        arr.forEach((item, index) => {
+            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+            keys.forEach(key => {
+                const value = item && item[key];
+                html += `<td>${renderCellValue(value)}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    } else {
+        // 简单数组
+        let html = '<div class="table-wrapper"><table class="data-table">';
+        html += '<thead><tr><th>索引</th><th>值</th></tr></thead><tbody>';
+
+        arr.forEach((item, index) => {
+            html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+            html += `<td>${index}</td>`;
+            html += `<td>${renderCellValue(item)}</td>`;
+            html += '</tr>';
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+}
+
+// 渲染对象表格
+function renderObjectTable(obj) {
+    const keys = Object.keys(obj);
+
+    if (keys.length === 0) {
+        return '<div class="table-empty">空对象</div>';
+    }
+
+    let html = '<div class="table-wrapper"><table class="data-table">';
+    html += '<thead><tr><th>键</th><th>值</th></tr></thead><tbody>';
+
+    keys.forEach((key, index) => {
+        html += `<tr class="${index % 2 === 0 ? 'even' : 'odd'}">`;
+        html += `<td><strong>${escapeHtml(key)}</strong></td>`;
+        html += `<td>${renderCellValue(obj[key])}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    return html;
+}
+
+// 渲染单元格值
+function renderCellValue(value, depth = 0) {
+    if (depth > 3) {
+        return '<span class="value-deep">...</span>';
+    }
+
+    if (value === null) {
+        return '<span class="value-null">null</span>';
+    }
+
+    if (value === undefined) {
+        return '<span class="value-undefined">undefined</span>';
+    }
+
+    if (typeof value === 'boolean') {
+        return `<span class="value-boolean">${value}</span>`;
+    }
+
+    if (typeof value === 'number') {
+        return `<span class="value-number">${value}</span>`;
+    }
+
+    if (typeof value === 'string') {
+        return `<span class="value-string">"${escapeHtml(value)}"</span>`;
+    }
+
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            return '<span class="value-array">[]</span>';
+        }
+        if (value.length <= 5 && depth < 2) {
+            const items = value.map(item => renderCellValue(item, depth + 1)).join(', ');
+            return `<span class="value-array">[${items}]</span>`;
+        }
+        return `<span class="value-array">Array(${value.length})</span>`;
+    }
+
+    if (typeof value === 'object') {
+        const keys = Object.keys(value);
+        if (keys.length === 0) {
+            return '<span class="value-object">{}</span>';
+        }
+        if (keys.length <= 3 && depth < 2) {
+            const items = keys.map(key => {
+                return `<span class="object-key">${escapeHtml(key)}</span>: ${renderCellValue(value[key], depth + 1)}`;
+            }).join(', ');
+            return `<span class="value-object">{${items}}</span>`;
+        }
+        return `<span class="value-object">Object{${keys.length} keys}</span>`;
+    }
+
+    return escapeHtml(String(value));
+}
+
+// 渲染原始值
+function renderPrimitiveValue(value) {
+    return `<div class="primitive-value">${renderCellValue(value)}</div>`;
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ==================== AI 配置 ====================
+
+// 加载 AI 配置。
+async function loadAiConfig() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`);
+
+        const data = await response.json();
+
+        if (data.success && data.config) {
+            aiConfig = data.config;
+        }
+
+        // 同时加载AI能力信息
+        await loadAiCapabilities();
+    } catch (error) {
+        console.error('加载 AI 配置失败', error);
+    }
+}
+
+// 打开 AI 设置弹窗。
+async function showAiSettingsModal() {
+    document.getElementById('aiSettingsModal').classList.add('show');
+
+    if (aiConfig) {
+        document.getElementById('aiUrlInput').value = aiConfig.url || '';
+        document.getElementById('aiApiKeyInput').value = aiConfig.api_key || '';
+        document.getElementById('aiModelInput').value = aiConfig.model || '';
+        document.getElementById('aiTimeoutInput').value = aiConfig.timeout || '';
+
+        // 加载能力设置
+        if (aiConfig.enable_function_call !== undefined && aiConfig.enable_function_call !== null) {
+            document.getElementById('aiEnableFunctionCall').checked = aiConfig.enable_function_call;
+        }
+        if (aiConfig.enable_thinking !== undefined && aiConfig.enable_thinking !== null) {
+            document.getElementById('aiEnableThinking').checked = aiConfig.enable_thinking;
+        }
+        if (aiConfig.enable_streaming !== undefined && aiConfig.enable_streaming !== null) {
+            document.getElementById('aiEnableStreaming').checked = aiConfig.enable_streaming;
+        }
+        if (aiConfig.enable_json_mode !== undefined && aiConfig.enable_json_mode !== null) {
+            document.getElementById('aiEnableJSONMode').checked = aiConfig.enable_json_mode;
+        }
+        document.getElementById('aiContextWindow').value = aiConfig.context_window_override || 0;
+
+        // 加载 Embedding 配置
+        if (aiConfig.embedding) {
+            document.getElementById('aiEmbEnabled').checked = aiConfig.embedding.enabled || false;
+            document.getElementById('aiEmbUrl').value = aiConfig.embedding.url || '';
+            document.getElementById('aiEmbApiKey').value = aiConfig.embedding.api_key || '';
+            document.getElementById('aiEmbModel').value = aiConfig.embedding.model || '';
+            document.getElementById('aiEmbDimension').value = aiConfig.embedding.dimension || 1024;
+        }
+    } else {
+        document.getElementById('aiSettingsForm').reset();
+    }
+
+    // 加载 RAG 配置
+    await loadTableRetrievalConfig();
+
+    // 显示能力检测结果
+    updateCapabilityHints();
+
+    document.getElementById('aiSettingsError').classList.remove('show');
+    document.getElementById('aiSettingsSuccess').classList.remove('show');
+}
+
+// 折叠/展开 LLM 配置
+function toggleLlmConfig() {
+    const panel = document.getElementById('llmConfigPanel');
+    const toggle = document.getElementById('llmConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
+
+// 折叠/展开 Embedding 配置
+function toggleEmbeddingConfig() {
+    const panel = document.getElementById('embeddingConfigPanel');
+    const toggle = document.getElementById('embeddingConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
+
+// 折叠/展开 RAG 配置
+function toggleRagConfig() {
+    const panel = document.getElementById('ragConfigPanel');
+    const toggle = document.getElementById('ragConfigToggle');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggle.textContent = '收起 ▲';
+    } else {
+        panel.style.display = 'none';
+        toggle.textContent = '展开 ▼';
+    }
+}
+
+// 关闭 AI 设置弹窗。
+function hideAiSettingsModal() {
+    document.getElementById('aiSettingsModal').classList.remove('show');
+}
+
+// 加载AI能力信息
+async function loadAiCapabilities() {
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/capabilities`);
+        const data = await response.json();
+        if (data.success && data.capabilities) {
+            aiCapabilities = data.capabilities;
+            console.log('AI模型能力:', aiCapabilities);
+            return aiCapabilities;
+        }
+    } catch (error) {
+        console.error('加载AI能力失败:', error);
+    }
+    return null;
+}
+
+// 显示AI能力信息（可选，用于调试或显示给用户）
+function displayAiCapabilities() {
+    if (!aiCapabilities) return;
+
+    const capInfo = `
+AI模型能力检测结果:
+- Function Call支持: ${aiCapabilities.supports_function_call ? '✓' : '✗'}
+- Thinking模式支持: ${aiCapabilities.supports_thinking ? '✓' : '✗'}
+- 流式输出支持: ${aiCapabilities.supports_streaming ? '✓' : '✗'}
+- JSON模式支持: ${aiCapabilities.supports_json_mode ? '✓' : '✗'}
+- 上下文窗口: ${aiCapabilities.context_window} tokens
+    `;
+    console.log(capInfo);
+}
+
+// 更新能力提示信息
+function updateCapabilityHints() {
+    if (!aiCapabilities) {
+        document.getElementById('functionCallHint').textContent = '未检测';
+        document.getElementById('thinkingHint').textContent = '未检测';
+        document.getElementById('streamingHint').textContent = '未检测';
+        document.getElementById('jsonModeHint').textContent = '未检测';
+        document.getElementById('contextWindowHint').textContent = '未检测';
+        return;
+    }
+    
+    const fcHint = document.getElementById('functionCallHint');
+    fcHint.textContent = aiCapabilities.supports_function_call ? '✓ 支持' : '✗ 不支持';
+    fcHint.className = 'capability-hint ' + (aiCapabilities.supports_function_call ? 'supported' : 'not-supported');
+    
+    const thinkHint = document.getElementById('thinkingHint');
+    thinkHint.textContent = aiCapabilities.supports_thinking ? '✓ 支持' : '✗ 不支持';
+    thinkHint.className = 'capability-hint ' + (aiCapabilities.supports_thinking ? 'supported' : 'not-supported');
+    
+    const streamHint = document.getElementById('streamingHint');
+    streamHint.textContent = aiCapabilities.supports_streaming ? '✓ 支持' : '✗ 不支持';
+    streamHint.className = 'capability-hint ' + (aiCapabilities.supports_streaming ? 'supported' : 'not-supported');
+    
+    const jsonHint = document.getElementById('jsonModeHint');
+    jsonHint.textContent = aiCapabilities.supports_json_mode ? '✓ 支持' : '✗ 不支持';
+    jsonHint.className = 'capability-hint ' + (aiCapabilities.supports_json_mode ? 'supported' : 'not-supported');
+    
+    const ctxHint = document.getElementById('contextWindowHint');
+    ctxHint.textContent = `${aiCapabilities.context_window} tokens`;
+    ctxHint.className = 'capability-hint supported';
+}
+
+// 自动检测模型能力
+async function detectAiCapabilities() {
+    const btn = document.getElementById('detectCapabilitiesBtn');
+    btn.disabled = true;
+    btn.textContent = '检测中...';
+    
+    try {
+        // 先保存当前配置（触发后端检测）
+        const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
+        const config = {
+            url: document.getElementById('aiUrlInput').value,
+            api_key: document.getElementById('aiApiKeyInput').value,
+            model: document.getElementById('aiModelInput').value,
+            timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120
+        };
+        
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+        
+        const data = await response.json();
+        
+        console.log('[AI能力检测] 返回数据:', data);
+        console.log('[AI能力检测] capabilities:', data.capabilities);
+        console.log('[AI能力检测] context_window:', data.capabilities?.context_window);
+        
+        if (data.success && data.capabilities) {
+            aiCapabilities = data.capabilities;
+            updateCapabilityHints();
+            
+            // 根据检测结果自动勾选
+            document.getElementById('aiEnableFunctionCall').checked = aiCapabilities.supports_function_call;
+            document.getElementById('aiEnableThinking').checked = aiCapabilities.supports_thinking;
+            document.getElementById('aiEnableStreaming').checked = aiCapabilities.supports_streaming;
+            document.getElementById('aiEnableJSONMode').checked = aiCapabilities.supports_json_mode;
+            document.getElementById('aiContextWindow').value = aiCapabilities.context_window || 0;
+            console.log('[AI能力检测] 设置输入框值为:', aiCapabilities.context_window || 0);
+            
+            btn.textContent = '检测完成';
+            setTimeout(() => {
+                btn.textContent = '自动检测模型能力';
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            throw new Error(data.message || '检测失败');
+        }
+    } catch (error) {
+        console.error('检测模型能力失败:', error);
+        btn.textContent = '检测失败';
+        setTimeout(() => {
+            btn.textContent = '自动检测模型能力';
+            btn.disabled = false;
+        }, 2000);
+    }
+}
+
+// ========== 标签页显示设置 ==========
+const TAB_VISIBILITY_KEY = 'tabVisibilitySettings';
+const ALL_TABS = [
+    { id: 'database', name: '数据库管理' },
+    { id: 'governance', name: '数据治理' },
+    { id: 'ontology', name: '本体论抽象' },
+    { id: 'lineage', name: '数据血缘' },
+    { id: 'api', name: '接口分发' },
+    { id: 'mcp', name: 'Agent服务' },
+    { id: 'ai', name: '智能助手' },
+    { id: 'models', name: '模型管理' },
+    { id: 'quality', name: '数据质量审核' },
+    { id: 'apps', name: '应用广场' }
+];
+
+// 默认标签页设置
+const DEFAULT_TAB_VISIBILITY = {
+    database: true,
+    governance: true,
+    api: true,
+    ai: true,
+    apps: true,
+    ontology: false,
+    lineage: false,
+    mcp: false,
+    models: false,
+    quality: false
+};
+
+const DEFAULT_TAB_ORDER = ['database', 'governance', 'api', 'ai', 'apps', 'ontology', 'lineage', 'mcp', 'models', 'quality'];
+
+// 当前标签页设置状态（用于设置弹窗）
+let currentTabOrder = [...DEFAULT_TAB_ORDER];
+let currentTabNames = {};
+let currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
+
+// 打开设置弹窗。
+async function showSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+    await loadTabSettings();
+    // 管理员才显示数据管理区域
+    const dataSection = document.getElementById('dataManagementSection');
+    if (dataSection) {
+        dataSection.style.display = currentUser === 'admin' ? 'block' : 'none';
+    }
+}
+
+// 关闭设置弹窗。
+function hideSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+}
+
+// 加载标签页设置。
+async function loadTabSettings() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    // 从后端 API 读取设置
+    let settings = null;
+    try {
+        const userSettings = await loadUserSettings();
+        if (userSettings) {
+            // 合并默认值
+            currentTabVisibility = {...DEFAULT_TAB_VISIBILITY, ...(userSettings.tabVisibility || {})};
+            currentTabOrder = userSettings.tabOrder ? [...userSettings.tabOrder] : [...DEFAULT_TAB_ORDER];
+            currentTabNames = userSettings.tabNames ? {...userSettings.tabNames} : {};
+            // 确保 currentTabOrder 包含所有标签页
+            ALL_TABS.forEach(t => {
+                if (!currentTabOrder.includes(t.id)) {
+                    currentTabOrder.push(t.id);
+                }
+            });
+            settings = currentTabVisibility;
+        }
+    } catch (e) {
+        console.error('加载标签页设置失败', e);
+    }
+
+    if (!settings) {
+        currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
+        currentTabOrder = [...DEFAULT_TAB_ORDER];
+        currentTabNames = {};
+        settings = currentTabVisibility;
+    }
+
+    // 动态生成标签页设置行
+    renderTabSettingsUI(container, settings);
+}
+
+// 保存标签页设置
+function saveTabSettings() {
+    // 从设置弹窗中收集当前状态
+    collectTabSettingsFromUI();
+
+    let visibleCount = 0;
+    for (const key in currentTabVisibility) {
+        if (currentTabVisibility[key]) visibleCount++;
+    }
+
+    if (visibleCount < 1) {
+        showToast('至少需要显示一个标签页', 'warning');
+        return false;
+    }
+
+    // 应用嵌入模式设置
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    const embedMode = embedModeToggle ? embedModeToggle.checked : false;
+    applyEmbedMode(embedMode);
+
+    // 保存到后端
+    (async () => {
+        const userSettings = await loadUserSettings();
+        userSettings.embedMode = embedMode;
+        userSettings.tabVisibility = currentTabVisibility;
+        userSettings.tabOrder = currentTabOrder;
+        userSettings.tabNames = currentTabNames;
+        await saveUserSettings(userSettings);
+    })();
+
+    try {
+        applyTabVisibility(currentTabVisibility, currentTabOrder, currentTabNames);
+        showToast('保存成功', 'success');
+        hideSettingsModal();
+        return true;
+    } catch (e) {
+        console.error('保存失败', e);
+        showToast('保存失败', 'error');
+        return false;
+    }
+}
+
+// 重置标签页设置为默认值
+function resetTabSettings() {
+    currentTabVisibility = {...DEFAULT_TAB_VISIBILITY};
+    currentTabOrder = [...DEFAULT_TAB_ORDER];
+    currentTabNames = {};
+    
+    const container = document.getElementById('tabVisibilitySettings');
+    if (container) {
+        renderTabSettingsUI(container, currentTabVisibility);
+    }
+    
+    // 更新嵌入模式复选框
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = true; // 默认开启嵌入模式
+    }
+}
+
+// ====== 数据管理：一键导入导出 ======
+
+// 导出系统数据（管理员）
+async function exportSystemData() {
+    const statusEl = document.getElementById('dataManagementStatus');
+    const btn = document.getElementById('exportDataBtn');
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏳ 导出中...';
+        statusEl.textContent = '正在生成备份文件...';
+        statusEl.style.color = '#a0aec0';
+
+        const token = localStorage.getItem('token');
+        const resp = await fetch('/api/v1/system/backup', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({error: '导出失败'}));
+            throw new Error(err.error || '导出失败');
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `datatoolbox-backup-${dateStr}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+        statusEl.textContent = `✅ 导出成功 (${sizeMB} MB)`;
+        statusEl.style.color = '#48bb78';
+        showToast('数据导出成功', 'success');
+    } catch (e) {
+        statusEl.textContent = '❌ ' + e.message;
+        statusEl.style.color = '#fc8181';
+        showToast('导出失败: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📤 导出数据';
+    }
+}
+
+// 导入系统数据（管理员）
+async function importSystemData(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    const mode = document.getElementById('importModeSelect').value;
+    const statusEl = document.getElementById('dataManagementStatus');
+
+    // 覆盖模式二次确认
+    if (mode === 'overwrite') {
+        if (!confirm('覆盖模式将替换所有现有数据，确定继续吗？')) {
+            input.value = '';
+            return;
+        }
+    }
+
+    try {
+        statusEl.textContent = '正在导入数据...';
+        statusEl.style.color = '#a0aec0';
+
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('backup', file);
+        formData.append('mode', mode);
+
+        const resp = await fetch('/api/v1/system/restore-upload', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+
+        const result = await resp.json();
+        if (!resp.ok || result.error) {
+            throw new Error(result.error || result.message || '导入失败');
+        }
+
+        const data = result.data || result;
+        let msg = '✅ 导入成功';
+        if (data.db_bytes) msg += ` (数据库 ${Math.round(data.db_bytes/1024)}KB)`;
+        if (data.users_count !== undefined) msg += ` — ${data.users_count} 用户, ${data.databases_count} 数据库, ${data.apis_count} 接口`;
+        if (data.files_restored) msg += `, ${data.files_restored} 文件`;
+
+        statusEl.textContent = msg;
+        statusEl.style.color = '#48bb78';
+        showToast('数据导入成功，即将刷新页面', 'success');
+
+        // 导入成功后刷新页面加载新数据
+        setTimeout(() => location.reload(), 2000);
+    } catch (e) {
+        statusEl.textContent = '❌ ' + e.message;
+        statusEl.style.color = '#fc8181';
+        showToast('导入失败: ' + e.message, 'error');
+    } finally {
+        input.value = '';
+    }
+}
+
+// 发送AI消息?
+function applyEmbedMode(enabled) {
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (enabled) {
+        document.body.classList.add('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'block';
+    } else {
+        document.body.classList.remove('embed-mode');
+        if (embedSettingsBtn) embedSettingsBtn.style.display = 'none';
+    }
+}
+
+// 获取用户设置
+async function loadUserSettings() {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/v1/system/settings');
+        const data = await resp.json();
+        if (data.success && data.settings) {
+            return data.settings;
+        }
+    } catch (e) {
+        console.error('加载用户设置失败', e);
+    }
+    return {};
+}
+
+// 加载用户设置成功
+async function saveUserSettings(settings) {
+    try {
+        const resp = await fetchWithAuth(API_BASE + '/api/v1/system/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const data = await resp.json();
+        return data.success;
+    } catch (e) {
+        console.error('保存用户设置失败', e);
+        return false;
+    }
+}
+
+// 初始化嵌入模式
+async function initEmbedMode() {
+    const settings = await loadUserSettings();
+    const embedMode = settings.embedMode !== false; // 默认开启嵌入模式
+    const embedModeToggle = document.getElementById('embedModeToggle');
+    if (embedModeToggle) {
+        embedModeToggle.checked = embedMode;
+    }
+    applyEmbedMode(embedMode);
+    
+    // 应用标签页设置
+    const tabVisibility = settings.tabVisibility || DEFAULT_TAB_VISIBILITY;
+    const tabOrder = settings.tabOrder || DEFAULT_TAB_ORDER;
+    const tabNames = settings.tabNames || {};
+    
+    // 更新当前状态
+    currentTabVisibility = {...DEFAULT_TAB_VISIBILITY, ...tabVisibility};
+    currentTabOrder = [...tabOrder];
+    currentTabNames = {...tabNames};
+    
+    // 确保 currentTabOrder 包含所有标签页
+    ALL_TABS.forEach(t => {
+        if (!currentTabOrder.includes(t.id)) {
+            currentTabOrder.push(t.id);
+        }
+    });
+    
+    applyTabVisibilityWithSettings(currentTabVisibility, currentTabOrder, currentTabNames);
+    
+    // 绑定嵌入模式设置按钮
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (embedSettingsBtn) {
+        embedSettingsBtn.addEventListener('click', showSettingsModal);
+    }
+}
+
+// 应用标签页可见性
+function applyTabVisibility(settings, tabOrder, tabNames) {
+    if (!settings) {
+        // 如果没有设置，从后端加载
+        (async () => {
+            const userSettings = await loadUserSettings();
+            const vis = userSettings.tabVisibility || DEFAULT_TAB_VISIBILITY;
+            const order = userSettings.tabOrder || DEFAULT_TAB_ORDER;
+            const names = userSettings.tabNames || {};
+            applyTabVisibilityWithSettings(vis, order, names);
+        })();
+        return;
+    }
+    applyTabVisibilityWithSettings(settings, tabOrder || DEFAULT_TAB_ORDER, tabNames || {});
+}
+
+// 实际应用标签页设置
+function applyTabVisibilityWithSettings(settings, tabOrder, tabNames) {
+    const tabsContainer = document.querySelector('.nav-tabs');
+    if (!tabsContainer) return;
+
+    const tabs = document.querySelectorAll('.nav-tab');
+    const tabArray = Array.from(tabs);
+
+    // 按 tabOrder 排序标签页
+    tabArray.sort((a, b) => {
+        const aIndex = tabOrder.indexOf(a.dataset.tab);
+        const bIndex = tabOrder.indexOf(b.dataset.tab);
+        return aIndex - bIndex;
+    });
+
+    // 重新排列标签页DOM
+    tabArray.forEach(tab => tabsContainer.appendChild(tab));
+
+    // 应用可见性和名称
+    tabs.forEach(tab => {
+        const tabId = tab.dataset.tab;
+        
+        // 设置可见性
+        if (settings.hasOwnProperty(tabId)) {
+            tab.style.display = settings[tabId] ? '' : 'none';
+        } else {
+            tab.style.display = DEFAULT_TAB_VISIBILITY[tabId] ? '' : 'none';
+        }
+
+        // 设置名称
+        const tabInfo = ALL_TABS.find(t => t.id === tabId);
+        const customName = tabNames && tabNames[tabId];
+        tab.textContent = customName || (tabInfo ? tabInfo.name : tabId);
+    });
+
+    // 如果当前活动标签页被隐藏，切换到第一个可见标签页
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (activeTab) {
+        const activeTabId = activeTab.dataset.tab;
+        if (settings[activeTabId] === false) {
+            const firstVisibleTab = document.querySelector('.nav-tab:not([style*="display: none"])');
+            if (firstVisibleTab) {
+                switchTab(firstVisibleTab.dataset.tab);
+            }
+        }
+    }
+}
+
+// 渲染标签页设置UI
+function renderTabSettingsUI(container, settings) {
+    container.innerHTML = '';
+    
+    currentTabOrder.forEach((tabId, index) => {
+        const tabInfo = ALL_TABS.find(t => t.id === tabId);
+        if (!tabInfo) return;
+
+        const row = document.createElement('div');
+        row.className = 'tab-setting-row';
+        row.dataset.tabId = tabId;
+        row.draggable = true;
+
+        const isVisible = settings[tabId] !== false;
+        const customName = currentTabNames[tabId] || '';
+        const displayName = customName || tabInfo.name;
+
+        row.innerHTML = `
+            <input type="checkbox" data-tab="${tabId}" ${isVisible ? 'checked' : ''}>
+            <span class="tab-name-text" data-tab="${tabId}" title="双击编辑名称">${escapeHtml(displayName)}</span>
+            <input type="text" class="tab-name-input hidden" data-tab="${tabId}" 
+                   placeholder="${tabInfo.name}" value="${escapeHtml(customName)}">
+        `;
+
+        // 勾选事件
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('change', () => {
+            currentTabVisibility[tabId] = checkbox.checked;
+        });
+
+        // 双击编辑名称
+        const nameText = row.querySelector('.tab-name-text');
+        const nameInput = row.querySelector('.tab-name-input');
+        
+        nameText.addEventListener('dblclick', () => {
+            nameText.classList.add('hidden');
+            nameInput.classList.remove('hidden');
+            nameInput.focus();
+            nameInput.select();
+        });
+
+        nameInput.addEventListener('blur', () => {
+            saveTabName(tabId, nameInput, nameText, tabInfo.name);
+        });
+
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                nameInput.blur();
+            } else if (e.key === 'Escape') {
+                nameInput.value = currentTabNames[tabId] || '';
+                nameInput.blur();
+            }
+        });
+
+        // 拖拽排序
+        row.addEventListener('dragstart', (e) => {
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', tabId);
+        });
+
+        row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            document.querySelectorAll('.tab-setting-row.drag-over').forEach(el => {
+                el.classList.remove('drag-over');
+            });
+        });
+
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const draggingRow = document.querySelector('.tab-setting-row.dragging');
+            if (draggingRow && draggingRow !== row) {
+                row.classList.add('drag-over');
+            }
+        });
+
+        row.addEventListener('dragleave', () => {
+            row.classList.remove('drag-over');
+        });
+
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('drag-over');
+            
+            const dragTabId = e.dataTransfer.getData('text/plain');
+            if (dragTabId === tabId) return;
+            
+            const dragIndex = currentTabOrder.indexOf(dragTabId);
+            const dropIndex = currentTabOrder.indexOf(tabId);
+            
+            if (dragIndex === -1 || dropIndex === -1) return;
+            
+            // 移动元素
+            const [removed] = currentTabOrder.splice(dragIndex, 1);
+            currentTabOrder.splice(dropIndex, 0, removed);
+
+            // 保存到后端
+            (async () => {
+                const userSettings = await loadUserSettings();
+                userSettings.tabOrder = currentTabOrder;
+                await saveUserSettings(userSettings);
+            })();
+
+            // 重新渲染
+            renderTabSettingsUI(container, currentTabVisibility);
+        });
+
+        container.appendChild(row);
+    });
+}
+
+function saveTabName(tabId, input, textSpan, defaultName) {
+    const value = input.value.trim();
+    if (value) {
+        currentTabNames[tabId] = value;
+        textSpan.textContent = value;
+    } else {
+        delete currentTabNames[tabId];
+        textSpan.textContent = defaultName;
+    }
+    input.classList.add('hidden');
+    textSpan.classList.remove('hidden');
+}
+
+// 从UI收集标签页设置
+function collectTabSettingsFromUI() {
+    const container = document.getElementById('tabVisibilitySettings');
+    if (!container) return;
+
+    const rows = container.querySelectorAll('.tab-setting-row');
+    rows.forEach(row => {
+        const tabId = row.dataset.tabId;
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        const nameInput = row.querySelector('.tab-name-input');
+
+        currentTabVisibility[tabId] = checkbox ? checkbox.checked : true;
+        
+        if (nameInput && nameInput.value.trim()) {
+            currentTabNames[tabId] = nameInput.value.trim();
+        } else {
+            delete currentTabNames[tabId];
+        }
+    });
+}
+
+// 保存AI配置
+async function handleSaveAiSettings(e) {
+    e.preventDefault();
+
+    const timeoutValue = parseInt(document.getElementById('aiTimeoutInput').value, 10);
+    const contextWindowValue = parseInt(document.getElementById('aiContextWindow').value, 10);
+    const embDimensionValue = parseInt(document.getElementById('aiEmbDimension').value, 10);
+
+    const config = {
+        url: document.getElementById('aiUrlInput').value,
+        api_key: document.getElementById('aiApiKeyInput').value,
+        model: document.getElementById('aiModelInput').value,
+        timeout: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 120,
+        // 能力设置
+        enable_function_call: document.getElementById('aiEnableFunctionCall').checked,
+        enable_thinking: document.getElementById('aiEnableThinking').checked,
+        enable_streaming: document.getElementById('aiEnableStreaming').checked,
+        enable_json_mode: document.getElementById('aiEnableJSONMode').checked,
+        context_window_override: Number.isFinite(contextWindowValue) && contextWindowValue > 0 ? contextWindowValue : 0,
+        // Embedding 配置
+        embedding: {
+            enabled: document.getElementById('aiEmbEnabled').checked,
+            url: document.getElementById('aiEmbUrl').value,
+            api_key: document.getElementById('aiEmbApiKey').value,
+            model: document.getElementById('aiEmbModel').value,
+            dimension: Number.isFinite(embDimensionValue) && embDimensionValue > 0 ? embDimensionValue : 1024
+        }
+    };
+
+    // 收集 RAG 配置
+    const trConfig = {
+        strategy: document.getElementById('trStrategy').value,
+        max_tables: parseInt(document.getElementById('trMaxTables').value, 10) || 15,
+        keyword_weight: parseFloat(document.getElementById('trKeywordWeight').value) || 0.4,
+        vector_weight: parseFloat(document.getElementById('trVectorWeight').value) || 0.3,
+        graph_weight: parseFloat(document.getElementById('trGraphWeight').value) || 0.3,
+        graph_config: {
+            max_depth: parseInt(document.getElementById('trGraphDepth').value, 10) || 2
+        }
+    };
+
+    const errorEl = document.getElementById('aiSettingsError');
+    const successEl = document.getElementById('aiSettingsSuccess');
+    errorEl.classList.remove('show');
+    successEl.classList.remove('show');
+
+    try {
+        // 保存 AI 配置
+        const aiResponse = await fetchWithAuth(`${API_BASE}/api/v1/agent/config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(config)
+        });
+
+        const aiData = await aiResponse.json();
+
+        if (!aiData.success) {
+            errorEl.textContent = aiData.message || 'AI 配置保存失败';
+            errorEl.classList.add('show');
+            return;
+        }
+
+        // 保存 RAG 配置
+        const trResponse = await fetchWithAuth(`${API_BASE}/api/v1/agent/table-retrieval-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(trConfig)
+        });
+
+        const trData = await trResponse.json();
+
+        if (trData.success) {
+            aiConfig = config;
+            tableRetrievalConfig = trConfig;
+            // 保存能力检测结果
+            if (aiData.capabilities) {
+                aiCapabilities = aiData.capabilities;
+                console.log('AI模型能力检测完成:', aiCapabilities);
+            }
+            successEl.textContent = '设置已保存';
+            successEl.classList.add('show');
+            setTimeout(() => {
+                hideAiSettingsModal();
+            }, 1000);
+        } else {
+            errorEl.textContent = trData.message || 'RAG 配置保存失败';
+            errorEl.classList.add('show');
+        }
+    } catch (error) {
+        errorEl.textContent = '保存失败：' + error.message;
+        errorEl.classList.add('show');
+    }
+}
+
+// 处理 AI 输入框内容变化。
+function handleAiInputChange(e) {
+    const input = e.target;
+    const value = input.value;
+    const cursorPos = input.selectionStart;
+    
+    // 显示进度
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    
+    // 检测 @ 提示触发词。
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\S*)$/);
+    
+    if (atMatch) {
+        const searchTerm = atMatch[1].toLowerCase();
+        showDbSuggestions(searchTerm);
+    } else {
+        hideDbSuggestions();
+    }
+}
+
+// 显示 @ 联想建议。
+function showDbSuggestions(searchTerm) {
+    const matchedModules = aiModules.filter(m =>
+        m.name.toLowerCase().includes(searchTerm) ||
+        m.id.toLowerCase().includes(searchTerm) ||
+        (m.aliases && m.aliases.some(a => a.toLowerCase().includes(searchTerm)))
+    );
+    const matchedDbs = databases.filter(db =>
+        db.name.toLowerCase().includes(searchTerm)
+    );
+
+    if (matchedModules.length === 0 && matchedDbs.length === 0) {
+        hideDbSuggestions();
+        return;
+    }
+
+    const suggestionsEl = document.getElementById('aiDbSuggestions');
+    let html = '';
+
+    if (matchedModules.length > 0) {
+        html += '<div class="ai-suggestion-group-title">智能助手</div>';
+        html += matchedModules.map(m => {
+            const safeMId = escapeHtml(m.id);
+            const safeMName = escapeHtml(m.name);
+            const safeMDesc = escapeHtml(m.description);
+            return `
+            <div class="ai-db-suggestion ai-module-suggestion"
+                 onclick="selectSuggestion('module','${safeMId}')"
+                 data-type="module" data-id="${safeMId}">
+                <span class="ai-db-suggestion-icon">${m.icon}</span>
+                <span class="ai-db-suggestion-name">${safeMName}</span>
+                <span class="ai-db-suggestion-info">${safeMDesc}</span>
+            </div>
+        `}).join('');
+    }
+
+    if (matchedDbs.length > 0) {
+        html += '<div class="ai-suggestion-group-title">数据库</div>';
+        html += matchedDbs.map(db => {
+            const typeIcon = dbTypeIcons[db.type] || '🗃️';
+            const isFileDb = dbTypeDefaults[db.type]?.isFile;
+            const info = isFileDb ? (db.path || '未配置路径') : (db.host && db.port ? `${db.host}:${db.port}` : (db.host || '未配置连接'));
+            const safeDbId = escapeHtml(db.id);
+            const safeDbName = escapeHtml(db.name);
+            const safeInfo = escapeHtml(info);
+            return `
+                <div class="ai-db-suggestion"
+                     onclick="selectSuggestion('db','${safeDbId}')"
+                     data-type="db" data-id="${safeDbId}">
+                    <span class="ai-db-suggestion-icon">${typeIcon}</span>
+                    <span class="ai-db-suggestion-name">${safeDbName}</span>
+                    <span class="ai-db-suggestion-info">${safeInfo}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    suggestionsEl.innerHTML = html;
+    suggestionsEl.style.display = 'block';
+    dbSuggestionIndex = -1;
+}
+
+// 加载治理任务
+function hideDbSuggestions() {
+    document.getElementById('aiDbSuggestions').style.display = 'none';
+    dbSuggestionIndex = -1;
+}
+
+// 过滤数据库建议列表
+function selectSuggestion(type, id) {
+    let name = '';
+    if (type === 'module') {
+        const m = aiModules.find(m => m.id === id);
+        if (!m) return;
+        name = m.name;
+    } else {
+        const db = databases.find(d => d.id === id);
+        if (!db) return;
+        name = db.name;
+    }
+
+    const input = document.getElementById('aiInput');
+    const value = input.value;
+    const cursorPos = input.selectionStart;
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (atIndex !== -1) {
+        const newValue = value.substring(0, atIndex) + `@${name} ` + value.substring(cursorPos);
+        input.value = newValue;
+        input.selectionStart = input.selectionEnd = atIndex + name.length + 2;
+        input.focus();
+    }
+
+    hideDbSuggestions();
+}
+
+// 选择数据库
+function selectDbSuggestion(dbId) {
+    selectSuggestion('db', dbId);
+}
+
+// AI输入框键盘事件
+function handleAiInputKeydown(e) {
+    const suggestionsEl = document.getElementById('aiDbSuggestions');
+
+    if (e.isComposing) return; // 中文输入法 composing 中，回车是确认输入不是发送
+
+    if (suggestionsEl.style.display === 'block') {
+        const items = suggestionsEl.querySelectorAll('.ai-db-suggestion');
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            dbSuggestionIndex = Math.min(dbSuggestionIndex + 1, items.length - 1);
+            updateSuggestionHighlight(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            dbSuggestionIndex = Math.max(dbSuggestionIndex - 1, -1);
+            updateSuggestionHighlight(items);
+        } else if (e.key === 'Enter' && dbSuggestionIndex >= 0) {
+            e.preventDefault();
+            const item = items[dbSuggestionIndex];
+            selectSuggestion(item.dataset.type, item.dataset.id);
+        } else if (e.key === 'Escape') {
+            hideDbSuggestions();
+        }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendAiMessage();
+    }
+}
+
+// 更新联想建议高亮。
+function updateSuggestionHighlight(suggestions) {
+    suggestions.forEach((el, index) => {
+        if (index === dbSuggestionIndex) {
+            el.classList.add('active');
+            el.scrollIntoView({ block: 'nearest' });
+        } else {
+            el.classList.remove('active');
+        }
+    });
+}
+
+// 发送 AI 消息。
+async function handleSendAiMessage() {
+    const input = document.getElementById('aiInput');
+    const message = input.value.trim();
+    
+    if (!message) return;
+    
+    // 检查 AI 配置是否完整
+    if (!aiConfig || !aiConfig.url || !aiConfig.api_key || !aiConfig.model) {
+        showAiError('请先完成 AI 配置');
+        return;
+    }
+    
+    // 提取消息中的 @ 引用
+    const allMatches = [...message.matchAll(/@([^\s]+)/g)];
+    const dbRefs = [];
+    const modRefs = [];
+    for (const match of allMatches) {
+        const ref = match[1];
+        const refL = ref.toLowerCase();
+        let mod = aiModules.find(m => m.name === ref || m.name.toLowerCase() === refL || m.id === ref);
+        if (mod) { modRefs.push(mod); continue; }
+        let db = databases.find(d => d.name === ref || d.name.toLowerCase() === refL || d.id === ref);
+        if (db) dbRefs.push(db);
+    }
+    if (modRefs.length > 0) aiSessionContext.modules = modRefs;
+    if (dbRefs.length > 0) aiSessionContext.databases = dbRefs;
+    else if (aiSessionContext.databases.length > 0) dbRefs.push(...aiSessionContext.databases);
+
+    // 记录用户消息
+    aiSessionContext.history.push({
+        role: 'user',
+        content: message,
+        databases: dbRefs.map(db => db.id),
+        modules: aiSessionContext.modules.map(m => m.id)
+    });
+
+    addAiMessage('user', message);
+    saveCurrentSessionMessage('user', message);
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('aiSendBtn').disabled = true;
+
+    // 统一走集群模式
+    await sendClusterQuery(message, dbRefs.map(d => d.id), aiSessionContext.modules.map(m => m.id));
+
+    document.getElementById('aiSendBtn').disabled = false;
+}
+
+// 生成用户头像 SVG
+function getUserAvatarSvg() {
+    return `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="16" fill="url(#userGrad)"/>
+        <circle cx="16" cy="12" r="5" fill="white"/>
+        <path d="M8 26c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="white"/>
+        <defs>
+            <linearGradient id="userGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#667eea"/>
+                <stop offset="100%" stop-color="#764ba2"/>
+            </linearGradient>
+        </defs>
+    </svg>`;
+}
+
+// 生成 AI 助手头像 SVG
+function getAiAvatarSvg() {
+    return `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="16" fill="url(#aiGrad)"/>
+        <rect x="10" y="10" width="12" height="10" rx="2" fill="white"/>
+        <circle cx="13" cy="14" r="1.5" fill="#6366f1"/>
+        <circle cx="19" cy="14" r="1.5" fill="#6366f1"/>
+        <path d="M13 17h6" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M16 8v2M12 9l1 1.5M20 9l-1 1.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        <defs>
+            <linearGradient id="aiGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#8b5cf6"/>
+            </linearGradient>
+        </defs>
+    </svg>`;
+}
+
+// 添加 AI 消息。
+function addAiMessage(role, content) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-' + Date.now();
+    
+    // 处理AI流式响应
+    const welcomeMsg = messagesEl.querySelector('.ai-welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
+    const avatar = role === 'user' ? getUserAvatarSvg() : getAiAvatarSvg();
+    const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    // 保留 HTML 片段并对普通文本做转义。
+    let displayContent = content;
+    
+    // 如果消息里包含 HTML，只处理前缀文本中的 @ 引用。
+    if (content.includes('<div')) {
+        // 先转义前缀文本。
+        const parts = content.split('<div');
+        displayContent = escapeHtml(parts[0]);
+        
+        // 高亮 @ 数据库引用。
+        const dbMatches = [...parts[0].matchAll(/@([^\s]+)/g)];
+        for (const match of dbMatches) {
+            const dbName = match[1];
+            displayContent = displayContent.replace(
+                new RegExp(escapeHtml(`@${dbName}`), 'g'),
+                `<span class="ai-db-reference">@${dbName}</span>`
+            );
+        }
+        
+        // 拼回原始 HTML 后半段。
+        if (parts.length > 1) {
+            displayContent += '<div' + parts.slice(1).join('<div');
+        }
+    } else {
+        // 普通文本全部转义后再处理引用。
+        displayContent = escapeHtml(content);
+        const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
+        for (const match of dbMatches) {
+            const dbName = match[1];
+            displayContent = displayContent.replace(
+                new RegExp(escapeHtml(`@${dbName}`), 'g'),
+                `<span class="ai-db-reference">@${dbName}</span>`
+            );
+        }
+    }
+    
+    const messageHtml = `
+        <div class="ai-message ${role}" id="${messageId}">
+            <div class="ai-message-avatar">${avatar}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">${displayContent}</div>
+                <div class="ai-message-meta">${time}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 添加 AI 加载消息。
+function addAiLoadingMessage() {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-loading-' + Date.now();
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble">
+                    <div class="ai-loading">
+                        <div class="ai-loading-dot"></div>
+                        <div class="ai-loading-dot"></div>
+                        <div class="ai-loading-dot"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    return messageId;
+}
+
+// 移除 AI 消息。
+function removeAiMessage(messageId) {
+    const messageEl = document.getElementById(messageId);
+    if (messageEl) {
+        messageEl.remove();
+    }
+}
+
+// 显示 AI 错误消息。
+function showAiError(message) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    const messageId = 'msg-error-' + Date.now();
+    
+    const messageHtml = `
+        <div class="ai-message assistant" id="${messageId}">
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+            <div class="ai-message-content">
+                <div class="ai-error">${escapeHtml(message)}</div>
+            </div>
+        </div>
+    `;
+    
+    messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// HTML 转义。
+function escapeHtml(text) {
+    if (text == null) return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+// Render gov.showTable() output as HTML table
+function renderGovOutput(text) {
+    if (typeof text !== 'string') return escapeHtml(String(text));
+
+    // 先将字面量 \n 转换为真正的换行符
+    text = text.replace(/\\n/g, '\n');
+
+    const prefix = '__TABLE__:';
+    const tryRender = function (jsonStr) {
+        try {
+            const data = JSON.parse(jsonStr);
+            if (!Array.isArray(data) || data.length === 0) {
+                return '<div class="gov-table-empty">暂无数据</div>';
+            }
+            const keys = [...new Set(data.flatMap(obj => Object.keys(obj)))];
+            let html = '<div class="gov-table-wrapper"><table class="gov-table"><thead><tr>';
+            keys.forEach(key => {
+                html += `<th>${escapeHtml(key)}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    const val = row[key];
+                    html += `<td>${val !== undefined && val !== null ? escapeHtml(String(val)) : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            return html;
+        } catch (e) {
+            return escapeHtml(prefix + jsonStr);
+        }
+    };
+
+    // 处理多行文本，逐行检查是否有 __TABLE__: 标记
+    const lines = text.split('\n');
+    const result = lines.map(line => {
+        if (line.startsWith(prefix)) {
+            return tryRender(line.substring(prefix.length));
+        }
+        if (line.startsWith('__TABLE_ROWS__:')) {
+            return tryRender(line.substring('__TABLE_ROWS__'.length));
+        }
+        return escapeHtml(line);
+    });
+    return result.join('<br>');
+}
+
+function formatAIText(text) {
+    if (!text) return '';
+    // 处理 <think>...</think> 标签：提取思考内容到折叠块，正文继续正常显示
+    // 支持流式输出时未闭合的 <think> 标签（只有开头没有结尾）
+    let thinkContent = '';
+    let mainContent = text;
+
+    // 匹配闭合的 <think>...</think>
+    const closedThinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    let match;
+    while ((match = closedThinkRegex.exec(text)) !== null) {
+        thinkContent += match[1];
+    }
+
+    // 匹配未闭合的 <think>...（流式输出中）
+    const openThinkRegex = /<think>([\s\S]*)$/;
+    const openMatch = openThinkRegex.exec(text.replace(closedThinkRegex, ''));
+    if (openMatch) {
+        thinkContent += openMatch[1];
+    }
+
+    // 移除所有 think 标签及内容，得到正文
+    mainContent = text.replace(closedThinkRegex, '').replace(/<think>[\s\S]*$/, '').trim();
+
+    let result = '';
+    // 渲染思考过程为折叠块
+    if (thinkContent.trim()) {
+        const escapedThink = escapeHtml(thinkContent.trim()).replace(/\n/g, '<br>');
+        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${escapedThink}</div></details>`;
+    }
+    // 渲染正文
+    if (mainContent.trim()) {
+        let escaped = escapeHtml(mainContent).trim();
+        escaped = escaped.replace(/\n{2,}/g, '\n');
+        escaped = escaped.replace(/\n/g, '<br>');
+        result += escaped;
+    }
+    return result;
+}
+
+// 更新AI上下文显示
+function updateAiContextDisplay() {
+    const header = document.querySelector('#aiTab .ai-chat-header');
+    if (!header) return;
+
+    let contextEl = document.getElementById('aiContextDisplay');
+    const input = document.getElementById('aiInput');
+    const hasDbs = aiSessionContext.databases.length > 0;
+    const hasMods = aiSessionContext.modules.length > 0;
+
+    if (hasDbs || hasMods) {
+        if (!contextEl) {
+            contextEl = document.createElement('div');
+            contextEl.id = 'aiContextDisplay';
+            contextEl.className = 'ai-context-display';
+            const h3 = header.querySelector('h3');
+            h3.parentNode.insertBefore(contextEl, h3.nextSibling);
+        }
+
+        let tagsHtml = '';
+        if (hasMods) {
+            tagsHtml += aiSessionContext.modules.map(m =>
+                `<span class="ai-context-tag ai-context-tag-module">${m.icon} ${escapeHtml(m.name)}</span>`
+            ).join('');
+        }
+        if (hasDbs) {
+            tagsHtml += aiSessionContext.databases.map(db => {
+                const icon = dbTypeIcons[db.type] || '🗃️';
+                return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
+            }).join('');
+        }
+
+        contextEl.innerHTML = `
+            <div class="ai-context-info">
+                <span class="ai-context-label">当前上下文:</span>
+                <span class="ai-context-value">${tagsHtml}</span>
+                <button class="ai-context-clear" onclick="clearAiContext()" title="清空当前上下文">×</button>
+            </div>
+        `;
+
+        if (input) {
+            input.placeholder = '输入消息...（可用 @ 引用上下文）';
+        }
+    } else {
+        if (contextEl) {
+            contextEl.remove();
+        }
+        if (input) {
+            input.placeholder = '输入消息...（输入 @ 选择上下文）';
+        }
+    }
+}
+
+// 清空 AI 上下文。
+function clearAiContext() {
+    if (confirm('确定清空当前 AI 上下文吗？')) {
+        aiSessionContext.databases = [];
+        aiSessionContext.modules = [];
+        aiSessionContext.history = [];
+        updateAiContextDisplay();
+
+        const messagesEl = document.getElementById('aiChatMessages');
+        const messageId = 'msg-clear-' + Date.now();
+        const messageHtml = `
+            <div class="ai-message assistant" id="${messageId}" style="opacity: 0.8;">
+                <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+                <div class="ai-message-content">
+                    <div style="padding: 12px; background: #e6f7ff; border-left: 3px solid #1890ff; border-radius: 6px; color: #0050b3; font-size: 13px;">
+                        当前上下文已清空，可继续通过 @ 选择数据库或模块。
+                    </div>
+                </div>
+            </div>
+        `;
+        messagesEl.insertAdjacentHTML('beforeend', messageHtml);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+}
+
+// ==================== AI 配置确认 ====================
+
+// 从 AI 生成的配置中打开编辑弹窗。
+function editApiConfigFromAI(messageId, config) {
+    // 切换到新增模式。
+    isEditApiMode = false;
+    editingApiId = null;
+    document.getElementById('apiModalTitle').textContent = '新增 API';
+    document.getElementById('addApiModal').classList.add('show');
+    
+    // 默认按 query 接口填充。
+    document.getElementById('apiTypeQuery').checked = true;
+    switchApiTypeFields('query');
+    document.getElementById('apiNameInput').value = config.name || '';
+    document.getElementById('apiPathInput').value = config.path || '';
+    document.getElementById('apiMethodInput').value = config.method || 'GET';
+    document.getElementById('apiSqlInput').value = config.sql || '';
+    document.getElementById('apiDescInput').value = config.description || '';
+    
+    // 填充默认参数。
+    if (config.default_params && Object.keys(config.default_params).length > 0) {
+        document.getElementById('apiDefaultParamsInput').value = JSON.stringify(config.default_params, null, 2);
+    } else {
+        document.getElementById('apiDefaultParamsInput').value = '';
+    }
+    
+    // 加载数据库后再选中目标库。
+    loadDatabasesForSelect().then(() => {
+        if (config.database_id) {
+            document.getElementById('apiDbSelect').value = config.database_id;
+        }
+    });
+    
+    // 标记为 AI 生成来源。
+    document.getElementById('addApiForm').dataset.fromAi = 'true';
+    document.getElementById('addApiForm').dataset.aiMessageId = messageId;
+    
+    document.getElementById('apiFormError').classList.remove('show');
+    document.getElementById('apiFormSuccess').classList.remove('show');
+}
+
+// 确认创建 AI 生成的 API。
+async function confirmCreateApiFromAI(config, messageId) {
+    // 显示处理中状态。
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
+    }
+    
+    // 先刷新数据库下拉框。
+    await loadDatabasesForSelect();
+    
+    const apiData = {
+        name: config.name,
+        path: config.path,
+        method: config.method,
+        type: 'query',
+        database_id: config.database_id || aiSessionContext.databases[0]?.id,
+        sql: config.sql,
+        description: config.description || ''
+    };
+    
+    // 复制默认参数。
+    if (config.default_params) {
+        apiData.default_params = config.default_params;
+    }
+    
+    if (!apiData.database_id) {
+        if (contentEl) {
+            contentEl.innerHTML = '<div class="ai-error">请先选择一个数据库</div>';
+        }
+        return;
+    }
+    
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/openapis`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(apiData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // 生成成功后显示结果。
+            if (contentEl) {
+                contentEl.innerHTML = `
+                    <div style="padding: 12px; background: #d4edda; border-left: 3px solid #28a745; border-radius: 6px; color: #155724; font-size: 14px;">
+                        <strong>创建成功</strong><br>
+                        <span style="font-size: 13px; margin-top: 4px; display: block;">
+                            名称：${escapeHtml(apiData.name)}<br>
+                            路径：${escapeHtml(apiData.path)}<br>
+                            已同步到“API 列表”。
+                        </span>
+                    </div>
+                `;
+            }
+            
+            // 如果当前停留在 API 页，则刷新列表。
+            if (document.querySelector('[data-tab="api"]').classList.contains('active')) {
+                loadApis();
+            }
+        } else {
+            if (contentEl) {
+                contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(data.message || '未知错误')}</div>`;
+            }
+        }
+    } catch (error) {
+        if (contentEl) {
+            contentEl.innerHTML = `<div class="ai-error">创建失败：${escapeHtml(error.message)}</div>`;
+        }
+    }
+}
+
+// 取消 AI 生成的 API 创建。
+function cancelCreateApiFromAI(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `
+            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
+                已取消创建。
+            </div>
+        `;
+    }
+}
+
+// 创建治理任务草稿并提交。
+async function confirmCreateGovTaskFromAI(messageId) {
+    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
+    if (!draft) return;
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = '<div class="ai-loading"><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div><div class="ai-loading-dot"></div> 处理中...</div>';
+    }
+    const taskData = {
+        name: draft.name,
+        type: draft.type,
+        description: draft.description || '',
+        js_code: draft.js_code,
+        database_id: draft.database_id || '',
+        cron_expr: draft.type === 'scheduled' ? (draft.cron_expr || '0 0 * * *') : '',
+        enabled: draft.type === 'scheduled',
+        input_type: draft.type === 'interactive' ? (draft.input_type || 'file') : '',
+        accept_exts: draft.type === 'interactive' && draft.accept_exts && draft.accept_exts.length ? draft.accept_exts : []
+    };
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(taskData)
+        });
+        const data = await response.json();
+        if (data.success && contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #e6ffed; border-left: 3px solid #52c41a; border-radius: 6px; color: #389e0d; font-size: 13px;">
+                    治理任务创建成功。
+                </div>
+            `;
+            loadGovernanceTasks();
+        } else if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
+                    ${escapeHtml(data.message || '创建失败')}
+                </div>
+            `;
+        }
+    } catch (err) {
+        if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="padding: 12px; background: #fff2f0; border-left: 3px solid #ff4d4f; border-radius: 6px; color: #cf1322; font-size: 13px;">
+                    ${escapeHtml('创建失败：' + err.message)}
+                </div>
+            `;
+        }
+    }
+    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
+}
+
+function cancelGovTaskDraft(messageId) {
+    const contentEl = document.getElementById(`${messageId}-content`);
+    if (contentEl) {
+        contentEl.innerHTML = `
+            <div style="padding: 12px; background: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 6px; color: #495057; font-size: 13px;">
+                已取消治理任务草稿。
+            </div>
+        `;
+    }
+    if (window._aiGovDraftByMessageId) delete window._aiGovDraftByMessageId[messageId];
+}
+
+// 从 AI 草稿打开治理任务编辑弹窗。
+function editGovTaskDraftFromAI(messageId) {
+    const draft = window._aiGovDraftByMessageId && window._aiGovDraftByMessageId[messageId];
+    if (!draft) return;
+    isEditGovMode = false;
+    editingGovTaskId = null;
+    document.getElementById('govModalTitle').textContent = '编辑治理任务';
+    document.getElementById('govTaskNameInput').value = draft.name || '';
+    document.getElementById('govTaskTypeInput').value = draft.type || 'interactive';
+    document.getElementById('govTaskDescInput').value = draft.description || '';
+    document.getElementById('govCodeInput').value = draft.js_code || '';
+    document.getElementById('govCronInput').value = draft.cron_expr || '';
+    document.getElementById('govEnabledInput').checked = true;
+    document.getElementById('govEnabledLabel').textContent = '启用';
+    document.getElementById('govInputTypeSelect').value = draft.input_type || 'file';
+    document.getElementById('govAcceptExtsInput').value = (draft.accept_exts || []).join(', ');
+    populateGovDbSelect();
+    document.getElementById('govTaskDbSelect').value = draft.database_id || '';
+    onGovTaskTypeChange();
+    document.getElementById('govFormError').textContent = '';
+    document.getElementById('govFormError').classList.remove('show');
+    document.getElementById('govFormSuccess').textContent = '';
+    document.getElementById('govFormSuccess').classList.remove('show');
+    document.getElementById('govTaskModal').classList.add('show');
+}
+
+// ==================== 表结构管理 ====================
+
+// 打开创建表弹窗。
 function showCreateTableModal() {
     if (!currentDb) {
         showToast('请先选择一个数据库', 'warning');
@@ -1379,2021 +3402,3 @@ async function handleGovTaskSubmit(e) {
         document.getElementById('govFormError').classList.add('show');
     }
 }
-
-// 分享任务
-async function toggleShareGovTask() {
-    if (!currentGovTask) return;
-    const shareBtn = document.getElementById('shareGovTaskBtn');
-    const originalText = shareBtn.textContent;
-    shareBtn.disabled = true;
-    
-    try {
-        const isShared = currentGovTask.share_enabled;
-        const method = isShared ? 'DELETE' : 'POST';
-        const response = await fetchWithAuth(
-            `${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/share`,
-            { method }
-        );
-        const data = await response.json();
-        if (data.success) {
-            currentGovTask.share_enabled = !isShared;
-            currentGovTask.share_token = data.share_token || '';
-            showGovTaskDetail(currentGovTask);
-            // 同步编辑界面的 checkbox 状态
-            const openShare = document.getElementById('govOpenShare');
-            if (openShare) openShare.checked = currentGovTask.share_enabled;
-            // 同步编辑界面的分享配置面板显示
-            const shareConfig = document.getElementById('govShareConfig');
-            if (shareConfig) shareConfig.style.display = currentGovTask.share_enabled ? '' : 'none';
-            showToast(isShared ? '已关闭分享' : '已开启分享', 'success');
-        } else {
-            showToast(data.message || '操作失败', 'error');
-        }
-    } catch (error) {
-        console.error('分享操作失败', error);
-        showToast('分享操作失败', 'error');
-    } finally {
-        shareBtn.disabled = false;
-    }
-}
-
-function copyGovShareLink() {
-    if (!currentGovTask || !currentGovTask.share_token) {
-        showToast('未开启分享', 'error');
-        return;
-    }
-    const url = `${window.location.origin}/share/${currentGovTask.share_token}`;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(() => {
-            showToast('分享链接已复制', 'success');
-        }).catch(e => {
-            console.error('复制失败', e);
-            fallbackCopy(url);
-        });
-    } else {
-        fallbackCopy(url);
-    }
-}
-
-function fallbackCopy(text) {
-    const input = document.createElement('input');
-    input.value = text;
-    input.style.position = 'fixed';
-    input.style.left = '-9999px';
-    document.body.appendChild(input);
-    input.select();
-    try {
-        document.execCommand('copy');
-        showToast('分享链接已复制', 'success');
-    } catch (e) {
-        showToast('复制失败，请手动复制: ' + text, 'error');
-    }
-    document.body.removeChild(input);
-}
-
-async function deleteGovTask() {
-    if (!currentGovTask) return;
-    if (!confirm(`确定删除治理任务“${currentGovTask.name}”吗？此操作不可恢复。`)) return;
-    
-    const deleteBtn = document.getElementById('deleteGovTaskBtn');
-    const originalText = deleteBtn ? deleteBtn.textContent : '';
-    if (deleteBtn) {
-        deleteBtn.disabled = true;
-        deleteBtn.textContent = '删除中...';
-    }
-    
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}`, {
-            method: 'DELETE'
-        });
-        const data = await response.json();
-        if (data.success) {
-            currentGovTask = null;
-            try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
-            document.getElementById('govTaskDetailView').style.display = 'none';
-            document.getElementById('govWelcomeView').style.display = '';
-            loadGovernanceTasks();
-        } else {
-            showToast(data.message || '删除失败', 'error');
-            if (deleteBtn) {
-                deleteBtn.disabled = false;
-                deleteBtn.textContent = originalText;
-            }
-        }
-    } catch (error) {
-        showToast('删除失败：' + error.message, 'error');
-        if (deleteBtn) {
-            deleteBtn.disabled = false;
-            deleteBtn.textContent = originalText;
-        }
-    }
-}
-
-function getGovTaskRunMode(task) {
-    const mode = String(task?.run_mode || task?.execution_mode || task?.exec_mode || 'backend').toLowerCase();
-    if (mode === 'frontend' || mode === 'browser' || mode === 'client') return 'frontend';
-    if (mode === 'backend' || mode === 'server' || mode === 'remote') return 'backend';
-    return 'backend';
-}
-
-async function runGovTask() {
-    if (!currentGovTask) return;
-
-    const runMode = getGovTaskRunMode(currentGovTask);
-    if (runMode === 'frontend') {
-        await executeGovTaskInBrowser(currentGovTask.js_code, null, '', []);
-        return;
-    }
-
-    await executeGovTaskOnBackend([], '');
-}
-
-async function toggleGovTask() {
-    if (!currentGovTask) return;
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/toggle`, {
-            method: 'POST'
-        });
-        const data = await response.json();
-        if (data.success) {
-            currentGovTask.enabled = data.enabled;
-            showGovTaskDetail(currentGovTask);
-            renderGovTaskList();
-        }
-    } catch (error) {
-        showToast('切换状态失败: ' + error.message, 'error');
-    }
-}
-
-async function refreshGovTaskStatus() {
-    if (!currentGovTask) return;
-    console.log('[refreshGovTaskStatus] 开始刷新, 当前状态:', currentGovTask.status);
-    try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}`);
-        const data = await response.json();
-        if (data.success && data.task) {
-            console.log('[refreshGovTaskStatus] 后端返回状态:', data.task.status);
-            const idx = govTasks.findIndex(t => t.id === data.task.id);
-            if (idx >= 0) govTasks[idx] = data.task;
-            currentGovTask = data.task;
-            showGovTaskDetail(data.task);
-            renderGovTaskList();
-            loadGovTaskLogs();
-            if (data.task.status === 'running') {
-                console.log('[refreshGovTaskStatus] 状态仍为 running, 3秒后继续轮询');
-                setTimeout(refreshGovTaskStatus, 3000);
-            } else {
-                console.log('[refreshGovTaskStatus] 任务已结束, 停止轮询');
-            }
-        }
-    } catch (error) {
-        console.error('刷新治理任务状态失败', error);
-    }
-}
-
-// 处理AI流式响应
-function handleGovFileSelect(event) {
-    if (event.target.files.length > 0) {
-        setGovFiles(event.target.files);
-    }
-}
-
-function setGovFiles(fileList) {
-    govSelectedFiles = Array.from(fileList || []);
-    const row = document.getElementById('govSelectedFile');
-    const nameEl = document.getElementById('govFileName');
-    if (govSelectedFiles.length === 0) {
-        row.style.display = 'none';
-        return;
-    }
-    if (govSelectedFiles.length === 1) {
-        const f = govSelectedFiles[0];
-        nameEl.textContent = f.name + ' (' + formatFileSize(f.size) + ')';
-    } else {
-        const total = govSelectedFiles.reduce((s, f) => s + f.size, 0);
-        const names = govSelectedFiles.map(f => f.name).join('、');
-        const maxLen = 200;
-        const showNames = names.length > maxLen ? names.slice(0, maxLen) + '…' : names;
-        nameEl.textContent = `已选择 ${govSelectedFiles.length} 个文件，共 ${formatFileSize(total)}，${showNames}`;
-    }
-    row.style.display = 'flex';
-}
-
-function clearGovFile() {
-    govSelectedFiles = [];
-    document.getElementById('govFileInput').value = '';
-    document.getElementById('govSelectedFile').style.display = 'none';
-    document.getElementById('govInputText') && (document.getElementById('govInputText').value = '');
-}
-
-function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-async function executeInteractiveTask() {
-    if (!currentGovTask) return;
-    const inputType = currentGovTask.input_type || 'file';
-    const inputText = document.getElementById('govInputText')?.value || '';
-    const files = govSelectedFiles;
-    const runMode = getGovTaskRunMode(currentGovTask);
-
-    if ((inputType === 'file' || inputType === 'both') && files.length === 0 && !inputText) {
-        showToast('请输入文件或文本后再运行', 'warning');
-        return;
-    }
-    if (inputType === 'text' && !inputText) {
-        showToast('请输入文本内容后再运行', 'warning');
-        return;
-    }
-
-    if (runMode === 'frontend') {
-        const batchMode = currentGovTask.file_batch_mode || 'per_file';
-        if (currentGovTask.type === 'interactive' && batchMode === 'single') {
-            if (files.length < 2) {
-                showToast('当前前端模式要求至少 2 个文件，才能一次合并处理', 'warning');
-                return;
-            }
-            await executeGovTaskAggregateInBrowser(files, inputText);
-            return;
-        }
-        await executeGovTaskInBrowser(currentGovTask.js_code, files[0] || null, inputText, files);
-        return;
-    }
-
-    await executeGovTaskOnBackend(files, inputText);
-}
-
-async function executeGovTaskAggregateInBrowser(files, inputText) {
-    if (!currentGovTask) return;
-    currentGovTask.status = 'running';
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-    const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>处理中...</span><span class="gov-log-status running">运行中</span></div></div>';
-
-    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(currentGovTask.js_code, null, inputText, files);
-
-    currentGovTask.status = status;
-    currentGovTask.last_output = output;
-    currentGovTask.last_error = errorMsg;
-    currentGovTask.last_run_at = new Date().toISOString();
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    container.innerHTML = `
-        <div class="gov-log-entry">
-            <div class="gov-log-header">
-                <span>${new Date().toLocaleString()}</span>
-                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '失败'}</span>
-            </div>
-            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
-            ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
-            ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
-        </div>
-    `;
-
-    // 前端执行完成后，通知后端保存结果并同步到分享页
-    try {
-        // 如果有文件且任务开启了分享，用 FormData 上传文件
-        if (files && files.length > 0 && currentGovTask.share_enabled && currentGovTask.share_token) {
-            const formData = new FormData();
-            formData.append('status', status);
-            formData.append('output', output || '');
-            formData.append('error', errorMsg || '');
-            formData.append('input_text', inputText || '');
-            formData.append('share_enabled', 'true');
-            formData.append('share_token', currentGovTask.share_token);
-            // 传 input_files 文件名数组，后端需要用这个来记录
-            const inputFileNames = files.map(f => f.name || f);
-            formData.append('input_files', JSON.stringify(inputFileNames));
-            for (const f of files) {
-                if (f instanceof File) {
-                    formData.append('files', f);
-                }
-            }
-            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
-                method: 'POST',
-                body: formData
-            });
-        } else {
-            // 无文件或未开启分享，只传 JSON
-            const inputFileNames = files ? files.map(f => f.name || f) : [];
-            const shareEnabled = currentGovTask.share_enabled ? true : false;
-            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    status: status,
-                    output: output,
-                    error: errorMsg,
-                    input_text: inputText,
-                    input_files: inputFileNames,
-                    share_enabled: shareEnabled,
-                    share_token: currentGovTask.share_token || ''
-                })
-            });
-        }
-    } catch (e) {
-        console.warn('同步前端执行结果到后端失败:', e);
-    }
-}
-
-// 在后端执行治理任务。
-async function executeGovTaskOnBackend(files, inputText) {
-    if (!currentGovTask) return;
-
-    const taskId = currentGovTask.id;
-
-    // 更新 UI 显示运行中
-    currentGovTask.status = 'running';
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>后端运行中...</span></div></div>';
-
-    try {
-        // 构造 multipart 表单。
-        const formData = new FormData();
-        formData.append('input_text', inputText || '');
-
-        if (files && files.length > 0) {
-            for (const file of files) {
-                formData.append('files', file);
-            }
-        }
-
-        // 提交执行请求。
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/run`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-
-        if (!result.success) {
-            throw new Error(result.message || '后端执行失败');
-        }
-
-        const runId = result.run_id;
-        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span>已提交后端执行，等待进度...</span><span class="gov-log-status running">运行中</span></div></div>`;
-
-        // 在后端执行治理任务
-        await pollTaskProgress(taskId, runId);
-
-    } catch (error) {
-        currentGovTask.status = 'error';
-        currentGovTask.last_error = error.message;
-        container.innerHTML = `<div class="gov-log-entry"><div class="gov-log-header"><span style="color:red">错误: ${escapeHtml(error.message)}</span></div></div>`;
-        renderGovTaskList();
-    }
-}
-
-/**
- * 轮询任务进度
- * 每 2 秒查询一次任务进度，直到完成或出错
- * @param {string} taskId - 任务 ID
- * @param {string} runId - 运行 ID
- * @returns {Promise<void>}
- */
-async function pollTaskProgress(taskId, runId) {
-    const container = document.getElementById('govTaskOutput');
-
-    const pollInterval = 2000; // 2秒间隔
-    let lastProcessed = 0;
-
-    const poll = async () => {
-        try {
-            console.log('[pollTaskProgress] 轮询中...');
-            const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/progress`);
-            const data = await response.json();
-
-            if (!data.success) {
-                console.error('获取进度失败:', data.message);
-                return;
-            }
-
-            const { status, percent, processed_files, total_files, current_file, last_output, last_error } = data;
-            console.log('[pollTaskProgress] status:', status, 'percent:', percent);
-
-            // 如果有文件进度，渲染进度条；否则显示 last_output（由 gov.log 输出）
-            if (total_files > 0) {
-                container.innerHTML = `
-                    <div class="gov-log-entry">
-                        <div class="gov-log-header">
-                            <span>进度: ${processed_files}/${total_files} (${percent}%)</span>
-                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '失败'}</span>
-                        </div>
-                        ${current_file ? `<div class="gov-log-input">当前文件: ${escapeHtml(current_file)}</div>` : ''}
-                        ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
-                    </div>`;
-            } else {
-                container.innerHTML = `
-                    <div class="gov-log-entry">
-                        <div class="gov-log-header">
-                            <span>运行中${status === 'running' ? '...' : ''}</span>
-                            <span class="gov-log-status ${status}">${status === 'running' ? '运行中' : status === 'success' ? '成功' : '失败'}</span>
-                        </div>
-                        ${last_output ? `<div class="gov-log-output">${renderGovOutput(last_output)}</div>` : ''}
-                        ${last_error ? `<div class="gov-log-error">${escapeHtml(last_error)}</div>` : ''}
-                    </div>`;
-            }
-
-            // 任务已结束，更新状态并刷新详情
-            if (status !== 'running') {
-                console.log('[pollTaskProgress] 任务已结束, status:', status);
-                // 直接更新 currentGovTask 和 govTasks 数组，避免 loadGovernanceTasks 触发额外的轮询
-                if (currentGovTask && currentGovTask.id === taskId) {
-                    currentGovTask.status = status;
-                    currentGovTask.percent = percent;
-                    currentGovTask.last_output = last_output;
-                    currentGovTask.last_error = last_error;
-                    currentGovTask.last_run_at = new Date().toISOString();
-                    const idx = govTasks.findIndex(t => t.id === taskId);
-                    if (idx >= 0) govTasks[idx] = currentGovTask;
-                    showGovTaskDetail(currentGovTask);
-                    renderGovTaskList();
-                }
-                await loadGovTaskLogs();
-                return;
-            }
-
-            // 继续轮询
-            setTimeout(poll, pollInterval);
-
-        } catch (error) {
-            console.error('获取进度失败:', error);
-            // 网络错误继续轮询
-            setTimeout(poll, pollInterval);
-        }
-    };
-
-    await poll();
-}
-
-// ==================== 治理任务执行支持 ====================
-
-let govLibsLoaded = false;
-
-/**
- * 动态加载治理任务所需的外部库（XLSX, PapaParse, mammoth, PizZip, docxtemplater）。
- * 仅在首次使用时加载，后续调用直接返回。
- * @returns {Promise<void>}
- */
-async function ensureGovLibsLoaded() {
-    if (govLibsLoaded) return;
-    const libs = [
-        { global: 'XLSX',    src: '../../lib/xlsx.full.min.js' },
-        { global: 'Papa',    src: '../../lib/papaparse.min.js' },
-        { global: 'mammoth', src: '../../lib/mammoth.browser.min.js' },
-        { global: 'PizZip',  src: 'lib/pizzip.js' },
-    ];
-    for (const lib of libs) {
-        if (!window[lib.global]) {
-            await new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                s.src = lib.src;
-                s.onload = resolve;
-                s.onerror = () => reject(new Error(`加载失败: ${lib.src}`));
-                document.head.appendChild(s);
-            });
-        }
-    }
-    if (!_govGetDocxtemplaterClass()) {
-        await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'lib/docxtemplater.js';
-            s.onload = resolve;
-            s.onerror = () => reject(new Error('加载 docxtemplater 失败'));
-            document.head.appendChild(s);
-        });
-    }
-    if (!_govGetDocxtemplaterClass()) {
-        throw new Error('Docxtemplater 未就绪');
-    }
-    govLibsLoaded = true;
-}
-
-function _govGetDocxtemplaterClass() {
-    if (typeof window.Docxtemplater !== 'undefined') return window.Docxtemplater;
-    const d = window.docxtemplater;
-    if (d && (d.default || d.Docxtemplater)) return d.default || d.Docxtemplater;
-    return null;
-}
-
-function _govShared() {
-    return window.GOV_SHARED || globalThis.GOV_SHARED || {};
-}
-
-function _govExcelCellForValue(val) {
-    const shared = _govShared();
-    if (typeof shared.govExcelCellForValue === 'function') return shared.govExcelCellForValue(val);
-    return val === null || val === undefined ? null : { t: 's', v: String(val) };
-}
-
-function _govExpandSheetRef(XLSX, ws) {
-    const shared = _govShared();
-    if (typeof shared.govExpandSheetRef === 'function') return shared.govExpandSheetRef(XLSX, ws);
-}
-
-function _govApplyCellMapToSheet(XLSX, ws, cellMap) {
-    const shared = _govShared();
-    if (typeof shared.govApplyCellMapToSheet === 'function') return shared.govApplyCellMapToSheet(XLSX, ws, cellMap);
-}
-
-function _govDataIsFlatCellMap(XLSX, data) {
-    const shared = _govShared();
-    if (typeof shared.govDataIsFlatCellMap === 'function') return shared.govDataIsFlatCellMap(XLSX, data);
-    return false;
-}
-
-function createGovHelper(logLines, uploadedFiles) {
-    const uploaded = Array.isArray(uploadedFiles) ? uploadedFiles : [];
-    const dbId = currentGovTask?.database_id || '';
-
-    async function _resolveGovTemplateFile(templateFile) {
-        if (templateFile instanceof File || templateFile instanceof Blob) return templateFile;
-        if (typeof templateFile === 'string') {
-            const name = templateFile.trim();
-            if (!name) throw new Error('模板文件名不能为空');
-            const found = uploaded.find(f => f && f.name === name)
-                || uploaded.find(f => f && (f.name.endsWith(name) || name.endsWith(f.name)));
-            if (found) return found;
-            throw new Error(`模板文件 ${name} 在上传列表中未找到，请确保 File 对象可用`);
-        }
-        throw new Error('templateFile 必须为 File/Blob 类型才能解析');
-    }
-
-    async function _runSQL(databaseId, sql, params = []) {
-        const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/execute-sql`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ database_id: databaseId, sql, params })
-        });
-        const data = await resp.json();
-        if (!data.success) throw new Error(data.message || 'SQL执行失败');
-        return data;
-    }
-
-    const dbType = (() => {
-        const db = (databases || []).find(d => d.id === (currentGovTask && currentGovTask.database_id));
-        return db ? db.type : '';
-    })();
-
-    function _govDownloadBlob(blob, filename) {
-        const shared = _govShared();
-        if (typeof shared.govDownloadBlob === 'function') return shared.govDownloadBlob(blob, filename);
-        const a = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    /**
-     * 解析格式化文本语法
-     * 支持语法：
-     *   **文字** - 加粗
-     *   >文字 - 首行缩进 2 字符
-     *   [f:字体,s:字号] - 指定字体和字号（可选，可嵌套）
-     * @param {string} str - 输入字符串
-     * @param {Object} defaultFont - 默认字体配置 {name: string, size: number}
-     * @returns {{text: string, bold: Array<[number, number]>, indent: boolean, fonts: Array<[number, number, string, number]>}}
-     */
-    function parseFormatText(str, defaultFont = null) {
-        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [] };
-
-        let indent = false;
-        let text = str;
-
-        // 检测首行缩进语法（行首的 >）
-        if (text.startsWith('>')) {
-            indent = true;
-            text = text.slice(1);
-        }
-
-        // 解析字体字号标记 [f:字体,s:字号]
-        const fontMarkers = [];
-        const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
-        let fontMatch;
-        while ((fontMatch = fontRegex.exec(text)) !== null) {
-            const fontName = fontMatch[1].trim();
-            const fontSize = parseInt(fontMatch[2], 10);
-            const markerStart = fontMatch.index;
-            const markerLength = fontMatch[0].length;
-
-            // 找到标记后的文字（直到下一个标记或字符串结束）
-            const afterMarker = text.slice(markerStart + markerLength);
-            const nextMarker = afterMarker.search(/\[f:|$/);
-            const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
-
-            fontMarkers.push({
-                markerStart,
-                markerLength,
-                fontName,
-                fontSize,
-                contentLength
-            });
-        }
-
-        // 移除字体标记，计算最终文本
-        let textWithoutFontMarkers = text.replace(fontRegex, '');
-
-        // 计算字体标记在移除标记后的文本中的位置
-        const fonts = [];
-        let offsetAdjustment = 0;
-        for (const marker of fontMarkers) {
-            const adjustedStart = marker.markerStart - offsetAdjustment;
-            fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
-            offsetAdjustment += marker.markerLength;
-        }
-
-        // 解析加粗语法 **文字**
-        const bold = [];
-        const result = [];
-        let i = 0;
-        text = textWithoutFontMarkers;
-        while (i < text.length) {
-            if (text[i] === '*' && text[i + 1] === '*') {
-                // 找到结束的 **
-                const end = text.indexOf('**', i + 2);
-                if (end !== -1) {
-                    const boldText = text.slice(i + 2, end);
-                    const startOffset = result.length;
-                    result.push(boldText);
-                    bold.push([startOffset, startOffset + boldText.length]);
-                    i = end + 2;
-                } else {
-                    // 没有结束符，保留原样
-                    result.push(text[i]);
-                    i++;
-                }
-            } else {
-                result.push(text[i]);
-                i++;
-            }
-        }
-
-        const finalText = result.join('');
-
-        // 调整字体位置（因为加粗标记也被移除了）
-        const adjustedFonts = fonts.map(([start, end, name, size]) => {
-            // 计算加粗标记移除后的位置调整
-            let boldAdjustment = 0;
-            let pos = 0;
-            for (const [boldStart, boldEnd] of bold) {
-                if (boldStart <= start) {
-                    boldAdjustment += 2; // 开始的 **
-                }
-                if (boldEnd <= end) {
-                    boldAdjustment += 2; // 结束的 **
-                }
-            }
-            return [start - boldAdjustment, end - boldAdjustment, name, size];
-        });
-
-        return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
-    }
-
-    /**
-     * 检查数据中是否包含格式标记
-     * @param {any} data - 数据对象
-     * @returns {boolean}
-     */
-    function _hasFormatMarkers(data) {
-        if (!data || typeof data !== 'object') return false;
-        for (const value of Object.values(data)) {
-            if (typeof value === 'string') {
-                if (value.includes('**') || value.startsWith('>') || value.includes('[f:')) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 对 docx XML 应用格式化
-     * @param {string} xmlContent - word/document.xml 内容
-     * @param {Object} formatMap - 格式映射 {占位符: {text, bold, indent, fonts, defaultFont}}
-     * @returns {string} - 处理后的 XML
-     */
-    function _applyDocxFormatting(xmlContent, formatMap) {
-        if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
-
-        // 解析 XML
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xmlContent, 'application/xml');
-
-        // Word 命名空间
-        const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-
-        // 查找所有文本节点
-        const textNodes = doc.getElementsByTagNameNS(NS_W, 't');
-
-        for (let i = 0; i < textNodes.length; i++) {
-            const tNode = textNodes[i];
-            const textContent = tNode.textContent || '';
-
-            // 查找匹配的格式规则
-            let matchedFormat = null;
-            for (const [key, format] of Object.entries(formatMap)) {
-                if (textContent.includes(format.text)) {
-                    matchedFormat = format;
-                    break;
-                }
-            }
-
-            if (!matchedFormat) continue;
-
-            const rNode = tNode.parentNode; // <w:r>
-            if (!rNode || rNode.localName !== 'r') continue;
-
-            const pNode = rNode.parentNode; // <w:p>
-            if (!pNode || pNode.localName !== 'p') continue;
-
-            // 默认字体配置
-            const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
-
-            // 处理首行缩进
-            if (matchedFormat.indent) {
-                let pPr = pNode.getElementsByTagNameNS(NS_W, 'pPr')[0];
-                if (!pPr) {
-                    pPr = doc.createElementNS(NS_W, 'w:pPr');
-                    pNode.insertBefore(pPr, pNode.firstChild);
-                }
-
-                // 检查是否已有 ind
-                let ind = pPr.getElementsByTagNameNS(NS_W, 'ind')[0];
-                if (!ind) {
-                    ind = doc.createElementNS(NS_W, 'w:ind');
-                    pPr.appendChild(ind);
-                }
-                ind.setAttribute('w:firstLine', '640'); // 2 字符 = 640 twips
-            }
-
-            // 处理加粗和字体混排
-            const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
-            const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
-
-            if (hasBold || hasFonts) {
-                // 需要拆分成多个 <w:r> 节点
-                const segments = _splitTextByFormat(textContent, matchedFormat);
-
-                // 移除原有的 <w:r>
-                const nextSibling = rNode.nextSibling;
-                pNode.removeChild(rNode);
-
-                // 为每个片段创建新的 <w:r>
-                for (const segment of segments) {
-                    const newR = doc.createElementNS(NS_W, 'w:r');
-
-                    // 创建 rPr
-                    const rPr = doc.createElementNS(NS_W, 'w:rPr');
-                    newR.appendChild(rPr);
-
-                    // 设置字体
-                    const rFonts = doc.createElementNS(NS_W, 'w:rFonts');
-                    rFonts.setAttribute('w:ascii', segment.fontName);
-                    rFonts.setAttribute('w:eastAsia', segment.fontName);
-                    rFonts.setAttribute('w:hAnsi', segment.fontName);
-                    rPr.appendChild(rFonts);
-
-                    // 设置字号（pt -> half-points）
-                    const sz = doc.createElementNS(NS_W, 'w:sz');
-                    sz.setAttribute('w:val', String(segment.fontSize * 2));
-                    rPr.appendChild(sz);
-
-                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
-                    szCs.setAttribute('w:val', String(segment.fontSize * 2));
-                    rPr.appendChild(szCs);
-
-                    // 设置加粗
-                    if (segment.bold) {
-                        const b = doc.createElementNS(NS_W, 'w:b');
-                        rPr.appendChild(b);
-                    }
-
-                    // 创建文本节点
-                    const newT = doc.createElementNS(NS_W, 'w:t');
-                    newT.textContent = segment.text;
-                    if (segment.text.startsWith(' ') || segment.text.endsWith(' ')) {
-                        newT.setAttribute('xml:space', 'preserve');
-                    }
-                    newR.appendChild(newT);
-
-                    // 插入到段落中
-                    if (nextSibling) {
-                        pNode.insertBefore(newR, nextSibling);
-                    } else {
-                        pNode.appendChild(newR);
-                    }
-                }
-            } else {
-                // 没有加粗和字体标记，只设置默认字体
-                let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
-                if (!rPr) {
-                    rPr = doc.createElementNS(NS_W, 'w:rPr');
-                    rNode.insertBefore(rPr, rNode.firstChild);
-                }
-
-                // 设置字体
-                let rFonts = rPr.getElementsByTagNameNS(NS_W, 'rFonts')[0];
-                if (!rFonts) {
-                    rFonts = doc.createElementNS(NS_W, 'w:rFonts');
-                    rPr.insertBefore(rFonts, rPr.firstChild);
-                }
-                rFonts.setAttribute('w:ascii', defaultFont.name);
-                rFonts.setAttribute('w:eastAsia', defaultFont.name);
-                rFonts.setAttribute('w:hAnsi', defaultFont.name);
-
-                // 设置字号
-                if (!rPr.getElementsByTagNameNS(NS_W, 'sz').length) {
-                    const sz = doc.createElementNS(NS_W, 'w:sz');
-                    sz.setAttribute('w:val', String(defaultFont.size * 2));
-                    rPr.appendChild(sz);
-                }
-                if (!rPr.getElementsByTagNameNS(NS_W, 'szCs').length) {
-                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
-                    szCs.setAttribute('w:val', String(defaultFont.size * 2));
-                    rPr.appendChild(szCs);
-                }
-            }
-        }
-
-        // 序列化回 XML
-        const serializer = new XMLSerializer();
-        return serializer.serializeToString(doc);
-    }
-
-    /**
-     * 根据格式信息拆分文本
-     * @param {string} text - 文本内容
-     * @param {Object} format - 格式信息 {bold, fonts, defaultFont}
-     * @returns {Array<{text: string, bold: boolean, fontName: string, fontSize: number}>}
-     */
-    function _splitTextByFormat(text, format) {
-        const segments = [];
-        const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
-
-        // 创建文本位置到格式的映射
-        const formatMap = new Map();
-
-        // 映射字体信息
-        if (format.fonts && format.fonts.length > 0) {
-            for (const [start, end, fontName, fontSize] of format.fonts) {
-                for (let i = start; i < end; i++) {
-                    formatMap.set(i, { fontName, fontSize });
-                }
-            }
-        }
-
-        // 映射加粗信息
-        const boldSet = new Set();
-        if (format.bold && format.bold.length > 0) {
-            for (const [start, end] of format.bold) {
-                for (let i = start; i < end; i++) {
-                    boldSet.add(i);
-                }
-            }
-        }
-
-        // 按格式变化拆分文本
-        if (text.length === 0) return segments;
-
-        let currentSegment = {
-            text: '',
-            bold: boldSet.has(0),
-            fontName: formatMap.has(0) ? formatMap.get(0).fontName : defaultFont.name,
-            fontSize: formatMap.has(0) ? formatMap.get(0).fontSize : defaultFont.size
-        };
-
-        for (let i = 0; i < text.length; i++) {
-            const charBold = boldSet.has(i);
-            const charFont = formatMap.has(i) ? formatMap.get(i) : defaultFont;
-
-            // 检查格式是否变化
-            if (charBold !== currentSegment.bold ||
-                charFont.fontName !== currentSegment.fontName ||
-                charFont.fontSize !== currentSegment.fontSize) {
-                // 保存当前片段
-                if (currentSegment.text.length > 0) {
-                    segments.push(currentSegment);
-                }
-                // 开始新片段
-                currentSegment = {
-                    text: text[i],
-                    bold: charBold,
-                    fontName: charFont.fontName,
-                    fontSize: charFont.fontSize
-                };
-            } else {
-                currentSegment.text += text[i];
-            }
-        }
-
-        // 保存最后一个片段
-        if (currentSegment.text.length > 0) {
-            segments.push(currentSegment);
-        }
-
-        return segments;
-    }
-
-    /**
-     * 处理数据中的格式标记，返回处理后的数据和格式映射
-     * @param {Object} data - 原始数据
-     * @param {Object} defaultFont - 默认字体配置 {name: string, size: number}
-     * @returns {{data: Object, formatMap: Object}}
-     */
-    function _processFormatData(data, defaultFont = null) {
-        if (!data || typeof data !== 'object') return { data, formatMap: {} };
-
-        const formatMap = {};
-        const processedData = {};
-
-        for (const [key, value] of Object.entries(data)) {
-            if (typeof value === 'string' && (value.includes('**') || value.startsWith('>') || value.includes('[f:'))) {
-                const parsed = parseFormatText(value, defaultFont);
-                processedData[key] = parsed.text;
-                formatMap[key] = parsed;
-            } else {
-                processedData[key] = value;
-            }
-        }
-
-        return { data: processedData, formatMap };
-    }
-
-    function _govCsvEscapeCell(val) {
-        if (typeof window.govCsvEscapeCell === 'function') return window.govCsvEscapeCell(val);
-        if (typeof globalThis.govCsvEscapeCell === 'function') return globalThis.govCsvEscapeCell(val);
-        const s = val === null || val === undefined ? '' : String(val);
-        if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-        return s;
-    }
-
-    const showTable = (data) => {
-        if (!Array.isArray(data)) {
-            logLines.push('__TABLE__:[]');
-            return;
-        }
-        try {
-            const jsonStr = JSON.stringify(data);
-            logLines.push(`__TABLE__:${jsonStr}`);
-        } catch (e) {
-            logLines.push(`__TABLE__:[] // Error serializing data: ${e.message}`);
-        }
-    };
-
-    return {
-        log(...args) {
-            logLines.push(args.map(a => {
-                if (a === null) return 'null';
-                if (a === undefined) return 'undefined';
-                if (typeof a === 'object') return JSON.stringify(a);
-                return String(a);
-            }).join(' '));
-        },
-        getDefaultFont() {
-            // 返回默认字体配置，可在代码中覆盖：gov.fillWordTemplate(tpl, data, fn, {name:'黑体',size:18})
-            return { name: '仿宋_GB2312', size: 16 };
-        },
-        showTable,
-        table: showTable,
-        getDbType() {
-            return dbType;
-        },
-        getDatabases() {
-            return (databases || []).map(d => ({ id: d.id, name: d.name, type: d.type }));
-        },
-        async readExcel(file) {
-            if (!file) throw new Error('缺少文件');
-            const arrayBuffer = await file.arrayBuffer();
-            const data = new Uint8Array(arrayBuffer);
-            const wb = XLSX.read(data, { type: 'array' });
-            if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
-                throw new Error('Excel读取失败: 未找到工作表');
-            }
-            return wb;
-        },
-        async readCSV(text) {
-            if (!text) throw new Error('缺少文本内容');
-            return Papa.parse(text, { header: false }).data;
-        },
-        async readWord(file) {
-            if (!file) throw new Error('缺少文件');
-            const arrayBuffer = await file.arrayBuffer();
-            return mammoth.extractRawText({ arrayBuffer });
-        },
-        async querySQL(sql, params) {
-            if (!dbId) throw new Error('请先选择治理任务关联的数据库');
-            const result = await _runSQL(dbId, sql, params || []);
-            return result.data || [];
-        },
-        async executeSQL(sql, params) {
-            if (!dbId) throw new Error('请先选择治理任务关联的数据库');
-            const result = await _runSQL(dbId, sql, params || []);
-            return result.rows_affected || 0;
-        },
-        async querySQLForDb(databaseId, sql, params) {
-            const result = await _runSQL(databaseId, sql, params || []);
-            return result.data || [];
-        },
-        async executeSQLForDb(databaseId, sql, params) {
-            const result = await _runSQL(databaseId, sql, params || []);
-            return result.rows_affected || 0;
-        },
-        // 调用 AI 接口；会自动携带 AI 配置的 URL/API Key/超时等参数
-        async callAI(prompt) {
-            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
-            });
-            const data = await resp.json();
-            if (!data.success) throw new Error(data.message || 'AI 调用失败');
-            return data.content || '';
-        },
-        async fillWordTemplate(templateFile, data, outputFilename, defaultFont = null) {
-            await ensureGovLibsLoaded();
-            const effectiveDefaultFont = defaultFont || this.getDefaultFont();
-            if (!window.PizZip) throw new Error('PizZip 未加载');
-            const DocxCtor = _govGetDocxtemplaterClass();
-            if (!DocxCtor) throw new Error('Docxtemplater 未加载');
-            const fileObj = await _resolveGovTemplateFile(templateFile);
-            const buf = await fileObj.arrayBuffer();
-            const zip = new window.PizZip(buf);
-            
-            // 检查是否有格式标记
-            const hasFormatting = _hasFormatMarkers(data);
-            let processedData = data;
-            let formatMap = {};
-            
-            if (hasFormatting) {
-                const processed = _processFormatData(data, effectiveDefaultFont);
-                processedData = processed.data;
-                formatMap = processed.formatMap;
-            }
-            
-            const doc = new DocxCtor(zip, { paragraphLoop: true, linebreaks: true });
-            doc.setData(processedData || {});
-            doc.render();
-            
-            let outputZip = doc.getZip();
-            
-            // 如果有格式标记，后处理 XML
-            if (hasFormatting && Object.keys(formatMap).length > 0) {
-                const documentXml = outputZip.file('word/document.xml');
-                if (documentXml) {
-                    const xmlContent = documentXml.asText();
-                    const formattedXml = _applyDocxFormatting(xmlContent, formatMap);
-                    outputZip.file('word/document.xml', formattedXml);
-                }
-            }
-            
-            const blob = outputZip.generate({
-                type: 'blob',
-                mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            });
-            const base = outputFilename || 'output.docx';
-            const outName = /\.docx$/i.test(base) ? base : `${base}.docx`;
-            _govDownloadBlob(blob, outName);
-        },
-        async fillExcelTemplate(templateFile, data, outputFilename) {
-            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
-            if (!data || typeof data !== 'object') throw new Error('data 必须为对象');
-            const fileObj = await _resolveGovTemplateFile(templateFile);
-            const wb = await this.readExcel(fileObj);
-            const flat = _govDataIsFlatCellMap(XLSX, data);
-            if (flat) {
-                const sn = wb.SheetNames[0];
-                _govApplyCellMapToSheet(XLSX, wb.Sheets[sn], data);
-            } else {
-                for (const [sheetName, cells] of Object.entries(data)) {
-                    if (!cells || typeof cells !== 'object' || Array.isArray(cells)) continue;
-                    const ws = wb.Sheets[sheetName];
-                    if (!ws) throw new Error(`工作表不存在: ${sheetName}`);
-                    _govApplyCellMapToSheet(XLSX, ws, cells);
-                }
-            }
-            const base = outputFilename || 'output.xlsx';
-            const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
-            XLSX.writeFile(wb, outName);
-        },
-        writeExcel(filename, data, options) {
-            if (!filename) throw new Error('缺少文件名');
-            if (typeof XLSX === 'undefined' || !XLSX.utils || !XLSX.writeFile) throw new Error('XLSX 未加载');
-            const opts = options || {};
-            const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
-            let ws;
-            if (!data || !data.length) {
-                ws = XLSX.utils.aoa_to_sheet([[]]);
-            } else if (Array.isArray(data[0])) {
-                ws = XLSX.utils.aoa_to_sheet(data);
-            } else {
-                ws = XLSX.utils.json_to_sheet(data);
-            }
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, sheetName);
-            const outName = /\.xlsx?$/i.test(filename) ? filename : `${filename}.xlsx`;
-            XLSX.writeFile(wb, outName);
-        },
-        writeCSV(filename, data) {
-            if (!filename) throw new Error('缺少文件名');
-            if (!Array.isArray(data)) throw new Error('data 必须为数组');
-            const lines = data.map(row => {
-                if (!Array.isArray(row)) throw new Error('CSV 数据必须为二维数组');
-                return row.map(_govCsvEscapeCell).join(',');
-            });
-            const csv = lines.join('\r\n');
-            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-            const outName = /\.csv$/i.test(filename) ? filename : `${filename}.csv`;
-            _govDownloadBlob(blob, outName);
-        },
-        writeText(filename, content) {
-            if (!filename) throw new Error('缺少文件名');
-            const text = content === undefined || content === null ? '' : String(content);
-            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-            _govDownloadBlob(blob, filename);
-        },
-        writeJSON(filename, data) {
-            if (!filename) throw new Error('缺少文件名');
-            const text = JSON.stringify(data, null, 2);
-            const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-            const outName = /\.json$/i.test(filename) ? filename : `${filename}.json`;
-            _govDownloadBlob(blob, outName);
-        },
-        /**
-         * 解析 Word 文档结构，识别公文格式的标题层级、段落、表格等。
-         * @param {File|Blob} file - Word 文件对象
-         * @param {Object} options - 可选配置 { maxTextLength?: number }
-         * @returns {Promise<{title: string, sections: Array, tables: Array, rawText: string}>}
-         */
-        async parseWordStructure(file, options = {}) {
-            if (!file) throw new Error('缺少文件');
-            const arrayBuffer = await file.arrayBuffer();
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            const rawText = result.value || '';
-            const maxLen = options.maxTextLength || 50000;
-            const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
-
-            // ===== 扩展公文标题正则模式 =====
-            // 公文格式支持：
-            // 1. 一级标题：一、二、三、... （中文数字+顿号）
-            // 2. 二级标题：（一）（二）（三）... （中文数字+括号）
-            // 3. 三级标题：1. 2. 3. ... （阿拉伯数字+点/顿号）
-            // 4. 四级标题：（1）（2）（3）... （阿拉伯数字+括号）
-            // 5. 五级标题：第一章、第二章、... （阿拉伯数字+章节）
-            // 6. 条目式：第1条、第2条、... （第+数字+条）
-            // 7. 无序列表：• xxx （项目符号）
-            // 8. 其他变体：１．、(一)、(１) 等全角/半角混合
-            const titlePatterns = [
-                /^[一二三四五六七八九十]+、[^\n]+/,                    // 一、标题
-                /^（[一二三四五六七八九十]+）[^\n]+/,                  // （一）标题
-                /^\d+[\.、．：][^\n]+/,                                 // 1. 标题 或 1、标题
-                /^（\d+）[^\n]+/,                                      // （1）标题
-                /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/,        // 混合括号
-                /^第[一二三四五六七八九十\d]+章[^\n]*/,                // 第一章、第二章
-                /^第[一二三四五六七八九十\d]+条[^\n]*/,                // 第1条、第2条
-                /^[•●○◆■★][\s　][^\n]+/,                             // • xxx 无序列表
-                /^[\u25A0\u25B2\u25CB\u25CF][\s　][^\n]+/,            // ■ ★ ◆ ● ○ 无序列表变体
-                /^[\d]+\.[\s　]+[^\n]+/,                              // 1. xxx 数字点开头
-                /^[\(（]?[a-zA-Z0-9]+[\)）]?[\.、：\s　]+[^\n]+/       // a. A. (1) 等字母数字编号
-            ];
-
-            // 无序列表符号模式（用于识别内容行）
-            const bulletPattern = /^[•●○◆■★\u25A0\u25B2\u25CB\u25CF][\s　]+(.+)$/;
-
-            // 更健壮的行分割：处理各种换行符和不可见字符
-            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-            const sections = [];
-            const tables = [];
-            let currentSection = null;
-            let title = '';
-
-            // 尝试识别文档标题（第一个非空行，通常是大标题）
-            for (let i = 0; i < Math.min(10, lines.length); i++) {
-                const line = lines[i];
-                if (line && line.length > 2 && line.length < 100) {
-                    // 检查是否是章节标题
-                    let isChapterTitle = false;
-                    for (const pattern of titlePatterns) {
-                        if (pattern.test(line)) {
-                            isChapterTitle = true;
-                            break;
-                        }
-                    }
-                    if (!isChapterTitle) {
-                        title = line;
-                        break;
-                    }
-                }
-            }
-
-            // 解析章节和段落
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (!line) continue;
-
-                let matchedLevel = 0;
-                let matchedTitle = '';
-
-                function splitInlineTitleContent(prefix, rest) {
-                    const text = (rest || '').trim();
-                    if (!text) {
-                        return { title: prefix, paragraphs: [] };
-                    }
-
-                    const colonIndex = text.search(/[：:]/);
-                    if (colonIndex > 0) {
-                        const titlePart = text.slice(0, colonIndex).trim();
-                        const contentPart = text.slice(colonIndex + 1).trim();
-                        return {
-                            title: `${prefix}${titlePart}`,
-                            paragraphs: contentPart ? [contentPart] : []
-                        };
-                    }
-
-                    return {
-                        title: `${prefix}${text}`,
-                        paragraphs: []
-                    };
-                }
-
-                // 检测一级标题：一、二、三、
-                const m1 = line.match(/^([一二三四五六七八九十]+)、(.*)$/);
-                if (m1) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 1,
-                        title: `${m1[1]}、${(m1[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测二级标题：（一）（二）
-                const m2 = line.match(/^（([一二三四五六七八九十]+)）(.*)$/);
-                if (m2) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 2,
-                        title: `（${m2[1]}）${(m2[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测三级标题：1. 2. 或 1、2、
-                const m3 = line.match(/^(\d+)([\.、．])(.*)$/);
-                if (m3) {
-                    if (currentSection) sections.push(currentSection);
-                    const inline = splitInlineTitleContent(`${m3[1]}${m3[2]}`, m3[3]);
-                    currentSection = {
-                        level: 3,
-                        title: inline.title,
-                        paragraphs: inline.paragraphs
-                    };
-                    continue;
-                }
-
-                // 检测四级标题：（1）（2）
-                const m4 = line.match(/^（(\d+)）(.*)$/);
-                if (m4) {
-                    if (currentSection) sections.push(currentSection);
-                    const inline = splitInlineTitleContent(`（${m4[1]}）`, m4[2]);
-                    currentSection = {
-                        level: 4,
-                        title: inline.title,
-                        paragraphs: inline.paragraphs
-                    };
-                    continue;
-                }
-
-                // ===== 新增：检测更多公文标题格式 =====
-
-                // 检测第一章、第二章...（阿拉伯数字章节）
-                const mChapter = line.match(/^第(\d+)章[：:\s]*(.*)$/);
-                if (mChapter) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 1,
-                        title: `第${mChapter[1]}章 ${(mChapter[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测第一章、第二章...（中文数字章节）
-                const mChapterCN = line.match(/^第([一二三四五六七八九十]+)章[：:\s]*(.*)$/);
-                if (mChapterCN) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 1,
-                        title: `第${mChapterCN[1]}章 ${(mChapterCN[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测第1条、第2条...（条目式）
-                const mArticle = line.match(/^第(\d+)条[：:\s]*(.*)$/);
-                if (mArticle) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 2,
-                        title: `第${mArticle[1]}条 ${(mArticle[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测第一条、第二条...（中文数字条目）
-                const mArticleCN = line.match(/^第([一二三四五六七八九十]+)条[：:\s]*(.*)$/);
-                if (mArticleCN) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 2,
-                        title: `第${mArticleCN[1]}条 ${(mArticleCN[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测无序列表：• xxx（作为内容节点，层级为5）
-                const mBullet = line.match(bulletPattern);
-                if (mBullet) {
-                    // 无序列表作为内容节点，如果有父节点则作为子节点
-                    const bulletContent = mBullet[1] || line;
-                    if (currentSection) {
-                        // 将无序列表项添加为独立的子节点或段落
-                        currentSection.paragraphs.push(line);
-                    } else {
-                        // 没有父节点时，创建一个内容节点
-                        if (currentSection) sections.push(currentSection);
-                        currentSection = {
-                            level: 5,
-                            title: bulletContent.trim().slice(0, 50), // 取前50字符作为标题
-                            paragraphs: [line]
-                        };
-                    }
-                    continue;
-                }
-
-                // 检测半角括号格式：(1) (2) 或 (一) (二)
-                const mParenHalf = line.match(/^\((\d+)\)[\s]*(.*)$/);
-                if (mParenHalf) {
-                    if (currentSection) sections.push(currentSection);
-                    const inline = splitInlineTitleContent(`(${mParenHalf[1]})`, mParenHalf[2]);
-                    currentSection = {
-                        level: 4,
-                        title: inline.title,
-                        paragraphs: inline.paragraphs
-                    };
-                    continue;
-                }
-
-                const mParenHalfCN = line.match(/^\(([一二三四五六七八九十]+)\)[\s]*(.*)$/);
-                if (mParenHalfCN) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 2,
-                        title: `(${mParenHalfCN[1]}) ${(mParenHalfCN[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 检测字母编号：a. b. c. 或 A. B. C.
-                const mLetter = line.match(/^([a-zA-Z])[\.、．：][\s]*(.*)$/);
-                if (mLetter) {
-                    if (currentSection) sections.push(currentSection);
-                    currentSection = {
-                        level: 4,
-                        title: `${mLetter[1]}. ${(mLetter[2] || '').trim()}`.trim(),
-                        paragraphs: []
-                    };
-                    continue;
-                }
-
-                // 非标题行：添加到当前段落
-                if (currentSection) {
-                    if (line.length > 0) {
-                        currentSection.paragraphs.push(line);
-                    }
-                } else {
-                    // 还没有遇到标题，可能是前言
-                    if (!sections.find(s => s.level === 0)) {
-                        sections.push({ level: 0, title: '前言', paragraphs: [line] });
-                        currentSection = sections[sections.length - 1];
-                    } else if (sections.length > 0) {
-                        sections[sections.length - 1].paragraphs.push(line);
-                    }
-                }
-
-                // 简单的表格检测：连续包含多个制表符或 | 分隔的行
-                if (line.includes('\t') || line.includes('|')) {
-                    const cells = line.split(/[\t|]+/).filter(c => c.trim());
-                    if (cells.length >= 2) {
-                        // 尝试识别表格
-                        const lastTable = tables.length > 0 ? tables[tables.length - 1] : null;
-                        if (lastTable && lastTable._building) {
-                            lastTable.rows.push(cells);
-                        } else {
-                            tables.push({
-                                headers: cells,
-                                rows: [],
-                                _building: true
-                            });
-                        }
-                    }
-                } else {
-                    // 结束表格构建
-                    if (tables.length > 0) {
-                        const lastTable = tables[tables.length - 1];
-                        if (lastTable._building) {
-                            delete lastTable._building;
-                        }
-                    }
-                }
-            }
-
-            // 保存最后一个 section
-            if (currentSection) {
-                sections.push(currentSection);
-            }
-
-            // 清理表格对象中的临时属性
-            for (const t of tables) {
-                delete t._building;
-            }
-
-            // ===== 构建树形结构 =====
-            // 将扁平的 sections 数组转换为层级树
-            // 支持层级跳跃容错：自动降级处理（L1→L3 变为 L1→L2，L2→L4 变为 L2→L3）
-            function buildTree(flatSections) {
-                const root = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
-                const stack = [root]; // 栈顶是当前父节点
-
-                for (const sec of flatSections) {
-                    // 计算目标层级（检测是否需要自动降级）
-                    let targetLevel = sec.level;
-                    const currentParentLevel = stack[stack.length - 1].level;
-                    
-                    // 层级自动降级规则：
-                    // - L1 后直接出现 L3 → 降为 L2
-                    // - L1 后直接出现 L4 → 降为 L2
-                    // - L2 后直接出现 L4 → 降为 L3
-                    if (targetLevel > currentParentLevel + 1) {
-                        // 跳跃超过1级，自动降级到合理层级
-                        targetLevel = currentParentLevel + 1;
-                    }
-                    
-                    // 使用降级后的层级构建树
-                    sec.level = targetLevel;
-                    
-                    // 情况1：正常层级递增或同级，弹出栈中 level >= 当前的节点
-                    // 情况2：层级跳跃（如 L1 → L3），需要找到合适的父节点
-                    if (targetLevel > currentParentLevel + 1) {
-                        // 层级跳跃：尝试找最近的高层级节点作为父节点
-                        // 例如 L1 下出现 L3，应该挂在 L1 下，而不是报错
-                        // 弹出直到找到 level < targetLevel 的节点
-                        while (stack.length > 1 && stack[stack.length - 1].level >= targetLevel) {
-                            stack.pop();
-                        }
-                    } else {
-                        // 正常情况：弹出栈中 level >= 当前的节点
-                        while (stack.length > 1 && stack[stack.length - 1].level >= targetLevel) {
-                            stack.pop();
-                        }
-                    }
-                    
-                    const parent = stack[stack.length - 1];
-                    const node = {
-                        level: sec.level,
-                        title: sec.title,
-                        paragraphs: sec.paragraphs || [],
-                        children: []
-                    };
-                    parent.children.push(node);
-                    stack.push(node);
-                }
-
-                return root.children;
-            }
-
-            const sectionTree = buildTree(sections);
-
-            const parsedResult = {
-                title,
-                sections: sectionTree,  // 树形结构
-                sectionsFlat: sections, // 保留扁平结构供兼容
-                tables,
-                rawText: text
-            };
-
-            // 输出解析结果到执行日志
-            logLines.push('=== 文档结构解析结果 ===');
-            logLines.push(`标题: ${title || '(未识别)'}`);
-            logLines.push(`章节数: ${sections.length}`);
-            logLines.push(`表格数: ${tables.length}`);
-            logLines.push('');
-            logLines.push('--- 章节结构（树形） ---');
-            function printTree(nodes, indent = '') {
-                for (const node of nodes) {
-                    logLines.push(`${indent}${node.title} (${node.paragraphs.length}段, ${node.children.length}子节点)`);
-                    if (node.children.length > 0) {
-                        printTree(node.children, indent + '  ');
-                    }
-                }
-            }
-            printTree(sectionTree);
-            if (tables.length > 0) {
-                logLines.push('');
-                logLines.push('--- 表格预览 ---');
-                for (let i = 0; i < tables.length; i++) {
-                    const t = tables[i];
-                    logLines.push(`表格${i + 1}: ${t.headers.join(' | ')} (${t.rows.length}行)`);
-                }
-            }
-            logLines.push('');
-            logLines.push('--- 完整 JSON ---');
-            logLines.push(JSON.stringify({ title, sections, tables }, null, 2));
-
-            return parsedResult;
-        },
-
-        // ===== 通用公文解析辅助方法 =====
-
-        /**
-         * 解析文件名，提取单位和日期
-         * @param {string} name - 文件名
-         * @param {Object} options - 可选配置 { datePattern?: RegExp }
-         * @returns {{unit: string, date: string}}
-         * 
-         * 支持格式：
-         *   2024年4月15日数据中心日报 → {unit: "数据中心", date: "2024年4月15日"}
-         *   04月15日运维部日报 → {unit: "运维部", date: "04月15日"}
-         */
-        parseFilename(name, options = {}) {
-            if (!name || typeof name !== 'string') return { unit: '', date: '' };
-            
-            const base = name.replace(/\.(docx?|DOCX?)$/i, '');
-            const datePattern = options.datePattern || /^(\d{4})年(\d{1,2})月(\d{1,2})日/;
-            const m = base.match(datePattern);
-            
-            if (m) {
-                // 带年份的完整日期
-                return {
-                    unit: base.replace(datePattern, '').replace(/日报$/, '').trim() || base,
-                    date: `${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`
-                };
-            }
-            
-            // 尝试匹配月日格式：04月15日
-            const mdMatch = base.match(/^(\d{1,2})月(\d{1,2})日/);
-            if (mdMatch) {
-                return {
-                    unit: base.replace(/^(\d{1,2})月(\d{1,2})日/, '').replace(/日报$/, '').trim() || base,
-                    date: `${parseInt(mdMatch[1])}月${parseInt(mdMatch[2])}日`
-                };
-            }
-            
-            // 无法解析日期
-            return { unit: base.replace(/日报$/, '').trim() || base, date: '' };
-        },
-
-        /**
-         * 将树形结构转换为模板可用的 JSON 格式
-         * @param {Array} nodes - parseWordStructure 返回的 sections 树形结构
-         * @param {Object} options - 可选配置 { baseIndent?: number, paragraphsKey?: string }
-         * @returns {Array} - 转换后的节点数组，每个节点包含 level, title, indent, paragraphs, children
-         */
-        treeToJSON(nodes, options = {}) {
-            const baseIndent = options.baseIndent || 0;
-            const paragraphsKey = options.paragraphsKey || 'paragraphs';
-            
-            const convert = (nodeList, parentLevel = 0) => {
-                return nodeList.map(node => {
-                    // 根据层级计算缩进
-                    const indent = '  '.repeat(baseIndent + Math.max(0, node.level - 1));
-                    
-                    // 将 paragraphs 数组转换为模板可用的对象数组格式
-                    const paragraphs = (node[paragraphsKey] || []).map(p => {
-                        return { paragraph: typeof p === 'string' ? p : (p.paragraph || JSON.stringify(p)) };
-                    });
-                    
-                    return {
-                        level: node.level,
-                        title: node.title,
-                        indent: indent,
-                        paragraphs: paragraphs,
-                        children: node.children && node.children.length > 0 
-                            ? convert(node.children, node.level) 
-                            : []
-                    };
-                });
-            };
-            
-            return convert(nodes);
-        },
-
-        /**
-         * 统计树形结构信息
-         * @param {Array} nodes - 树形节点数组
-         * @returns {{total: number, maxDepth: number}}
-         */
-        countTree(nodes) {
-            let total = 0;
-            let maxDepth = 0;
-            
-            function walk(nodeList, depth) {
-                for (const node of nodeList) {
-                    total++;
-                    maxDepth = Math.max(maxDepth, depth);
-                    if (node.children && node.children.length > 0) {
-                        walk(node.children, depth + 1);
-                    }
-                }
-            }
-            
-            walk(nodes, 1);
-            return { total, maxDepth };
-        },
-    };
-}
-
-/** 在浏览器中执行治理任务代码一次。 */
-async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverride) {
-    const logLines = [];
-    let status = 'success';
-    let errorMsg = '';
-
-    try {
-        await ensureGovLibsLoaded();
-        const uploaded = Array.isArray(allFilesOverride) ? allFilesOverride : (file ? [file] : (govSelectedFiles || []));
-        const gov = createGovHelper(logLines, uploaded);
-        const DocxCtor = _govGetDocxtemplaterClass();
-
-        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-        const fn = new AsyncFunction('gov', 'currentGovTask', 'INPUT_FILE', 'INPUT_TEXT', 'XLSX', 'Papa', 'mammoth', 'PizZip', 'Docxtemplater', 'INPUT_FILES', code);
-        const inputFiles = uploaded;
-        const taskForRun = currentGovTask;
-        await fn(gov, taskForRun, file || null, inputText || '', window.XLSX, window.Papa, window.mammoth, window.PizZip, DocxCtor, inputFiles);
-    } catch (err) {
-        status = 'error';
-        errorMsg = err.message || String(err);
-        logLines.push(`[错误] ${errorMsg}`);
-    }
-
-    const output = logLines.join('\n');
-    let inputDesc = '';
-    if (Array.isArray(allFilesOverride) && allFilesOverride.length) {
-        inputDesc = `files (${allFilesOverride.length}): ${allFilesOverride.map(f => f.name).join('、')}`;
-    } else if (file) {
-        inputDesc = `file: ${file.name}`;
-    } else if (inputText) {
-        inputDesc = `text: ${inputText.substring(0, 50)}`;
-    }
-
-    if (currentGovTask) {
-        const taskId = currentGovTask.id;
-        try {
-            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskId}/save-log`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
-            });
-        } catch (e) {
-            console.error('保存治理日志失败', e);
-        }
-    }
-
-    return { status, output, errorMsg, inputDesc };
-}
-
-async function executeGovTaskBatchInBrowser(code, files, inputText) {
-    if (!currentGovTask || !files || files.length < 2) return;
-
-    currentGovTask.status = 'running';
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    const container = document.getElementById('govTaskOutput');
-    const results = [];
-    const startedAt = Date.now();
-
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        container.innerHTML = `
-            <div class="gov-log-entry">
-                <div class="gov-log-header">
-                    <span>批量处理 ${i + 1}/${files.length}?${escapeHtml(file.name)}</span>
-                    <span class="gov-log-status running">运行中</span>
-                </div>
-            </div>`;
-
-        const r = await executeGovTaskInBrowserOnce(code, file, inputText, [file]);
-        results.push({ fileName: file.name, ...r });
-    }
-
-    const ok = results.filter(r => r.status === 'success').length;
-    const fail = results.length - ok;
-    const overallStatus = fail === 0 ? 'success' : 'error';
-    const summaryLines = [
-        `批量完成 共 ${results.length} 个文件 成功 ${ok}个 失败 ${fail}个`,
-        ...results.map(r =>
-            (r.status === 'success' ? '?' : '?') + ' ' + r.fileName + (r.errorMsg ? ' ? ' + r.errorMsg : '')
-        )
-    ];
-    const summaryText = summaryLines.join('\n');
-    const combinedOutput = results.map(r => `--- ${r.fileName} ---\n${r.output || ''}`).join('\n\n');
-
-    currentGovTask.status = overallStatus;
-    currentGovTask.last_output = summaryText + (combinedOutput ? '\n\n' + combinedOutput : '');
-    currentGovTask.last_error = fail > 0 ? `${fail} 个文件执行失败` : '';
-    currentGovTask.last_run_at = new Date().toISOString();
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
-    container.innerHTML = `
-        <div class="gov-log-entry">
-            <div class="gov-log-header">
-                <span>${new Date().toLocaleString()} 耗时 ${durationSec}s</span>
-                <span class="gov-log-status ${overallStatus}">批量结果 成功 ${ok} / 失败 ${fail}</span>
-            </div>
-            <div class="gov-log-input">共 ${results.length} 个文件 成功${ok}个 失败${fail}个</div>
-            <div class="gov-log-output">${escapeHtml(summaryText)}</div>
-            ${results.map(r => `
-                <div class="gov-log-entry" style="margin-top:10px;border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;">
-                    <div class="gov-log-header">
-                        <span>${escapeHtml(r.fileName)}</span>
-                        <span class="gov-log-status ${r.status}">${r.status === 'success' ? '成功' : '失败'}</span>
-                    </div>
-                    ${r.inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(r.inputDesc)}</div>` : ''}
-                    ${r.output ? `<div class="gov-log-output">${renderGovOutput(r.output)}</div>` : ''}
-                    ${r.errorMsg ? `<div class="gov-log-error">${escapeHtml(r.errorMsg)}</div>` : ''}
-                </div>
-            `).join('')}
-        </div>`;
-}
-
-async function executeGovTaskInBrowser(code, file, inputText, files) {
-    if (!currentGovTask) return;
-
-    currentGovTask.status = 'running';
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    const container = document.getElementById('govTaskOutput');
-    container.innerHTML = '<div class="gov-log-entry"><div class="gov-log-header"><span>执行中...</span><span class="gov-log-status running">运行中</span></div></div>';
-
-    const { status, output, errorMsg, inputDesc } = await executeGovTaskInBrowserOnce(code, file, inputText, files);
-
-    currentGovTask.status = status;
-    currentGovTask.last_output = output;
-    currentGovTask.last_error = errorMsg;
-    currentGovTask.last_run_at = new Date().toISOString();
-    showGovTaskDetail(currentGovTask);
-    renderGovTaskList();
-
-    container.innerHTML = `
-        <div class="gov-log-entry">
-            <div class="gov-log-header">
-                <span>${new Date().toLocaleString()}</span>
-                <span class="gov-log-status ${status}">${status === 'success' ? '成功' : '失败'}</span>
-            </div>
-            ${inputDesc ? `<div class="gov-log-input">输入: ${escapeHtml(inputDesc)}</div>` : ''}
-            ${output ? `<div class="gov-log-output">${renderGovOutput(output)}</div>` : ''}
-            ${errorMsg ? `<div class="gov-log-error">${escapeHtml(errorMsg)}</div>` : ''}
-        </div>
-    `;
-
-    // 前端执行完成后，通知后端保存结果并同步到分享页
-    try {
-        // 提取文件列表（兼容单文件和文件数组）
-        let filesToUpload = [];
-        if (file) {
-            filesToUpload = [file];
-        } else if (files && files.length > 0) {
-            filesToUpload = files;
-        }
-
-        // 如果有文件且任务开启了分享，用 FormData 上传文件
-        if (filesToUpload.length > 0 && currentGovTask.share_enabled && currentGovTask.share_token) {
-            const formData = new FormData();
-            formData.append('status', status);
-            formData.append('output', output || '');
-            formData.append('error', errorMsg || '');
-            formData.append('input_text', inputText || '');
-            formData.append('share_enabled', 'true');
-            formData.append('share_token', currentGovTask.share_token);
-            // 传 input_files 文件名数组，后端需要用这个来记录
-            const inputFileNames = filesToUpload.map(f => f.name || f);
-            formData.append('input_files', JSON.stringify(inputFileNames));
-            for (const f of filesToUpload) {
-                if (f instanceof File) {
-                    formData.append('files', f);
-                }
-            }
-            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
-                method: 'POST',
-                body: formData
-            });
-        } else {
-            // 无文件或未开启分享，只传 JSON
-            const inputFileNames = filesToUpload.map(f => f.name || f);
-            const shareEnabled = currentGovTask.share_enabled ? true : false;
-            await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${currentGovTask.id}/frontend-run`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    status: status,
-                    output: output,
-                    error: errorMsg,
-                    input_text: inputText,
-                    input_files: inputFileNames,
-                    share_enabled: shareEnabled,
-                    share_token: currentGovTask.share_token || ''
-                })
-            });
-        }
-    } catch (e) {
-        console.warn('同步前端执行结果到后端失败:', e);
-    }
-}
-
-// ==================== gov API 接口 ====================
-
-// Get GOV_SHARED from window/globalThis (defined in gov-shared.js)
-// Use var so repeated script evaluation does not crash on redeclaration.
-var GOV_SHARED_REF = window.__GOV_SHARED_REF__ || (window.__GOV_SHARED_REF__ = (window.GOV_SHARED || globalThis.GOV_SHARED || {}));
-var GOV_API_SECTIONS_LOCAL = GOV_SHARED_REF.GOV_API_SECTIONS || [];
-var GOV_API_DOCS_LOCAL = GOV_SHARED_REF.GOV_API_DOCS || GOV_API_SECTIONS_LOCAL;
-var governanceFunctionsLocal = GOV_SHARED_REF.governanceFunctions || GOV_API_DOCS_LOCAL;
-
-async function openGovApiHelp() {
-    const modal = document.getElementById('govApiHelpModal');
-    modal.style.display = 'flex';
-    document.getElementById('govApiSearchInput').value = '';
-    // 确保 gov-shared.js 已加载
-    await ensureGovernanceScriptsLoaded();
-    // 重新获取 governanceFunctions（加载后才有值）
-    // 直接从 window 获取，gov-shared.js 会设置这些全局变量
-    const funcs = window.governanceFunctions || window.GOV_API_DOCS || 
-                  (window.GOV_SHARED && window.GOV_SHARED.governanceFunctions) || [];
-    console.log('[openGovApiHelp] loaded funcs:', funcs.length, funcs);
-    window.__govApiFunctions = funcs;
-    renderGovApiDocs('');
-    setTimeout(() => document.getElementById('govApiSearchInput').focus(), 100);
-}
-
-function closeGovApiHelp() {
-    document.getElementById('govApiHelpModal').style.display = 'none';
-}
-
-function filterGovApiHelp(query) {
-    renderGovApiDocs(query.trim().toLowerCase());
-}
-
-function renderGovApiDocs(query) {
-    const body = document.getElementById('govApiBody');
-    // 优先使用加载后的数据，否则 fallback 到顶层变量
-    const funcs = window.__govApiFunctions || governanceFunctionsLocal || [];
-    let html = '';
-    for (const cat of funcs) {
-        const items = cat.items.filter(item =>
-            !query ||
-            item.name.toLowerCase().includes(query) ||
-            item.signature.toLowerCase().includes(query) ||
-            item.desc.toLowerCase().includes(query) ||
-            item.example.toLowerCase().includes(query)
-        );
-        if (!items.length) continue;
-        html += `<div class="gov-api-category"><h3>${escapeHtml(cat.category)}</h3>`;
-        for (const item of items) {
-            html += `
-            <div class="gov-api-item">
-                <div class="gov-api-sig"><code>${escapeHtml(item.signature)}</code></div>
-                <div class="gov-api-desc">${escapeHtml(item.desc)}</div>
-                <pre class="gov-api-example">${escapeHtml(item.example)}</pre>
-            </div>`;
-        }
-        html += '</div>';
-    }
-    if (!html) html = '<div style="color:#888;padding:24px;text-align:center;">暂无可用 API 文档</div>';
-    body.innerHTML = html;
-}
-
-// ============================================================
-// 本体分析模块
-// ============================================================
-
-// ---- 状态 ----
-let ontoData = null;
-let ontoSimulation = null;
-let ontoInsightExpanded = true;
-let ontoSelectedDbId = null;
-let ontoGraphViewMode = '2d';
-let ontoThreeState = null;
-
-// ---- 颜色映射 ----
-const ONTO_COLORS = {
-    entity:    { fill: '#4ECDC4', dark: '#2aa59e', emoji: 'E' },
-    event:     { fill: '#FF6B6B', dark: '#cc4444', emoji: 'V' },
-    concept:   { fill: '#A29BFE', dark: '#7c73e6', emoji: 'C' },
-    rule:      { fill: '#55EFC4', dark: '#2ecc97', emoji: 'R' },
-    conflict:  { fill: '#E17055', dark: '#b5503a', emoji: 'X' },
-    attribute: { fill: '#FDCB6E', dark: '#d4a224', emoji: 'A' },
-};
-
-const ONTO_CATEGORY_LABELS = {
-    entity: '实体', event: '事件', concept: '概念',
-    rule: '规则', conflict: '冲突', attribute: '属性',
-};
-
-// ---- 演示本体数据 ----
-const DEMO_ONTOLOGY = {
-    concepts: [
-        { id: 'customer', label: '客户', category: 'entity', importance: 0.95,
-          description: '客户是电商场景中的核心实体，通常对应 users 与 customers 两张表，需要统一主数据口径。',
-          tables: ['users', 'customers'],
-          attributes: ['id','name','email','phone','address','created_at'],
-          governance_issues: ['users和customers表关联缺失', '客户主数据需要统一'] },
-        { id: 'order', label: '订单', category: 'entity', importance: 0.90,
-          description: '订单记录用户的购买行为，是交易链路中最重要的业务对象之一。',
-          tables: ['orders','order_items'], attributes: ['order_id','total_amount','status','created_at'], governance_issues: [] },
-        { id: 'product', label: '商品', category: 'entity', importance: 0.85,
-          description: '商品信息通常来源于商品中心，需要统一 SKU、价格与状态字段。',
-          tables: ['products','product_variants'], attributes: ['product_id','name','price','sku','status'],
-          governance_issues: ['价格精度问题decimal vs float?', '商品状态值不一致'] },
-        { id: 'inventory', label: '库存', category: 'entity', importance: 0.75,
-          description: '库存实体描述商品在仓库中的可用数量和流转状态。',
-          tables: ['inventory','warehouse_stock'], attributes: ['sku','quantity','warehouse_id','updated_at'], governance_issues: [] },
-        { id: 'payment', label: '支付', category: 'entity', importance: 0.80,
-          description: '支付记录交易支付过程，常与订单、渠道和流水号关联。',
-          tables: ['payments','payment_logs'], attributes: ['payment_id','amount','channel','status','transaction_id'],
-          governance_issues: ['支付渠道缺少枚举校验', '支付状态流转不完整'] },
-        { id: 'logistics', label: '物流', category: 'entity', importance: 0.70,
-          description: '物流实体跟踪包裹运输、签收与异常状态。',
-          tables: ['shipments','tracking_events'], attributes: ['tracking_no','carrier','status','estimated_delivery'], governance_issues: [] },
-        { id: 'cart', label: '购物车', category: 'event', importance: 0.60,
-          description: '购物车代表用户一次临时性的选购行为。',
-          tables: ['shopping_carts','cart_items'], attributes: ['cart_id','customer_id','items','total'], governance_issues: [] },
-        { id: 'review', label: '评价', category: 'event', importance: 0.50,
-          description: '评价实体记录用户对商品的反馈与打分。',
-          tables: ['reviews','review_images'], attributes: ['review_id','rating','content','created_at'], governance_issues: [] },
-        { id: 'coupon', label: '优惠券', category: 'concept', importance: 0.55,
-          description: '优惠券用于描述营销优惠规则与可用范围。',
-          tables: ['coupons','coupon_usage'], attributes: ['code','discount_type','value','conditions'], governance_issues: [] },
-        { id: 'category', label: '分类', category: 'concept', importance: 0.60,
-          description: '分类用于组织商品结构和层级关系。',
-          tables: ['categories'], attributes: ['category_id','name','parent_id','path'], governance_issues: [] },
-        { id: 'loyalty', label: '会员规则', category: 'rule', importance: 0.50,
-          description: '会员规则定义等级、门槛和权益配置。',
-          tables: ['membership_rules','customer_loyalty'], attributes: ['level','threshold','benefits','discount_rate'], governance_issues: [] },
-        { id: 'risk_naming', label: '命名冲突', category: 'conflict', importance: 0.90,
-          description: 'users 与 customers 存在语义重叠，需要统一命名与主数据口径。',
-          tables: ['users','customers'], attributes: [], governance_issues: ['字段命名不一致', '表结构需要规范'] },
-    ],
-    relations: [
-        { source: 'customer', target: 'order', label: '下单', type: 'has-many', description: '客户可以创建多个订单，记录购买行为和时间线' },
-        { source: 'order', target: 'product', label: '包含', type: 'many-to-many', description: '订单包含多个商品，商品可出现在多个订单中' },
-        { source: 'order', target: 'payment', label: '支付', type: 'has-one', description: '一个订单对应一条支付记录，记录支付渠道和状态' },
-        { source: 'order', target: 'logistics', label: '物流', type: 'has-one', description: '订单关联物流信息，追踪包裹运输和签收' },
-        { source: 'customer', target: 'cart', label: '拥有', type: 'has-many', description: '客户可创建多个购物车记录，保留临时选购' },
-        { source: 'cart', target: 'product', label: '包含', type: 'many-to-many', description: '购物车包含多个商品，多对多关联' },
-        { source: 'product', target: 'inventory', label: '库存', type: 'has-one', description: '每个SKU对应一条库存记录，记录可用数量' },
-        { source: 'product', target: 'category', label: '归类', type: 'many-to-one', description: '商品归入某个分类，支持层级结构' },
-        { source: 'customer', target: 'review', label: '评价', type: 'has-many', description: '客户可以对多个商品发表评价和反馈' },
-        { source: 'review', target: 'product', label: '针对', type: 'many-to-one', description: '评价针对某个具体商品' },
-        { source: 'customer', target: 'coupon', label: '领取', type: 'has-many', description: '客户可领取多张优惠券，优惠券有使用条件' },
-        { source: 'order', target: 'coupon', label: '使用', type: 'many-to-one', description: '订单可使用一张优惠券，记录优惠金额和使用条件' },
-        { source: 'customer', target: 'loyalty', label: '会员', type: 'has-one', description: '客户关联会员等级和权益，记录积分和等级' },
-        { source: 'risk_naming', target: 'customer', label: '冲突', type: 'conflict', description: 'users与customers存在命名冲突，需统一客户口径' },
-    ],
-    insights: [
-        { type: 'conflict', title: '命名冲突风险', severity: 'high', affectedConcepts: ['customer','risk_naming'],
-          description: 'users 与 customers 存在语义重叠，需要统一为 customer 主数据口径' },
-        { type: 'quality', title: '数据精度不一致', severity: 'high', affectedConcepts: ['product','order'],
-          description: 'products.price 是 float，order_items.unit_price 是 decimal，需要统一精度以避免计算误差' },
-        { type: 'governance', title: '隐私合规缺失', severity: 'medium', affectedConcepts: ['customer'],
-          description: '客户敏感字段缺少脱敏策略，联系方式、地址等是否满足GDPR/个人信息保护法要求' },
-        { type: 'missing', title: '物流商品关联缺失', severity: 'medium', affectedConcepts: ['logistics','product'],
-          description: '物流与商品之间缺少溯源关联，无法追溯退换货和破损责任方' },
-        { type: 'governance', title: '支付数据留痕', severity: 'medium', affectedConcepts: ['payment'],
-          description: '支付流水缺少操作审计日志，需按要求保留至少五年记录' },
-        { type: 'quality', title: '典型电商12实体模型', severity: 'info', affectedConcepts: [],
-          description: 'AI已识别出典型电商场景12个核心实体，实际可能扩展到14个以上，建议持续补充完善' },
-    ],
-};
-
-// ---- 本体可视化 ----
-function ontoNodeRadius(d) {

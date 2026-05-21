@@ -873,5 +873,3 @@ function copyToClipboard(text, btnEl, successText = '已复制', duration = 1500
         return false;
     });
 }
-
-// 安装全局错误处理器。
