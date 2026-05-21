@@ -5082,7 +5082,8 @@ const ALL_TABS = [
     { id: 'mcp', name: 'Agent服务' },
     { id: 'ai', name: '智能助手' },
     { id: 'models', name: '模型管理' },
-    { id: 'quality', name: '数据质量审核' }
+    { id: 'quality', name: '数据质量审核' },
+    { id: 'apps', name: '应用广场' }
 ];
 
 // 默认标签页设置
@@ -5091,6 +5092,7 @@ const DEFAULT_TAB_VISIBILITY = {
     governance: true,
     api: true,
     ai: true,
+    apps: true,
     ontology: false,
     lineage: false,
     mcp: false,
@@ -5098,7 +5100,7 @@ const DEFAULT_TAB_VISIBILITY = {
     quality: false
 };
 
-const DEFAULT_TAB_ORDER = ['database', 'governance', 'api', 'ai', 'ontology', 'lineage', 'mcp', 'models', 'quality'];
+const DEFAULT_TAB_ORDER = ['database', 'governance', 'api', 'ai', 'apps', 'ontology', 'lineage', 'mcp', 'models', 'quality'];
 
 // 当前标签页设置状态（用于设置弹窗）
 let currentTabOrder = [...DEFAULT_TAB_ORDER];
