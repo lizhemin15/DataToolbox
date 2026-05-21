@@ -15346,8 +15346,31 @@ function showAddSkillForm() {
             </div>
             <div class="ac-form-row">
                 <label>SKILL.md 路径 <span class="ac-required">*</span></label>
-                <input type="text" id="skill-path" placeholder="/path/to/SKILL.md" class="ac-input">
-                <small class="ac-form-hint">Skill 文件的绝对路径</small>
+                <div class="skill-path-input-group">
+                    <input type="text" id="skill-path" placeholder="点击下方浏览器选择 SKILL.md 文件" class="ac-input" readonly>
+                    <button type="button" class="ac-btn ac-btn-secondary" onclick="toggleSkillFileBrowser()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                        浏览
+                    </button>
+                </div>
+                <small class="ac-form-hint">从文件浏览器中选择 SKILL.md 文件</small>
+            </div>
+            <div id="skill-file-browser" class="skill-file-browser" style="display:none;">
+                <div class="sfb-toolbar">
+                    <button class="sfb-btn" onclick="browseSkillPath('')" title="根目录">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/></svg>
+                    </button>
+                    <button class="sfb-btn" onclick="browseSkillParentPath()" title="上级目录">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                    </button>
+                    <span id="sfb-current-path" class="sfb-path-display">/</span>
+                    <button class="sfb-btn sfb-refresh" onclick="refreshSkillBrowser()" title="刷新">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    </button>
+                </div>
+                <div id="sfb-file-list" class="sfb-file-list">
+                    <div class="sfb-loading">加载中...</div>
+                </div>
             </div>
             <div class="ac-form-row">
                 <label>描述</label>
@@ -15370,13 +15393,16 @@ function showAddSkillForm() {
         </div>
     </div>`;
     container.insertAdjacentHTML('beforeend', formHtml);
+    
+    // 自动加载默认目录
+    browseSkillPath('');
 }
 
 async function submitSkillForm() {
     const name = document.getElementById('skill-name').value.trim();
     const sourcePath = document.getElementById('skill-path').value.trim();
     if (!name) { showToast('请输入名称', 'error'); return; }
-    if (!sourcePath) { showToast('请输入 SKILL.md 路径', 'error'); return; }
+    if (!sourcePath) { showToast('请选择 SKILL.md 文件', 'error'); return; }
     
     const body = { name, source_path: sourcePath, enabled: true };
     const desc = document.getElementById('skill-desc').value.trim();
@@ -15395,6 +15421,129 @@ async function submitSkillForm() {
         showToast('Skill 添加成功', 'success');
     } catch (e) {
         showToast('添加失败: ' + e.message, 'error');
+    }
+}
+
+// ========== Skill 文件浏览器操作 ==========
+
+let _skillBrowserCurrentPath = '';
+
+// 切换文件浏览器显示
+function toggleSkillFileBrowser() {
+    const browser = document.getElementById('skill-file-browser');
+    if (!browser) return;
+    
+    if (browser.style.display === 'none') {
+        browser.style.display = 'block';
+        if (!_skillBrowserCurrentPath) {
+            browseSkillPath('');
+        }
+    } else {
+        browser.style.display = 'none';
+    }
+}
+
+// 浏览指定路径
+async function browseSkillPath(path) {
+    const fileList = document.getElementById('sfb-file-list');
+    const pathDisplay = document.getElementById('sfb-current-path');
+    if (!fileList) return;
+    
+    fileList.innerHTML = '<div class="sfb-loading">加载中...</div>';
+    
+    try {
+        const url = path ? `${API_BASE}/api/v1/agent/skill/browse?path=${encodeURIComponent(path)}` : `${API_BASE}/api/v1/agent/skill/browse`;
+        const resp = await fetchWithAuth(url);
+        const data = await resp.json();
+        
+        if (!data.success) {
+            fileList.innerHTML = `<div class="sfb-error">加载失败: ${data.message}</div>`;
+            return;
+        }
+        
+        _skillBrowserCurrentPath = data.data.current_path;
+        pathDisplay.textContent = _skillBrowserCurrentPath;
+        
+        const files = data.data.files || [];
+        const parentPath = data.data.parent_path || '';
+        
+        let html = '';
+        
+        // 父目录条目
+        if (parentPath) {
+            html += `<div class="sfb-item sfb-parent" onclick="browseSkillPath('${escapeHtml(parentPath)}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                <span>..</span>
+            </div>`;
+        }
+        
+        if (files.length === 0) {
+            html += '<div class="sfb-empty">目录为空</div>';
+        } else {
+            for (const f of files) {
+                if (f.is_dir) {
+                    html += `<div class="sfb-item sfb-dir" onclick="browseSkillPath('${escapeHtml(f.path)}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                        <span>${escapeHtml(f.name)}</span>
+                    </div>`;
+                } else if (f.is_skill) {
+                    // SKILL.md 文件，高亮显示，点击选择
+                    html += `<div class="sfb-item sfb-skill" onclick="selectSkillFile('${escapeHtml(f.path)}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                        <span class="sfb-skill-name">SKILL.md</span>
+                        <span class="sfb-skill-badge">✓ 选择</span>
+                    </div>`;
+                } else {
+                    // 其他文件，灰色显示
+                    const icon = getFileIcon(f.name);
+                    html += `<div class="sfb-item sfb-file" onclick="selectSkillFile('${escapeHtml(f.path)}')">
+                        ${icon}
+                        <span>${escapeHtml(f.name)}</span>
+                        <span class="sfb-file-size">${formatFileSize(f.size)}</span>
+                    </div>`;
+                }
+            }
+        }
+        
+        fileList.innerHTML = html;
+    } catch (e) {
+        fileList.innerHTML = `<div class="sfb-error">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 浏览父目录
+function browseSkillParentPath() {
+    if (!_skillBrowserCurrentPath || _skillBrowserCurrentPath === '/') {
+        return;
+    }
+    
+    const parentPath = _skillBrowserCurrentPath.split('/').slice(0, -1).join('/') || '/';
+    browseSkillPath(parentPath);
+}
+
+// 刷新当前目录
+function refreshSkillBrowser() {
+    browseSkillPath(_skillBrowserCurrentPath);
+}
+
+// 选择文件
+function selectSkillFile(path) {
+    const input = document.getElementById('skill-path');
+    if (input) {
+        input.value = path;
+        // 添加视觉反馈
+        input.style.background = '#f0fdf4';
+        setTimeout(() => { input.style.background = ''; }, 500);
+    }
+    
+    // 如果是 SKILL.md，自动提取名称（父目录名）
+    if (path.endsWith('/SKILL.md') || path.endsWith('SKILL.md')) {
+        const nameInput = document.getElementById('skill-name');
+        if (nameInput && !nameInput.value.trim()) {
+            const parts = path.split('/');
+            const parentDir = parts[parts.length - 2] || 'skill';
+            nameInput.value = parentDir;
+        }
     }
 }
 

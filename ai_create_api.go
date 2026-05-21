@@ -1176,7 +1176,7 @@ func handleAgentSkill(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAgentSkillFiles 列出 Skill 目录文件结构
+// handleAgentSkillFiles Skill 文件管理 (CRUD)
 func handleAgentSkillFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -1185,31 +1185,208 @@ func handleAgentSkillFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skillID := r.URL.Query().Get("id")
-	if skillID == "" {
-		apiBadRequest(w, "缺少 id 参数")
-		return
+	switch r.Method {
+	case http.MethodGet:
+		// 列出文件或读取文件内容
+		skillID := r.URL.Query().Get("id")
+		filePath := r.URL.Query().Get("path")
+		
+		if skillID == "" {
+			apiBadRequest(w, "缺少 id 参数")
+			return
+		}
+
+		skill, ok := agentSkillRegistry.Get(skillID)
+		if !ok {
+			apiNotFound(w, "Skill 不存在")
+			return
+		}
+
+		// 如果指定了 path，读取文件内容
+		if filePath != "" {
+			content, err := readSkillFile(skill.SourcePath, filePath)
+			if err != nil {
+				apiError(w, "读取文件失败: "+err.Error(), http.StatusInternalServerError, "FILE_READ_ERROR")
+				return
+			}
+			apiSuccess(w, map[string]interface{}{
+				"skill_id": skillID,
+				"path":     filePath,
+				"content":  content,
+			})
+			return
+		}
+
+		// 否则列出目录结构
+		files, err := listSkillFiles(skill.SourcePath)
+		if err != nil {
+			apiError(w, "读取目录失败: "+err.Error(), http.StatusInternalServerError, "SKILL_FILE_ERROR")
+			return
+		}
+
+		apiSuccess(w, map[string]interface{}{
+			"skill_id":    skillID,
+			"source_path": skill.SourcePath,
+			"files":       files,
+		})
+
+	case http.MethodPost:
+		// 创建文件或文件夹
+		var req struct {
+			SkillID string `json:"skill_id"`
+			Path    string `json:"path"`
+			Type    string `json:"type"` // "file" or "dir"
+			Content string `json:"content,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+
+		skill, ok := agentSkillRegistry.Get(req.SkillID)
+		if !ok {
+			apiNotFound(w, "Skill 不存在")
+			return
+		}
+
+		fullPath := getSkillFullPath(skill.SourcePath, req.Path)
+		if fullPath == "" {
+			apiBadRequest(w, "无效的路径")
+			return
+		}
+
+		if req.Type == "dir" {
+			if err := os.MkdirAll(fullPath, 0755); err != nil {
+				apiError(w, "创建目录失败: "+err.Error(), http.StatusInternalServerError, "DIR_CREATE_ERROR")
+				return
+			}
+		} else {
+			// 创建文件
+			if err := os.WriteFile(fullPath, []byte(req.Content), 0644); err != nil {
+				apiError(w, "创建文件失败: "+err.Error(), http.StatusInternalServerError, "FILE_CREATE_ERROR")
+				return
+			}
+		}
+
+		apiSuccess(w, map[string]interface{}{
+			"skill_id": req.SkillID,
+			"path":     req.Path,
+			"type":     req.Type,
+			"created":  true,
+		})
+
+	case http.MethodPut:
+		// 更新文件内容
+		var req struct {
+			SkillID string `json:"skill_id"`
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+
+		skill, ok := agentSkillRegistry.Get(req.SkillID)
+		if !ok {
+			apiNotFound(w, "Skill 不存在")
+			return
+		}
+
+		fullPath := getSkillFullPath(skill.SourcePath, req.Path)
+		if fullPath == "" {
+			apiBadRequest(w, "无效的路径")
+			return
+		}
+
+		if err := os.WriteFile(fullPath, []byte(req.Content), 0644); err != nil {
+			apiError(w, "保存文件失败: "+err.Error(), http.StatusInternalServerError, "FILE_SAVE_ERROR")
+			return
+		}
+
+		apiSuccess(w, map[string]interface{}{
+			"skill_id": req.SkillID,
+			"path":     req.Path,
+			"saved":    true,
+		})
+
+	case http.MethodDelete:
+		// 删除文件或文件夹
+		var req struct {
+			SkillID string `json:"skill_id"`
+			Path    string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			apiBadRequest(w, "请求格式错误")
+			return
+		}
+
+		skill, ok := agentSkillRegistry.Get(req.SkillID)
+		if !ok {
+			apiNotFound(w, "Skill 不存在")
+			return
+		}
+
+		fullPath := getSkillFullPath(skill.SourcePath, req.Path)
+		if fullPath == "" {
+			apiBadRequest(w, "无效的路径")
+			return
+		}
+
+		// 禁止删除 SKILL.md
+		if filepath.Base(fullPath) == "SKILL.md" {
+			apiBadRequest(w, "禁止删除 SKILL.md 主文件")
+			return
+		}
+
+		if err := os.RemoveAll(fullPath); err != nil {
+			apiError(w, "删除失败: "+err.Error(), http.StatusInternalServerError, "DELETE_ERROR")
+			return
+		}
+
+		apiSuccess(w, map[string]interface{}{
+			"skill_id": req.SkillID,
+			"path":     req.Path,
+			"deleted":  true,
+		})
+
+	default:
+		apiMethodNotAllowed(w, "不支持的请求方法")
+	}
+}
+
+// getSkillFullPath 获取 skill 文件的完整路径
+func getSkillFullPath(sourcePath, relPath string) string {
+	// 如果 sourcePath 是文件（如 SKILL.md），使用其父目录
+	basePath := sourcePath
+	if filepath.Base(sourcePath) == "SKILL.md" {
+		basePath = filepath.Dir(sourcePath)
 	}
 
-	// 从 registry 获取 skill 配置
-	skill, ok := agentSkillRegistry.Get(skillID)
-	if !ok {
-		apiNotFound(w, "Skill 不存在")
-		return
+	// 安全检查：防止路径穿越
+	fullPath := filepath.Join(basePath, relPath)
+	
+	// 确保路径在 basePath 范围内
+	if !strings.HasPrefix(fullPath, basePath) {
+		return ""
 	}
 
-	// 读取目录结构
-	files, err := listSkillFiles(skill.SourcePath)
+	return fullPath
+}
+
+// readSkillFile 读取 skill 文件内容
+func readSkillFile(sourcePath, relPath string) (string, error) {
+	fullPath := getSkillFullPath(sourcePath, relPath)
+	if fullPath == "" {
+		return "", fmt.Errorf("无效的路径")
+	}
+
+	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		apiError(w, "读取目录失败: "+err.Error(), http.StatusInternalServerError, "SKILL_FILE_ERROR")
-		return
+		return "", err
 	}
 
-	apiSuccess(w, map[string]interface{}{
-		"skill_id":    skillID,
-		"source_path": skill.SourcePath,
-		"files":       files,
-	})
+	return string(content), nil
 }
 
 // listSkillFiles 递归列出目录下的文件
@@ -1266,6 +1443,99 @@ func listSkillFiles(rootPath string) ([]map[string]interface{}, error) {
 	})
 
 	return files, err
+}
+
+// handleAgentSkillBrowse 浏览文件系统，用于选择 SKILL.md 文件
+func handleAgentSkillBrowse(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		apiMethodNotAllowed(w, "只支持 GET 请求")
+		return
+	}
+
+	// 获取要浏览的路径，默认为根目录或 agent-config/skills
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		// 默认路径：agent-config/skills 目录
+		exePath, _ := os.Executable()
+		defaultPath := filepath.Join(filepath.Dir(exePath), "agent-config", "skills")
+		if _, err := os.Stat(defaultPath); err == nil {
+			path = defaultPath
+		} else {
+			path = "/"
+		}
+	}
+
+	// 安全检查：防止路径穿越
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		apiBadRequest(w, "无效的路径")
+		return
+	}
+
+	// 读取目录
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		apiError(w, "读取目录失败: "+err.Error(), http.StatusInternalServerError, "DIR_READ_ERROR")
+		return
+	}
+
+	// 构建返回结果
+	type FileEntry struct {
+		Name    string `json:"name"`
+		Path    string `json:"path"`
+		IsDir   bool   `json:"is_dir"`
+		IsSkill bool   `json:"is_skill"` // 是否是 SKILL.md 文件
+		Size    int64  `json:"size,omitempty"`
+	}
+
+	var files []FileEntry
+	var parentPath string
+
+	// 计算父目录路径
+	if absPath != "/" {
+		parentPath = filepath.Dir(absPath)
+	}
+
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		file := FileEntry{
+			Name:  entry.Name(),
+			Path:  filepath.Join(absPath, entry.Name()),
+			IsDir: entry.IsDir(),
+		}
+
+		if !entry.IsDir() {
+			file.Size = info.Size()
+			file.IsSkill = entry.Name() == "SKILL.md"
+		}
+
+		files = append(files, file)
+	}
+
+	// 排序：目录在前，然后按名称排序
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].IsDir != files[j].IsDir {
+			return files[i].IsDir
+		}
+		return files[i].Name < files[j].Name
+	})
+
+	apiSuccess(w, map[string]interface{}{
+		"current_path": absPath,
+		"parent_path":  parentPath,
+		"files":        files,
+	})
 }
 
 // handleAgentMode 获取/设置当前会话模式

@@ -8890,10 +8890,47 @@ img.emoji {
     padding: 6px 8px;
     border-radius: 6px;
     transition: background 0.15s;
+    cursor: pointer;
+    position: relative;
 }
 
 .skill-file-item:hover {
     background: rgba(99, 102, 241, 0.06);
+}
+
+.skill-file-item:hover .skill-file-actions {
+    opacity: 1;
+}
+
+.skill-file-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.skill-file-actions button {
+    background: transparent;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    transition: all 0.15s;
+}
+
+.skill-file-actions button:hover {
+    background: rgba(99, 102, 241, 0.1);
+    color: #6366f1;
+}
+
+.skill-file-actions button.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
 }
 
 .skill-file-dir {
@@ -8928,10 +8965,278 @@ img.emoji {
     color: #ef4444;
 }
 
+/* Skill 文件编辑器 */
+.skill-file-editor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+
+.skill-file-editor-inner {
+    background: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.skill-file-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.skill-file-editor-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #111827;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.skill-file-editor-header h3 code {
+    font-size: 13px;
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.skill-file-editor-body {
+    flex: 1;
+    padding: 16px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.skill-file-editor-body textarea {
+    flex: 1;
+    width: 100%;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.skill-file-editor-body textarea:focus {
+    border-color: #6366f1;
+}
+
+.skill-file-editor-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid #e5e7eb;
+}
+
+/* Skill 文件工具栏 */
+.skill-files-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 12px 0;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+    margin-bottom: 8px;
+}
+
+.skill-files-toolbar button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: white;
+    color: #374151;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-files-toolbar button:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.skill-files-toolbar button.primary {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: white;
+}
+
+.skill-files-toolbar button.primary:hover {
+    background: #4f46e5;
+}
+
 .ac-meta-path {
     font-size: 11px;
     color: #94a3b8;
     margin-left: 8px;
+}
+
+/* Skill 文件浏览器（添加 Skill 时选择 SKILL.md） */
+.skill-path-input-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.skill-path-input-group .ac-input {
+    flex: 1;
+    background: #f8fafc;
+}
+
+.skill-file-browser {
+    margin-top: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.sfb-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.sfb-btn {
+    background: transparent;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    transition: all 0.15s;
+}
+
+.sfb-btn:hover {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #334155;
+}
+
+.sfb-path-display {
+    flex: 1;
+    font-size: 12px;
+    color: #475569;
+    background: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sfb-refresh {
+    margin-left: auto;
+}
+
+.sfb-file-list {
+    padding: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.sfb-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-size: 13px;
+}
+
+.sfb-item:hover {
+    background: #f1f5f9;
+}
+
+.sfb-parent {
+    color: #64748b;
+}
+
+.sfb-dir {
+    color: #334155;
+}
+
+.sfb-dir svg {
+    color: #f59e0b;
+}
+
+.sfb-skill {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border: 1px solid #86efac;
+    color: #166534;
+    font-weight: 500;
+}
+
+.sfb-skill:hover {
+    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+}
+
+.sfb-skill-name {
+    flex: 1;
+}
+
+.sfb-skill-badge {
+    font-size: 11px;
+    background: #10b981;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.sfb-file {
+    color: #94a3b8;
+}
+
+.sfb-file-size {
+    font-size: 11px;
+    color: #cbd5e1;
+    margin-left: auto;
+}
+
+.sfb-loading,
+.sfb-empty,
+.sfb-error {
+    padding: 16px;
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.sfb-error {
+    color: #ef4444;
 }
 
 
