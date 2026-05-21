@@ -77,6 +77,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent/cluster/query", handleAgentClusterQuery)
 	mux.HandleFunc("/api/v1/agent/mcp", handleAgentMCP)
 	mux.HandleFunc("/api/v1/agent/skill", handleAgentSkill)
+	mux.HandleFunc("/api/v1/agent/skill/files", handleAgentSkillFiles)
 	mux.HandleFunc("/api/v1/agent/mode", handleAgentMode)
 	mux.HandleFunc("/api/v1/agent/status", handleAgentStatus)
 	

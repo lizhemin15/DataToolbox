@@ -14902,7 +14902,7 @@ function renderSkillConfig(container, skills) {
             const category = s.category || s.type || '';
             const categoryColor = category === 'devops' ? '#10b981' : category === 'data' ? '#3b82f6' : category === 'ai' ? '#8b5cf6' : '#64748b';
             
-            html += `<div class="ac-card">
+            html += `<div class="ac-card" id="skill-card-${s.id}">
                 <div class="ac-card-left">
                     <div class="ac-card-icon ${s.enabled ? 'ac-icon-running' : 'ac-icon-stopped'}">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -14913,6 +14913,7 @@ function renderSkillConfig(container, skills) {
                         </div>
                         <div class="ac-card-meta">
                             ${s.description ? `<span class="ac-meta-detail">${escapeHtml(s.description.substring(0, 60))}${s.description.length > 60 ? '...' : ''}</span>` : ''}
+                            ${s.source_path ? `<span class="ac-meta-path" title="${escapeHtml(s.source_path)}">📁 ${escapeHtml(s.source_path.split('/').pop())}</span>` : ''}
                         </div>
                     </div>
                 </div>
@@ -14923,11 +14924,13 @@ function renderSkillConfig(container, skills) {
                         <span class="ac-toggle-thumb"></span>
                     </label>
                     <div class="ac-card-actions">
+                        <button class="ac-btn ac-btn-ghost" onclick="showSkillFiles('${s.id}')" title="查看文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
                         <button class="ac-btn ac-btn-ghost" onclick="reloadSkill('${s.id}')" title="重载"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
                         <button class="ac-btn ac-btn-danger" onclick="removeSkill('${s.id}')" title="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
                     </div>
                 </div>
-            </div>`;
+            </div>
+            <div id="skill-files-${s.id}" class="skill-files-panel" style="display:none;"></div>`;
         }
     }
     html += '</div>';
@@ -15138,6 +15141,121 @@ async function submitMCPForm() {
     } catch (e) {
         showToast('添加失败: ' + e.message, 'error');
     }
+}
+
+// Show skill files panel
+async function showSkillFiles(skillId) {
+    const panel = document.getElementById(`skill-files-${skillId}`);
+    if (!panel) return;
+    
+    // Toggle panel
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        return;
+    }
+    
+    // Show loading
+    panel.style.display = 'block';
+    panel.innerHTML = '<div class="skill-files-loading">加载中...</div>';
+    
+    try {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files?id=${skillId}`);
+        const data = await res.json();
+        
+        if (!data.success) {
+            panel.innerHTML = `<div class="skill-files-error">加载失败: ${data.message}</div>`;
+            return;
+        }
+        
+        const files = data.data.files || [];
+        if (files.length === 0) {
+            panel.innerHTML = '<div class="skill-files-empty">目录为空</div>';
+            return;
+        }
+        
+        // Build file tree
+        let html = '<div class="skill-files-tree">';
+        html += `<div class="skill-files-header"><strong>📁 ${escapeHtml(data.data.source_path)}</strong></div>`;
+        
+        // Group by directory
+        const tree = buildFileTree(files);
+        html += renderFileTree(tree);
+        
+        html += '</div>';
+        panel.innerHTML = html;
+    } catch (e) {
+        panel.innerHTML = `<div class="skill-files-error">加载失败: ${e.message}</div>`;
+    }
+}
+
+function buildFileTree(files) {
+    const root = { name: '', children: {}, files: [] };
+    
+    for (const f of files) {
+        const parts = f.rel.split('/');
+        let current = root;
+        
+        // Navigate/create directories
+        for (let i = 0; i < parts.length - 1; i++) {
+            const dir = parts[i];
+            if (!current.children[dir]) {
+                current.children[dir] = { name: dir, children: {}, files: [] };
+            }
+            current = current.children[dir];
+        }
+        
+        // Add file
+        current.files.push(f);
+    }
+    
+    return root;
+}
+
+function renderFileTree(node, depth = 0) {
+    let html = '';
+    const indent = depth * 16;
+    
+    // Render directories
+    for (const dirName of Object.keys(node.children).sort()) {
+        const child = node.children[dirName];
+        html += `<div class="skill-file-item skill-file-dir" style="padding-left:${indent}px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            ${escapeHtml(dirName)}
+        </div>`;
+        html += renderFileTree(child, depth + 1);
+    }
+    
+    // Render files
+    for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
+        const icon = getFileIcon(f.name);
+        const size = f.size ? formatFileSize(f.size) : '';
+        const isSkillMd = f.name === 'SKILL.md';
+        html += `<div class="skill-file-item ${isSkillMd ? 'skill-file-main' : ''}" style="padding-left:${indent}px;" title="${escapeHtml(f.path)}">
+            ${icon}
+            <span class="skill-file-name">${escapeHtml(f.name)}</span>
+            ${size ? `<span class="skill-file-size">${size}</span>` : ''}
+        </div>`;
+    }
+    
+    return html;
+}
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'md': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
+        'json': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
+        'yaml': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
+        'py': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
+        'sh': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
+    };
+    return icons[ext] || '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>';
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // Skill actions

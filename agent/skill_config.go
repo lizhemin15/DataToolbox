@@ -159,6 +159,14 @@ func (r *SkillRegistry) List() []SkillConfig {
 	return out
 }
 
+// Get returns a skill by ID, or false if not found.
+func (r *SkillRegistry) Get(id string) (SkillConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	cfg, ok := r.skills[id]
+	return cfg, ok
+}
+
 // ListEnabled returns only enabled skills.
 func (r *SkillRegistry) ListEnabled() []SkillConfig {
 	r.mu.RLock()

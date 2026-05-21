@@ -1176,6 +1176,98 @@ func handleAgentSkill(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleAgentSkillFiles 列出 Skill 目录文件结构
+func handleAgentSkillFiles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !verifyToken(r) {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	skillID := r.URL.Query().Get("id")
+	if skillID == "" {
+		apiBadRequest(w, "缺少 id 参数")
+		return
+	}
+
+	// 从 registry 获取 skill 配置
+	skill, ok := agentSkillRegistry.Get(skillID)
+	if !ok {
+		apiNotFound(w, "Skill 不存在")
+		return
+	}
+
+	// 读取目录结构
+	files, err := listSkillFiles(skill.SourcePath)
+	if err != nil {
+		apiError(w, http.StatusInternalServerError, "读取目录失败: "+err.Error())
+		return
+	}
+
+	apiSuccess(w, map[string]interface{}{
+		"skill_id":    skillID,
+		"source_path": skill.SourcePath,
+		"files":       files,
+	})
+}
+
+// listSkillFiles 递归列出目录下的文件
+func listSkillFiles(rootPath string) ([]map[string]interface{}, error) {
+	var files []map[string]interface{}
+
+	// 检查是文件还是目录
+	info, err := os.Stat(rootPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果是文件，直接返回
+	if !info.IsDir() {
+		// 如果是 SKILL.md，尝试读取父目录
+		if filepath.Base(rootPath) == "SKILL.md" {
+			parentDir := filepath.Dir(rootPath)
+			return listSkillFiles(parentDir)
+		}
+		return []map[string]interface{}{
+			{
+				"name":  info.Name(),
+				"path":  rootPath,
+				"isDir": false,
+				"size":  info.Size(),
+			},
+		}, nil
+	}
+
+	// 递归读取目录
+	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, _ := filepath.Rel(rootPath, path)
+		if relPath == "." {
+			return nil
+		}
+
+		file := map[string]interface{}{
+			"name":  info.Name(),
+			"path":  path,
+			"rel":   relPath,
+			"isDir": info.IsDir(),
+		}
+
+		if !info.IsDir() {
+			file["size"] = info.Size()
+		}
+
+		files = append(files, file)
+		return nil
+	})
+
+	return files, err
+}
+
 // handleAgentMode 获取/设置当前会话模式
 
 func handleAgentMode(w http.ResponseWriter, r *http.Request) {
