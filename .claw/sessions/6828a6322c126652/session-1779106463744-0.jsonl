@@ -1,0 +1,2 @@
+{"created_at_ms":1779106463743,"model":"openai/astron-code-latest","session_id":"session-1779106463744-0","type":"session_meta","updated_at_ms":1779106463743,"version":1,"workspace_root":"/root/.openclaw/workspace"}
+{"message":{"blocks":[{"text":"say hello","type":"text"}],"role":"user"},"type":"message"}

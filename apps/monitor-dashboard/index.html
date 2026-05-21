@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>监控大屏 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="mode-edit">
+        <header id="toolbar">
+            <div class="toolbar-left">
+                <button class="tb-btn" onclick="goBack()" title="返回">←</button>
+                <input type="text" id="dashboardName" value="监控大屏" spellcheck="false">
+            </div>
+            <div class="toolbar-center">
+                <div class="mode-switch">
+                    <button class="mode-btn active" data-mode="edit" onclick="setMode('edit')">✏️ 编辑</button>
+                    <button class="mode-btn" data-mode="play" onclick="setMode('play')">▶️ 播放</button>
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <select id="themeSelect" onchange="applyTheme(this.value)" title="主题风格">
+                    <option value="tech">🔮 科技风</option>
+                    <option value="gov">🏛️ 党政风</option>
+                    <option value="business">💼 商务风</option>
+                    <option value="academic">📖 学术风</option>
+                    <option value="minimal">◻️ 极简风</option>
+                    <option value="nature">🌿 自然风</option>
+                </select>
+                <select id="dashW" onchange="changeDashSize()" title="画布尺寸">
+                    <option value="1920x1080">1920×1080</option>
+                    <option value="2560x1440">2560×1440</option>
+                    <option value="3840x2160">3840×2160</option>
+                    <option value="1280x720">1280×720</option>
+                </select>
+                <label class="tb-toggle" title="显示网格">
+                    <input type="checkbox" id="gridToggle" checked onchange="toggleGrid()">
+                    <span>网格</span>
+                </label>
+                <button class="tb-btn" onclick="showTemplates()" title="预制模板">📐 模板</button>
+                <button class="tb-btn" onclick="importConfig()" title="导入配置">📥 导入</button>
+                <button class="tb-btn" onclick="exportConfig()" title="导出配置">📤 导出</button>
+                <button class="tb-btn" onclick="toggleFullscreen()" title="全屏">⛶</button>
+            </div>
+        </header>
+
+        <aside id="widgetPanel" class="panel-left">
+            <h3>组件库</h3>
+            <div id="widgetList"></div>
+        </aside>
+
+        <div id="canvasContainer">
+            <div id="canvas"></div>
+        </div>
+
+        <aside id="propsPanel" class="panel-right">
+            <div id="propsContent">
+                <div class="props-empty">点击选中组件<br>以编辑属性</div>
+            </div>
+        </aside>
+
+        <div id="playExitHint" class="play-exit-hint">按 ESC 退出播放</div>
+    </div>
+
+    <div id="importModal" class="modal-overlay" style="display:none">
+        <div class="modal">
+            <h3>导入配置</h3>
+            <textarea id="importText" placeholder="粘贴JSON配置..." rows="12"></textarea>
+            <div class="modal-actions">
+                <button onclick="doImport()">确认导入</button>
+                <button class="btn-cancel" onclick="closeImportModal()">取消</button>
+            </div>
+            <div class="modal-or">— 或 —</div>
+            <label class="file-upload">
+                <input type="file" accept=".json" onchange="importFile(event)">
+                📁 选择JSON文件
+            </label>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
