@@ -70,11 +70,12 @@
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
+                        <button class="nav-tab" data-tab="api">接口分发</button>
+                        <button class="nav-tab" data-tab="ai">智能助手</button>
+                        <button class="nav-tab" data-tab="mcp">Agent服务</button>
+                        <button class="nav-tab" data-tab="apps">应用广场</button>
                         <button class="nav-tab" data-tab="ontology">本体论抽象</button>
                         <button class="nav-tab" data-tab="lineage">数据血缘</button>
-                        <button class="nav-tab" data-tab="api">接口分发</button>
-                        <button class="nav-tab" data-tab="mcp">Agent服务</button>
-                        <button class="nav-tab" data-tab="ai">智能助手</button>
                         <button class="nav-tab" data-tab="models">模型管理</button>
                         <button class="nav-tab" data-tab="quality" title="数据质量审核">数据质量审核</button>
                     </div>
@@ -877,6 +878,25 @@
                                 <h5>安装步骤</h5>
                                 <ol id="skillStepsList"></ol>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="appsTab" class="tab-content">
+            <div class="tab-content-wrap">
+                <div class="apps-marketplace-container">
+                    <div class="apps-marketplace-header">
+                        <h2>🏪 应用广场</h2>
+                        <p class="apps-marketplace-desc">管理和发布自定义应用，支持纯前端 HTML+CSS+JS 应用</p>
+                        <div class="apps-marketplace-actions">
+                            <button class="btn btn-primary" onclick="window.open('app-editor.html', '_blank')">✨ 创建应用</button>
+                        </div>
+                    </div>
+                    <div class="apps-marketplace-content">
+                        <div id="appsMarketplaceList" class="apps-grid-container">
+                            <!-- 动态加载应用列表 -->
                         </div>
                     </div>
                 </div>

@@ -6926,3 +6926,125 @@ body.embed-mode .embed-settings-btn {
 .dropdown-item:active {
     background-color: #e0e0e0;
 }
+
+/* ==================== 应用广场模块 ==================== */
+.apps-marketplace-container {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.apps-marketplace-header {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.apps-marketplace-header h2 {
+    margin: 0 0 8px 0;
+    font-size: 24px;
+    color: #1a202c;
+}
+
+.apps-marketplace-desc {
+    color: #718096;
+    margin: 0 0 16px 0;
+}
+
+.apps-marketplace-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.apps-marketplace-content {
+    min-height: 400px;
+}
+
+.apps-grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.app-card-item {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.app-card-item:hover {
+    border-color: #4299e1;
+    box-shadow: 0 4px 12px rgba(66, 153, 225, 0.15);
+    transform: translateY(-2px);
+}
+
+.app-card-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+}
+
+.app-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1a202c;
+    margin: 0 0 8px 0;
+}
+
+.app-card-desc {
+    font-size: 14px;
+    color: #718096;
+    margin: 0 0 12px 0;
+    line-height: 1.5;
+}
+
+.app-card-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #a0aec0;
+}
+
+.app-card-slug {
+    background: #f7fafc;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.app-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #edf2f7;
+}
+
+.app-card-actions .btn {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.apps-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #718096;
+}
+
+.apps-empty-state .empty-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.apps-empty-state h3 {
+    margin: 0 0 8px 0;
+    color: #4a5568;
+}
+
+.apps-empty-state p {
+    margin: 0;
+}

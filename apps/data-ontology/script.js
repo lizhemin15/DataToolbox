@@ -1099,6 +1099,8 @@ async function switchTab(tabName) {
         if (typeof window.initQualityAuditTab === 'function') {
             window.initQualityAuditTab();
         }
+    } else if (tabName === 'apps') {
+        loadAppsMarketplace();
     }
 }
 
@@ -14504,4 +14506,83 @@ async function govDownloadExamplesForTask(taskId, exampleFiles, taskName = '') {
         console.error('下载失败:', e);
         showToast('下载失败: ' + e.message, 'error');
     }
+}
+
+// ==================== 应用广场模块 ====================
+
+// 加载应用广场列表
+async function loadAppsMarketplace() {
+    const container = document.getElementById('appsMarketplaceList');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loading">加载中...</div>';
+    
+    try {
+        const response = await fetchWithAuth('/api/v1/apps');
+        if (!response.ok) throw new Error('加载失败');
+        const apps = await response.json();
+        
+        if (!apps || apps.length === 0) {
+            container.innerHTML = `
+                <div class="apps-empty-state">
+                    <div class="empty-icon">📦</div>
+                    <h3>暂无应用</h3>
+                    <p>点击上方「创建应用」按钮添加第一个应用</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = apps.map(app => `
+            <div class="app-card-item">
+                <div class="app-card-icon">${app.icon || '📄'}</div>
+                <h3 class="app-card-title">${escapeHtml(app.title)}</h3>
+                <p class="app-card-desc">${escapeHtml(app.description || '暂无描述')}</p>
+                <div class="app-card-meta">
+                    <span class="app-card-slug">/a/${escapeHtml(app.slug)}</span>
+                    <span>访问: ${app.view_count || 0}</span>
+                </div>
+                <div class="app-card-actions">
+                    <button class="btn" onclick="openAppInMarketplace('${escapeHtml(app.slug)}')">打开</button>
+                    <button class="btn" onclick="editAppInMarketplace('${escapeHtml(app.id)}')">编辑</button>
+                    <button class="btn btn-danger" onclick="deleteAppInMarketplace('${escapeHtml(app.id)}', '${escapeHtml(app.title)}')">删除</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('加载应用列表失败:', e);
+        container.innerHTML = `<div class="apps-empty-state"><div class="empty-icon">❌</div><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
+    }
+}
+
+// 打开应用
+function openAppInMarketplace(slug) {
+    window.open(`/a/${slug}`, '_blank');
+}
+
+// 编辑应用
+function editAppInMarketplace(appId) {
+    window.open(`app-editor.html?id=${appId}`, '_blank');
+}
+
+// 删除应用
+async function deleteAppInMarketplace(appId, title) {
+    if (!confirm(`确定要删除应用「${title}」吗？此操作不可恢复。`)) return;
+    
+    try {
+        const response = await fetchWithAuth(`/api/v1/apps/${appId}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('删除失败');
+        showToast('应用已删除', 'success');
+        loadAppsMarketplace();
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
