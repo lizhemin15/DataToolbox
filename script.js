@@ -15168,21 +15168,41 @@ async function showSkillFiles(skillId) {
         }
         
         const files = data.data.files || [];
-        if (files.length === 0) {
-            panel.innerHTML = '<div class="skill-files-empty">目录为空</div>';
-            return;
-        }
         
-        // Build file tree
+        // Build file tree with toolbar
         let html = '<div class="skill-files-tree">';
         html += `<div class="skill-files-header"><strong>📁 ${escapeHtml(data.data.source_path)}</strong></div>`;
         
-        // Group by directory
-        const tree = buildFileTree(files);
-        html += renderFileTree(tree);
+        // Toolbar
+        html += `<div class="skill-files-toolbar">
+            <button onclick="createSkillFile('${skillId}')" class="primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+                新建文件
+            </button>
+            <button onclick="createSkillDir('${skillId}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M12 11v6M9 14h6"/></svg>
+                新建文件夹
+            </button>
+            <button onclick="uploadSkillFile('${skillId}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                上传文件
+            </button>
+        </div>`;
+        
+        if (files.length === 0) {
+            html += '<div class="skill-files-empty">目录为空，点击上方按钮添加文件</div>';
+        } else {
+            // Group by directory
+            const tree = buildFileTree(files);
+            html += renderFileTree(tree, skillId);
+        }
         
         html += '</div>';
         panel.innerHTML = html;
+        
+        // Store skill info for later use
+        panel.dataset.skillId = skillId;
+        panel.dataset.sourcePath = data.data.source_path;
     } catch (e) {
         panel.innerHTML = `<div class="skill-files-error">加载失败: ${e.message}</div>`;
     }
@@ -15211,29 +15231,47 @@ function buildFileTree(files) {
     return root;
 }
 
-function renderFileTree(node, depth = 0) {
+function renderFileTree(node, skillId, depth = 0, basePath = '') {
     let html = '';
     const indent = depth * 16;
     
     // Render directories
     for (const dirName of Object.keys(node.children).sort()) {
         const child = node.children[dirName];
+        const dirPath = basePath ? `${basePath}/${dirName}` : dirName;
         html += `<div class="skill-file-item skill-file-dir" style="padding-left:${indent}px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-            ${escapeHtml(dirName)}
+            <span class="skill-file-name">${escapeHtml(dirName)}</span>
+            <div class="skill-file-actions">
+                <button onclick="createSkillFile('${skillId}', '${dirPath}')" title="在此目录新建文件">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M12 18v-6M9 15h6"/></svg>
+                </button>
+                <button onclick="deleteSkillDir('${skillId}', '${dirPath}')" title="删除文件夹">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
+            </div>
         </div>`;
-        html += renderFileTree(child, depth + 1);
+        html += renderFileTree(child, skillId, depth + 1, dirPath);
     }
     
     // Render files
     for (const f of node.files.sort((a, b) => a.name.localeCompare(b.name))) {
         const icon = getFileIcon(f.name);
         const size = f.size ? formatFileSize(f.size) : '';
+        const filePath = f.rel;
         const isSkillMd = f.name === 'SKILL.md';
         html += `<div class="skill-file-item ${isSkillMd ? 'skill-file-main' : ''}" style="padding-left:${indent}px;" title="${escapeHtml(f.path)}">
             ${icon}
-            <span class="skill-file-name">${escapeHtml(f.name)}</span>
+            <span class="skill-file-name" onclick="editSkillFile('${skillId}', '${filePath}')">${escapeHtml(f.name)}</span>
             ${size ? `<span class="skill-file-size">${size}</span>` : ''}
+            <div class="skill-file-actions">
+                <button onclick="editSkillFile('${skillId}', '${filePath}')" title="编辑">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                ${!isSkillMd ? `<button onclick="deleteSkillFile('${skillId}', '${filePath}')" title="删除">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>` : ''}
+            </div>
         </div>`;
     }
     
@@ -15358,4 +15396,171 @@ async function submitSkillForm() {
     } catch (e) {
         showToast('添加失败: ' + e.message, 'error');
     }
+}
+
+// ========== Skill 文件管理操作 ==========
+
+// 新建文件
+async function createSkillFile(skillId, dirPath = '') {
+    const fileName = prompt('请输入文件名（如: references/api.md）:', dirPath ? dirPath + '/new-file.md' : 'new-file.md');
+    if (!fileName) return;
+    
+    const cleanName = fileName.trim();
+    if (!cleanName) { showToast('文件名不能为空', 'error'); return; }
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId, path: cleanName, type: 'file', content: '' })
+        });
+        showToast('文件创建成功', 'success');
+        showSkillFiles(skillId); // 刷新文件列表
+    } catch (e) { showToast('创建失败: ' + e.message, 'error'); }
+}
+
+// 新建文件夹
+async function createSkillDir(skillId, parentPath = '') {
+    const dirName = prompt('请输入文件夹名:', parentPath ? parentPath + '/new-folder' : 'new-folder');
+    if (!dirName) return;
+    
+    const cleanName = dirName.trim();
+    if (!cleanName) { showToast('文件夹名不能为空', 'error'); return; }
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId, path: cleanName, type: 'dir' })
+        });
+        showToast('文件夹创建成功', 'success');
+        showSkillFiles(skillId);
+    } catch (e) { showToast('创建失败: ' + e.message, 'error'); }
+}
+
+// 编辑文件（弹窗编辑器）
+async function editSkillFile(skillId, filePath) {
+    try {
+        // 先读取文件内容
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files?id=${skillId}&path=${encodeURIComponent(filePath)}`);
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || '读取失败');
+        
+        const content = data.data.content || '';
+        const fileName = filePath.split('/').pop();
+        
+        // 创建编辑器弹窗
+        const modalHtml = `
+        <div id="skill-file-editor-modal" class="modal-overlay" style="display:flex;align-items:center;justify-content:center;z-index:10000;">
+            <div class="modal-content" style="width:90%;max-width:800px;height:80vh;background:#fff;border-radius:12px;display:flex;flex-direction:column;">
+                <div class="modal-header" style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                    <h3 style="margin:0;font-size:16px;color:#111827;">编辑: ${escapeHtml(fileName)}</h3>
+                    <button onclick="document.getElementById('skill-file-editor-modal').remove()" style="background:none;border:none;font-size:20px;color:#6b7280;cursor:pointer;">✕</button>
+                </div>
+                <div class="modal-body" style="flex:1;padding:16px;overflow:hidden;">
+                    <textarea id="skill-file-editor-content" style="width:100%;height:100%;border:1px solid #e5e7eb;border-radius:8px;padding:12px;font-family:monospace;font-size:14px;resize:none;outline:none;" spellcheck="false">${escapeHtml(content)}</textarea>
+                </div>
+                <div class="modal-footer" style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:12px;">
+                    <button onclick="document.getElementById('skill-file-editor-modal').remove()" class="ac-btn ac-btn-secondary">取消</button>
+                    <button onclick="saveSkillFileContent('${skillId}', '${filePath}')" class="ac-btn ac-btn-primary">保存</button>
+                </div>
+            </div>
+        </div>`;
+        
+        // 移除旧弹窗（如果存在）
+        const oldModal = document.getElementById('skill-file-editor-modal');
+        if (oldModal) oldModal.remove();
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    } catch (e) { showToast('读取文件失败: ' + e.message, 'error'); }
+}
+
+// 保存文件内容
+async function saveSkillFileContent(skillId, filePath) {
+    const textarea = document.getElementById('skill-file-editor-content');
+    if (!textarea) return;
+    
+    const content = textarea.value;
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId, path: filePath, content })
+        });
+        showToast('文件保存成功', 'success');
+        document.getElementById('skill-file-editor-modal').remove();
+        showSkillFiles(skillId); // 刷新文件列表
+    } catch (e) { showToast('保存失败: ' + e.message, 'error'); }
+}
+
+// 删除文件
+async function deleteSkillFile(skillId, filePath) {
+    if (!confirm(`确定删除文件 "${filePath}"?`)) return;
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId, path: filePath })
+        });
+        showToast('文件已删除', 'info');
+        showSkillFiles(skillId);
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+// 删除文件夹
+async function deleteSkillDir(skillId, dirPath) {
+    if (!confirm(`确定删除文件夹 "${dirPath}" 及其所有内容?`)) return;
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId, path: dirPath })
+        });
+        showToast('文件夹已删除', 'info');
+        showSkillFiles(skillId);
+    } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
+
+// 上传文件
+function uploadSkillFile(skillId) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.md,.json,.yaml,.yml,.py,.sh,.txt,.js,.ts,.html,.css';
+    
+    input.onchange = async (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        
+        for (const file of files) {
+            try {
+                const content = await readFileAsText(file);
+                await fetchWithAuth(`${API_BASE}/api/v1/agent/skill/files`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ skill_id: skillId, path: file.name, type: 'file', content })
+                });
+                showToast(`已上传: ${file.name}`, 'success');
+            } catch (err) {
+                showToast(`上传 ${file.name} 失败: ${err.message}`, 'error');
+            }
+        }
+        
+        showSkillFiles(skillId); // 刷新文件列表
+    };
+    
+    input.click();
+}
+
+// 辅助函数：读取文件为文本
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('读取文件失败'));
+        reader.readAsText(file);
+    });
 }
