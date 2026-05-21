@@ -1238,18 +1238,19 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 
 	if len(providers) == 0 && aiConfig != nil && aiConfig.APIKey != "" && aiConfig.Model != "" {
 		// 从数据库配置创建虚拟 provider 用于显示
-		providerType := "openai"
+		providerType := agent.ProviderTypeOpenAI
 		if aiConfig.URL != "" && strings.Contains(aiConfig.URL, "generativelanguage.googleapis.com") {
-			providerType = "gemini"
+			providerType = agent.ProviderTypeGemini
 		}
-		providers = []map[string]interface{}{{
-			"id":         "default",
-			"name":       aiConfig.Model,
-			"model":      aiConfig.Model,
-			"provider":   providerType,
-			"url":        aiConfig.URL,
-			"enabled":    true,
-			"is_default": true,
+		providers = []agent.ProviderConfig{{
+			ID:        "default",
+			Name:      aiConfig.Model,
+			Type:      providerType,
+			APIKey:    aiConfig.APIKey,
+			BaseURL:   aiConfig.URL,
+			ModelID:   aiConfig.Model,
+			Enabled:   true,
+			IsDefault: true,
 		}}
 	}
 
@@ -1262,9 +1263,7 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	// 统计活跃 agent 数量
 	activeAgents := 0
 	for _, p := range providers {
-		if enabled, ok := p["enabled"].(bool); ok && enabled {
-			activeAgents++
-		} else if p["enabled"] == true {
+		if p.Enabled {
 			activeAgents++
 		}
 	}
