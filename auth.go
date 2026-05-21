@@ -1002,6 +1002,7 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 				"governance": true,
 				"api":        true,
 				"ai":         true,
+				"apps":       true,
 				"ontology":   false,
 				"lineage":    false,
 				"mcp":        false,
@@ -1009,8 +1010,38 @@ func handleUserSettings(w http.ResponseWriter, r *http.Request) {
 				"quality":    false,
 			}
 		}
+		// 补充已保存设置中缺失的 tab（如新增的 apps）
+		if tv, ok := settings["tabVisibility"].(map[string]interface{}); ok {
+			defaultVis := map[string]bool{
+				"database": true, "governance": true, "api": true, "ai": true,
+				"apps": true, "ontology": false, "lineage": false, "mcp": false,
+				"models": false, "quality": false,
+			}
+			for k, v := range defaultVis {
+				if _, exists := tv[k]; !exists {
+					tv[k] = v
+				}
+			}
+			settings["tabVisibility"] = tv
+		}
 		if _, ok := settings["tabOrder"]; !ok {
-			settings["tabOrder"] = []string{"database", "governance", "api", "ai", "ontology", "lineage", "mcp", "models", "quality"}
+			settings["tabOrder"] = []string{"database", "governance", "api", "ai", "apps", "ontology", "lineage", "mcp", "models", "quality"}
+		}
+		// 补充已保存 tabOrder 中缺失的 tab
+		if to, ok := settings["tabOrder"].([]interface{}); ok {
+			allTabs := []string{"database", "governance", "api", "ai", "apps", "ontology", "lineage", "mcp", "models", "quality"}
+			existing := map[string]bool{}
+			for _, t := range to {
+				if s, ok := t.(string); ok {
+					existing[s] = true
+				}
+			}
+			for _, t := range allTabs {
+				if !existing[t] {
+					to = append(to, t)
+				}
+			}
+			settings["tabOrder"] = to
 		}
 		if _, ok := settings["tabNames"]; !ok {
 			settings["tabNames"] = map[string]interface{}{}
