@@ -367,6 +367,29 @@
         let selectedIcon = '🎨';
         let autoPreviewTimer = null;
 
+        // 认证辅助函数
+        function getAuthToken() {
+            return localStorage.getItem('dataOntologyToken') || '';
+        }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = getAuthToken();
+            const headers = { ...(options.headers || {}) };
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            }
+            if (options.body && !headers['Content-Type']) {
+                headers['Content-Type'] = 'application/json';
+            }
+            const resp = await fetch(url, { ...options, headers });
+            if (resp.status === 401) {
+                alert('登录已过期，请重新登录');
+                window.location.href = '/apps/data-ontology/';
+                return resp;
+            }
+            return resp;
+        }
+
         // 初始化
         document.addEventListener('DOMContentLoaded', async () => {
             setupIconPicker();
@@ -504,7 +527,7 @@ button:hover {
         // 加载应用
         async function loadApp(id) {
             try {
-                const resp = await fetch(`/api/v1/apps/${id}`);
+                const resp = await fetchWithAuth(`/api/v1/apps/${id}`);
                 if (!resp.ok) throw new Error('加载失败');
 
                 const data = await resp.json();
@@ -570,9 +593,8 @@ button:hover {
                 const url = currentAppId ? `/api/v1/apps/${currentAppId}` : '/api/v1/apps';
                 const method = currentAppId ? 'PUT' : 'POST';
 
-                const resp = await fetch(url, {
+                const resp = await fetchWithAuth(url, {
                     method: method,
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(appData)
                 });
 
@@ -603,7 +625,7 @@ button:hover {
             if (!confirm('确定要删除这个应用吗？此操作不可恢复。')) return;
 
             try {
-                const resp = await fetch(`/api/v1/apps/${currentAppId}`, { method: 'DELETE' });
+                const resp = await fetchWithAuth(`/api/v1/apps/${currentAppId}`, { method: 'DELETE' });
                 if (!resp.ok) throw new Error('删除失败');
 
                 alert('应用已删除');

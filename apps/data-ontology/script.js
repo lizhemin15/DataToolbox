@@ -14520,9 +14520,10 @@ async function loadAppsMarketplace() {
     try {
         const response = await fetchWithAuth('/api/v1/apps');
         if (!response.ok) throw new Error('加载失败');
-        const apps = await response.json();
+        const data = await response.json();
+        const apps = data.apps || [];
         
-        if (!apps || apps.length === 0) {
+        if (apps.length === 0) {
             container.innerHTML = `
                 <div class="apps-empty-state">
                     <div class="empty-icon">📦</div>
@@ -14562,7 +14563,7 @@ function openAppInMarketplace(slug) {
 
 // 编辑应用
 function editAppInMarketplace(appId) {
-    window.open(`app-editor.html?id=${appId}`, '_blank');
+    window.open(`/app-editor.html?id=${appId}`, '_blank');
 }
 
 // 删除应用

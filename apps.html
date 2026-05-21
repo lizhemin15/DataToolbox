@@ -454,6 +454,29 @@
         let customApps = [];
         let builtinApps = [];
 
+        // 认证辅助函数
+        function getAuthToken() {
+            return localStorage.getItem('dataOntologyToken') || '';
+        }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = getAuthToken();
+            const headers = { ...(options.headers || {}) };
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            }
+            if (options.body && !headers['Content-Type']) {
+                headers['Content-Type'] = 'application/json';
+            }
+            const resp = await fetch(url, { ...options, headers });
+            if (resp.status === 401) {
+                alert('登录已过期，请重新登录');
+                window.location.href = '/apps/data-ontology/';
+                return resp;
+            }
+            return resp;
+        }
+
         // 颜色渐变配置
         const gradients = [
             { start: '#667eea', end: '#764ba2' },
@@ -491,7 +514,7 @@
         // 加载自定义应用
         async function loadCustomApps() {
             try {
-                const response = await fetch('/api/v1/apps');
+                const response = await fetchWithAuth('/api/v1/apps');
                 if (response.ok) {
                     const data = await response.json();
                     customApps = data.apps || [];
