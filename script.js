@@ -81,26 +81,37 @@ let aiSessionContext = {
 // === 会话管理系统 ===
 let aiSessions = []; // [{id, title, mode, messages[], databases[], modules[], history[], createdAt, updatedAt}]
 let currentSessionId = null;
-const SESSIONS_STORAGE_KEY = 'aiSessions_v1';
 
-function loadSessions() {
+// 从后端加载会话（账号持久化）
+async function loadSessions() {
     try {
-        const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
-        if (saved) aiSessions = JSON.parse(saved);
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions`);
+        const data = await res.json();
+        if (data.success) {
+            aiSessions = data.data || [];
+            // 如果有会话但没有当前会话，选择第一个
+            if (aiSessions.length > 0 && !currentSessionId) {
+                currentSessionId = aiSessions[0].id;
+            }
+        }
     } catch(e) { aiSessions = []; }
 }
 
-function saveSessions() {
+// 保存会话到后端（账号持久化）
+async function saveSessionToBackend(session) {
     try {
-        localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(aiSessions));
-    } catch(e) {}
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions/${session.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(session)
+        });
+    } catch(e) {
+        console.error('保存会话失败:', e);
+    }
 }
 
-function getCurrentSession() {
-    return aiSessions.find(s => s.id === currentSessionId) || null;
-}
-
-function createNewSession() {
+// 创建新会话并保存到后端
+async function createNewSession() {
     const session = {
         id: 'sess-' + Date.now(),
         title: '🚀 新会话',
@@ -112,11 +123,20 @@ function createNewSession() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
-    aiSessions.unshift(session);
-    currentSessionId = session.id;
-    saveSessions();
-    renderSessionList();
-    switchToSession(session.id);
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(session)
+        });
+        aiSessions.unshift(session);
+        currentSessionId = session.id;
+        renderSessionList();
+        switchToSession(session.id);
+    } catch(e) {
+        showToast('创建会话失败: ' + e.message, 'error');
+    }
 }
 function switchToSession(sessionId) {
     currentSessionId = sessionId;
@@ -147,22 +167,28 @@ function switchToSession(sessionId) {
     }
     
     renderSessionList();
-    saveSessions();
 }
 
-function deleteSession(sessionId, event) {
+async function deleteSession(sessionId, event) {
     if (event) event.stopPropagation();
-    aiSessions = aiSessions.filter(s => s.id !== sessionId);
-    if (currentSessionId === sessionId) {
-        currentSessionId = null;
-        const messagesEl = document.getElementById('aiChatMessages');
-        if (messagesEl) messagesEl.innerHTML = '';
-        if (aiSessions.length > 0) {
-            switchToSession(aiSessions[0].id);
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions/${sessionId}`, {
+            method: 'DELETE'
+        });
+        aiSessions = aiSessions.filter(s => s.id !== sessionId);
+        if (currentSessionId === sessionId) {
+            currentSessionId = null;
+            const messagesEl = document.getElementById('aiChatMessages');
+            if (messagesEl) messagesEl.innerHTML = '';
+            if (aiSessions.length > 0) {
+                switchToSession(aiSessions[0].id);
+            }
         }
+        renderSessionList();
+    } catch(e) {
+        showToast('删除会话失败: ' + e.message, 'error');
     }
-    saveSessions();
-    renderSessionList();
 }
 
 function appendMessageToChat(role, content) {
@@ -267,6 +293,10 @@ function showSessionWelcome() {
         </div>`;
 }
 
+function getCurrentSession() {
+    return aiSessions.find(s => s.id === currentSessionId) || null;
+}
+
 function saveCurrentSessionMessage(role, content, blocksData) {
     const session = getCurrentSession();
     if (!session) return;
@@ -284,7 +314,7 @@ function saveCurrentSessionMessage(role, content, blocksData) {
     session.modules = [...aiSessionContext.modules];
     session.history = [...aiSessionContext.history];
     session.updatedAt = new Date().toISOString();
-    saveSessions();
+    saveSessionToBackend(session);
     renderSessionList();
 }
 
@@ -14924,6 +14954,7 @@ function renderSkillConfig(container, skills) {
                         <span class="ac-toggle-thumb"></span>
                     </label>
                     <div class="ac-card-actions">
+                        <button class="ac-btn ac-btn-ghost" onclick="showEditSkillForm({id:'${s.id}',name:'${escapeHtml(s.name||'')}',description:'${escapeHtml(s.description||'')}',category:'${escapeHtml(s.category||'')}',source_path:'${escapeHtml(s.source_path||'')}'})" title="编辑"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                         <button class="ac-btn ac-btn-ghost" onclick="showSkillFiles('${s.id}')" title="查看文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></button>
                         <button class="ac-btn ac-btn-ghost" onclick="reloadSkill('${s.id}')" title="重载"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
                         <button class="ac-btn ac-btn-danger" onclick="removeSkill('${s.id}')" title="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
@@ -14934,10 +14965,16 @@ function renderSkillConfig(container, skills) {
         }
     }
     html += '</div>';
-    html += `<button class="ac-add-btn" onclick="showAddSkillForm()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-        添加 Skill
-    </button>`;
+    html += `<div class="ac-btn-group" style="margin-top:16px;display:flex;gap:8px;">
+        <button class="ac-add-btn" onclick="showNewSkillForm()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+            新建 Skill
+        </button>
+        <button class="ac-add-btn" onclick="showAddSkillForm()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            添加已有 Skill
+        </button>
+    </div>`;
     container.innerHTML = html;
 }
 
@@ -15396,6 +15433,159 @@ function showAddSkillForm() {
     
     // 自动加载默认目录
     browseSkillPath('');
+}
+
+// 新建 Skill 表单（创建新目录 + SKILL.md）
+function showNewSkillForm() {
+    const container = document.getElementById('agentConfigContent');
+    const existingForm = document.getElementById('skill-new-form');
+    if (existingForm) { existingForm.remove(); return; }
+    
+    const formHtml = `
+    <div id="skill-new-form" class="ac-form-card">
+        <div class="ac-form-header">
+            <h3>新建 Skill</h3>
+            <button class="ac-btn ac-btn-ghost" onclick="document.getElementById('skill-new-form').remove()">✕</button>
+        </div>
+        <div class="ac-form-body">
+            <div class="ac-form-row">
+                <label>名称 <span class="ac-required">*</span></label>
+                <input type="text" id="new-skill-name" placeholder="如: my-skill" class="ac-input">
+                <small class="ac-form-hint">将在 /opt/datatoolbox/agent-config/skills/ 下创建同名目录</small>
+            </div>
+            <div class="ac-form-row">
+                <label>描述</label>
+                <textarea id="new-skill-desc" placeholder="Skill 描述（可选）" class="ac-input" rows="3"></textarea>
+            </div>
+            <div class="ac-form-row">
+                <label>分类</label>
+                <select id="new-skill-category" class="ac-select">
+                    <option value="">无</option>
+                    <option value="devops">DevOps</option>
+                    <option value="data">数据</option>
+                    <option value="ai">AI</option>
+                    <option value="productivity">效率</option>
+                </select>
+            </div>
+            <div class="ac-form-actions">
+                <button class="ac-btn ac-btn-secondary" onclick="document.getElementById('skill-new-form').remove()">取消</button>
+                <button class="ac-btn ac-btn-primary" onclick="submitNewSkillForm()">创建</button>
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', formHtml);
+}
+
+async function submitNewSkillForm() {
+    const name = document.getElementById('new-skill-name').value.trim();
+    if (!name) { showToast('请输入名称', 'error'); return; }
+    
+    // 验证名称格式（只允许字母、数字、连字符、下划线）
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+        showToast('名称只能包含字母、数字、连字符和下划线', 'error');
+        return;
+    }
+    
+    const body = { name, enabled: true };
+    const desc = document.getElementById('new-skill-desc').value.trim();
+    if (desc) body.description = desc;
+    const category = document.getElementById('new-skill-category').value;
+    if (category) body.category = category;
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill?create=new`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        document.getElementById('skill-new-form').remove();
+        loadAgentConfigTab('skill');
+        showToast('Skill 创建成功', 'success');
+    } catch (e) {
+        showToast('创建失败: ' + e.message, 'error');
+    }
+}
+
+// 编辑 Skill 元信息
+function showEditSkillForm(skill) {
+    const container = document.getElementById('agentConfigContent');
+    const existingForm = document.getElementById('skill-edit-form');
+    if (existingForm) { existingForm.remove(); return; }
+    
+    const formHtml = `
+    <div id="skill-edit-form" class="ac-form-card">
+        <div class="ac-form-header">
+            <h3>编辑 Skill</h3>
+            <button class="ac-btn ac-btn-ghost" onclick="document.getElementById('skill-edit-form').remove()">✕</button>
+        </div>
+        <div class="ac-form-body">
+            <div class="ac-form-row">
+                <label>ID</label>
+                <input type="text" value="${escapeHtml(skill.id)}" class="ac-input" disabled>
+            </div>
+            <div class="ac-form-row">
+                <label>名称 <span class="ac-required">*</span></label>
+                <input type="text" id="edit-skill-name" value="${escapeHtml(skill.name)}" class="ac-input">
+            </div>
+            <div class="ac-form-row">
+                <label>描述</label>
+                <textarea id="edit-skill-desc" class="ac-input" rows="3">${escapeHtml(skill.description || '')}</textarea>
+            </div>
+            <div class="ac-form-row">
+                <label>分类</label>
+                <select id="edit-skill-category" class="ac-select">
+                    <option value="" ${!skill.category ? 'selected' : ''}>无</option>
+                    <option value="devops" ${skill.category === 'devops' ? 'selected' : ''}>DevOps</option>
+                    <option value="data" ${skill.category === 'data' ? 'selected' : ''}>数据</option>
+                    <option value="ai" ${skill.category === 'ai' ? 'selected' : ''}>AI</option>
+                    <option value="productivity" ${skill.category === 'productivity' ? 'selected' : ''}>效率</option>
+                </select>
+            </div>
+            <div class="ac-form-row">
+                <label>路径</label>
+                <input type="text" value="${escapeHtml(skill.source_path)}" class="ac-input" disabled>
+                <small class="ac-form-hint">路径不可修改，如需更换请删除后重新添加</small>
+            </div>
+            <div class="ac-form-actions">
+                <button class="ac-btn ac-btn-secondary" onclick="document.getElementById('skill-edit-form').remove()">取消</button>
+                <button class="ac-btn ac-btn-primary" onclick="submitEditSkillForm('${skill.id}')">保存</button>
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', formHtml);
+}
+
+async function submitEditSkillForm(skillId) {
+    const name = document.getElementById('edit-skill-name').value.trim();
+    if (!name) { showToast('请输入名称', 'error'); return; }
+    
+    const body = { id: skillId, name, enabled: true };
+    const desc = document.getElementById('edit-skill-desc').value.trim();
+    if (desc) body.description = desc;
+    const category = document.getElementById('edit-skill-category').value;
+    if (category) body.category = category;
+    
+    try {
+        // 先获取当前 skill 的 source_path
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`);
+        const data = await res.json();
+        const skills = data.data || [];
+        const current = skills.find(s => s.id === skillId);
+        if (current) {
+            body.source_path = current.source_path;
+        }
+        
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        document.getElementById('skill-edit-form').remove();
+        loadAgentConfigTab('skill');
+        showToast('Skill 更新成功', 'success');
+    } catch (e) {
+        showToast('更新失败: ' + e.message, 'error');
+    }
 }
 
 async function submitSkillForm() {

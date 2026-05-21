@@ -82,6 +82,10 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent/mode", handleAgentMode)
 	mux.HandleFunc("/api/v1/agent/status", handleAgentStatus)
 	
+	// AI 会话（账号持久化）
+	mux.HandleFunc("/api/v1/agent/sessions", handleAISessions)
+	mux.HandleFunc("/api/v1/agent/sessions/", handleAISessionDetail)
+	
 	// AI 配置
 	mux.HandleFunc("/api/v1/agent/config", handleAIConfig)
 	mux.HandleFunc("/api/v1/agent/embedding-config", handleAIEmbeddingConfig)

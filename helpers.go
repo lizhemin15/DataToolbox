@@ -361,12 +361,38 @@ func apiMethodNotAllowed(w http.ResponseWriter, message ...string) {
 }
 
 // apiInternalError 返回 500 错误
-
 func apiInternalError(w http.ResponseWriter, message string) {
 	if message == "" {
 		message = "服务器内部错误"
 	}
 	apiError(w, message, http.StatusInternalServerError, ErrCodeInternalError)
+}
+
+// apiServerError 返回 500 错误（别名）
+func apiServerError(w http.ResponseWriter, message string) {
+	apiInternalError(w, message)
+}
+
+// getUsernameFromRequest 从请求中获取当前用户名
+func getUsernameFromRequest(r *http.Request) string {
+	// 从 cookie 获取
+	cookie, err := r.Cookie("auth_token")
+	if err == nil && cookie.Value != "" {
+		// 解析 token 获取用户名
+		username := getUsernameFromToken(cookie.Value)
+		if username != "" {
+			return username
+		}
+	}
+	
+	// 从 Authorization header 获取
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		return getUsernameFromToken(token)
+	}
+	
+	return ""
 }
 
 // apiInvalidInput 返回输入验证错误

@@ -822,6 +822,21 @@ func userHasToken(user *User, token string) bool {
 	return user.Token == token
 }
 
+// getUsernameFromToken 从 token 获取用户名
+func getUsernameFromToken(token string) string {
+	if token == "" {
+		return ""
+	}
+	dataOntologyMu.RLock()
+	defer dataOntologyMu.RUnlock()
+	for username, user := range dataOntologyUsers {
+		if userHasToken(user, token) || (user.ApiKey != "" && user.ApiKey == token) {
+			return username
+		}
+	}
+	return ""
+}
+
 // 验证Token（同时支持登录Token和ApiKey）
 
 func verifyToken(r *http.Request) bool {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -232,6 +233,21 @@ func createStoreTables(db *sql.DB) error {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
 		)`,
+
+		// AI 会话记录（账号持久化）
+		`CREATE TABLE IF NOT EXISTS ai_sessions (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            title TEXT DEFAULT '',
+            mode TEXT DEFAULT 'cluster',
+            messages TEXT DEFAULT '[]',
+            databases TEXT DEFAULT '[]',
+            modules TEXT DEFAULT '[]',
+            history TEXT DEFAULT '[]',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ai_sessions_owner ON ai_sessions(owner)`,
 	}
 
 	for _, stmt := range stmts {
@@ -1481,4 +1497,151 @@ func mergeFromDB(otherDB *sql.DB) (map[string]interface{}, error) {
 
 	log.Printf("[存储] 合并完成: %+v", stats)
 	return stats, nil
+}
+
+// ============================================================
+// AI Sessions CRUD（账号持久化会话）
+// ============================================================
+
+type AISession struct {
+	ID        string    `json:"id"`
+	Owner     string    `json:"owner"`
+	Title     string    `json:"title"`
+	Mode      string    `json:"mode"`
+	Messages  []AIMessage `json:"messages"`
+	Databases []string  `json:"databases"`
+	Modules   []string  `json:"modules"`
+	History   []string  `json:"history"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"` // cluster/fast
+	Blocks  []AIMessageBlock `json:"blocks,omitempty"`
+}
+
+type AIMessageBlock struct {
+	Type    string `json:"type"` // text/code/api/sql
+	Content string `json:"content"`
+	Status  string `json:"status,omitempty"`
+}
+
+// sqlListAISessions 获取用户的所有会话
+func sqlListAISessions(owner string) ([]AISession, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	rows, err := storeDB.Query("SELECT id, title, mode, messages, databases, modules, history, created_at, updated_at FROM ai_sessions WHERE owner = ? ORDER BY updated_at DESC", owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []AISession
+	for rows.Next() {
+		var s AISession
+		var messagesJSON, databasesJSON, modulesJSON, historyJSON sql.NullString
+		var createdAt, updatedAt sql.NullString
+		rows.Scan(&s.ID, &s.Title, &s.Mode, &messagesJSON, &databasesJSON, &modulesJSON, &historyJSON, &createdAt, &updatedAt)
+		s.Owner = owner
+		if messagesJSON.Valid && messagesJSON.String != "" {
+			json.Unmarshal([]byte(messagesJSON.String), &s.Messages)
+		}
+		if databasesJSON.Valid && databasesJSON.String != "" {
+			json.Unmarshal([]byte(databasesJSON.String), &s.Databases)
+		}
+		if modulesJSON.Valid && modulesJSON.String != "" {
+			json.Unmarshal([]byte(modulesJSON.String), &s.Modules)
+		}
+		if historyJSON.Valid && historyJSON.String != "" {
+			json.Unmarshal([]byte(historyJSON.String), &s.History)
+		}
+		if createdAt.Valid {
+			s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		}
+		if updatedAt.Valid {
+			s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, nil
+}
+
+// sqlGetAISession 获取单个会话
+func sqlGetAISession(id, owner string) (*AISession, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	var s AISession
+	var messagesJSON, databasesJSON, modulesJSON, historyJSON sql.NullString
+	var createdAt, updatedAt sql.NullString
+	err := storeDB.QueryRow("SELECT id, title, mode, messages, databases, modules, history, created_at, updated_at FROM ai_sessions WHERE id = ? AND owner = ?", id, owner).Scan(&s.ID, &s.Title, &s.Mode, &messagesJSON, &databasesJSON, &modulesJSON, &historyJSON, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.Owner = owner
+	if messagesJSON.Valid && messagesJSON.String != "" {
+		json.Unmarshal([]byte(messagesJSON.String), &s.Messages)
+	}
+	if databasesJSON.Valid && databasesJSON.String != "" {
+		json.Unmarshal([]byte(databasesJSON.String), &s.Databases)
+	}
+	if modulesJSON.Valid && modulesJSON.String != "" {
+		json.Unmarshal([]byte(modulesJSON.String), &s.Modules)
+	}
+	if historyJSON.Valid && historyJSON.String != "" {
+		json.Unmarshal([]byte(historyJSON.String), &s.History)
+	}
+	if createdAt.Valid {
+		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &s, nil
+}
+
+// sqlSaveAISession 创建或更新会话
+func sqlSaveAISession(s *AISession) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	messagesJSON := toJSON(s.Messages)
+	databasesJSON := toJSON(s.Databases)
+	modulesJSON := toJSON(s.Modules)
+	historyJSON := toJSON(s.History)
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	// 先尝试更新
+	result, err := storeDB.Exec("UPDATE ai_sessions SET title=?, mode=?, messages=?, databases=?, modules=?, history=?, updated_at=? WHERE id=? AND owner=?",
+		s.Title, s.Mode, messagesJSON, databasesJSON, modulesJSON, historyJSON, now, s.ID, s.Owner)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// 不存在则插入
+		_, err = storeDB.Exec("INSERT INTO ai_sessions (id, owner, title, mode, messages, databases, modules, history, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			s.ID, s.Owner, s.Title, s.Mode, messagesJSON, databasesJSON, modulesJSON, historyJSON, now, now)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sqlDeleteAISession 删除会话
+func sqlDeleteAISession(id, owner string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	_, err := storeDB.Exec("DELETE FROM ai_sessions WHERE id = ? AND owner = ?", id, owner)
+	return err
 }

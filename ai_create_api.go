@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1127,6 +1128,47 @@ func handleAgentSkill(w http.ResponseWriter, r *http.Request) {
 		if cfg.ID == "" {
 			cfg.ID = uuid.New().String()
 		}
+		
+		// 如果指定了 create_new=true，创建新的 Skill 目录和 SKILL.md
+		createNew := r.URL.Query().Get("create") == "new"
+		if createNew && cfg.SourcePath == "" {
+			// 在默认 skills 目录下创建新目录
+			skillsBaseDir := "/opt/datatoolbox/agent-config/skills"
+			newDirName := cfg.Name
+			if newDirName == "" {
+				newDirName = "new-skill-" + cfg.ID[:8]
+			}
+			newDirPath := filepath.Join(skillsBaseDir, newDirName)
+			newSkillPath := filepath.Join(newDirPath, "SKILL.md")
+			
+			// 创建目录
+			if err := os.MkdirAll(newDirPath, 0755); err != nil {
+				apiError(w, "创建 Skill 目录失败: "+err.Error(), http.StatusInternalServerError, "SKILL_DIR_ERROR")
+				return
+			}
+			
+			// 创建默认 SKILL.md 内容
+			defaultContent := fmt.Sprintf(`# %s
+
+## Description
+%s
+
+## Instructions
+TODO: Add instructions here
+
+## Pitfalls
+TODO: Add pitfalls here
+`, cfg.Name, cfg.Description)
+			
+			if err := os.WriteFile(newSkillPath, []byte(defaultContent), 0644); err != nil {
+				apiError(w, "创建 SKILL.md 失败: "+err.Error(), http.StatusInternalServerError, "SKILL_FILE_ERROR")
+				return
+			}
+			
+			cfg.SourcePath = newSkillPath
+			log.Printf("[agent] 创建新 Skill: %s -> %s", cfg.Name, newSkillPath)
+		}
+		
 		cfg.LoadedAt = time.Now().UTC().Format(time.RFC3339)
 		agentSkillRegistry.Add(cfg)
 		if err := saveAgentConfig(); err != nil {
