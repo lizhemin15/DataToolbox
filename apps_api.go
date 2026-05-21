@@ -466,7 +466,10 @@ func renderAppPage(app *App) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - 数据工具箱</title>
-    <link rel="stylesheet" href="/style.css?v=20260521">
+    <link rel="stylesheet" href="/css/style-core.css?v=2026052201">
+    <link rel="stylesheet" href="/css/style-agent.css?v=2026052201">
+    <link rel="stylesheet" href="/css/style-api.css?v=2026052201">
+    <link rel="stylesheet" href="/css/style-misc.css?v=2026052201">
     <style>
 %s
     </style>

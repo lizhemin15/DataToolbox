@@ -1,0 +1,495 @@
+/* 接口管理样式 */
+.modal-large {
+    max-width: 800px;
+}
+
+.sql-display {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sql-display pre {
+    margin: 0;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #2d3748;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.params-display {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.param-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.param-item:last-child {
+    border-bottom: none;
+}
+
+.param-name {
+    font-weight: 600;
+    color: #4a5568;
+    margin-right: 8px;
+}
+
+.param-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.param-type.required {
+    background: #fed7d7;
+    color: #c53030;
+}
+
+.param-type.optional {
+    background: #bee3f8;
+    color: #2c5282;
+}
+
+/* ==================== ApiKey 弹出面板 ==================== */
+
+.sidebar-header-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+#apikeyTriggerBtn {
+    padding: 4px 8px;
+    font-size: 14px;
+    line-height: 1;
+    width: auto;
+    max-width: 36px;
+    min-width: 32px;
+    height: 28px;
+    box-sizing: border-box;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* API Key 提示条 */
+.api-key-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, #fef3cd 0%, #fff8e1 100%);
+    border-bottom: 1px solid #f0d060;
+    font-size: 13px;
+    color: #856404;
+}
+.api-key-banner-icon {
+    font-size: 15px;
+}
+.api-key-banner-text {
+    flex: 1;
+}
+.api-key-banner .btn {
+    font-size: 12px;
+    padding: 3px 12px;
+}
+
+.apikey-popover {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    width: 270px;
+    max-width: 270px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    padding: 14px;
+    animation: fadeIn 0.15s;
+}
+
+.apikey-popover.show {
+    display: block;
+}
+
+.apikey-popover-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 10px;
+}
+
+.apikey-content {
+    margin-bottom: 10px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+}
+
+.apikey-value {
+    font-family: 'JetBrains Mono', 'Monaco', 'Menlo', monospace;
+    font-size: 11.5px;
+    color: #2d3748;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    padding: 5px 8px;
+    border-radius: 6px;
+    word-break: break-all;
+    cursor: default;
+    width: 100%;
+}
+
+.apikey-placeholder {
+    font-size: 12px;
+    color: #a0aec0;
+}
+
+.apikey-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.apikey-btn {
+    font-size: 11px !important;
+    padding: 4px 10px !important;
+}
+
+/* ==================== 调用示例代码区域 ==================== */
+
+.code-examples-section h3::before {
+    content: "💻" !important;
+}
+
+.code-examples-container {
+    background: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.code-tabs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    padding: 0 8px;
+}
+
+.code-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 6px 0;
+}
+
+.code-tab {
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    color: #a6adc8;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.code-tab:hover {
+    background: #313244;
+    color: #cdd6f4;
+}
+
+.code-tab.active {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.code-copy-btn {
+    padding: 5px 12px;
+    border: 1px solid #45475a;
+    background: transparent;
+    color: #a6adc8;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.code-copy-btn:hover {
+    background: #45475a;
+    color: #cdd6f4;
+}
+
+.code-copy-btn.copied {
+    border-color: #a6e3a1;
+    color: #a6e3a1;
+}
+
+.code-panels {
+    position: relative;
+}
+
+.code-panel {
+    display: none;
+}
+
+.code-panel.active {
+    display: block;
+}
+
+.code-panel pre {
+    margin: 0;
+    padding: 16px 20px;
+    overflow-x: auto;
+}
+
+.code-panel code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #cdd6f4;
+    white-space: pre;
+    tab-size: 4;
+}
+
+.test-api-info {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.test-api-info div {
+    padding: 4px 0;
+    color: #4a5568;
+}
+
+.test-result {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.test-result-header {
+    background: #edf2f7;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: #4a5568;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.test-result pre {
+    margin: 0;
+    padding: 16px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2d3748;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 测试结果标签行 */
+.test-result-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.test-result-label-row label {
+    margin: 0;
+}
+
+/* 视图切换按钮 */
+.view-toggle {
+    display: inline-flex;
+    gap: 4px;
+    background: #edf2f7;
+    padding: 4px;
+    border-radius: 6px;
+}
+
+.view-toggle-btn {
+    padding: 6px 16px;
+    border: none;
+    background: transparent;
+    color: #4a5568;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.view-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.view-toggle-btn.active {
+    background: white;
+    color: #2b6cb0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 测试结果内容区域 */
+.test-result-content {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 表格包装器 */
+.table-wrapper {
+    padding: 16px;
+}
+
+/* 数据表格 */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: white;
+}
+
+.data-table thead {
+    background: #edf2f7;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.data-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #2d3748;
+    border-bottom: 2px solid #cbd5e0;
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #4a5568;
+    vertical-align: top;
+    word-wrap: break-word;
+    max-width: 400px;
+}
+
+.data-table tbody tr.even {
+    background: #ffffff;
+}
+
+.data-table tbody tr.odd {
+    background: #f7fafc;
+}
+
+.data-table tbody tr:hover {
+    background: #edf2f7;
+}
+
+/* 表格空状态 */
+.table-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: #a0aec0;
+    font-size: 14px;
+}
+
+/* 值类型样式 */
+.value-null {
+    color: #a0aec0;
+    font-style: italic;
+}
+
+.value-undefined {
+    color: #cbd5e0;
+    font-style: italic;
+}
+
+.value-boolean {
+    color: #d53f8c;
+    font-weight: 500;
+}
+
+.value-number {
+    color: #2b6cb0;
+    font-weight: 500;
+}
+
+.value-string {
+    color: #38a169;
+}
+
+.value-array {
+    color: #805ad5;
+}
+
+.value-object {
+    color: #dd6b20;
+}
+
+.object-key {
+    color: #4a5568;
+    font-weight: 500;
+}
+
+.value-deep {
+    color: #a0aec0;
+    font-style: italic;
+}
+
+/* 原始值显示 */
+.primitive-value {
+    padding: 20px;
+    font-size: 14px;
+}
+
+#apiFormError,
+#apiFormSuccess,
+#testApiError {
+    margin-top: 16px;
+}
+
+/* API 表单成功消息样式 */
+#apiFormSuccess,
+.success-message.api-form {
+    background: #c6f6d5;
+    color: #22543d;
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: none;
+    margin-top: 16px;
+}
+
+#apiFormSuccess.show,
+.success-message.api-form.show {
+    display: block;
+}
+
+textarea#apiSqlInput,
+textarea#testApiParams {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+}
+

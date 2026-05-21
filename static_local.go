@@ -1,7 +1,7 @@
 // static_local.go - 静态文件从本地文件系统读取
 //
 // 前后端分离架构：
-// - 静态文件（index.html, script.js, style.css, lib/, examples/）与二进制同级
+// - 静态文件（index.html, js/, css/, lib/, examples/）与二进制同级
 // - 数据文件在 data/ 目录
 // - 修改静态文件无需重新编译，直接替换即可生效
 

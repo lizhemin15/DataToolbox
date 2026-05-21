@@ -1,0 +1,629 @@
+/* Agent 服务 */
+.mcp-container {
+    padding: 0;
+    overflow-y: auto;
+    height: 100%;
+}
+
+/* MCP 子标签导航 */
+.mcp-sub-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 20px;
+    padding: 0 20px;
+}
+
+.mcp-sub-tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: #6b7280;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s;
+}
+
+.mcp-sub-tab:hover {
+    color: #4f46e5;
+}
+
+.mcp-sub-tab.active {
+    color: #4f46e5;
+    font-weight: 600;
+}
+
+.mcp-sub-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #4f46e5;
+}
+
+/* MCP 子标签内容 */
+.mcp-sub-content {
+    display: none;
+    flex: 1;
+    width: 100%;
+    overflow-y: auto;
+    min-height: 0;
+    /* 隐藏滚动条，滚动时显示 */
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.mcp-sub-content:hover {
+    scrollbar-color: #c1c1c1 transparent;
+}
+
+.mcp-sub-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.mcp-sub-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.mcp-sub-content::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 3px;
+}
+
+.mcp-sub-content:hover::-webkit-scrollbar-thumb {
+    background-color: #c1c1c1;
+}
+
+.mcp-sub-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Skills 技能安装 */
+.skills-container {
+    padding: 20px;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.skills-container h3 {
+    font-size: 20px;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.skills-desc {
+    color: #718096;
+    margin-bottom: 24px;
+}
+
+.skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.skill-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-card:hover {
+    border-color: #4f46e5;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+}
+
+.skill-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.skill-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 4px;
+}
+
+.skill-desc {
+    font-size: 13px;
+    color: #718096;
+    margin-bottom: 12px;
+}
+
+.skill-install-guide {
+    background: #f7fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.skill-install-guide h4 {
+    font-size: 16px;
+    color: #2d3748;
+    margin-bottom: 12px;
+}
+
+.skill-config-pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    margin-bottom: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.skill-steps {
+    margin-top: 16px;
+}
+
+.skill-steps h5 {
+    font-size: 14px;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.skill-steps ol {
+    padding-left: 20px;
+    color: #4a5568;
+    line-height: 1.8;
+}
+
+.mcp-header {
+    margin-bottom: 28px;
+}
+
+.mcp-header h2 {
+    font-size: 22px;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.mcp-enabled-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.mcp-enabled-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: #2d3748;
+}
+
+.mcp-client-select-wrap {
+    margin-bottom: 12px;
+}
+
+.mcp-client-select-wrap label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 6px;
+}
+
+.mcp-client-select-wrap select {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 200px;
+}
+
+/* 通用开关（与 gov-switch 一致） */
+.switch-wrap {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.switch-wrap input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #cbd5e0;
+    border-radius: 24px;
+    transition: 0.3s;
+}
+
+.switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: 0.3s;
+}
+
+.switch-wrap input:checked + .switch-slider {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.switch-wrap input:checked + .switch-slider::before {
+    transform: translateX(20px);
+}
+
+/* 接口列表项带开关 */
+.api-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.api-item .db-item-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.api-item .db-item-name {
+    font-size: 14px;
+    line-height: 1.3;
+}
+
+.api-item.api-disabled {
+    opacity: 0.7;
+}
+
+.api-item.api-disabled .db-item-name {
+    text-decoration: line-through;
+    color: #718096;
+}
+
+
+.detail-enabled-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f7fafc;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.detail-enabled-label {
+    font-size: 13px;
+    color: #4a5568;
+    font-weight: 500;
+}
+
+.mcp-desc {
+    color: #718096;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.mcp-desc code {
+    background: #edf2f7;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.mcp-section {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.mcp-section h3 {
+    font-size: 16px;
+    color: #2d3748;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.mcp-info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mcp-info-item label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 6px;
+}
+
+.mcp-info-value-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mcp-code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #2d3748;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.mcp-hint {
+    display: block;
+    color: #718096;
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.mcp-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    color: #2d3748;
+    background: #f7fafc;
+    outline: none;
+    min-width: 0;
+}
+
+.mcp-input:focus {
+    border-color: #667eea;
+    background: #fff;
+}
+
+.mcp-config-block {
+    margin-top: 12px;
+    position: relative;
+}
+
+.mcp-pre {
+    background: #2d3748;
+    color: #e2e8f0;
+    padding: 16px;
+    border-radius: 8px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0 0 10px 0;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.mcp-config-block .btn {
+    margin-top: 4px;
+}
+
+.mcp-steps {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.mcp-steps h4 {
+    font-size: 14px;
+    color: #2d3748;
+    margin-bottom: 10px;
+}
+
+.mcp-steps ol {
+    padding-left: 20px;
+    color: #4a5568;
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.mcp-steps li {
+    margin-bottom: 6px;
+}
+
+.mcp-steps code {
+    background: #edf2f7;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.mcp-tools-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.mcp-tools-list li {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #2d3748;
+}
+
+.mcp-tools-list li code {
+    font-weight: 600;
+    color: #553c9a;
+    margin-right: 8px;
+}
+
+/* MCP 安全配置 */
+.mcp-safety-config {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+}
+
+.mcp-safety-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.mcp-safety-row:last-child {
+    border-bottom: none;
+}
+
+.mcp-safety-label {
+    flex: 1;
+}
+
+.mcp-safety-label strong {
+    display: block;
+    color: #2d3748;
+    margin-bottom: 4px;
+}
+
+.mcp-safety-label small {
+    color: #718096;
+    font-size: 12px;
+}
+
+.mcp-safety-textarea {
+    flex-direction: column;
+}
+
+.mcp-safety-textarea label {
+    font-weight: 600;
+    color: #2d3748;
+    margin-bottom: 8px;
+}
+
+.mcp-safety-textarea textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    resize: vertical;
+    background: #fff;
+}
+
+.mcp-safety-textarea textarea:focus {
+    outline: none;
+    border-color: #553c9a;
+    box-shadow: 0 0 0 3px rgba(85, 60, 154, 0.1);
+}
+
+.mcp-safety-textarea small {
+    color: #718096;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* 弹窗 */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 2px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    font-size: 20px;
+    color: #2d3748;
+}
+
+.modal-close {
+    font-size: 28px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: #718096;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.modal-close:hover {
+    background: #f7fafc;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.modal-footer .btn {
+    flex: 1;
+}
+

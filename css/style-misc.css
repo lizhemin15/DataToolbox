@@ -1,0 +1,437 @@
+/* 数据备份与恢复 */
+.backup-stats-container {
+    background: #f7fafc;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.backup-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.backup-stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+}
+
+.backup-stat-item .stat-label {
+    color: #718096;
+    font-size: 12px;
+}
+
+.backup-stat-item .stat-value {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 14px;
+}
+
+.backup-stats-loading {
+    color: #a0aec0;
+    text-align: center;
+    padding: 8px;
+}
+
+.backup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.backup-actions #exportBackupBtn {
+    flex-shrink: 0;
+}
+
+.restore-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#importBackupLabel {
+    cursor: pointer;
+    background: #4299e1;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+#importBackupLabel:hover {
+    background: #3182ce;
+}
+
+.import-file-name {
+    font-size: 12px;
+    color: #718096;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-mode-select {
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+    background: white;
+    cursor: pointer;
+}
+
+.backup-message {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    display: none;
+}
+
+.backup-message.success {
+    display: block;
+    background: #f0fff4;
+    color: #276749;
+    border: 1px solid #c6f6d5;
+}
+
+.backup-message.error {
+    display: block;
+    background: #fff5f5;
+    color: #c53030;
+    border: 1px solid #fed7d7;
+}
+
+.backup-message.info {
+    display: block;
+    background: #ebf8ff;
+    color: #2b6cb0;
+    border: 1px solid #bee3f8;
+}
+
+/* 下拉菜单项悬停效果 */
+.dropdown-item:hover {
+    background-color: #f5f5f5;
+}
+
+.dropdown-item:active {
+    background-color: #e0e0e0;
+}
+
+/* API 调用示例面板 */
+.gov-api-example-panel {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.gov-api-example-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.gov-api-example-header small {
+    font-weight: 400;
+    color: #64748b;
+    margin-left: 8px;
+}
+
+.gov-api-example-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.gov-api-tab {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #64748b;
+    transition: all 0.2s;
+}
+
+.gov-api-tab:hover {
+    background: #e2e8f0;
+}
+
+.gov-api-tab.active {
+    background: #3b82f6;
+    color: white;
+}
+
+.gov-api-example-content {
+    position: relative;
+    padding: 16px;
+    background: #1e293b;
+    border-radius: 0 0 8px 8px;
+}
+
+.gov-api-example-content pre {
+    margin: 0;
+    padding: 0;
+    color: #e2e8f0;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.gov-api-example-note {
+    padding: 12px 16px;
+    background: #fffbeb;
+    border-top: 1px solid #fcd34d;
+    border-radius: 0 0 8px 8px;
+    font-size: 13px;
+    color: #92400e;
+}
+
+.gov-api-example-note ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+}
+
+.gov-api-example-note li {
+    margin: 4px 0;
+}
+
+.gov-api-example-note code {
+    background: #fef3c7;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* 开放方式配置 */
+.gov-open-modes {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.gov-open-mode-item {
+    position: relative;
+    cursor: pointer;
+}
+
+.gov-open-mode-item input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.gov-open-mode-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 20px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    transition: all 0.2s;
+    min-width: 140px;
+}
+
+.gov-open-mode-item input:checked + .gov-open-mode-box {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.gov-open-mode-item input:disabled + .gov-open-mode-box {
+    border-color: #94a3b8;
+    background: #f1f5f9;
+    cursor: default;
+}
+
+.gov-open-mode-item:hover .gov-open-mode-box {
+    border-color: #3b82f6;
+}
+
+.gov-open-mode-item input:disabled:hover + .gov-open-mode-box {
+    border-color: #94a3b8;
+}
+
+.gov-open-mode-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.gov-open-mode-title {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.gov-open-mode-desc {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* 配置面板 */
+.gov-open-config {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.gov-config-header {
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.gov-config-body {
+    padding: 16px;
+}
+
+.gov-share-link-row {
+    margin-bottom: 12px;
+}
+
+.gov-share-link-box {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.gov-share-link-box input {
+    flex: 1;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.text-muted {
+    color: #94a3b8;
+}
+
+/* ==================== 治理任务详情 - 代码折叠块 ==================== */
+.gov-code-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.gov-code-toggle:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.gov-code-toggle h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.gov-code-toggle h3::before {
+    content: none;
+}
+
+.gov-code-arrow {
+    font-size: 12px;
+    color: #64748b;
+    transition: transform 0.2s;
+}
+
+.gov-code-panel {
+    margin-top: -1px;
+    border: 1px solid #e2e8f0;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+
+.gov-code-panel .sql-display {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+}
+
+/* ==================== 治理任务编辑折叠块 ==================== */
+.gov-collapsible {
+    margin-top: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.gov-collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #f8fafc;
+    cursor: pointer;
+    font-weight: 600;
+    color: #1e293b;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.gov-collapsible-header:hover {
+    background: #f1f5f9;
+}
+
+.gov-collapsible-arrow {
+    font-size: 12px;
+    color: #64748b;
+    transition: transform 0.2s;
+}
+
+.gov-collapsible.gov-collapsible-collapsed .gov-collapsible-arrow {
+    transform: none;
+}
+
+.gov-collapsible:not(.gov-collapsible-collapsed) .gov-collapsible-arrow {
+    transform: none;
+}
+
+.gov-collapsible-body {
+    padding: 16px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.gov-collapsible.gov-collapsible-collapsed .gov-collapsible-body {
+    display: none;
+}
+

@@ -1,0 +1,645 @@
+/* Twemoji SVG 图标样式 - 保持与 emoji 一致的大小和对齐 */
+img.emoji {
+    height: 1em;
+    width: 1em;
+    margin: 0 0.05em 0 0.1em;
+    vertical-align: -0.1em;
+    display: inline-block;
+}
+
+/* === Agent Cluster Mode Styles === */
+
+/* Header controls layout */
+.ai-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Mode switch slider */
+.agent-mode-switch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+    user-select: none;
+}
+
+.agent-mode-label {
+    font-size: 12px;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.agent-mode-label[data-mode="fast"] {
+    color: white;
+}
+
+.agent-mode-label[data-mode="cluster"] {
+    color: rgba(255,255,255,0.5);
+}
+
+.agent-mode-switch.cluster .agent-mode-label[data-mode="fast"] {
+    color: rgba(255,255,255,0.5);
+}
+
+.agent-mode-switch.cluster .agent-mode-label[data-mode="cluster"] {
+    color: white;
+}
+
+.agent-mode-slider {
+    width: 40px;
+    height: 20px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.3s;
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+.agent-mode-switch.cluster .agent-mode-slider {
+    background: rgba(255,255,255,0.4);
+}
+
+.agent-mode-knob {
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 1px;
+    left: 2px;
+    transition: transform 0.3s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.agent-mode-switch.cluster .agent-mode-knob {
+    transform: translateX(19px);
+}
+
+/* Cluster mode — PicoClaw-style collapsible blocks */
+.cluster-response-card {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.cluster-blocks {
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.cluster-block {
+    border-bottom: 1px solid #f3f4f6;
+    transition: background 0.15s;
+}
+
+.cluster-block:last-child {
+    border-bottom: none;
+}
+
+.cluster-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    transition: background 0.15s;
+}
+
+.cluster-block-header:hover {
+    background: #f9fafb;
+}
+
+.cluster-block-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cluster-block-chevron {
+    font-size: 10px;
+    color: #9ca3af;
+    margin-left: 8px;
+    transition: transform 0.2s;
+}
+
+.cluster-block.collapsed .cluster-block-chevron {
+    transform: rotate(-90deg);
+}
+
+.cluster-block-body {
+    padding: 6px 14px 10px;
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.5;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fafbfc;
+}
+
+.cluster-block.collapsed .cluster-block-body {
+    display: none;
+}
+
+/* Thinking block */
+.cluster-block-thinking .cluster-block-header {
+    color: #7c3aed;
+}
+.cluster-block-thinking .cluster-block-body {
+    border-left: 3px solid #c4b5fd;
+    background: #faf5ff;
+}
+.cluster-think-step {
+    padding: 2px 0;
+    border-bottom: 1px dashed #e9d5ff;
+}
+.cluster-think-step:last-child {
+    border-bottom: none;
+}
+
+/* Tool block */
+.cluster-block-tool .cluster-block-header {
+    color: #d97706;
+}
+.cluster-block-tool .cluster-block-body {
+    border-left: 3px solid #fcd34d;
+    background: #fffbeb;
+}
+.cluster-tool-detail {
+    padding: 3px 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+.cluster-tool-result {
+    padding: 3px 0;
+    color: #059669;
+    border-top: 1px solid #d1fae5;
+    margin-top: 4px;
+}
+
+/* Switch block */
+.cluster-block-switch .cluster-block-header {
+    color: #6366f1;
+}
+.cluster-block-switch .cluster-block-body {
+    border-left: 3px solid #a5b4fc;
+    background: #eef2ff;
+}
+
+/* Error block */
+.cluster-block-error .cluster-block-header {
+    color: #dc2626;
+}
+.cluster-block-error .cluster-block-body {
+    border-left: 3px solid #fca5a5;
+    background: #fef2f2;
+}
+.cluster-error-detail {
+    color: #b91c1c;
+    font-weight: 500;
+}
+
+/* ============================================================
+   HITL 人在环路交互卡片
+   ============================================================ */
+.hitl-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin: 8px 0;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+.hitl-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-bottom: 1px solid #bae6fd;
+}
+.hitl-card-icon { font-size: 16px; }
+.hitl-card-title { font-size: 14px; font-weight: 600; color: #0369a1; }
+.hitl-card-description {
+    padding: 10px 14px; font-size: 13px; color: #374151;
+    line-height: 1.6; white-space: pre-wrap; border-bottom: 1px solid #f3f4f6;
+}
+.hitl-card-body { padding: 12px 14px; }
+.hitl-field { margin-bottom: 10px; }
+.hitl-field-label { display: block; font-size: 12px; font-weight: 500; color: #374151; margin-bottom: 4px; }
+.hitl-required { color: #dc2626; }
+.hitl-field-input, .hitl-field-select, .hitl-field-textarea {
+    width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; color: #1f2937; background: #fff; box-sizing: border-box;
+    outline: none; transition: border-color 0.15s;
+}
+.hitl-field-input:focus, .hitl-field-select:focus, .hitl-field-textarea:focus {
+    border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+.hitl-field-textarea { min-height: 60px; resize: vertical; font-family: 'SF Mono', 'Fira Code', monospace; }
+.hitl-options { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hitl-options-vertical { flex-direction: column; }
+.hitl-option-btn {
+    padding: 7px 16px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 13px; font-weight: 500; cursor: pointer; background: #fff;
+    color: #374151; transition: all 0.15s;
+}
+.hitl-option-btn:hover:not(:disabled) { background: #f9fafb; border-color: #9ca3af; }
+.hitl-option-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.hitl-option-primary:hover:not(:disabled) { background: #2563eb; border-color: #2563eb; }
+.hitl-option-danger { background: #fff; color: #dc2626; border-color: #fca5a5; }
+.hitl-option-danger:hover:not(:disabled) { background: #fef2f2; border-color: #f87171; }
+.hitl-option-warning { background: #fffbeb; color: #d97706; border-color: #fcd34d; }
+.hitl-checkbox-label {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+    font-size: 13px; cursor: pointer; border: 1px solid #e5e7eb;
+    border-radius: 6px; transition: background 0.15s;
+}
+.hitl-checkbox-label:hover { background: #f9fafb; }
+.hitl-checkbox { width: 16px; height: 16px; accent-color: #3b82f6; }
+.hitl-card-footer { padding: 8px 14px; border-top: 1px solid #f3f4f6; background: #fafbfc; }
+.hitl-timeout-hint { font-size: 11px; color: #9ca3af; }
+
+/* Text content area */
+.cluster-text-content {
+    padding: 14px 16px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: #1f2937;
+    min-height: 20px;
+}
+.cluster-text-content h2, .cluster-text-content h3, .cluster-text-content h4 {
+    margin: 8px 0 4px;
+    color: #111827;
+}
+.cluster-text-content code {
+    background: #f3f4f6;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #7c3aed;
+}
+.cluster-text-content pre {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12px;
+}
+.cluster-text-content pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+}
+.cluster-text-content ul, .cluster-text-content ol {
+    padding-left: 20px;
+    margin: 4px 0;
+}
+.cluster-text-content li {
+    margin: 2px 0;
+}
+.cluster-text-content strong {
+    color: #111827;
+}
+
+/* Typing indicator */
+.cluster-typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 16px;
+}
+.cluster-typing-indicator span {
+    width: 6px;
+    height: 6px;
+    background: #a78bfa;
+    border-radius: 50%;
+    animation: clusterTypingBounce 1.4s infinite ease-in-out;
+}
+.cluster-typing-indicator span:nth-child(1) { animation-delay: 0s; }
+.cluster-typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.cluster-typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes clusterTypingBounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* Agent config panel */
+.agent-config-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 640px;
+    max-width: 90vw;
+    max-height: 80vh;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.agent-config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.agent-config-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.agent-config-close {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.agent-config-close:hover {
+    background: rgba(255,255,255,0.3);
+}
+
+.agent-config-tabs {
+    display: flex;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0 20px;
+}
+
+.agent-config-tab {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #718096;
+    transition: all 0.2s;
+}
+
+.agent-config-tab:hover {
+    color: #4a5568;
+}
+
+.agent-config-tab.active {
+    color: #6366f1;
+    border-bottom-color: #6366f1;
+}
+
+.agent-config-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
+.agent-config-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
+.agent-config-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.agent-config-tab-content {
+    display: none;
+}
+
+.agent-config-tab-content.active {
+    display: block;
+}
+
+.agent-config-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.agent-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.agent-config-empty {
+    text-align: center;
+    padding: 32px 16px;
+    color: #a0aec0;
+    font-size: 14px;
+}
+
+/* MCP/Skill item row */
+.agent-config-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    transition: box-shadow 0.2s;
+}
+
+.agent-config-item:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.agent-config-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.agent-config-item-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: #2d3748;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.agent-config-item-desc {
+    font-size: 12px;
+    color: #718096;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-config-item-status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.agent-config-item-status.running {
+    background: #10b981;
+    box-shadow: 0 0 4px rgba(16,185,129,0.4);
+}
+
+.agent-config-item-status.stopped {
+    background: #a0aec0;
+}
+
+.agent-config-item-status.error {
+    background: #ef4444;
+}
+
+.agent-config-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* Toggle switch for skill enable/disable */
+.agent-toggle {
+    position: relative;
+    width: 36px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.agent-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.agent-toggle-track {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #cbd5e0;
+    border-radius: 9px;
+    transition: background 0.3s;
+}
+
+.agent-toggle input:checked + .agent-toggle-track {
+    background: #6366f1;
+}
+
+.agent-toggle-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.agent-toggle input:checked ~ .agent-toggle-thumb {
+    transform: translateX(18px);
+}
+
+/* MCP/Skill edit form */
+.agent-config-form {
+    padding: 16px;
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.agent-config-form .form-group {
+    margin-bottom: 12px;
+}
+
+.agent-config-form label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4a5568;
+    margin-bottom: 4px;
+}
+
+.agent-config-form input,
+.agent-config-form textarea,
+.agent-config-form select {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.agent-config-form textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+
+.agent-config-form .form-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+/* Cluster mode indicator in chat */
+.agent-cluster-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    animation: clusterTypingBounce 0.3s ease;
+}
+
+.agent-cluster-indicator .pulse-dot {
+    width: 6px;
+    height: 6px;
+    background: #10b981;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+/* === Agent Cluster Mode Styles End === */

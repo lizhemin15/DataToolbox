@@ -61,7 +61,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            for f in index.html script.js; do
+            for f in index.html js/*.js css/*.css; do
               if [ -f "$f" ]; then
                 sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
                 echo "  PATCHED: $f -> v=${VERSION}"
@@ -147,7 +147,7 @@ jobs:
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           chmod +x package/update.sh
-          cp -r index.html share.html quality-audit.html app-editor.html script.js style.css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
+          cp -r index.html share.html quality-audit.html app-editor.html js css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
 
           # 复制 apps 目录（数据本体池等子应用）
           if [ -d "apps" ]; then
@@ -166,7 +166,7 @@ jobs:
 
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
-            for f in package/index.html package/script.js; do
+            for f in package/index.html package/js/*.js package/css/*.css; do
               if [ -f "$f" ]; then
                 sed -i "s/?v=[0-9]\+\.[0-9]\+\.[0-9]\+/?v=${VERSION}/g" "$f"
                 echo "  PATCHED: $f -> v=${VERSION}"

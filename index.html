@@ -4,7 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据本体池</title>
-<link rel="stylesheet" href="/style.css?v=20260522006">
+<link rel="stylesheet" href="/css/style-core.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-agent.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-api.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-ai.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-tables.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-governance.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-ontology.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-misc.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026052201">
+<link rel="stylesheet" href="/css/style-agent-config.css?v=2026052201">
     <script src="/lib/d3.min.js"></script>
     <script src="/lib/three.min.js"></script>
     <script src="/lib/orbit-controls-wrapper.js"></script>
@@ -1106,15 +1116,108 @@
         <div id="appsTab" class="tab-content">
             <div class="tab-content-wrap">
                 <div class="apps-marketplace-container">
-                    <div class="apps-marketplace-header">
-                        <h2>🏪 应用广场</h2>
-                        <p class="apps-marketplace-desc">管理和发布自定义应用，支持 HTML+CSS+JS 纯前端应用</p>
-                        <div class="apps-marketplace-actions">
-                            <button class="btn btn-primary" onclick="window.open('/app-editor.html','_blank')">➕ 创建应用</button>
+                    <!-- 列表视图 -->
+                    <div id="appsListView">
+                        <div class="apps-marketplace-header">
+                            <h2>🏪 应用广场</h2>
+                            <p class="apps-marketplace-desc">管理和发布自定义应用，支持 HTML+CSS+JS 纯前端应用</p>
+                            <div class="apps-marketplace-actions">
+                                <button class="btn btn-primary" onclick="openAppEditor()">➕ 创建应用</button>
+                            </div>
+                        </div>
+                        <div class="apps-marketplace-content">
+                            <div id="appsMarketplaceList" class="apps-grid-container"></div>
                         </div>
                     </div>
-                    <div class="apps-marketplace-content">
-                        <div id="appsMarketplaceList" class="apps-grid-container"></div>
+
+                    <!-- CodePen 风格编辑器视图 -->
+                    <div id="appsEditorView" style="display:none;">
+                        <div class="codepen-editor-wrapper">
+                            <!-- 顶部工具栏 -->
+                            <div class="codepen-toolbar">
+                                <div class="codepen-toolbar-left">
+                                    <button class="codepen-back-btn" onclick="closeAppEditor()" title="返回列表">← 返回</button>
+                                    <span class="codepen-app-title" id="codepenAppTitle">✨ 创建应用</span>
+                                </div>
+                                <div class="codepen-toolbar-center">
+                                    <input type="text" class="codepen-name-input" id="codepenAppName" placeholder="应用名称" maxlength="50">
+                                    <input type="text" class="codepen-slug-input" id="codepenAppSlug" placeholder="slug" maxlength="30">
+                                    <span class="codepen-slug-preview" id="codepenSlugPreview">/a/my-app</span>
+                                </div>
+                                <div class="codepen-toolbar-right">
+                                    <button class="codepen-icon-btn" onclick="toggleAppSettings()" title="设置">⚙️</button>
+                                    <button class="codepen-action-btn codepen-preview-btn" onclick="previewCodepenApp()" title="刷新预览">▶</button>
+                                    <button class="codepen-action-btn codepen-save-btn" onclick="saveCodepenApp()" title="保存">💾 保存</button>
+                                    <button class="codepen-action-btn codepen-delete-btn" id="codepenDeleteBtn" onclick="deleteCodepenApp()" title="删除" style="display:none;">🗑️</button>
+                                </div>
+                            </div>
+
+                            <!-- 设置面板（可折叠） -->
+                            <div id="codepenSettingsPanel" class="codepen-settings-panel" style="display:none;">
+                                <div class="codepen-settings-row">
+                                    <label>描述</label>
+                                    <input type="text" class="codepen-setting-input" id="codepenAppDesc" placeholder="应用功能简介" maxlength="200">
+                                </div>
+                                <div class="codepen-settings-row">
+                                    <label>图标</label>
+                                    <div class="codepen-icon-picker" id="codepenIconPicker">
+                                        <span class="codepen-icon-opt selected" data-icon="🎨">🎨</span>
+                                        <span class="codepen-icon-opt" data-icon="📊">📊</span>
+                                        <span class="codepen-icon-opt" data-icon="📈">📈</span>
+                                        <span class="codepen-icon-opt" data-icon="🔧">🔧</span>
+                                        <span class="codepen-icon-opt" data-icon="📱">📱</span>
+                                        <span class="codepen-icon-opt" data-icon="🌐">🌐</span>
+                                        <span class="codepen-icon-opt" data-icon="⚡">⚡</span>
+                                        <span class="codepen-icon-opt" data-icon="🚀">🚀</span>
+                                        <span class="codepen-icon-opt" data-icon="💡">💡</span>
+                                        <span class="codepen-icon-opt" data-icon="🎯">🎯</span>
+                                    </div>
+                                </div>
+                                <div class="codepen-settings-row">
+                                    <label class="codepen-checkbox-label">
+                                        <input type="checkbox" id="codepenAppPublic" checked>
+                                        公开访问
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 编辑器主体：三栏 + 预览 -->
+                            <div class="codepen-body">
+                                <div class="codepen-editors">
+                                    <div class="codepen-editor-col">
+                                        <div class="codepen-editor-label">
+                                            <span class="codepen-lang-badge html-badge">HTML</span>
+                                        </div>
+                                        <textarea class="codepen-code-area" id="codepenHtmlEditor" spellcheck="false" placeholder="<!-- HTML 结构 -->"></textarea>
+                                    </div>
+                                    <div class="codepen-editor-col">
+                                        <div class="codepen-editor-label">
+                                            <span class="codepen-lang-badge css-badge">CSS</span>
+                                        </div>
+                                        <textarea class="codepen-code-area" id="codepenCssEditor" spellcheck="false" placeholder="/* 样式 */"></textarea>
+                                    </div>
+                                    <div class="codepen-editor-col">
+                                        <div class="codepen-editor-label">
+                                            <span class="codepen-lang-badge js-badge">JS</span>
+                                        </div>
+                                        <textarea class="codepen-code-area" id="codepenJsEditor" spellcheck="false" placeholder="// 逻辑"></textarea>
+                                    </div>
+                                </div>
+                                <div class="codepen-preview-col">
+                                    <div class="codepen-preview-label">
+                                        <span>Preview</span>
+                                        <span class="codepen-preview-status" id="codepenPreviewStatus"></span>
+                                    </div>
+                                    <iframe class="codepen-preview-frame" id="codepenPreviewFrame"></iframe>
+                                </div>
+                            </div>
+
+                            <!-- 底部状态栏 -->
+                            <div class="codepen-statusbar">
+                                <span id="codepenStatusMsg">就绪</span>
+                                <span id="codepenLastSaved">未保存</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2344,7 +2447,17 @@
     <script src="/lib/pizzip.js"></script>
     <script src="/lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
-    <script src="/script.js?v=20260522006"></script>
+    <script src="/js/script-core.js?v=2026052201"></script>
+    <script src="/js/script-events.js?v=2026052201"></script>
+    <script src="/js/script-tables.js?v=2026052201"></script>
+    <script src="/js/script-api.js?v=2026052201"></script>
+    <script src="/js/script-settings.js?v=2026052201"></script>
+    <script src="/js/script-ai-legacy.js?v=2026052201"></script>
+    <script src="/js/script-governance.js?v=2026052201"></script>
+    <script src="/js/script-ontology.js?v=2026052201"></script>
+    <script src="/js/script-relations.js?v=2026052201"></script>
+    <script src="/js/script-api-detail.js?v=2026052201"></script>
+    <script src="/js/script-agent.js?v=2026052201"></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->
     <script src="/lib/twemoji.min.js"></script>
     <script>
