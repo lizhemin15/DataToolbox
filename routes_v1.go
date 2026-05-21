@@ -130,4 +130,12 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	
 	// ==================== 质量审计 API ====================
 	mux.HandleFunc("/api/v1/quality-audit/", handleQualityAuditAPI)
+	
+	// ==================== 应用管理 API ====================
+	mux.HandleFunc("/api/v1/apps", handleApps)
+	mux.HandleFunc("/api/v1/apps/", handleAppDetail)
+	
+	// ==================== 应用公开访问（不需要认证）====================
+	// 注意：此路由必须放在最后，避免与其他 /api/v1/ 路由冲突
+	mux.HandleFunc("/a/", handleAppPublic)
 }

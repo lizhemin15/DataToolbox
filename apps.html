@@ -558,17 +558,17 @@
 
             section.style.display = 'block';
             grid.innerHTML = customApps.map(app => `
-                <div class="app-card custom-app" onclick="openCustomApp('${app.id}')">
+                <div class="app-card custom-app" onclick="openCustomApp('${app.slug}')">
                     <div class="app-card-gradient">
                         <div class="app-card-icon">${app.icon || '🎨'}</div>
                     </div>
                     <div class="app-card-body">
-                        <div class="app-card-title">${app.name}</div>
+                        <div class="app-card-title">${app.title || app.name}</div>
                         <div class="app-card-desc">${app.description || '自定义应用'}</div>
                     </div>
                     <div class="app-card-footer">
                         <div class="app-card-stats">
-                            <span>🎨 自定义</span>
+                            <span>👁️ ${app.view_count || 0}</span>
                         </div>
                         <button class="app-card-action" onclick="event.stopPropagation(); editCustomApp('${app.id}')">
                             编辑
@@ -584,8 +584,8 @@
         }
 
         // 打开自定义应用
-        function openCustomApp(appId) {
-            window.location.href = `apps/custom/${appId}/index.html`;
+        function openCustomApp(slug) {
+            window.location.href = `/a/${slug}`;
         }
 
         // 编辑自定义应用

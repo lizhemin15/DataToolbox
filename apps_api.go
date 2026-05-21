@@ -1,0 +1,483 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// ============================================================
+// 应用管理 REST API Handlers
+// ============================================================
+
+// handleApps 处理应用列表和创建请求
+// GET /api/v1/apps - 列出用户的所有应用
+// POST /api/v1/apps - 创建新应用
+func handleApps(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		handleListApps(w, r, username)
+	case http.MethodPost:
+		handleCreateApp(w, r, username)
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+// handleListApps 列出用户的所有应用
+func handleListApps(w http.ResponseWriter, r *http.Request, username string) {
+	apps, err := sqlListApps(username)
+	if err != nil {
+		log.Printf("[应用] 查询应用列表失败: %v", err)
+		apiError(w, "查询应用列表失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	apiSuccess(w, map[string]interface{}{
+		"apps":  apps,
+		"total": len(apps),
+	})
+}
+
+// handleCreateApp 创建新应用
+func handleCreateApp(w http.ResponseWriter, r *http.Request, username string) {
+	var req struct {
+		Name        string                 `json:"name"`
+		Slug        string                 `json:"slug"`
+		Title       string                 `json:"title"`
+		Description string                 `json:"description"`
+		Icon        string                 `json:"icon"`
+		HTML        string                 `json:"html"`
+		CSS         string                 `json:"css"`
+		JS          string                 `json:"js"`
+		Files       []string               `json:"files"`
+		Config      map[string]interface{} `json:"config"`
+		Tags        []string               `json:"tags"`
+		IsPublic    bool                   `json:"is_public"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiBadRequest(w, "无效的请求体")
+		return
+	}
+
+	// 验证必填字段
+	if req.Name == "" {
+		apiBadRequest(w, "应用名称不能为空")
+		return
+	}
+	if req.Slug == "" {
+		apiBadRequest(w, "应用 slug 不能为空")
+		return
+	}
+
+	// 验证 slug 格式（只允许字母、数字、下划线和连字符）
+	for _, c := range req.Slug {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			apiBadRequest(w, "slug 只能包含字母、数字、下划线和连字符")
+			return
+		}
+	}
+
+	// 检查 slug 是否已存在
+	existingApp, err := sqlGetAppBySlug(req.Slug)
+	if err != nil {
+		log.Printf("[应用] 检查 slug 失败: %v", err)
+		apiError(w, "检查 slug 失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+	if existingApp != nil {
+		apiBadRequest(w, "slug 已被使用，请更换一个")
+		return
+	}
+
+	// 生成 ID
+	appID := uuid.New().String()
+
+	// 序列化 config
+	configJSON := ""
+	if req.Config != nil {
+		configJSON = toJSON(req.Config)
+	}
+
+	// 创建应用对象
+	app := &App{
+		ID:          appID,
+		Owner:       username,
+		Name:        req.Name,
+		Slug:        req.Slug,
+		Title:       req.Title,
+		Description: req.Description,
+		Icon:        req.Icon,
+		HTML:        req.HTML,
+		CSS:         req.CSS,
+		JS:          req.JS,
+		Files:       req.Files,
+		Config:      configJSON,
+		Tags:        req.Tags,
+		IsPublic:    req.IsPublic,
+		ViewCount:   0,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// 保存到数据库
+	if err := sqlSaveApp(app); err != nil {
+		log.Printf("[应用] 创建应用失败: %v", err)
+		apiError(w, "创建应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	log.Printf("[应用] 用户 %s 创建应用 %s (slug: %s)", username, appID, req.Slug)
+
+	apiSuccess(w, map[string]interface{}{
+		"app": app,
+	})
+}
+
+// handleAppDetail 处理单个应用的 CRUD
+// GET /api/v1/apps/{id} - 获取应用详情
+// PUT /api/v1/apps/{id} - 更新应用
+// DELETE /api/v1/apps/{id} - 删除应用
+func handleAppDetail(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "")
+		return
+	}
+
+	// 从 URL 中提取 ID
+	// URL 格式: /api/v1/apps/{id}
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 4 || parts[3] == "" {
+		apiBadRequest(w, "缺少应用 ID")
+		return
+	}
+	appID := parts[3]
+
+	switch r.Method {
+	case http.MethodGet:
+		handleGetApp(w, r, username, appID)
+	case http.MethodPut:
+		handleUpdateApp(w, r, username, appID)
+	case http.MethodDelete:
+		handleDeleteApp(w, r, username, appID)
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+// handleGetApp 获取应用详情
+func handleGetApp(w http.ResponseWriter, r *http.Request, username string, appID string) {
+	app, err := sqlGetApp(appID)
+	if err != nil {
+		log.Printf("[应用] 查询应用失败: %v", err)
+		apiError(w, "查询应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	if app == nil {
+		apiNotFound(w, "应用不存在")
+		return
+	}
+
+	// 权限检查：只有 owner 可以查看完整内容
+	if app.Owner != username {
+		// 非 owner 只能看到基本信息（如果是公开应用）
+		if !app.IsPublic {
+			apiForbidden(w, "无权访问此应用")
+			return
+		}
+		// 公开应用返回基本信息（不含代码）
+		apiSuccess(w, map[string]interface{}{
+			"app": map[string]interface{}{
+				"id":          app.ID,
+				"owner":       app.Owner,
+				"name":        app.Name,
+				"slug":        app.Slug,
+				"title":       app.Title,
+				"description": app.Description,
+				"icon":        app.Icon,
+				"is_public":   app.IsPublic,
+				"view_count":  app.ViewCount,
+				"created_at":  app.CreatedAt,
+				"updated_at":  app.UpdatedAt,
+			},
+		})
+		return
+	}
+
+	apiSuccess(w, map[string]interface{}{
+		"app": app,
+	})
+}
+
+// handleUpdateApp 更新应用
+func handleUpdateApp(w http.ResponseWriter, r *http.Request, username string, appID string) {
+	// 先获取应用检查权限
+	app, err := sqlGetApp(appID)
+	if err != nil {
+		log.Printf("[应用] 查询应用失败: %v", err)
+		apiError(w, "查询应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	if app == nil {
+		apiNotFound(w, "应用不存在")
+		return
+	}
+
+	// 权限检查：只有 owner 可以更新
+	if app.Owner != username {
+		apiForbidden(w, "无权修改此应用")
+		return
+	}
+
+	var req struct {
+		Name        string                 `json:"name"`
+		Slug        string                 `json:"slug"`
+		Title       string                 `json:"title"`
+		Description string                 `json:"description"`
+		Icon        string                 `json:"icon"`
+		HTML        string                 `json:"html"`
+		CSS         string                 `json:"css"`
+		JS          string                 `json:"js"`
+		Files       []string               `json:"files"`
+		Config      map[string]interface{} `json:"config"`
+		Tags        []string               `json:"tags"`
+		IsPublic    *bool                  `json:"is_public"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiBadRequest(w, "无效的请求体")
+		return
+	}
+
+	// 如果要更新 slug，需要验证
+	if req.Slug != "" && req.Slug != app.Slug {
+		// 验证 slug 格式
+		for _, c := range req.Slug {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+				apiBadRequest(w, "slug 只能包含字母、数字、下划线和连字符")
+				return
+			}
+		}
+
+		// 检查 slug 是否已被其他应用使用
+		existingApp, err := sqlGetAppBySlug(req.Slug)
+		if err != nil {
+			log.Printf("[应用] 检查 slug 失败: %v", err)
+			apiError(w, "检查 slug 失败", http.StatusInternalServerError, "internal_error")
+			return
+		}
+		if existingApp != nil && existingApp.ID != appID {
+			apiBadRequest(w, "slug 已被使用，请更换一个")
+			return
+		}
+		app.Slug = req.Slug
+	}
+
+	// 更新字段（只更新非空字段）
+	if req.Name != "" {
+		app.Name = req.Name
+	}
+	if req.Title != "" {
+		app.Title = req.Title
+	}
+	if req.Description != "" {
+		app.Description = req.Description
+	}
+	if req.Icon != "" {
+		app.Icon = req.Icon
+	}
+	if req.HTML != "" {
+		app.HTML = req.HTML
+	}
+	if req.CSS != "" {
+		app.CSS = req.CSS
+	}
+	if req.JS != "" {
+		app.JS = req.JS
+	}
+	if req.Files != nil {
+		app.Files = req.Files
+	}
+	if req.Config != nil {
+		app.Config = toJSON(req.Config)
+	}
+	if req.Tags != nil {
+		app.Tags = req.Tags
+	}
+	if req.IsPublic != nil {
+		app.IsPublic = *req.IsPublic
+	}
+
+	app.UpdatedAt = time.Now()
+
+	// 保存更新
+	if err := sqlSaveApp(app); err != nil {
+		log.Printf("[应用] 更新应用失败: %v", err)
+		apiError(w, "更新应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	log.Printf("[应用] 用户 %s 更新应用 %s", username, appID)
+
+	apiSuccess(w, map[string]interface{}{
+		"app": app,
+	})
+}
+
+// handleDeleteApp 删除应用
+func handleDeleteApp(w http.ResponseWriter, r *http.Request, username string, appID string) {
+	// 先获取应用检查权限
+	app, err := sqlGetApp(appID)
+	if err != nil {
+		log.Printf("[应用] 查询应用失败: %v", err)
+		apiError(w, "查询应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	if app == nil {
+		apiNotFound(w, "应用不存在")
+		return
+	}
+
+	// 权限检查：只有 owner 可以删除
+	if app.Owner != username {
+		apiForbidden(w, "无权删除此应用")
+		return
+	}
+
+	// 删除应用
+	if err := sqlDeleteApp(appID, username); err != nil {
+		log.Printf("[应用] 删除应用失败: %v", err)
+		apiError(w, "删除应用失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	log.Printf("[应用] 用户 %s 删除应用 %s", username, appID)
+
+	apiSuccess(w, map[string]interface{}{
+		"message": "应用已删除",
+		"id":      appID,
+	})
+}
+
+// ============================================================
+// 公开访问应用 - 渲染 HTML 页面
+// ============================================================
+
+// handleAppPublic 公开访问应用页面
+// GET /a/{slug} - 返回渲染后的 HTML 页面
+func handleAppPublic(w http.ResponseWriter, r *http.Request) {
+	// 从 URL 中提取 slug
+	// URL 格式: /a/{slug}
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 || parts[2] == "" {
+		http.Error(w, "缺少应用 slug", http.StatusBadRequest)
+		return
+	}
+	slug := parts[2]
+
+	// 获取应用
+	app, err := sqlGetAppBySlug(slug)
+	if err != nil {
+		log.Printf("[应用] 查询公开应用失败: %v", err)
+		http.Error(w, "查询应用失败", http.StatusInternalServerError)
+		return
+	}
+
+	if app == nil {
+		http.Error(w, "应用不存在", http.StatusNotFound)
+		return
+	}
+
+	// 检查是否公开
+	if !app.IsPublic {
+		http.Error(w, "此应用未公开", http.StatusForbidden)
+		return
+	}
+
+	// 增加访问计数
+	go func() {
+		if err := sqlIncrementAppViewCount(app.ID); err != nil {
+			log.Printf("[应用] 更新访问计数失败: %v", err)
+		}
+	}()
+
+	// 渲染 HTML 页面
+	renderedHTML := renderAppPage(app)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(renderedHTML))
+}
+
+// renderAppPage 渲染应用页面 HTML
+func renderAppPage(app *App) string {
+	// 构建完整的 HTML 页面
+	// 将应用的 HTML、CSS、JS 嵌入到页面中
+
+	htmlContent := app.HTML
+	if htmlContent == "" {
+		htmlContent = `<div class="app-container"><h1>` + app.Title + `</h1><p>` + app.Description + `</p></div>`
+	}
+
+	cssContent := app.CSS
+	if cssContent == "" {
+		cssContent = `
+.app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+.app-container h1 {
+    color: #1a202c;
+    font-size: 24px;
+    margin-bottom: 16px;
+}
+.app-container p {
+    color: #4a5568;
+    line-height: 1.6;
+}
+`
+	}
+
+	jsContent := app.JS
+
+	// 构建页面模板
+	page := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>%s - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css?v=20260521">
+    <style>
+%s
+    </style>
+</head>
+<body>
+%s
+    <script>
+%s
+    </script>
+</body>
+</html>`, app.Title, cssContent, htmlContent, jsContent)
+
+	return page
+}

@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>应用编辑器 - 数据工具箱</title>
+    <link rel="stylesheet" href="style.css?v=20260521">
+    <style>
+        .editor-page {
+            min-height: 100vh;
+            background: #1a1a2e;
+            padding: 0;
+        }
+
+        .editor-header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .editor-header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .editor-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .editor-header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn-editor {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-editor.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+        }
+
+        .btn-editor.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-editor:hover {
+            transform: translateY(-2px);
+        }
+
+        .editor-container {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+
+        .editor-sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.03);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .editor-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .editor-tabs {
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 16px;
+            gap: 8px;
+        }
+
+        .editor-tab {
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .editor-tab.active {
+            background: rgba(102, 126, 234, 0.2);
+            color: #667eea;
+        }
+
+        .editor-tab:hover:not(.active) {
+            color: white;
+        }
+
+        .editor-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .code-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #0d0d1a;
+            overflow: hidden;
+        }
+
+        .code-editor {
+            flex: 1;
+            resize: none;
+            background: #0d0d1a;
+            color: #e0e0e0;
+            border: none;
+            padding: 16px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            outline: none;
+            overflow: auto;
+        }
+
+        .preview-panel {
+            width: 50%;
+            background: white;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .preview-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .slug-preview {
+            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+        }
+
+        .slug-preview code {
+            background: rgba(102, 126, 234, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #667eea;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+        }
+
+        .checkbox-group label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+        }
+
+        .icon-picker {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .icon-option {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 20px;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .icon-option:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .icon-option.selected {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.2);
+        }
+
+        .status-bar {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 8px 16px;
+            display: flex;
+            justify-content: space-between;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 1024px) {
+            .editor-sidebar {
+                width: 250px;
+            }
+            .preview-panel {
+                width: 40%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .editor-container {
+                flex-direction: column;
+            }
+            .editor-sidebar {
+                width: 100%;
+                max-height: 200px;
+            }
+            .preview-panel {
+                width: 100%;
+                height: 50%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="editor-page">
+        <header class="editor-header">
+            <div class="editor-header-left">
+                <a href="apps.html" style="color: white; text-decoration: none;">← 返回</a>
+                <h1 id="editorTitle">✨ 创建应用</h1>
+            </div>
+            <div class="editor-header-actions">
+                <button class="btn-editor secondary" onclick="previewApp()">👁️ 预览</button>
+                <button class="btn-editor secondary" onclick="deleteApp()" id="deleteBtn" style="display: none;">🗑️ 删除</button>
+                <button class="btn-editor primary" onclick="saveApp()">💾 保存</button>
+            </div>
+        </header>
+
+        <div class="editor-container">
+            <aside class="editor-sidebar">
+                <div class="form-group">
+                    <label class="form-label">应用名称 *</label>
+                    <input type="text" class="form-input" id="appName" placeholder="我的应用" maxlength="50">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">唯一标识 (Slug) *</label>
+                    <input type="text" class="form-input" id="appSlug" placeholder="my-app" maxlength="30" pattern="[a-z0-9-_]+">
+                    <div class="slug-preview">访问地址: <code id="slugUrl">/a/my-app</code></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">描述</label>
+                    <input type="text" class="form-input" id="appDesc" placeholder="应用功能简介" maxlength="200">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">图标</label>
+                    <div class="icon-picker" id="iconPicker">
+                        <div class="icon-option selected" data-icon="🎨">🎨</div>
+                        <div class="icon-option" data-icon="📊">📊</div>
+                        <div class="icon-option" data-icon="📈">📈</div>
+                        <div class="icon-option" data-icon="🔧">🔧</div>
+                        <div class="icon-option" data-icon="📱">📱</div>
+                        <div class="icon-option" data-icon="🌐">🌐</div>
+                        <div class="icon-option" data-icon="⚡">⚡</div>
+                        <div class="icon-option" data-icon="🚀">🚀</div>
+                        <div class="icon-option" data-icon="💡">💡</div>
+                        <div class="icon-option" data-icon="🎯">🎯</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="appPublic" checked>
+                        <label for="appPublic">公开访问</label>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="editor-main">
+                <div class="editor-tabs">
+                    <div class="editor-tab active" data-tab="html" onclick="switchTab('html')">HTML</div>
+                    <div class="editor-tab" data-tab="css" onclick="switchTab('css')">CSS</div>
+                    <div class="editor-tab" data-tab="js" onclick="switchTab('js')">JavaScript</div>
+                </div>
+
+                <div class="editor-content">
+                    <div class="code-panel">
+                        <textarea class="code-editor" id="htmlEditor" placeholder="<div class=\"app\">\n  <!-- 你的 HTML 结构 -->\n</div>"></textarea>
+                        <textarea class="code-editor hidden" id="cssEditor" placeholder="/* 你的样式 */\n.app {\n  padding: 20px;\n}"></textarea>
+                        <textarea class="code-editor hidden" id="jsEditor" placeholder="// 你的逻辑\nconsole.log('App loaded!');"></textarea>
+                    </div>
+                    <div class="preview-panel">
+                        <iframe class="preview-frame" id="previewFrame"></iframe>
+                    </div>
+                </div>
+
+                <div class="status-bar">
+                    <span id="statusMsg">就绪</span>
+                    <span id="lastSaved">未保存</span>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        let currentAppId = null;
+        let selectedIcon = '🎨';
+        let autoPreviewTimer = null;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', async () => {
+            setupIconPicker();
+            setupSlugInput();
+            setupAutoPreview();
+
+            // 检查是否编辑模式
+            const params = new URLSearchParams(window.location.search);
+            currentAppId = params.get('id');
+
+            if (currentAppId) {
+                document.getElementById('editorTitle').textContent = '📝 编辑应用';
+                document.getElementById('deleteBtn').style.display = 'block';
+                await loadApp(currentAppId);
+            }
+
+            // 默认模板
+            if (!currentAppId) {
+                document.getElementById('htmlEditor').value = `<div class="app-container">
+  <h1>Hello World</h1>
+  <p>这是一个示例应用</p>
+  <button id="clickMe">点击我</button>
+  <div id="output"></div>
+</div>`;
+                document.getElementById('cssEditor').value = `.app-container {
+  padding: 40px;
+  font-family: system-ui, sans-serif;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+h1 {
+  color: #667eea;
+  margin-bottom: 16px;
+}
+
+button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 16px;
+}
+
+button:hover {
+  transform: translateY(-2px);
+}
+
+#output {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}`;
+                document.getElementById('jsEditor').value = `document.getElementById('clickMe').addEventListener('click', () => {
+  const output = document.getElementById('output');
+  output.textContent = '按钮被点击了！时间: ' + new Date().toLocaleString();
+});`;
+                previewApp();
+            }
+        });
+
+        // 图标选择器
+        function setupIconPicker() {
+            document.querySelectorAll('.icon-option').forEach(el => {
+                el.addEventListener('click', () => {
+                    document.querySelectorAll('.icon-option').forEach(e => e.classList.remove('selected'));
+                    el.classList.add('selected');
+                    selectedIcon = el.dataset.icon;
+                });
+            });
+        }
+
+        // Slug 输入处理
+        function setupSlugInput() {
+            const slugInput = document.getElementById('appSlug');
+            const slugUrl = document.getElementById('slugUrl');
+
+            slugInput.addEventListener('input', () => {
+                // 自动转换为合法格式
+                let value = slugInput.value.toLowerCase();
+                value = value.replace(/[^a-z0-9-_]/g, '-');
+                slugInput.value = value;
+                slugUrl.textContent = `/a/${value || 'my-app'}`;
+            });
+        }
+
+        // 自动预览
+        function setupAutoPreview() {
+            ['htmlEditor', 'cssEditor', 'jsEditor'].forEach(id => {
+                document.getElementById(id).addEventListener('input', () => {
+                    if (autoPreviewTimer) clearTimeout(autoPreviewTimer);
+                    autoPreviewTimer = setTimeout(previewApp, 500);
+                });
+            });
+        }
+
+        // 切换编辑器标签
+        function switchTab(tab) {
+            document.querySelectorAll('.editor-tab').forEach(el => {
+                el.classList.toggle('active', el.dataset.tab === tab);
+            });
+            document.querySelectorAll('.code-editor').forEach(el => {
+                el.classList.toggle('hidden', el.id !== tab + 'Editor');
+            });
+        }
+
+        // 预览应用
+        function previewApp() {
+            const html = document.getElementById('htmlEditor').value;
+            const css = document.getElementById('cssEditor').value;
+            const js = document.getElementById('jsEditor').value;
+
+            const content = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>${css}</style>
+</head>
+<body>
+    ${html}
+    <script>${js}</script>
+</body>
+</html>`;
+
+            const frame = document.getElementById('previewFrame');
+            frame.srcdoc = content;
+            document.getElementById('statusMsg').textContent = '预览已更新';
+        }
+
+        // 加载应用
+        async function loadApp(id) {
+            try {
+                const resp = await fetch(`/api/v1/apps/${id}`);
+                if (!resp.ok) throw new Error('加载失败');
+
+                const data = await resp.json();
+                const app = data.app;
+
+                document.getElementById('appName').value = app.title || app.name;
+                document.getElementById('appSlug').value = app.slug;
+                document.getElementById('appDesc').value = app.description || '';
+                document.getElementById('appPublic').checked = app.is_public;
+                document.getElementById('htmlEditor').value = app.html || '';
+                document.getElementById('cssEditor').value = app.css || '';
+                document.getElementById('jsEditor').value = app.js || '';
+
+                // 设置图标
+                if (app.icon) {
+                    selectedIcon = app.icon;
+                    document.querySelectorAll('.icon-option').forEach(el => {
+                        el.classList.toggle('selected', el.dataset.icon === app.icon);
+                    });
+                }
+
+                document.getElementById('slugUrl').textContent = `/a/${app.slug}`;
+                document.getElementById('statusMsg').textContent = '应用已加载';
+                previewApp();
+            } catch (err) {
+                alert('加载应用失败: ' + err.message);
+                window.location.href = 'apps.html';
+            }
+        }
+
+        // 保存应用
+        async function saveApp() {
+            const name = document.getElementById('appName').value.trim();
+            const slug = document.getElementById('appSlug').value.trim();
+            const desc = document.getElementById('appDesc').value.trim();
+            const isPublic = document.getElementById('appPublic').checked;
+            const html = document.getElementById('htmlEditor').value;
+            const css = document.getElementById('cssEditor').value;
+            const js = document.getElementById('jsEditor').value;
+
+            if (!name) {
+                alert('请输入应用名称');
+                return;
+            }
+            if (!slug) {
+                alert('请输入唯一标识');
+                return;
+            }
+
+            const appData = {
+                title: name,
+                name: name,
+                slug: slug,
+                description: desc,
+                icon: selectedIcon,
+                is_public: isPublic,
+                html: html,
+                css: css,
+                js: js
+            };
+
+            try {
+                const url = currentAppId ? `/api/v1/apps/${currentAppId}` : '/api/v1/apps';
+                const method = currentAppId ? 'PUT' : 'POST';
+
+                const resp = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(appData)
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.error || '保存失败');
+                }
+
+                const data = await resp.json();
+                currentAppId = data.app?.id || data.id;
+                document.getElementById('editorTitle').textContent = '📝 编辑应用';
+                document.getElementById('deleteBtn').style.display = 'block';
+                document.getElementById('lastSaved').textContent = '已保存: ' + new Date().toLocaleTimeString();
+                document.getElementById('statusMsg').textContent = '保存成功！';
+
+                // 更新 URL
+                if (!window.location.search.includes('id=')) {
+                    window.history.replaceState({}, '', `app-editor.html?id=${currentAppId}`);
+                }
+            } catch (err) {
+                alert('保存失败: ' + err.message);
+            }
+        }
+
+        // 删除应用
+        async function deleteApp() {
+            if (!currentAppId) return;
+            if (!confirm('确定要删除这个应用吗？此操作不可恢复。')) return;
+
+            try {
+                const resp = await fetch(`/api/v1/apps/${currentAppId}`, { method: 'DELETE' });
+                if (!resp.ok) throw new Error('删除失败');
+
+                alert('应用已删除');
+                window.location.href = 'apps.html';
+            } catch (err) {
+                alert('删除失败: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
