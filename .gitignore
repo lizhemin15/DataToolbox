@@ -10,6 +10,7 @@ gov-runner
 gov-runner.exe
 gov-runner-src/gov-runner
 gov-runner-src/gov-runner.exe
+gov-runner-src/gov-runner-small
 gov-runner-src/node_modules/
 
 # 日志文件
