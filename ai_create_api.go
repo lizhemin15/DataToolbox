@@ -1201,7 +1201,7 @@ func handleAgentSkillFiles(w http.ResponseWriter, r *http.Request) {
 	// 读取目录结构
 	files, err := listSkillFiles(skill.SourcePath)
 	if err != nil {
-		apiError(w, http.StatusInternalServerError, "读取目录失败: "+err.Error())
+		apiError(w, "读取目录失败: "+err.Error(), http.StatusInternalServerError, "SKILL_FILE_ERROR")
 		return
 	}
 
