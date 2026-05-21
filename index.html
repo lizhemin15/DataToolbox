@@ -2494,7 +2494,7 @@
     <!-- 版本号显示 -->
     <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#aaa;z-index:9999;pointer-events:none;user-select:none;"></div>
     <script>
-    fetch('/api/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
+    fetch('/api/v1/system/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
     </script>
 
     <!-- === Agent Cluster Mode: 智能体配置面板 === -->
