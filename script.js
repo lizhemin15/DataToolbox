@@ -14737,8 +14737,18 @@ function formatClusterMarkdown(text) {
         html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
         // numbered list
         html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+        // collapse multiple blank lines into one
+        html = html.replace(/\n{2,}/g, '\n');
         // line breaks
         html = html.replace(/\n/g, '<br>');
+        // remove <br> between/around list items (block elements don't need <br>)
+        html = html.replace(/<\/li><br>/g, '</li>');
+        html = html.replace(/<br><li>/g, '<li>');
+        html = html.replace(/<br><ul>/g, '<ul>');
+        html = html.replace(/<\/ul><br>/g, '</ul>');
+        // remove <br> around headers
+        html = html.replace(/<br><h[234]>/g, (m) => m.slice(4));
+        html = html.replace(/<\/h[234]><br>/g, (m) => m.slice(0, -4));
         result += html;
     }
     return result;
@@ -14746,7 +14756,6 @@ function formatClusterMarkdown(text) {
 
 // Show agent configuration panel
 function showAgentConfigPanel() {
-    // Remove existing panel
     const existing = document.getElementById('agentConfigPanel');
     if (existing) { existing.remove(); return; }
 
@@ -14755,16 +14764,30 @@ function showAgentConfigPanel() {
     panel.className = 'agent-config-panel';
     panel.innerHTML = `
         <div class="agent-config-header">
-            <h3>🧩 智能体配置</h3>
-            <button class="agent-config-close" onclick="document.getElementById('agentConfigPanel').remove()">✕</button>
+            <div class="agent-config-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                智能体配置
+            </div>
+            <button class="agent-config-close" onclick="document.getElementById('agentConfigPanel').remove()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
         </div>
         <div class="agent-config-tabs">
-            <button class="agent-config-tab active" onclick="switchAgentConfigTab('mcp', this)">MCP Server</button>
-            <button class="agent-config-tab" onclick="switchAgentConfigTab('skill', this)">Skill</button>
-            <button class="agent-config-tab" onclick="switchAgentConfigTab('status', this)">状态</button>
+            <button class="agent-config-tab active" onclick="switchAgentConfigTab('mcp', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                MCP Server
+            </button>
+            <button class="agent-config-tab" onclick="switchAgentConfigTab('skill', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                Skill
+            </button>
+            <button class="agent-config-tab" onclick="switchAgentConfigTab('status', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                状态
+            </button>
         </div>
         <div id="agentConfigContent" class="agent-config-content">
-            <div style="text-align:center;padding:20px;color:#718096;">加载中...</div>
+            <div style="text-align:center;padding:24px;color:#94a3b8;">加载中...</div>
         </div>
     `;
     document.body.appendChild(panel);
@@ -14804,68 +14827,189 @@ async function loadAgentConfigTab(tab) {
 
 // Render MCP Server config
 function renderMCPConfig(container, servers) {
+    let html = '<div class="ac-list">';
     if (!servers.length) {
-        container.innerHTML = '<div style="padding:20px;color:#718096;text-align:center;">暂无 MCP Server 配置<br><small>点击下方按钮添加</small></div>';
+        html += `<div class="ac-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e0" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            <div>暂无 MCP Server</div>
+            <small>添加外部 MCP 服务扩展智能体能力</small>
+        </div>`;
     } else {
-        let html = '<table class="agent-config-table"><thead><tr><th>名称</th><th>传输</th><th>状态</th><th>操作</th></tr></thead><tbody>';
         for (const s of servers) {
-            const statusColor = s.status === 'running' ? '#48bb78' : s.status === 'error' ? '#e53e3e' : '#a0aec0';
-            html += `<tr>
-                <td>${escapeHtml(s.name)}</td>
-                <td>${escapeHtml(s.transport)}</td>
-                <td><span style="color:${statusColor}">● ${escapeHtml(s.status)}</span></td>
-                <td>
-                    ${s.status === 'running' 
-                        ? `<button class="btn btn-sm" onclick="toggleMCPServer('${s.id}', 'stop')">⏹ 停止</button>`
-                        : `<button class="btn btn-sm" onclick="toggleMCPServer('${s.id}', 'start')">▶ 启动</button>`
-                    }
-                    <button class="btn btn-sm" onclick="removeMCPServer('${s.id}')">🗑</button>
-                </td>
-            </tr>`;
+            const isRunning = s.status === 'running';
+            const isBuiltin = s.builtin;
+            const transport = s.transport || 'stdio';
+            const toolsCount = s.tools_count || s.tools?.length || 0;
+            
+            // Transport type class
+            const transportClass = transport === 'streamable-http' || transport === 'http' ? 'ac-transport-http' 
+                : transport === 'sse' ? 'ac-transport-sse' : 'ac-transport-stdio';
+            const transportLabel = transport === 'streamable-http' ? 'HTTP' : transport === 'sse' ? 'SSE' : 'STDIO';
+            
+            html += `<div class="ac-card ${isBuiltin ? 'ac-card-builtin' : ''}">
+                <div class="ac-card-left">
+                    <div class="ac-card-icon ${isRunning ? 'ac-icon-running' : 'ac-icon-stopped'}">
+                        ${isBuiltin ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'}
+                    </div>
+                    <div class="ac-card-info">
+                        <div class="ac-card-name">${escapeHtml(s.name || '未命名')}
+                            ${isBuiltin ? '<span class="ac-badge ac-badge-builtin">内置</span>' : ''}
+                        </div>
+                        <div class="ac-card-meta">
+                            <span class="ac-transport ${transportClass}">${transportLabel}</span>
+                            ${toolsCount > 0 ? `<span class="ac-tools-count"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>${toolsCount} 工具</span>` : ''}
+                            ${s.url ? `<span class="ac-meta-detail">${escapeHtml(s.url.replace(/^https?:\/\//, '').split('/')[0])}</span>` : ''}
+                            ${s.command ? `<span class="ac-meta-detail">${escapeHtml(s.command.split('/').pop())}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div class="ac-card-right">
+                    <span class="ac-status ${isRunning ? 'ac-status-on' : 'ac-status-off'}">
+                        <span class="ac-status-dot"></span>${isRunning ? '运行中' : '已停止'}
+                    </span>
+                    <div class="ac-card-actions">
+                        ${!isBuiltin ? `
+                            ${isRunning
+                                ? `<button class="ac-btn ac-btn-ghost" onclick="toggleMCPServer('${s.id}','stop')" title="停止"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>`
+                                : `<button class="ac-btn ac-btn-ghost" onclick="toggleMCPServer('${s.id}','start')" title="启动"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg></button>`
+                            }
+                            <button class="ac-btn ac-btn-danger" onclick="removeMCPServer('${s.id}')\" title="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>`;
         }
-        html += '</tbody></table>';
-        container.innerHTML = html;
     }
-    container.innerHTML += `<button class="btn btn-primary" style="margin:10px" onclick="showAddMCPForm()">+ 添加 MCP Server</button>`;
+    html += '</div>';
+    html += `<button class="ac-add-btn" onclick="showAddMCPForm()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        添加 MCP Server
+    </button>`;
+    container.innerHTML = html;
 }
 
 // Render Skill config
 function renderSkillConfig(container, skills) {
+    let html = '<div class="ac-list">';
     if (!skills.length) {
-        container.innerHTML = '<div style="padding:20px;color:#718096;text-align:center;">暂无 Skill 配置<br><small>点击下方按钮添加</small></div>';
+        html += `<div class="ac-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e0" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <div>暂无 Skill</div>
+            <small>添加技能增强智能体专业能力</small>
+        </div>`;
     } else {
-        let html = '<table class="agent-config-table"><thead><tr><th>名称</th><th>描述</th><th>状态</th><th>操作</th></tr></thead><tbody>';
         for (const s of skills) {
-            html += `<tr>
-                <td>${escapeHtml(s.name)}</td>
-                <td>${escapeHtml(s.description || '-')}</td>
-                <td>${s.enabled ? '<span style="color:#48bb78">● 启用</span>' : '<span style="color:#a0aec0">● 禁用</span>'}</td>
-                <td>
-                    <button class="btn btn-sm" onclick="toggleSkill('${s.id}', ${!s.enabled})">${s.enabled ? '禁用' : '启用'}</button>
-                    <button class="btn btn-sm" onclick="reloadSkill('${s.id}')">🔄</button>
-                    <button class="btn btn-sm" onclick="removeSkill('${s.id}')">🗑</button>
-                </td>
-            </tr>`;
+            const category = s.category || s.type || '';
+            const categoryColor = category === 'devops' ? '#10b981' : category === 'data' ? '#3b82f6' : category === 'ai' ? '#8b5cf6' : '#64748b';
+            
+            html += `<div class="ac-card">
+                <div class="ac-card-left">
+                    <div class="ac-card-icon ${s.enabled ? 'ac-icon-running' : 'ac-icon-stopped'}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    </div>
+                    <div class="ac-card-info">
+                        <div class="ac-card-name">${escapeHtml(s.name || '未命名')}
+                            ${category ? `<span class="ac-badge" style="background:${categoryColor};color:white;">${escapeHtml(category)}</span>` : ''}
+                        </div>
+                        <div class="ac-card-meta">
+                            ${s.description ? `<span class="ac-meta-detail">${escapeHtml(s.description.substring(0, 60))}${s.description.length > 60 ? '...' : ''}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div class="ac-card-right">
+                    <label class="ac-toggle" title="${s.enabled ? '点击禁用' : '点击启用'}">
+                        <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSkill('${s.id}', this.checked)">
+                        <span class="ac-toggle-track"></span>
+                        <span class="ac-toggle-thumb"></span>
+                    </label>
+                    <div class="ac-card-actions">
+                        <button class="ac-btn ac-btn-ghost" onclick="reloadSkill('${s.id}')" title="重载"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
+                        <button class="ac-btn ac-btn-danger" onclick="removeSkill('${s.id}')" title="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
+                    </div>
+                </div>
+            </div>`;
         }
-        html += '</tbody></table>';
-        container.innerHTML = html;
     }
-    container.innerHTML += `<button class="btn btn-primary" style="margin:10px" onclick="showAddSkillForm()">+ 添加 Skill</button>`;
+    html += '</div>';
+    html += `<button class="ac-add-btn" onclick="showAddSkillForm()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        添加 Skill
+    </button>`;
+    container.innerHTML = html;
 }
 
 // Render agent status
 function renderAgentStatus(container, data) {
-    container.innerHTML = `
-        <div style="padding:15px;">
-            <h4>📊 集群状态</h4>
-            <div style="margin:10px 0;">
-                <strong>Providers:</strong> ${(data.providers || []).length} 个<br>
-                <strong>MCP Servers:</strong> ${(data.mcp_servers || []).length} 个<br>
-                <strong>Skills:</strong> ${(data.skills || []).length} 个<br>
-                <strong>当前模式:</strong> 🚀 集群
+    const providers = data.providers || [];
+    const mcpCount = (data.mcp_servers || []).length;
+    const skillCount = (data.skills || []).length;
+
+    let html = `<div class="ac-status-grid">
+        <div class="ac-stat-card">
+            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <div class="ac-stat-info">
+                <div class="ac-stat-value">${providers.length}</div>
+                <div class="ac-stat-label">AI 模型</div>
             </div>
         </div>
-    `;
+        <div class="ac-stat-card">
+            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#10b981,#059669);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="ac-stat-info">
+                <div class="ac-stat-value">${mcpCount}</div>
+                <div class="ac-stat-label">MCP 服务</div>
+            </div>
+        </div>
+        <div class="ac-stat-card">
+            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#f59e0b,#d97706);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            </div>
+            <div class="ac-stat-info">
+                <div class="ac-stat-value">${skillCount}</div>
+                <div class="ac-stat-label">技能</div>
+            </div>
+        </div>
+        <div class="ac-stat-card">
+            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#667eea,#764ba2);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <div class="ac-stat-info">
+                <div class="ac-stat-value">集群</div>
+                <div class="ac-stat-label">运行模式</div>
+            </div>
+        </div>
+    </div>`;
+
+    // Provider details
+    if (providers.length) {
+        html += '<div class="ac-section-title">AI 模型配置</div><div class="ac-list">';
+        for (const p of providers) {
+            const modelName = (p.model || p.name || '未知').split('/').pop();
+            html += `<div class="ac-card">
+                <div class="ac-card-left">
+                    <div class="ac-card-icon ac-icon-running">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20"/><path d="M12 2a15 15 0 014 10 15 15 0 01-4 10 15 15 0 01-4-10A15 15 0 0112 2z"/></svg>
+                    </div>
+                    <div class="ac-card-info">
+                        <div class="ac-card-name">${escapeHtml(modelName)}</div>
+                        <div class="ac-card-meta">
+                            <span class="ac-tag">${escapeHtml((p.provider || p.type || 'api'))}</span>
+                            ${p.url ? `<span class="ac-meta-detail">${escapeHtml(p.url.replace(/^https?:\/\//, '').split('/')[0])}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div class="ac-card-right">
+                    <span class="ac-status ac-status-on"><span class="ac-status-dot"></span>就绪</span>
+                </div>
+            </div>`;
+        }
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
 }
 
 // MCP Server actions
