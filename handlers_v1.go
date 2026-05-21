@@ -125,6 +125,11 @@ func GetMCPToolsList() []map[string]interface{} {
 		{"name": "list_apis", "description": "列出开放接口"},
 		{"name": "create_api", "description": "创建开放接口"},
 		{"name": "ask_user", "description": "询问用户"},
+		{"name": "list_apps", "description": "列出应用广场所有应用"},
+		{"name": "get_app", "description": "获取应用详情（含代码）"},
+		{"name": "create_app", "description": "创建应用：提供 title/slug/html/css/js 即可发布一个纯前端应用到应用广场"},
+		{"name": "update_app", "description": "更新应用：修改标题/网址/代码等"},
+		{"name": "delete_app", "description": "删除应用"},
 	}
 }
 
