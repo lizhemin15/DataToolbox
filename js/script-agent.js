@@ -3752,6 +3752,10 @@ async function loadAppsMarketplace() {
 }
 
 // 打开应用
+function openAppEditor() {
+    window.open('/app-editor.html', '_blank');
+}
+
 function openAppInMarketplace(slug) {
     window.open(`/a/${slug}`, '_blank');
 }
