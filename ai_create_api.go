@@ -1230,10 +1230,30 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	mcpConfigs := agentMCPSupervisor.ListConfigs()
 	skills := agentSkillRegistry.List()
 
-	// 统计 MCP 服务数量（包含内置）
+	// 如果 registry 为空，从数据库 AI 配置构建虚拟 provider
 	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
 	mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
 	dataOntologyMu.RUnlock()
+
+	if len(providers) == 0 && aiConfig != nil && aiConfig.APIKey != "" && aiConfig.Model != "" {
+		// 从数据库配置创建虚拟 provider 用于显示
+		providerType := "openai"
+		if aiConfig.URL != "" && strings.Contains(aiConfig.URL, "generativelanguage.googleapis.com") {
+			providerType = "gemini"
+		}
+		providers = []map[string]interface{}{{
+			"id":         "default",
+			"name":       aiConfig.Model,
+			"model":      aiConfig.Model,
+			"provider":   providerType,
+			"url":        aiConfig.URL,
+			"enabled":    true,
+			"is_default": true,
+		}}
+	}
+
+	// 统计 MCP 服务数量（包含内置）
 	mcpCount := len(mcpConfigs)
 	if mcpEnabled {
 		mcpCount++ // 内置 DataToolbox MCP
@@ -1242,7 +1262,9 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	// 统计活跃 agent 数量
 	activeAgents := 0
 	for _, p := range providers {
-		if p.Enabled {
+		if enabled, ok := p["enabled"].(bool); ok && enabled {
+			activeAgents++
+		} else if p["enabled"] == true {
 			activeAgents++
 		}
 	}
