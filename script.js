@@ -15033,32 +15033,111 @@ async function removeMCPServer(id) {
 }
 
 function showAddMCPForm() {
-    const name = prompt('MCP Server 名称:');
-    if (!name) return;
-    const transport = prompt('传输类型 (stdio/sse/streamable_http):', 'stdio');
-    let body = { name, type: transport || 'stdio', enabled: true, auto_start: false };
-    if (transport === 'sse' || transport === 'http' || transport === 'streamable_http' || transport === 'streamable-http') {
-        const url = prompt('MCP Server URL (如: http://localhost:3000/mcp):');
-        if (!url) return;
+    // 在列表下方插入表单
+    const container = document.getElementById('agentConfigContent');
+    const existingForm = document.getElementById('mcp-add-form');
+    if (existingForm) { existingForm.remove(); return; }
+    
+    const formHtml = `
+    <div id="mcp-add-form" class="ac-form-card">
+        <div class="ac-form-header">
+            <h3>添加 MCP Server</h3>
+            <button class="ac-btn ac-btn-ghost" onclick="document.getElementById('mcp-add-form').remove()">✕</button>
+        </div>
+        <div class="ac-form-body">
+            <div class="ac-form-row">
+                <label>名称 <span class="ac-required">*</span></label>
+                <input type="text" id="mcp-name" placeholder="如: my-mcp-server" class="ac-input">
+            </div>
+            <div class="ac-form-row">
+                <label>传输类型</label>
+                <select id="mcp-transport" class="ac-select" onchange="toggleMCPFields()">
+                    <option value="stdio">stdio (本地进程)</option>
+                    <option value="sse">sse (Server-Sent Events)</option>
+                    <option value="streamable_http">streamable-http (HTTP)</option>
+                </select>
+            </div>
+            <div id="mcp-http-fields" style="display:none;">
+                <div class="ac-form-row">
+                    <label>URL <span class="ac-required">*</span></label>
+                    <input type="text" id="mcp-url" placeholder="http://localhost:3000/mcp" class="ac-input">
+                </div>
+                <div class="ac-form-row">
+                    <label>请求头 (JSON)</label>
+                    <input type="text" id="mcp-headers" placeholder='{"Authorization":"Bearer xxx"}' class="ac-input">
+                </div>
+            </div>
+            <div id="mcp-stdio-fields">
+                <div class="ac-form-row">
+                    <label>命令 <span class="ac-required">*</span></label>
+                    <input type="text" id="mcp-command" placeholder="npx @modelcontextprotocol/server-sqlite" class="ac-input">
+                </div>
+                <div class="ac-form-row">
+                    <label>参数 (空格分隔)</label>
+                    <input type="text" id="mcp-args" placeholder="-y @modelcontextprotocol/server-echo" class="ac-input">
+                </div>
+                <div class="ac-form-row">
+                    <label>环境变量 (JSON)</label>
+                    <input type="text" id="mcp-env" placeholder='{"API_KEY":"xxx"}' class="ac-input">
+                </div>
+            </div>
+            <div class="ac-form-row">
+                <label>描述</label>
+                <input type="text" id="mcp-desc" placeholder="可选描述" class="ac-input">
+            </div>
+            <div class="ac-form-actions">
+                <button class="ac-btn ac-btn-secondary" onclick="document.getElementById('mcp-add-form').remove()">取消</button>
+                <button class="ac-btn ac-btn-primary" onclick="submitMCPForm()">添加</button>
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', formHtml);
+}
+
+function toggleMCPFields() {
+    const transport = document.getElementById('mcp-transport').value;
+    document.getElementById('mcp-http-fields').style.display = (transport === 'sse' || transport === 'streamable_http') ? 'block' : 'none';
+    document.getElementById('mcp-stdio-fields').style.display = transport === 'stdio' ? 'block' : 'none';
+}
+
+async function submitMCPForm() {
+    const name = document.getElementById('mcp-name').value.trim();
+    if (!name) { showToast('请输入名称', 'error'); return; }
+    
+    const transport = document.getElementById('mcp-transport').value;
+    let body = { name, type: transport, enabled: true, auto_start: false };
+    
+    if (transport === 'sse' || transport === 'streamable_http') {
+        const url = document.getElementById('mcp-url').value.trim();
+        if (!url) { showToast('请输入 URL', 'error'); return; }
         body.url = url;
-        const headers = prompt('自定义请求头 (JSON格式，如: {"Authorization":"Bearer xxx"}，留空跳过):');
-        if (headers) try { body.headers = JSON.parse(headers); } catch(e) {}
+        const headers = document.getElementById('mcp-headers').value.trim();
+        if (headers) try { body.headers = JSON.parse(headers); } catch(e) { showToast('请求头 JSON 格式错误', 'error'); return; }
     } else {
-        const command = prompt('命令 (如: npx @modelcontextprotocol/server-sqlite):');
-        if (!command) return;
+        const command = document.getElementById('mcp-command').value.trim();
+        if (!command) { showToast('请输入命令', 'error'); return; }
         body.command = command;
-        const args = prompt('参数 (空格分隔，如: -y @modelcontextprotocol/server-echo，留空跳过):');
+        const args = document.getElementById('mcp-args').value.trim();
         if (args) body.args = args.split(/\s+/);
-        const env = prompt('环境变量 (JSON格式，如: {"API_KEY":"xxx"}，留空跳过):');
-        if (env) try { body.env = JSON.parse(env); } catch(e) {}
+        const env = document.getElementById('mcp-env').value.trim();
+        if (env) try { body.env = JSON.parse(env); } catch(e) { showToast('环境变量 JSON 格式错误', 'error'); return; }
     }
-    const desc = prompt('描述 (可选):');
+    
+    const desc = document.getElementById('mcp-desc').value.trim();
     if (desc) body.description = desc;
-    fetchWithAuth(`${API_BASE}/api/v1/agent/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    }).then(() => loadAgentConfigTab('mcp')).catch(e => showToast('添加失败: ' + e.message, 'error'));
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/mcp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        document.getElementById('mcp-add-form').remove();
+        loadAgentConfigTab('mcp');
+        showToast('MCP Server 添加成功', 'success');
+    } catch (e) {
+        showToast('添加失败: ' + e.message, 'error');
+    }
 }
 
 // Skill actions
@@ -15094,13 +15173,71 @@ async function removeSkill(id) {
 }
 
 function showAddSkillForm() {
-    const name = prompt('Skill 名称:');
-    if (!name) return;
-    const sourcePath = prompt('SKILL.md 文件路径:');
-    if (!sourcePath) return;
-    fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, source_path: sourcePath, enabled: true })
-    }).then(() => loadAgentConfigTab('skill')).catch(e => showToast('添加失败: ' + e.message, 'error'));
+    const container = document.getElementById('agentConfigContent');
+    const existingForm = document.getElementById('skill-add-form');
+    if (existingForm) { existingForm.remove(); return; }
+    
+    const formHtml = `
+    <div id="skill-add-form" class="ac-form-card">
+        <div class="ac-form-header">
+            <h3>添加 Skill</h3>
+            <button class="ac-btn ac-btn-ghost" onclick="document.getElementById('skill-add-form').remove()">✕</button>
+        </div>
+        <div class="ac-form-body">
+            <div class="ac-form-row">
+                <label>名称 <span class="ac-required">*</span></label>
+                <input type="text" id="skill-name" placeholder="如: my-skill" class="ac-input">
+            </div>
+            <div class="ac-form-row">
+                <label>SKILL.md 路径 <span class="ac-required">*</span></label>
+                <input type="text" id="skill-path" placeholder="/path/to/SKILL.md" class="ac-input">
+                <small class="ac-form-hint">Skill 文件的绝对路径</small>
+            </div>
+            <div class="ac-form-row">
+                <label>描述</label>
+                <input type="text" id="skill-desc" placeholder="可选描述" class="ac-input">
+            </div>
+            <div class="ac-form-row">
+                <label>分类</label>
+                <select id="skill-category" class="ac-select">
+                    <option value="">无</option>
+                    <option value="devops">DevOps</option>
+                    <option value="data">数据</option>
+                    <option value="ai">AI</option>
+                    <option value="productivity">效率</option>
+                </select>
+            </div>
+            <div class="ac-form-actions">
+                <button class="ac-btn ac-btn-secondary" onclick="document.getElementById('skill-add-form').remove()">取消</button>
+                <button class="ac-btn ac-btn-primary" onclick="submitSkillForm()">添加</button>
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', formHtml);
+}
+
+async function submitSkillForm() {
+    const name = document.getElementById('skill-name').value.trim();
+    const sourcePath = document.getElementById('skill-path').value.trim();
+    if (!name) { showToast('请输入名称', 'error'); return; }
+    if (!sourcePath) { showToast('请输入 SKILL.md 路径', 'error'); return; }
+    
+    const body = { name, source_path: sourcePath, enabled: true };
+    const desc = document.getElementById('skill-desc').value.trim();
+    if (desc) body.description = desc;
+    const category = document.getElementById('skill-category').value;
+    if (category) body.category = category;
+    
+    try {
+        await fetchWithAuth(`${API_BASE}/api/v1/agent/skill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        document.getElementById('skill-add-form').remove();
+        loadAgentConfigTab('skill');
+        showToast('Skill 添加成功', 'success');
+    } catch (e) {
+        showToast('添加失败: ' + e.message, 'error');
+    }
 }
