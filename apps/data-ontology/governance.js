@@ -2,7 +2,7 @@ async function govDownloadExampleSingle(path) {
     const safe = String(path || '').trim();
     if (!safe) return;
     const filename = safe.split('/').pop();
-    const url = `${API_BASE}/api/data-ontology/governance/examples/${encodeURIComponent(filename)}`;
+    const url = `${API_BASE}/api/v1/gov/examples/${encodeURIComponent(filename)}`;
     const response = await fetchWithAuth(url);
     const ct = response.headers.get('Content-Type') || '';
     if (!response.ok || ct.includes('application/json')) {
@@ -30,7 +30,7 @@ async function govDownloadExampleSingle(path) {
 
 async function govDownloadExampleZip(files) {
     const payload = { files: files };
-    const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/download`, {
+    const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/examples/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -84,7 +84,7 @@ function govNormalizeExampleFile(item) {
 
 async function govReloadExamplesFromEmbed() {
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/data-ontology/governance/examples/reload`, {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/examples/reload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ include_js: true })

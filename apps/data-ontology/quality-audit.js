@@ -4,7 +4,7 @@
 (function () {
     // Get API_BASE from window (set by script.js) or use current origin
     var API_BASE = window.API_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
-    var PREFIX = API_BASE + '/api/data-ontology/quality-audit/';
+    var PREFIX = API_BASE + '/api/v1/quality-audit/';
     var ruleTree = [];
     var flatRules = [];
     var selectedNms = {};
@@ -519,7 +519,7 @@
     }
 
     function loadDatabases() {
-        return fetchWithAuth(API_BASE + '/api/data-ontology/databases').then(function (r) { return r.json(); }).then(function (d) {
+        return fetchWithAuth(API_BASE + '/api/v1/databases').then(function (r) { return r.json(); }).then(function (d) {
             if (!d.success) throw new Error(d.message || '加载数据库失败');
             var sel = document.getElementById('qaDbSelect');
             sel.innerHTML = '<option value="">请选择</option>';
