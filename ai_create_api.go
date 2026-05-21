@@ -1230,6 +1230,15 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	mcpConfigs := agentMCPSupervisor.ListConfigs()
 	skills := agentSkillRegistry.List()
 
+	// 统计 MCP 服务数量（包含内置）
+	dataOntologyMu.RLock()
+	mcpEnabled := dataOntologyMCPEnabled == nil || *dataOntologyMCPEnabled
+	dataOntologyMu.RUnlock()
+	mcpCount := len(mcpConfigs)
+	if mcpEnabled {
+		mcpCount++ // 内置 DataToolbox MCP
+	}
+
 	// 统计活跃 agent 数量
 	activeAgents := 0
 	for _, p := range providers {
@@ -1243,9 +1252,10 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		"active_agents":  activeAgents,
 		"providers":      providers,
 		"mcp_servers":    mcpConfigs,
+		"mcp_count":      mcpCount, // 包含内置的总数
 		"skills":         skills,
 		"tools_count":    len(skills),
-		"toolsets_count": len(mcpConfigs),
+		"toolsets_count": mcpCount,
 	})
 }
 

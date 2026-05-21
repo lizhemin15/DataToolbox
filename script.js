@@ -14941,7 +14941,7 @@ function renderSkillConfig(container, skills) {
 // Render agent status
 function renderAgentStatus(container, data) {
     const providers = data.providers || [];
-    const mcpCount = (data.mcp_servers || []).length;
+    const mcpCount = data.mcp_count || (data.mcp_servers || []).length;
     const skillCount = (data.skills || []).length;
 
     let html = `<div class="ac-status-grid">
