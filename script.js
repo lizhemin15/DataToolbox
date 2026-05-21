@@ -15430,9 +15430,7 @@ function showAddSkillForm() {
         </div>
     </div>`;
     container.insertAdjacentHTML('beforeend', formHtml);
-    
-    // 自动加载默认目录
-    browseSkillPath('');
+    // 文件浏览器在用户点击"浏览"按钮时加载，不自动加载
 }
 
 // 新建 Skill 表单（创建新目录 + SKILL.md）
@@ -15625,9 +15623,8 @@ function toggleSkillFileBrowser() {
     
     if (browser.style.display === 'none') {
         browser.style.display = 'block';
-        if (!_skillBrowserCurrentPath) {
-            browseSkillPath('');
-        }
+        // 始终重新加载当前目录，确保数据最新
+        browseSkillPath(_skillBrowserCurrentPath || '');
     } else {
         browser.style.display = 'none';
     }

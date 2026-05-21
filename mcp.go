@@ -259,6 +259,37 @@ type executeApiIn struct {
 	Params map[string]interface{} `json:"params,omitempty" jsonschema:"查询参数"`
 }
 
+// ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
+
+type createAppIn struct {
+	Title       string                 `json:"title" jsonschema:"应用显示标题"`
+	Slug        string                 `json:"slug" jsonschema:"URL 友好的唯一标识（如 my-app）"`
+	Description string                 `json:"description,omitempty" jsonschema:"应用描述"`
+	HTML        string                 `json:"html,omitempty" jsonschema:"HTML 代码"`
+	CSS         string                 `json:"css,omitempty" jsonschema:"CSS 代码"`
+	JS          string                 `json:"js,omitempty" jsonschema:"JavaScript 代码"`
+	Files       map[string]interface{} `json:"files,omitempty" jsonschema:"附加文件列表（JSON 对象，键为文件名，值为文件内容）"`
+	IsPublic    bool                   `json:"is_public,omitempty" jsonschema:"是否公开（默认 false）"`
+}
+
+type listAppsIn struct{}
+
+type updateAppIn struct {
+	ID          string                 `json:"id" jsonschema:"应用 ID"`
+	Title       string                 `json:"title,omitempty" jsonschema:"新的显示标题"`
+	Slug        string                 `json:"slug,omitempty" jsonschema:"新的 URL 标识"`
+	Description string                 `json:"description,omitempty" jsonschema:"新的描述"`
+	HTML        string                 `json:"html,omitempty" jsonschema:"新的 HTML 代码"`
+	CSS         string                 `json:"css,omitempty" jsonschema:"新的 CSS 代码"`
+	JS          string                 `json:"js,omitempty" jsonschema:"新的 JavaScript 代码"`
+	Files       map[string]interface{} `json:"files,omitempty" jsonschema:"新的附加文件列表"`
+	IsPublic    *bool                  `json:"is_public,omitempty" jsonschema:"是否公开"`
+}
+
+type deleteAppIn struct {
+	ID string `json:"id" jsonschema:"应用 ID"`
+}
+
 // ─── 工具处理函数（HTTP 模式和 Stdio 模式共用） ──────────────────────────────
 
 func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
@@ -523,6 +554,110 @@ func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiI
 	return nil, mcpOutput{Result: string(data)}, nil
 }
 
+// ─── 应用管理工具处理函数 ─────────────────────────────────────────────────────
+
+func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+
+	// 构建请求体
+	reqBody := map[string]interface{}{
+		"title":       in.Title,
+		"slug":        in.Slug,
+		"description": in.Description,
+		"html":        in.HTML,
+		"css":         in.CSS,
+		"js":          in.JS,
+		"is_public":   in.IsPublic,
+	}
+	if in.Files != nil {
+		reqBody["files"] = in.Files
+	}
+
+	body, _ := json.Marshal(reqBody)
+	data, err := cli.do(http.MethodPost, "/api/v1/apps", body)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpListApps(ctx context.Context, req *mcp.CallToolRequest, _ listAppsIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/v1/apps", nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpUpdateApp(ctx context.Context, req *mcp.CallToolRequest, in updateAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+
+	if in.ID == "" {
+		return nil, mcpOutput{}, fmt.Errorf("缺少应用 ID")
+	}
+
+	// 构建请求体（只包含非空字段）
+	reqBody := map[string]interface{}{}
+	if in.Title != "" {
+		reqBody["title"] = in.Title
+	}
+	if in.Slug != "" {
+		reqBody["slug"] = in.Slug
+	}
+	if in.Description != "" {
+		reqBody["description"] = in.Description
+	}
+	if in.HTML != "" {
+		reqBody["html"] = in.HTML
+	}
+	if in.CSS != "" {
+		reqBody["css"] = in.CSS
+	}
+	if in.JS != "" {
+		reqBody["js"] = in.JS
+	}
+	if in.Files != nil {
+		reqBody["files"] = in.Files
+	}
+	if in.IsPublic != nil {
+		reqBody["is_public"] = *in.IsPublic
+	}
+
+	body, _ := json.Marshal(reqBody)
+	data, err := cli.do(http.MethodPut, "/api/v1/apps/"+in.ID, body)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+
+	if in.ID == "" {
+		return nil, mcpOutput{}, fmt.Errorf("缺少应用 ID")
+	}
+
+	data, err := cli.do(http.MethodDelete, "/api/v1/apps/"+in.ID, nil)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
 // ─── MCP 客户端上下文传递 ────────────────────────────────────────────────────
 
 type mcpClientContextKey struct{}
@@ -663,7 +798,7 @@ func initMCPHTTPHandler() {
 			Version: mcpServerVersion,
 		}, nil)
 
-		// 注册所有 12 个工具
+		// 注册所有 16 个工具
 		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
 		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构（字段名、类型、是否可空、默认值、键信息等）"}, mcpDescribeTable)
@@ -676,6 +811,12 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明"}, mcpGetDbSQLHints)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "【重要】创建接口前必须先调用 ask_user 工具让用户确认配置！创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
+
+		// 应用管理工具
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "创建新的应用，定义应用标题、标识、描述和文件内容"}, mcpCreateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
+		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和文件内容"}, mcpUpdateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定 ID 的应用"}, mcpDeleteApp)
 
 		return server
 	}
@@ -748,7 +889,7 @@ func runMCPServer() {
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, nil)
-	// Stdio 模式注册所有 12 个工具（与 HTTP 模式一致）
+	// Stdio 模式注册所有 16 个工具（与 HTTP 模式一致）
 	mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
 	mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构"}, mcpDescribeTable)
@@ -761,6 +902,12 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示"}, mcpGetDbSQLHints)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
+
+	// 应用管理工具
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "创建新的应用"}, mcpCreateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)

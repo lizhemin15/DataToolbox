@@ -248,6 +248,29 @@ func createStoreTables(db *sql.DB) error {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_ai_sessions_owner ON ai_sessions(owner)`,
+
+		// 应用广场
+		`CREATE TABLE IF NOT EXISTS apps (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE NOT NULL,
+            title TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
+            html TEXT DEFAULT '',
+            css TEXT DEFAULT '',
+            js TEXT DEFAULT '',
+            files TEXT DEFAULT '[]',
+            config TEXT DEFAULT '{}',
+            tags TEXT DEFAULT '[]',
+            is_public INTEGER DEFAULT 0,
+            view_count INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_apps_owner ON apps(owner)`,
+		`CREATE INDEX IF NOT EXISTS idx_apps_slug ON apps(slug)`,
 	}
 
 	for _, stmt := range stmts {
@@ -1643,5 +1666,175 @@ func sqlDeleteAISession(id, owner string) error {
 	defer storeDBMu.Unlock()
 
 	_, err := storeDB.Exec("DELETE FROM ai_sessions WHERE id = ? AND owner = ?", id, owner)
+	return err
+}
+
+// ============================================================
+// 应用广场
+// ============================================================
+
+type App struct {
+	ID          string    `json:"id"`
+	Owner       string    `json:"owner"`
+	Name        string    `json:"name"`
+	Slug        string    `json:"slug"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Icon        string    `json:"icon"`
+	HTML        string    `json:"html"`
+	CSS         string    `json:"css"`
+	JS          string    `json:"js"`
+	Files       []string  `json:"files"`
+	Config      string    `json:"config"`
+	Tags        []string  `json:"tags"`
+	IsPublic    bool      `json:"is_public"`
+	ViewCount   int       `json:"view_count"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// sqlListApps 获取用户的所有应用
+func sqlListApps(owner string) ([]App, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	rows, err := storeDB.Query("SELECT id, name, slug, title, description, icon, is_public, view_count, created_at, updated_at FROM apps WHERE owner = ? ORDER BY updated_at DESC", owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var apps []App
+	for rows.Next() {
+		var a App
+		var createdAt, updatedAt sql.NullString
+		var isPublic int
+		rows.Scan(&a.ID, &a.Name, &a.Slug, &a.Title, &a.Description, &a.Icon, &isPublic, &a.ViewCount, &createdAt, &updatedAt)
+		a.Owner = owner
+		a.IsPublic = isPublic == 1
+		if createdAt.Valid {
+			a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		}
+		if updatedAt.Valid {
+			a.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+		}
+		apps = append(apps, a)
+	}
+	return apps, nil
+}
+
+// sqlGetApp 获取单个应用（完整内容）
+func sqlGetApp(id string) (*App, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	var a App
+	var filesJSON, tagsJSON sql.NullString
+	var createdAt, updatedAt sql.NullString
+	var isPublic int
+	err := storeDB.QueryRow("SELECT id, owner, name, slug, title, description, icon, html, css, js, files, config, tags, is_public, view_count, created_at, updated_at FROM apps WHERE id = ?", id).Scan(
+		&a.ID, &a.Owner, &a.Name, &a.Slug, &a.Title, &a.Description, &a.Icon, &a.HTML, &a.CSS, &a.JS, &filesJSON, &a.Config, &tagsJSON, &isPublic, &a.ViewCount, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.IsPublic = isPublic == 1
+	if filesJSON.Valid && filesJSON.String != "" {
+		json.Unmarshal([]byte(filesJSON.String), &a.Files)
+	}
+	if tagsJSON.Valid && tagsJSON.String != "" {
+		json.Unmarshal([]byte(tagsJSON.String), &a.Tags)
+	}
+	if createdAt.Valid {
+		a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		a.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &a, nil
+}
+
+// sqlGetAppBySlug 通过 slug 获取应用
+func sqlGetAppBySlug(slug string) (*App, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	var a App
+	var filesJSON, tagsJSON sql.NullString
+	var createdAt, updatedAt sql.NullString
+	var isPublic int
+	err := storeDB.QueryRow("SELECT id, owner, name, slug, title, description, icon, html, css, js, files, config, tags, is_public, view_count, created_at, updated_at FROM apps WHERE slug = ?", slug).Scan(
+		&a.ID, &a.Owner, &a.Name, &a.Slug, &a.Title, &a.Description, &a.Icon, &a.HTML, &a.CSS, &a.JS, &filesJSON, &a.Config, &tagsJSON, &isPublic, &a.ViewCount, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.IsPublic = isPublic == 1
+	if filesJSON.Valid && filesJSON.String != "" {
+		json.Unmarshal([]byte(filesJSON.String), &a.Files)
+	}
+	if tagsJSON.Valid && tagsJSON.String != "" {
+		json.Unmarshal([]byte(tagsJSON.String), &a.Tags)
+	}
+	if createdAt.Valid {
+		a.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		a.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &a, nil
+}
+
+// sqlSaveApp 创建或更新应用
+func sqlSaveApp(a *App) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	filesJSON := toJSON(a.Files)
+	tagsJSON := toJSON(a.Tags)
+	now := time.Now().Format("2006-01-02 15:04:05")
+	isPublic := 0
+	if a.IsPublic {
+		isPublic = 1
+	}
+
+	// 先尝试更新
+	result, err := storeDB.Exec("UPDATE apps SET name=?, slug=?, title=?, description=?, icon=?, html=?, css=?, js=?, files=?, config=?, tags=?, is_public=?, updated_at=? WHERE id=? AND owner=?",
+		a.Name, a.Slug, a.Title, a.Description, a.Icon, a.HTML, a.CSS, a.JS, filesJSON, a.Config, tagsJSON, isPublic, now, a.ID, a.Owner)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// 不存在则插入
+		_, err = storeDB.Exec("INSERT INTO apps (id, owner, name, slug, title, description, icon, html, css, js, files, config, tags, is_public, view_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+			a.ID, a.Owner, a.Name, a.Slug, a.Title, a.Description, a.Icon, a.HTML, a.CSS, a.JS, filesJSON, a.Config, tagsJSON, isPublic, now, now)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sqlDeleteApp 删除应用
+func sqlDeleteApp(id, owner string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	_, err := storeDB.Exec("DELETE FROM apps WHERE id = ? AND owner = ?", id, owner)
+	return err
+}
+
+// sqlIncrementAppViewCount 增加访问计数
+func sqlIncrementAppViewCount(id string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	_, err := storeDB.Exec("UPDATE apps SET view_count = view_count + 1 WHERE id = ?", id)
 	return err
 }
