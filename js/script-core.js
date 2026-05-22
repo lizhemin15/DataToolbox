@@ -330,10 +330,46 @@ function renderSessionList() {
     listEl.innerHTML = aiSessions.map(s => {
         const isActive = s.id === currentSessionId;
         return `<div class="ai-session-item ${isActive ? 'active' : ''}" onclick="switchToSession('${s.id}')">
-            <span class="session-title">${escapeHtml(s.title)}</span>
+            <span class="session-title" ondblclick="renameSession('${s.id}', event)">${escapeHtml(s.title)}</span>
             <button class="session-delete" onclick="deleteSession('${s.id}', event)" title="删除">✕</button>
         </div>`;
     }).join('');
+}
+
+// 双击重命名会话
+function renameSession(sessionId, event) {
+    event.stopPropagation();
+    const session = aiSessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const titleEl = event.target;
+    const oldTitle = session.title;
+    titleEl.contentEditable = true;
+    titleEl.focus();
+    // 选中全部文字
+    const range = document.createRange();
+    range.selectNodeContents(titleEl);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    function finish() {
+        titleEl.contentEditable = false;
+        const newTitle = titleEl.textContent.trim();
+        if (newTitle && newTitle !== oldTitle) {
+            session.title = newTitle;
+            saveSessionToBackend(session);
+        } else {
+            titleEl.textContent = oldTitle;
+        }
+        titleEl.removeEventListener('blur', finish);
+        titleEl.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) {
+        if (e.key === 'Enter') { e.preventDefault(); finish(); }
+        if (e.key === 'Escape') { titleEl.textContent = oldTitle; finish(); }
+    }
+    titleEl.addEventListener('blur', finish);
+    titleEl.addEventListener('keydown', onKey);
 }
 
 function toggleAISidebar() {
@@ -343,8 +379,8 @@ function toggleAISidebar() {
 
 
 // 初始化会话系统
-function initSessionSystem() {
-    loadSessions();
+async function initSessionSystem() {
+    await loadSessions();
     // 恢复上次会话
     const lastSessionId = localStorage.getItem('lastSessionId');
     if (lastSessionId && aiSessions.find(s => s.id === lastSessionId)) {

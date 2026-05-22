@@ -3716,7 +3716,7 @@ async function loadAppsMarketplace() {
         const response = await fetchWithAuth('/api/v1/apps');
         if (!response.ok) throw new Error('加载失败');
         const data = await response.json();
-        const apps = data.apps || [];
+        const apps = data.data?.apps || data.apps || [];
         
         if (apps.length === 0) {
             container.innerHTML = `
