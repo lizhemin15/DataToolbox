@@ -1195,19 +1195,21 @@ TODO: Add pitfalls here
 		apiSuccess(w, cfg)
 
 	case http.MethodDelete:
-		// 删除 Skill
-		var req struct {
-			ID string `json:"id"`
+		// 删除 Skill — 支持从 query param 或 body 获取 id
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			var req struct {
+				ID string `json:"id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.ID != "" {
+				id = req.ID
+			}
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			apiBadRequest(w, "请求格式错误")
+		if id == "" {
+			apiBadRequest(w, "缺少 id")
 			return
 		}
-		if req.ID == "" {
-			apiBadRequest(w, "缺少 id 字段")
-			return
-		}
-		agentSkillRegistry.Remove(req.ID)
+		agentSkillRegistry.Remove(id)
 		if err := saveAgentConfig(); err != nil {
 			log.Printf("[agent] 保存配置失败: %v", err)
 		}
