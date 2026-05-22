@@ -2095,8 +2095,8 @@ function removeClusterModeGuide() {
 }
 
 // Initialize session system on DOMContentLoaded
-function initAgentMode() {
-    initSessionSystem();
+async function initAgentMode() {
+    await initSessionSystem();
 }
 
 // Send message via cluster mode (SSE) — PicoClaw-style card UI
@@ -3714,9 +3714,11 @@ async function loadAppsMarketplace() {
     
     try {
         const response = await fetchWithAuth('/api/v1/apps');
-        if (!response.ok) throw new Error('加载失败');
+        if (!response.ok) throw new Error('加载失败: ' + response.status);
         const data = await response.json();
+        console.log('[loadAppsMarketplace] API response:', JSON.stringify(data).substring(0, 500));
         const apps = data.data?.apps || data.apps || [];
+        console.log('[loadAppsMarketplace] parsed apps count:', apps.length);
         
         if (apps.length === 0) {
             container.innerHTML = `
