@@ -102,13 +102,19 @@ async function loadSessions() {
 // 保存会话到后端（账号持久化）
 async function saveSessionToBackend(session) {
     try {
-        await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions/${session.id}`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions/${session.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(session)
         });
+        const data = await res.json();
+        if (!data.success) {
+            console.error('保存会话失败:', data.message);
+            showToast('会话保存失败: ' + (data.message || '未知错误'), 'error');
+        }
     } catch(e) {
         console.error('保存会话失败:', e);
+        showToast('会话保存失败: ' + e.message, 'error');
     }
 }
 
@@ -387,9 +393,14 @@ function saveCurrentSessionMessage(role, content, blocksData) {
     if (role === 'user' && session.messages.filter(m => m.role === 'user').length === 1) {
         session.title = content.substring(0, 20) + (content.length > 20 ? '...' : '');
     }
-    session.databases = [...aiSessionContext.databases];
-    session.modules = [...aiSessionContext.modules];
-    session.history = [...aiSessionContext.history];
+    session.databases = aiSessionContext.databases.map(db => typeof db === 'object' ? db.id : db);
+    session.modules = aiSessionContext.modules.map(m => typeof m === 'object' ? m.id : m);
+    session.history = aiSessionContext.history.map(h => ({
+        role: h.role,
+        content: h.content,
+        databases: (h.databases || []).map(d => typeof d === 'object' ? d.id : d),
+        modules: (h.modules || []).map(m => typeof m === 'object' ? m.id : m)
+    }));
     session.updatedAt = new Date().toISOString();
     saveSessionToBackend(session);
     renderSessionList();

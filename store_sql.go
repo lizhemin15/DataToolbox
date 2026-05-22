@@ -1527,16 +1527,16 @@ func mergeFromDB(otherDB *sql.DB) (map[string]interface{}, error) {
 // ============================================================
 
 type AISession struct {
-	ID        string    `json:"id"`
-	Owner     string    `json:"owner"`
-	Title     string    `json:"title"`
-	Mode      string    `json:"mode"`
-	Messages  []AIMessage `json:"messages"`
-	Databases []string  `json:"databases"`
-	Modules   []string  `json:"modules"`
-	History   []string  `json:"history"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string        `json:"id"`
+	Owner     string        `json:"owner"`
+	Title     string        `json:"title"`
+	Mode      string        `json:"mode"`
+	Messages  []AIMessage   `json:"messages"`
+	Databases []string      `json:"databases"`
+	Modules   []string      `json:"modules"`
+	History   []HistoryEntry `json:"history"`
+	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 type AIMessage struct {
@@ -1547,9 +1547,19 @@ type AIMessage struct {
 }
 
 type AIMessageBlock struct {
-	Type    string `json:"type"` // text/code/api/sql
-	Content string `json:"content"`
-	Status  string `json:"status,omitempty"`
+	Type      string `json:"type"`               // text/code/api/sql
+	Title     string `json:"title,omitempty"`     // 折叠块标题
+	ClassName string `json:"className,omitempty"` // CSS class
+	BodyHtml  string `json:"bodyHtml,omitempty"`  // 折叠块HTML内容
+	Content   string `json:"content"`
+	Status    string `json:"status,omitempty"`
+}
+
+type HistoryEntry struct {
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	Databases []string `json:"databases,omitempty"`
+	Modules   []string `json:"modules,omitempty"`
 }
 
 // sqlListAISessions 获取用户的所有会话

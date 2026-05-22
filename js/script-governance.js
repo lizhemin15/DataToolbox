@@ -1433,6 +1433,11 @@ async function handleSendAiMessage() {
         return;
     }
     
+    // 如果没有当前会话，自动创建一个
+    if (!currentSessionId || !getCurrentSession()) {
+        await createNewSession();
+    }
+    
     // 提取消息中的 @ 引用
     const allMatches = [...message.matchAll(/@([^\s]+)/g)];
     const dbRefs = [];
