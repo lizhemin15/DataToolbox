@@ -1256,3 +1256,295 @@
 .apps-empty-state p {
     margin: 0;
 }
+
+/* ===== CodePen 风格编辑器 ===== */
+.codepen-editor-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* 顶部工具栏 */
+.codepen-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.codepen-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.codepen-toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+}
+.codepen-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.codepen-back-btn {
+    background: none;
+    border: 1px solid #45475a;
+    color: #cdd6f4;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+}
+.codepen-back-btn:hover {
+    background: #313244;
+    border-color: #585b70;
+}
+.codepen-app-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #cba6f7;
+}
+.codepen-name-input,
+.codepen-slug-input {
+    background: #11111b;
+    border: 1px solid #313244;
+    color: #cdd6f4;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.codepen-name-input { width: 160px; }
+.codepen-slug-input { width: 100px; }
+.codepen-name-input:focus,
+.codepen-slug-input:focus {
+    border-color: #89b4fa;
+}
+.codepen-slug-preview {
+    font-size: 12px;
+    color: #6c7086;
+}
+.codepen-icon-btn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+.codepen-icon-btn:hover {
+    background: #313244;
+}
+.codepen-action-btn {
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: all 0.15s;
+}
+.codepen-preview-btn {
+    background: #89b4fa;
+    color: #1e1e2e;
+}
+.codepen-preview-btn:hover {
+    background: #74c7ec;
+}
+.codepen-save-btn {
+    background: #a6e3a1;
+    color: #1e1e2e;
+}
+.codepen-save-btn:hover {
+    background: #94e2d5;
+}
+.codepen-delete-btn {
+    background: #f38ba8;
+    color: #1e1e2e;
+}
+.codepen-delete-btn:hover {
+    background: #eba0ac;
+}
+
+/* 设置面板 */
+.codepen-settings-panel {
+    padding: 10px 16px;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    flex-shrink: 0;
+}
+.codepen-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.codepen-settings-row label {
+    font-size: 13px;
+    color: #a6adc8;
+    white-space: nowrap;
+}
+.codepen-setting-input {
+    background: #11111b;
+    border: 1px solid #313244;
+    color: #cdd6f4;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    width: 260px;
+}
+.codepen-setting-input:focus {
+    border-color: #89b4fa;
+}
+.codepen-icon-picker {
+    display: flex;
+    gap: 4px;
+}
+.codepen-icon-opt {
+    cursor: pointer;
+    font-size: 20px;
+    padding: 2px;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+}
+.codepen-icon-opt:hover {
+    background: #313244;
+}
+.codepen-icon-opt.selected {
+    border-color: #89b4fa;
+    background: #313244;
+}
+.codepen-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #a6adc8;
+}
+.codepen-checkbox-label input[type="checkbox"] {
+    accent-color: #89b4fa;
+}
+
+/* 编辑器主体 */
+.codepen-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+.codepen-editors {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    border-right: 1px solid #313244;
+}
+.codepen-editor-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-right: 1px solid #313244;
+}
+.codepen-editor-col:last-child {
+    border-right: none;
+}
+.codepen-editor-label {
+    padding: 4px 10px;
+    background: #11111b;
+    border-bottom: 1px solid #313244;
+    flex-shrink: 0;
+}
+.codepen-lang-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.html-badge { background: #f38ba8; color: #1e1e2e; }
+.css-badge { background: #89b4fa; color: #1e1e2e; }
+.js-badge { background: #f9e2af; color: #1e1e2e; }
+.codepen-code-area {
+    flex: 1;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: none;
+    padding: 10px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    tab-size: 2;
+    white-space: pre;
+    overflow: auto;
+}
+.codepen-code-area::placeholder {
+    color: #585b70;
+}
+
+/* 预览列 */
+.codepen-preview-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.codepen-preview-label {
+    padding: 4px 10px;
+    background: #11111b;
+    border-bottom: 1px solid #313244;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #a6adc8;
+    flex-shrink: 0;
+}
+.codepen-preview-status {
+    font-weight: 400;
+    color: #585b70;
+}
+.codepen-preview-frame {
+    flex: 1;
+    border: none;
+    background: #fff;
+    min-height: 0;
+}
+
+/* 底部状态栏 */
+.codepen-statusbar {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 12px;
+    background: #181825;
+    border-top: 1px solid #313244;
+    font-size: 12px;
+    color: #585b70;
+    flex-shrink: 0;
+}

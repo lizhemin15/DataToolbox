@@ -3751,18 +3751,85 @@ async function loadAppsMarketplace() {
     }
 }
 
-// 打开应用
+// 打开应用编辑器（内联 CodePen 风格）
 function openAppEditor() {
-    window.open('/app-editor.html', '_blank');
+    // 切换视图
+    document.getElementById('appsListView').style.display = 'none';
+    document.getElementById('appsEditorView').style.display = 'block';
+    
+    // 重置编辑器状态
+    document.getElementById('codepenAppTitle').textContent = '✨ 创建应用';
+    document.getElementById('codepenAppName').value = '';
+    document.getElementById('codepenAppSlug').value = '';
+    document.getElementById('codepenAppDesc').value = '';
+    document.getElementById('codepenAppPublic').checked = true;
+    document.getElementById('codepenHtmlEditor').value = '<div id="app">\n  <h1>Hello World</h1>\n</div>';
+    document.getElementById('codepenCssEditor').value = '#app {\n  padding: 20px;\n  font-family: sans-serif;\n}\n\nh1 {\n  color: #333;\n}';
+    document.getElementById('codepenJsEditor').value = 'console.log("App loaded");';
+    document.getElementById('codepenDeleteBtn').style.display = 'none';
+    document.getElementById('codepenLastSaved').textContent = '未保存';
+    document.getElementById('codepenStatusMsg').textContent = '就绪';
+    
+    // 重置图标选择
+    document.querySelectorAll('.codepen-icon-opt').forEach((opt, i) => {
+        opt.classList.toggle('selected', i === 0);
+    });
+    
+    // 清空编辑器 ID（新建模式）
+    window._currentEditingAppId = null;
+    
+    // 自动预览
+    previewCodepenApp();
+    
+    // 绑定自动预览（debounce 500ms）
+    ['codepenHtmlEditor', 'codepenCssEditor', 'codepenJsEditor'].forEach(id => {
+        const el = document.getElementById(id);
+        el._debounceTimer && clearTimeout(el._debounceTimer);
+        el.addEventListener('input', function() {
+            this._debounceTimer = setTimeout(previewCodepenApp, 500);
+        });
+    });
+    
+    // 绑定名称 → slug 自动转换
+    document.getElementById('codepenAppName').addEventListener('input', function() {
+        const name = this.value;
+        const slug = name.toLowerCase()
+            .replace(/[^\w\u4e00-\u9fa5]+/g, '-')
+            .replace(/^-|-$/g, '')
+            .substring(0, 30);
+        document.getElementById('codepenAppSlug').value = slug;
+        document.getElementById('codepenSlugPreview').textContent = `/a/${slug || 'my-app'}`;
+    });
+    
+    // 绑定图标选择
+    document.querySelectorAll('.codepen-icon-opt').forEach(opt => {
+        opt.addEventListener('click', function() {
+            document.querySelectorAll('.codepen-icon-opt').forEach(o => o.classList.remove('selected'));
+            this.classList.add('selected');
+        });
+    });
+}
+
+// 关闭应用编辑器
+function closeAppEditor() {
+    document.getElementById('appsListView').style.display = 'block';
+    document.getElementById('appsEditorView').style.display = 'none';
+    window._currentEditingAppId = null;
+    loadAppsMarketplace(); // 刷新列表
 }
 
 function openAppInMarketplace(slug) {
     window.open(`/a/${slug}`, '_blank');
 }
 
-// 编辑应用
+// 编辑应用（内联编辑器）
 function editAppInMarketplace(appId) {
-    window.open(`/app-editor.html?id=${appId}`, '_blank');
+    // 切换视图
+    document.getElementById('appsListView').style.display = 'none';
+    document.getElementById('appsEditorView').style.display = 'block';
+    
+    // 加载应用数据
+    loadAppIntoEditor(appId);
 }
 
 // 删除应用
@@ -3777,4 +3844,176 @@ async function deleteAppInMarketplace(appId, title) {
     } catch (e) {
         showToast('删除失败: ' + e.message, 'error');
     }
+}
+
+// ========== CodePen 风格编辑器核心函数 ==========
+
+// 预览应用
+function previewCodepenApp() {
+    const html = document.getElementById('codepenHtmlEditor').value;
+    const css = document.getElementById('codepenCssEditor').value;
+    const js = document.getElementById('codepenJsEditor').value;
+    
+    const previewHtml = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>${css}</style>
+</head>
+<body>
+${html}
+<script>${js}<\/script>
+</body>
+</html>`;
+    
+    const iframe = document.getElementById('codepenPreviewFrame');
+    iframe.srcdoc = previewHtml;
+    
+    document.getElementById('codepenPreviewStatus').textContent = '已更新';
+    setTimeout(() => {
+        document.getElementById('codepenPreviewStatus').textContent = '';
+    }, 1000);
+}
+
+// 保存应用
+async function saveCodepenApp() {
+    const name = document.getElementById('codepenAppName').value.trim();
+    const slug = document.getElementById('codepenAppSlug').value.trim();
+    const desc = document.getElementById('codepenAppDesc').value.trim();
+    const isPublic = document.getElementById('codepenAppPublic').checked;
+    const html = document.getElementById('codepenHtmlEditor').value;
+    const css = document.getElementById('codepenCssEditor').value;
+    const js = document.getElementById('codepenJsEditor').value;
+    const iconEl = document.querySelector('.codepen-icon-opt.selected');
+    const icon = iconEl ? iconEl.dataset.icon : '🎨';
+    
+    if (!name) {
+        showToast('请输入应用名称', 'error');
+        return;
+    }
+    if (!slug) {
+        showToast('请输入应用 slug', 'error');
+        return;
+    }
+    
+    const appData = {
+        title: name,
+        slug: slug,
+        description: desc,
+        icon: icon,
+        is_public: isPublic,
+        html_content: html,
+        css_content: css,
+        js_content: js
+    };
+    
+    try {
+        document.getElementById('codepenStatusMsg').textContent = '保存中...';
+        
+        let response;
+        if (window._currentEditingAppId) {
+            // 更新现有应用
+            response = await fetchWithAuth(`/api/v1/apps/${window._currentEditingAppId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(appData)
+            });
+        } else {
+            // 创建新应用
+            response = await fetchWithAuth('/api/v1/apps', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(appData)
+            });
+        }
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || '保存失败');
+        }
+        
+        const result = await response.json();
+        window._currentEditingAppId = result.id || result.app_id;
+        document.getElementById('codepenAppTitle').textContent = '✏️ 编辑应用';
+        document.getElementById('codepenDeleteBtn').style.display = 'inline-block';
+        
+        const now = new Date().toLocaleTimeString();
+        document.getElementById('codepenLastSaved').textContent = `已保存 ${now}`;
+        document.getElementById('codepenStatusMsg').textContent = '保存成功';
+        showToast('应用已保存', 'success');
+        
+    } catch (e) {
+        document.getElementById('codepenStatusMsg').textContent = '保存失败';
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+// 删除应用（编辑器内）
+async function deleteCodepenApp() {
+    if (!window._currentEditingAppId) return;
+    
+    const name = document.getElementById('codepenAppName').value;
+    if (!confirm(`确定要删除应用「${name}」吗？此操作不可恢复。`)) return;
+    
+    try {
+        const response = await fetchWithAuth(`/api/v1/apps/${window._currentEditingAppId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('删除失败');
+        
+        showToast('应用已删除', 'success');
+        closeAppEditor();
+        
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
+}
+
+// 加载应用到编辑器
+async function loadAppIntoEditor(appId) {
+    try {
+        document.getElementById('codepenStatusMsg').textContent = '加载中...';
+        
+        const response = await fetchWithAuth(`/api/v1/apps/${appId}`);
+        if (!response.ok) throw new Error('加载失败');
+        
+        const app = await response.json();
+        
+        // 填充表单
+        document.getElementById('codepenAppTitle').textContent = '✏️ 编辑应用';
+        document.getElementById('codepenAppName').value = app.title || '';
+        document.getElementById('codepenAppSlug').value = app.slug || '';
+        document.getElementById('codepenAppDesc').value = app.description || '';
+        document.getElementById('codepenAppPublic').checked = app.is_public !== false;
+        document.getElementById('codepenHtmlEditor').value = app.html_content || '';
+        document.getElementById('codepenCssEditor').value = app.css_content || '';
+        document.getElementById('codepenJsEditor').value = app.js_content || '';
+        document.getElementById('codepenSlugPreview').textContent = `/a/${app.slug || 'my-app'}`;
+        document.getElementById('codepenDeleteBtn').style.display = 'inline-block';
+        document.getElementById('codepenLastSaved').textContent = '已加载';
+        
+        // 设置图标
+        document.querySelectorAll('.codepen-icon-opt').forEach(opt => {
+            opt.classList.toggle('selected', opt.dataset.icon === app.icon);
+        });
+        
+        // 保存编辑器 ID
+        window._currentEditingAppId = appId;
+        
+        // 自动预览
+        previewCodepenApp();
+        
+        document.getElementById('codepenStatusMsg').textContent = '就绪';
+        
+    } catch (e) {
+        document.getElementById('codepenStatusMsg').textContent = '加载失败';
+        showToast('加载失败: ' + e.message, 'error');
+    }
+}
+
+// 切换设置面板
+function toggleAppSettings() {
+    const panel = document.getElementById('codepenSettingsPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
