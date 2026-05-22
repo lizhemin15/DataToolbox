@@ -140,10 +140,25 @@ async function createNewSession() {
         showToast('创建会话失败: ' + e.message, 'error');
     }
 }
-function switchToSession(sessionId) {
+async function switchToSession(sessionId) {
     currentSessionId = sessionId;
     const session = getCurrentSession();
     if (!session) return;
+    
+    // 从后端加载完整会话数据（含消息）
+    try {
+        const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions/${sessionId}`);
+        const data = await res.json();
+        if (data.success && data.data) {
+            const fullSession = data.data;
+            session.messages = fullSession.messages || [];
+            session.databases = fullSession.databases || [];
+            session.modules = fullSession.modules || [];
+            session.history = fullSession.history || [];
+        }
+    } catch(e) {
+        console.error('加载会话详情失败:', e);
+    }
     
     // 恢复会话上下文
     aiSessionContext.databases = session.databases || [];
