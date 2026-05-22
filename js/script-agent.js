@@ -2269,7 +2269,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
             // 追加到当前工具块，或创建新块
             if (currentBlock && currentBlock.classList.contains('cluster-block-tool')) {
                 const body = currentBlock.querySelector('.cluster-block-body');
-                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">✅ ${escapeHtml(content.substring(0, 300))}</div>`);
+                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
                 currentBlock.classList.add('closed');
             } else {
                 const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
