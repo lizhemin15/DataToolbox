@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -447,6 +448,16 @@ func renderAppPage(app *App) string {
 		htmlContent = `<div class="app-container"><h1>` + app.Title + `</h1><p>` + app.Description + `</p></div>`
 	}
 
+	// 清理 HTML 中的 <script> 标签（JS 应在 js 字段中）
+	htmlContent = regexp.MustCompile(`<script[^>]*>[\s\S]*?</script>`).ReplaceAllString(htmlContent, "")
+	htmlContent = regexp.MustCompile(`<script[^>]*/>`).ReplaceAllString(htmlContent, "")
+
+	// 清理 HTML 中的完整文档结构（<!DOCTYPE>, <html>, <head>, <body>）
+	htmlContent = regexp.MustCompile(`(?i)<!DOCTYPE[^>]*>`).ReplaceAllString(htmlContent, "")
+	htmlContent = regexp.MustCompile(`(?i)</?html[^>]*>`).ReplaceAllString(htmlContent, "")
+	htmlContent = regexp.MustCompile(`(?i)<head>[\s\S]*?</head>`).ReplaceAllString(htmlContent, "")
+	htmlContent = regexp.MustCompile(`(?i)</?body[^>]*>`).ReplaceAllString(htmlContent, "")
+
 	cssContent := app.CSS
 	if cssContent == "" {
 		cssContent = `
@@ -470,23 +481,40 @@ func renderAppPage(app *App) string {
 
 	jsContent := app.JS
 
-	// 构建页面模板
+	// 构建页面模板 — 注入 fetchWithAuth 和 token
 	page := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - 数据工具箱</title>
-    <link rel="stylesheet" href="/css/style-core.css?v=2026052201">
-    <link rel="stylesheet" href="/css/style-agent.css?v=2026052201">
-    <link rel="stylesheet" href="/css/style-api.css?v=2026052201">
-    <link rel="stylesheet" href="/css/style-misc.css?v=2026052201">
     <style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f7fafc; }
 %s
     </style>
 </head>
 <body>
 %s
+    <script>
+// 注入认证 token
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    window._appToken = params.get('token') || '';
+    window.fetchWithAuth = function(url, options) {
+        options = options || {};
+        options.headers = options.headers || {};
+        if (window._appToken) {
+            if (options.headers instanceof Headers) {
+                options.headers.set('Authorization', 'Bearer ' + window._appToken);
+            } else if (typeof options.headers === 'object') {
+                options.headers['Authorization'] = 'Bearer ' + window._appToken;
+            }
+        }
+        return fetch(url, options);
+    };
+})();
+    </script>
     <script>
 %s
     </script>

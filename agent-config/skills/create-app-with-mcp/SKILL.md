@@ -12,93 +12,58 @@
 
 ### 2. 准备数据接口
 如果需要基于已有接口：
-1. 调用 `list_apis` 查看可用接口
-2. 调用 `get_api_detail` 获取接口详情（SQL、参数、字段）
-3. 让用户确认使用哪个接口
+1. 调用 `list_databases` 获取数据库列表
+2. 调用 `get_tables` 获取表结构
+3. 如需创建接口，调用 `create_api`（需先 ask_user 确认）
 
-如果需要新建接口：
-1. 使用 `create-api-with-mcp` skill 创建接口
-2. 确保接口测试通过
-
-### 3. 设计应用结构
-根据应用类型生成代码框架：
-
-**数据展示类**：
-```html
-<!-- 表格展示 -->
-<div id="app"></div>
-```
-```js
-// 调用接口获取数据
-const resp = await fetch('/api/v1/apis/{api_id}/execute?params...');
-const data = await resp.json();
-// 渲染表格
-```
-
-**图表可视化类**：
-```html
-<!-- 使用 Chart.js（CDN） -->
-<canvas id="chart"></canvas>
-```
-```js
-// 调用接口 + Chart.js 渲染
-```
+### 3. 生成应用代码
+**关键规则：**
+- `html` 字段：只写 body 内容片段（div、表单等），**不要**写完整 HTML 文档（不要 DOCTYPE/html/head/body）
+- `css` 字段：写 CSS 样式
+- `js` 字段：写 JavaScript 逻辑
+- **API 调用必须用 `fetchWithAuth(url)` 而不是 `fetch(url)`**，这样才能带认证 token
+- `fetchWithAuth` 由平台自动注入，无需自己定义
+- `slug` 只能包含字母数字和连字符
 
 ### 4. 人在环路确认
-**必须先调用 ask_user 工具让用户确认！**
-
-调用 `ask_user`（interaction_type="form"），让用户审核：
-- 应用标题
-- Slug（URL 标识）
-- 功能描述
-- 图标（emoji）
-- HTML/CSS/JS 代码预览
-- 是否公开
+调用 `ask_user` 工具，展示：
+- 应用标题和描述
+- 功能说明
+- 涉及的接口
+让用户确认后再调用 `create_app`。
 
 ### 5. 创建应用
-用户确认后，调用 `create_app` 工具：
+调用 `create_app` 工具，参数示例：
 ```json
 {
-  "title": "应用标题",
-  "slug": "app-slug",
-  "description": "功能描述",
-  "icon": "📊",
-  "html": "...",
-  "css": "...",
-  "js": "...",
-  "is_public": false
+  "title": "用户管理",
+  "slug": "user-management",
+  "description": "用户列表展示与搜索",
+  "icon": "👥",
+  "html": "<div class=\"container\">...</div>",
+  "css": ".container { ... }",
+  "js": "async function loadUsers() { const res = await fetchWithAuth('/api/v1/...'); ... }",
+  "is_public": true
 }
 ```
 
-### 6. 验证和交付
-- 返回应用访问链接：`/a/{slug}`
-- 提示用户可以继续修改
+## 代码模板
 
-## 示例对话
+### 基本数据展示
+```js
+async function loadData() {
+  try {
+    const res = await fetchWithAuth('/api/v1/xxx');
+    const data = await res.json();
+    if (data.success) {
+      // 渲染数据
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+```
 
-**用户**：帮我基于用户表创建一个用户管理应用
-
-**智能体**：
-1. 调用 `get_tables` 找到用户表
-2. 调用 `describe_table` 获取字段结构
-3. 设计表格展示 + CRUD 操作界面
-4. 调用 `ask_user` 让用户确认代码
-5. 调用 `create_app` 创建应用
-6. 返回访问链接
-
-## 注意事项
-
-1. **强制 HITL**：必须先调用 `ask_user`，否则 `create_app` 会报错
-2. **Slug 规范**：只能包含字母、数字、中划线，建议用英文
-3. **代码规范**：
-   - 使用 `fetchWithAuth` 调用接口（自动带认证）
-   - CSS 使用 scoped 样式避免冲突
-   - JS 使用 `DOMContentLoaded` 确保 DOM 就绪
-4. **离线部署**：不依赖外部 CDN，所有资源必须本地化
-
-## 相关工具
-- `list_apis` - 列出可用接口
-- `get_api_detail` - 获取接口详情
-- `ask_user` - 人在环路确认
-- `create_app` - 创建应用
-- `update_app` - 更新应用
+### API 路径
+- 数据库接口：`/api/v1/databases/{db}/query` (POST)
+- 自定义接口：通过 `list_apis` 获取接口列表
