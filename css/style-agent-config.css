@@ -1145,14 +1145,25 @@
     min-height: 0;
 }
 
-/* 编辑器视图需要占满容器，突破父容器 padding */
+/* 编辑器模式：取消 padding 让编辑器占满 */
+.apps-marketplace-container.editor-mode {
+    padding: 0;
+}
+
+/* 列表视图 */
+#appsListView {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* 编辑器视图需要占满容器 */
 #appsEditorView {
     flex: 1;
     display: none;
     min-height: 0;
-    margin: -20px;
-    width: calc(100% + 40px);
     flex-direction: column;
+    height: 100%;
 }
 #appsEditorView.active {
     display: flex;
