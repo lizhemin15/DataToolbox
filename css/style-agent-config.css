@@ -1138,11 +1138,11 @@
 /* ==================== 应用广场模块 ==================== */
 .apps-marketplace-container {
     padding: 20px;
-    max-width: 1400px;
-    margin: 0 auto;
     height: 100%;
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 /* 编辑器视图需要占满容器 */
