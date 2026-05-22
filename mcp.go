@@ -262,14 +262,15 @@ type executeApiIn struct {
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
 
 type createAppIn struct {
-	Title       string                 `json:"title" jsonschema:"应用显示标题"`
-	Slug        string                 `json:"slug" jsonschema:"URL 友好的唯一标识（如 my-app）"`
-	Description string                 `json:"description,omitempty" jsonschema:"应用描述"`
-	HTML        string                 `json:"html,omitempty" jsonschema:"HTML 代码"`
-	CSS         string                 `json:"css,omitempty" jsonschema:"CSS 代码"`
-	JS          string                 `json:"js,omitempty" jsonschema:"JavaScript 代码"`
+	Title       string                 `json:"title" jsonschema:"required,应用显示标题"`
+	Slug        string                 `json:"slug" jsonschema:"required,URL 友好的唯一标识（如 my-app），只能包含字母、数字、中划线"`
+	Description string                 `json:"description,omitempty" jsonschema:"应用功能描述"`
+	Icon        string                 `json:"icon,omitempty" jsonschema:"应用图标 emoji（如 🎨、📊、🚀）"`
+	HTML        string                 `json:"html,omitempty" jsonschema:"HTML 代码，应用的页面结构"`
+	CSS         string                 `json:"css,omitempty" jsonschema:"CSS 代码，应用的样式"`
+	JS          string                 `json:"js,omitempty" jsonschema:"JavaScript 代码，应用的交互逻辑"`
 	Files       map[string]interface{} `json:"files,omitempty" jsonschema:"附加文件列表（JSON 对象，键为文件名，值为文件内容）"`
-	IsPublic    bool                   `json:"is_public,omitempty" jsonschema:"是否公开（默认 false）"`
+	IsPublic    bool                   `json:"is_public,omitempty" jsonschema:"是否公开访问（默认 false，仅登录用户可访问）"`
 }
 
 type listAppsIn struct{}
@@ -567,6 +568,7 @@ func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn)
 		"title":       in.Title,
 		"slug":        in.Slug,
 		"description": in.Description,
+		"icon":        in.Icon,
 		"html":        in.HTML,
 		"css":         in.CSS,
 		"js":          in.JS,
@@ -813,9 +815,9 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
 
 		// 应用管理工具
-		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "创建新的应用，定义应用标题、标识、描述和文件内容"}, mcpCreateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认应用内容（标题、标识、功能描述、代码等）！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"}, mcpCreateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
-		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和文件内容"}, mcpUpdateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和代码内容"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定 ID 的应用"}, mcpDeleteApp)
 
 		return server
@@ -904,7 +906,7 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
 
 	// 应用管理工具
-	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "创建新的应用"}, mcpCreateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用（HTML+CSS+JS）"}, mcpCreateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
