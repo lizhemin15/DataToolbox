@@ -406,10 +406,21 @@ func handleAppPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 检查是否公开
+	// 检查是否公开；未公开时仅 owner 可访问
 	if !app.IsPublic {
-		http.Error(w, "此应用未公开", http.StatusForbidden)
-		return
+		username, authOK := getDataOntologyUserFromRequest(r)
+		if !authOK {
+			// 尝试从 query param 读 token
+			if t := r.URL.Query().Get("token"); t != "" {
+				r2 := r.Clone(r.Context())
+				r2.Header.Set("Authorization", "Bearer "+t)
+				username, authOK = getDataOntologyUserFromRequest(r2)
+			}
+		}
+		if !authOK || username != app.Owner {
+			http.Error(w, "此应用未公开", http.StatusForbidden)
+			return
+		}
 	}
 
 	// 增加访问计数

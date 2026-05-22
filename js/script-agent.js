@@ -3830,7 +3830,9 @@ function closeAppEditor() {
 }
 
 function openAppInMarketplace(slug) {
-    window.open(`/a/${slug}`, '_blank');
+    const token = localStorage.getItem('dataOntologyToken');
+    const url = token ? `/a/${slug}?token=${encodeURIComponent(token)}` : `/a/${slug}`;
+    window.open(url, '_blank');
 }
 
 // 编辑应用（内联编辑器）
