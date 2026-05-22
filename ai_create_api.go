@@ -773,6 +773,7 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string, sessionID string) 
 	cfg.Tools.Spawn.Enabled = true
 	cfg.Tools.Subagent.Enabled = true
 	cfg.Tools.Exec.Enabled = true
+	cfg.Tools.Exec.AllowRemote = true
 	cfg.Tools.ReadFile.Enabled = true
 	cfg.Tools.ListDir.Enabled = true
 	cfg.Tools.WriteFile.Enabled = true
