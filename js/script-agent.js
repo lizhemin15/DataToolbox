@@ -2068,9 +2068,9 @@ function showClusterModeGuide() {
     guideEl.id = 'clusterModeGuide';
     guideEl.className = 'cluster-mode-guide';
     guideEl.innerHTML = `
-        <div class="cluster-guide-header">🚀 集群模式 — 多智能体自主规划执行</div>
+        <div class="cluster-guide-header">🤖 智能助手 — 多智能体自主规划执行</div>
         <div class="cluster-guide-body">
-            <p>集群模式由多个AI智能体协作完成任务，具备自主规划、工具调用、深度分析能力。</p>
+            <p>智能助手由多个AI智能体协作完成任务，具备自主规划、工具调用、深度分析能力。</p>
             <div class="cluster-guide-tips">
                 <div class="cluster-tip">💡 <b>直接提问</b>：输入自然语言描述，如"帮我分析这个数据库的数据质量"</div>
                 <div class="cluster-tip">🔍 <b>深度分析</b>：智能体会自动拆解复杂任务，多步执行</div>
@@ -2210,7 +2210,7 @@ async function sendClusterQuery(message, databases, modules) {
     } catch (e) {
         console.error('Cluster query error:', e);
         typingEl.style.display = 'none';
-        textEl.innerHTML = `<div class="ai-error">集群模式请求失败: ${escapeHtml(e.message)}</div>`;
+        textEl.innerHTML = `<div class="ai-error">智能助手请求失败: ${escapeHtml(e.message)}</div>`;
     }
 }
 
