@@ -1276,7 +1276,7 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    background: #1e1e2e;
+    background: #111111;
     color: #cdd6f4;
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 }
@@ -1286,10 +1286,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 12px;
-    background: #181825;
-    border-bottom: 1px solid #313244;
-    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+    border-bottom: 2px solid #333;
+    gap: 12px;
     flex-shrink: 0;
 }
 .codepen-toolbar-left {
@@ -1310,45 +1310,53 @@
     gap: 6px;
 }
 .codepen-back-btn {
-    background: none;
-    border: 1px solid #45475a;
-    color: #cdd6f4;
-    padding: 4px 10px;
-    border-radius: 4px;
+    background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+    border: 1px solid #444;
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
-    transition: all 0.15s;
+    font-weight: 500;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 .codepen-back-btn:hover {
-    background: #313244;
-    border-color: #585b70;
+    background: linear-gradient(180deg, #3a3a3a 0%, #2a2a2a 100%);
+    border-color: #666;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
 }
 .codepen-app-title {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
-    color: #cba6f7;
+    color: #47cf73;
+    text-shadow: 0 0 10px rgba(71, 207, 115, 0.3);
 }
 .codepen-name-input,
 .codepen-slug-input {
-    background: #11111b;
-    border: 1px solid #313244;
-    color: #cdd6f4;
-    padding: 4px 8px;
-    border-radius: 4px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
     font-size: 13px;
     font-family: inherit;
     outline: none;
-    transition: border-color 0.15s;
+    transition: all 0.2s;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
 }
-.codepen-name-input { width: 160px; }
-.codepen-slug-input { width: 100px; }
+.codepen-name-input { width: 180px; }
+.codepen-slug-input { width: 120px; }
 .codepen-name-input:focus,
 .codepen-slug-input:focus {
-    border-color: #89b4fa;
+    border-color: #47cf73;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3), 0 0 0 3px rgba(71, 207, 115, 0.1);
 }
 .codepen-slug-preview {
     font-size: 12px;
-    color: #6c7086;
+    color: #888;
+    font-family: monospace;
 }
 .codepen-icon-btn {
     background: none;
@@ -1364,33 +1372,41 @@
 }
 .codepen-action-btn {
     border: none;
-    padding: 4px 10px;
-    border-radius: 4px;
+    padding: 6px 14px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
     font-family: inherit;
-    transition: all 0.15s;
+    font-weight: 500;
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 .codepen-preview-btn {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: linear-gradient(180deg, #0ebeff 0%, #0a9bd8 100%);
+    color: #fff;
 }
 .codepen-preview-btn:hover {
-    background: #74c7ec;
+    background: linear-gradient(180deg, #2ed4ff 0%, #0ebeff 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(14, 190, 255, 0.3);
 }
 .codepen-save-btn {
-    background: #a6e3a1;
-    color: #1e1e2e;
+    background: linear-gradient(180deg, #47cf73 0%, #3ab85f 100%);
+    color: #fff;
 }
 .codepen-save-btn:hover {
-    background: #94e2d5;
+    background: linear-gradient(180deg, #5de08d 0%, #47cf73 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(71, 207, 115, 0.3);
 }
 .codepen-delete-btn {
-    background: #f38ba8;
-    color: #1e1e2e;
+    background: linear-gradient(180deg, #ff3c41 0%, #d63031 100%);
+    color: #fff;
 }
 .codepen-delete-btn:hover {
-    background: #eba0ac;
+    background: linear-gradient(180deg, #ff5a5f 0%, #ff3c41 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(255, 60, 65, 0.3);
 }
 
 /* 设置面板 */
@@ -1465,49 +1481,51 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    background: #111;
 }
 .codepen-editors {
     display: flex;
     flex: 1;
     min-width: 0;
-    border-right: 1px solid #313244;
+    border-right: 2px solid #333;
 }
 .codepen-editor-col {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    border-right: 1px solid #313244;
+    border-right: 1px solid #222;
 }
 .codepen-editor-col:last-child {
     border-right: none;
 }
 .codepen-editor-label {
-    padding: 4px 10px;
-    background: #11111b;
-    border-bottom: 1px solid #313244;
+    padding: 6px 12px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+    border-bottom: 1px solid #333;
     flex-shrink: 0;
 }
 .codepen-lang-badge {
     font-size: 11px;
     font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 3px;
+    padding: 3px 8px;
+    border-radius: 4px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
-.html-badge { background: #f38ba8; color: #1e1e2e; }
-.css-badge { background: #89b4fa; color: #1e1e2e; }
-.js-badge { background: #f9e2af; color: #1e1e2e; }
+.html-badge { background: linear-gradient(180deg, #ff3c41 0%, #d63031 100%); color: #fff; }
+.css-badge { background: linear-gradient(180deg, #0ebeff 0%, #0a9bd8 100%); color: #fff; }
+.js-badge { background: linear-gradient(180deg, #fcd000 0%, #d4a900 100%); color: #1a1a1a; }
 .codepen-code-area {
     flex: 1;
-    background: #1e1e2e;
-    color: #cdd6f4;
+    background: #1a1a1a;
+    color: #e0e0e0;
     border: none;
-    padding: 10px;
+    padding: 12px;
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.6;
     resize: none;
     outline: none;
     tab-size: 2;
@@ -1515,7 +1533,7 @@
     overflow: auto;
 }
 .codepen-code-area::placeholder {
-    color: #585b70;
+    color: #555;
 }
 
 /* 预览列 */
@@ -1524,11 +1542,12 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    border-left: 2px solid #333;
 }
 .codepen-preview-label {
-    padding: 4px 10px;
-    background: #11111b;
-    border-bottom: 1px solid #313244;
+    padding: 6px 12px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+    border-bottom: 1px solid #333;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1536,12 +1555,12 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #a6adc8;
+    color: #888;
     flex-shrink: 0;
 }
 .codepen-preview-status {
     font-weight: 400;
-    color: #585b70;
+    color: #47cf73;
 }
 .codepen-preview-frame {
     flex: 1;
@@ -1554,10 +1573,10 @@
 .codepen-statusbar {
     display: flex;
     justify-content: space-between;
-    padding: 3px 12px;
-    background: #181825;
-    border-top: 1px solid #313244;
+    padding: 4px 16px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+    border-top: 2px solid #333;
     font-size: 12px;
-    color: #585b70;
+    color: #666;
     flex-shrink: 0;
 }
