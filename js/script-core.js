@@ -295,19 +295,79 @@ function showSessionWelcome() {
     if (!messagesEl) return;
     messagesEl.innerHTML = `
         <div class="ai-welcome-message">
-            <div class="ai-welcome-icon">🚀</div>
-            <h3>智能助手</h3>
-            <p>多智能体协作，自主规划执行复杂任务</p>
-            <div class="ai-tip">
-                <div style="font-weight:600;margin-bottom:8px;">💡 使用方式：</div>
-                <div style="text-align:left;padding-left:20px;">
-                    • 直接输入自然语言描述任务<br>
-                    • 智能体会自动拆解、多步执行<br>
-                    • 适合复杂的数据分析和治理任务<br>
-                    • 使用 <b>@数据库名</b> 引用数据库
+            <div class="ai-welcome-hero">
+                <div class="ai-welcome-logo">
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                        <defs>
+                            <linearGradient id="wg1" x1="0" y1="0" x2="48" y2="48">
+                                <stop offset="0%" stop-color="#6366f1"/>
+                                <stop offset="50%" stop-color="#8b5cf6"/>
+                                <stop offset="100%" stop-color="#a78bfa"/>
+                            </linearGradient>
+                            <linearGradient id="wg2" x1="0" y1="48" x2="48" y2="0">
+                                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.6"/>
+                                <stop offset="100%" stop-color="#c084fc" stop-opacity="0.3"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="48" height="48" rx="14" fill="url(#wg1)"/>
+                        <circle cx="17" cy="20" r="3.5" fill="white" opacity="0.95"/>
+                        <circle cx="31" cy="20" r="3.5" fill="white" opacity="0.95"/>
+                        <path d="M16 30 Q24 36 32 30" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9"/>
+                        <path d="M6 24 L10 22" stroke="url(#wg2)" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M42 24 L38 22" stroke="url(#wg2)" stroke-width="2" stroke-linecap="round"/>
+                        <circle cx="8" cy="16" r="2" fill="white" opacity="0.4"/>
+                        <circle cx="40" cy="16" r="2" fill="white" opacity="0.4"/>
+                    </svg>
+                </div>
+                <h3>智能助手</h3>
+                <p>多智能体协作 · 自主规划 · 复杂任务拆解执行</p>
+            </div>
+            <div class="ai-welcome-cards">
+                <div class="ai-welcome-card" onclick="fillPrompt('帮我梳理数据库里的所有表，生成数据字典')">
+                    <div class="ai-welcome-card-icon">📋</div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">数据字典</div>
+                        <div class="ai-welcome-card-desc">梳理表结构，生成数据字典</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('@数据库名 分析这个数据库的数据质量，检查缺失值和异常')">
+                    <div class="ai-welcome-card-icon">🔍</div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">数据质量</div>
+                        <div class="ai-welcome-card-desc">分析数据质量，检查异常值</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('帮我创建一个数据治理任务，扫描敏感数据并标记')">
+                    <div class="ai-welcome-card-icon">🛡️</div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">数据治理</div>
+                        <div class="ai-welcome-card-desc">敏感数据扫描与标记</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('帮我创建一个应用，可视化展示数据库的表关系图')">
+                    <div class="ai-welcome-card-icon">✨</div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">创建应用</div>
+                        <div class="ai-welcome-card-desc">可视化表关系与数据展示</div>
+                    </div>
                 </div>
             </div>
+            <div class="ai-welcome-hint">
+                <span class="ai-welcome-hint-key">@数据库名</span> 引用数据库 ·
+                <span class="ai-welcome-hint-key">@模块名</span> 引用模块 ·
+                自然语言描述任务即可
+            </div>
         </div>`;
+}
+
+function fillPrompt(text) {
+    const input = document.getElementById('aiInput');
+    if (input) {
+        input.value = text;
+        input.focus();
+        input.style.height = 'auto';
+        input.style.height = input.scrollHeight + 'px';
+    }
 }
 
 function getCurrentSession() {
