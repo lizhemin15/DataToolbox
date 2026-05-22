@@ -1140,6 +1140,19 @@
     padding: 20px;
     max-width: 1400px;
     margin: 0 auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 编辑器视图需要占满容器 */
+#appsEditorView {
+    flex: 1;
+    display: none;
+    min-height: 0;
+}
+#appsEditorView.active {
+    display: flex;
 }
 
 .apps-marketplace-header {

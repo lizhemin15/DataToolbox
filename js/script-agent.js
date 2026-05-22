@@ -3755,7 +3755,9 @@ async function loadAppsMarketplace() {
 function openAppEditor() {
     // 切换视图
     document.getElementById('appsListView').style.display = 'none';
-    document.getElementById('appsEditorView').style.display = 'block';
+    const editorView = document.getElementById('appsEditorView');
+    editorView.style.display = 'flex';
+    editorView.classList.add('active');
     
     // 重置编辑器状态
     document.getElementById('codepenAppTitle').textContent = '✨ 创建应用';
@@ -3813,7 +3815,9 @@ function openAppEditor() {
 // 关闭应用编辑器
 function closeAppEditor() {
     document.getElementById('appsListView').style.display = 'block';
-    document.getElementById('appsEditorView').style.display = 'none';
+    const editorView = document.getElementById('appsEditorView');
+    editorView.style.display = 'none';
+    editorView.classList.remove('active');
     window._currentEditingAppId = null;
     loadAppsMarketplace(); // 刷新列表
 }
@@ -3826,7 +3830,9 @@ function openAppInMarketplace(slug) {
 function editAppInMarketplace(appId) {
     // 切换视图
     document.getElementById('appsListView').style.display = 'none';
-    document.getElementById('appsEditorView').style.display = 'block';
+    const editorView = document.getElementById('appsEditorView');
+    editorView.style.display = 'flex';
+    editorView.classList.add('active');
     
     // 加载应用数据
     loadAppIntoEditor(appId);
