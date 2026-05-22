@@ -567,6 +567,24 @@ async function loadMcpInfo() {
     updateMcpDisplay();
     // 加载安全配置
     await loadMcpSafeConfig();
+    await loadMcpToolsList();
+}
+
+// 加载 MCP 工具列表
+async function loadMcpToolsList() {
+    try {
+        const r = await fetchWithAuth(`${API_BASE}/api/v1/mcp/tools`);
+        const data = await r.json();
+        if (data.success && data.data) {
+            const toolsList = document.getElementById('mcpToolsList');
+            if (!toolsList) return;
+            toolsList.innerHTML = data.data.map(tool => 
+                `<li><code>${tool.name}</code> — ${tool.description}</li>`
+            ).join('');
+        }
+    } catch (e) {
+        console.error('加载 MCP 工具列表失败:', e);
+    }
 }
 
 async function toggleMcpEnabled() {
