@@ -1145,11 +1145,13 @@
     min-height: 0;
 }
 
-/* 编辑器视图需要占满容器 */
+/* 编辑器视图需要占满容器，突破父容器 padding */
 #appsEditorView {
     flex: 1;
     display: none;
     min-height: 0;
+    margin: -20px;
+    width: calc(100% + 40px);
 }
 #appsEditorView.active {
     display: flex;
