@@ -558,13 +558,24 @@ func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiI
 // ─── 应用管理工具处理函数 ─────────────────────────────────────────────────────
 
 func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+	// 强制 HITL 确认：创建应用前必须先调用 ask_user 让用户确认
+	if !agent.IsHITLConfirmed("default") {
+		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 图标: %s\n- 是否公开: %v", in.Title, in.Slug, in.Description, in.Icon, in.IsPublic)
+		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
+	}
+
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
 		return nil, mcpOutput{}, err
 	}
 
-	// 构建请求体
+	// 构建请求体（name 使用 title 或 slug）
+	name := in.Title
+	if name == "" {
+		name = in.Slug
+	}
 	reqBody := map[string]interface{}{
+		"name":        name,
 		"title":       in.Title,
 		"slug":        in.Slug,
 		"description": in.Description,
