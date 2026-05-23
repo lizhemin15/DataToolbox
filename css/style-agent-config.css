@@ -1244,6 +1244,8 @@
     align-items: center;
     font-size: 12px;
     color: #a0aec0;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
 .app-card-slug {
@@ -1251,6 +1253,25 @@
     padding: 2px 8px;
     border-radius: 4px;
     font-family: monospace;
+}
+
+.app-card-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    background: #edf2f7;
+    color: #4a5568;
+    border: 1px solid #e2e8f0;
+}
+
+.app-card-color-dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px #e2e8f0;
+    vertical-align: middle;
 }
 
 .app-card-actions {

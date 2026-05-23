@@ -4000,7 +4000,14 @@ async function loadAppsMarketplace() {
             return;
         }
         
-        container.innerHTML = apps.map(app => `
+        container.innerHTML = apps.map(app => {
+            // 从 config 中提取蓝图信息
+            let blueprint = null;
+            try { blueprint = (typeof app.config === 'string' ? JSON.parse(app.config) : app.config)?.blueprint; } catch(e) {}
+            const designLabel = blueprint?.design_direction ? {minimal:'极简',corporate:'商务',vibrant:'活力',elegant:'优雅',playful:'趣味',dark:'暗色',nature:'自然',brutalist:'粗野'}[blueprint.design_direction] || blueprint.design_direction : '';
+            const primaryColor = blueprint?.primary_color || '';
+            const styleTag = blueprint?.style || '';
+            return `
             <div class="app-card-item">
                 <div class="app-card-icon">${app.icon || '📄'}</div>
                 <h3 class="app-card-title">${escapeHtml(app.title)}</h3>
@@ -4008,6 +4015,8 @@ async function loadAppsMarketplace() {
                 <div class="app-card-meta">
                     <span class="app-card-slug">/a/${escapeHtml(app.slug)}</span>
                     <span>访问: ${app.view_count || 0}</span>
+                    ${designLabel ? `<span class="app-card-badge" ${primaryColor ? `style="background:${primaryColor}22;color:${primaryColor};border:1px solid ${primaryColor}44"` : ''}>${designLabel}</span>` : ''}
+                    ${primaryColor ? `<span class="app-card-color-dot" style="background:${primaryColor}" title="${primaryColor}"></span>` : ''}
                 </div>
                 <div class="app-card-actions">
                     <button class="btn" onclick="openAppInMarketplace('${escapeHtml(app.slug)}')">打开</button>
@@ -4015,7 +4024,7 @@ async function loadAppsMarketplace() {
                     <button class="btn btn-danger" onclick="deleteAppInMarketplace('${escapeHtml(app.id)}', '${escapeHtml(app.title)}')">删除</button>
                 </div>
             </div>
-        `).join('');
+        `;}).join('');
     } catch (e) {
         console.error('加载应用列表失败:', e);
         container.innerHTML = `<div class="apps-empty-state"><div class="empty-icon">❌</div><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;

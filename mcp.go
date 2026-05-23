@@ -262,29 +262,41 @@ type executeApiIn struct {
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
 
 type createAppIn struct {
-	Title       string                 `json:"title" jsonschema:"required,应用显示标题"`
-	Slug        string                 `json:"slug" jsonschema:"required,URL 友好的唯一标识（如 my-app），只能包含字母、数字、中划线"`
-	Description string                 `json:"description,omitempty" jsonschema:"应用功能描述"`
-	Icon        string                 `json:"icon,omitempty" jsonschema:"应用图标 emoji（如 🎨、📊、🚀）"`
-	HTML        string                 `json:"html,omitempty" jsonschema:"HTML 代码，应用的页面结构"`
-	CSS         string                 `json:"css,omitempty" jsonschema:"CSS 代码，应用的样式"`
-	JS          string                 `json:"js,omitempty" jsonschema:"JavaScript 代码，应用的交互逻辑"`
-	Files       map[string]interface{} `json:"files,omitempty" jsonschema:"附加文件列表（JSON 对象，键为文件名，值为文件内容）"`
-	IsPublic    bool                   `json:"is_public,omitempty" jsonschema:"是否公开访问（默认 false，仅登录用户可访问）"`
+	Title           string                 `json:"title" jsonschema:"required,应用显示标题"`
+	Slug            string                 `json:"slug" jsonschema:"required,URL 友好的唯一标识（如 my-app），只能包含字母、数字、中划线"`
+	Description     string                 `json:"description,omitempty" jsonschema:"应用功能描述"`
+	Icon            string                 `json:"icon,omitempty" jsonschema:"应用图标 emoji（如 🎨、📊、🚀）"`
+	DesignDirection string                 `json:"design_direction,omitempty" jsonschema:"设计方向，可选值：minimal(极简留白)、corporate(商务专业)、vibrant(活力多彩)、elegant(优雅精致)、playful(趣味卡通)、dark(暗色科技)、nature(自然有机)、brutalist(粗野主义)"`
+	PrimaryColor    string                 `json:"primary_color,omitempty" jsonschema:"主色调 HEX 值（如 #4F46E5），决定品牌色和强调色"`
+	Style           string                 `json:"style,omitempty" jsonschema:"视觉风格描述，用关键词指定（如：glassmorphism, neumorphism, gradient-heavy, flat-design, isometric）"`
+	Visuals         string                 `json:"visuals,omitempty" jsonschema:"视觉资产规划：图标库（lucide/heroicons/feather）、图片风格（illustration/photo/3d）、动效级别（subtle/moderate/expressive）"`
+	HTML            string                 `json:"html,omitempty" jsonschema:"HTML 代码，应用的页面结构"`
+	CSS             string                 `json:"css,omitempty" jsonschema:"CSS 代码，应用的样式"`
+	JS              string                 `json:"js,omitempty" jsonschema:"JavaScript 代码，应用的交互逻辑"`
+	Files           map[string]interface{} `json:"files,omitempty" jsonschema:"附加文件列表（JSON 对象，键为文件名，值为文件内容）"`
+	IsPublic        bool                   `json:"is_public,omitempty" jsonschema:"是否公开访问（默认 false，仅登录用户可访问）"`
 }
 
 type listAppsIn struct{}
 
+type designThemeIn struct {
+	Direction string `json:"direction,omitempty" jsonschema:"查询指定设计方向的详细信息（可选），不传则返回所有设计方向列表"`
+}
+
 type updateAppIn struct {
-	ID          string                 `json:"id" jsonschema:"应用 ID"`
-	Title       string                 `json:"title,omitempty" jsonschema:"新的显示标题"`
-	Slug        string                 `json:"slug,omitempty" jsonschema:"新的 URL 标识"`
-	Description string                 `json:"description,omitempty" jsonschema:"新的描述"`
-	HTML        string                 `json:"html,omitempty" jsonschema:"新的 HTML 代码"`
-	CSS         string                 `json:"css,omitempty" jsonschema:"新的 CSS 代码"`
-	JS          string                 `json:"js,omitempty" jsonschema:"新的 JavaScript 代码"`
-	Files       map[string]interface{} `json:"files,omitempty" jsonschema:"新的附加文件列表"`
-	IsPublic    *bool                  `json:"is_public,omitempty" jsonschema:"是否公开"`
+	ID              string                 `json:"id" jsonschema:"应用 ID"`
+	Title           string                 `json:"title,omitempty" jsonschema:"新的显示标题"`
+	Slug            string                 `json:"slug,omitempty" jsonschema:"新的 URL 标识"`
+	Description     string                 `json:"description,omitempty" jsonschema:"新的描述"`
+	DesignDirection string                 `json:"design_direction,omitempty" jsonschema:"新的设计方向"`
+	PrimaryColor    string                 `json:"primary_color,omitempty" jsonschema:"新的主色调 HEX 值"`
+	Style           string                 `json:"style,omitempty" jsonschema:"新的视觉风格"`
+	Visuals         string                 `json:"visuals,omitempty" jsonschema:"新的视觉资产规划"`
+	HTML            string                 `json:"html,omitempty" jsonschema:"新的 HTML 代码"`
+	CSS             string                 `json:"css,omitempty" jsonschema:"新的 CSS 代码"`
+	JS              string                 `json:"js,omitempty" jsonschema:"新的 JavaScript 代码"`
+	Files           map[string]interface{} `json:"files,omitempty" jsonschema:"新的附加文件列表"`
+	IsPublic        *bool                  `json:"is_public,omitempty" jsonschema:"是否公开"`
 }
 
 type deleteAppIn struct {
@@ -557,10 +569,112 @@ func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiI
 
 // ─── 应用管理工具处理函数 ─────────────────────────────────────────────────────
 
+// designThemes 内置设计方向配置
+var designThemes = map[string]map[string]interface{}{
+	"minimal": {
+		"name": "极简留白", "icon": "⬜",
+		"description": "大量留白，极少元素，内容即设计。适合信息展示、个人作品集。",
+		"primary_colors": []string{"#1a1a1a", "#4a5568", "#2d3748"},
+		"css_vars": map[string]string{"--bg": "#ffffff", "--bg-secondary": "#fafafa", "--text": "#1a1a1a", "--border": "#f0f0f0", "--radius": "12px"},
+		"style_keywords": []string{"whitespace-heavy", "monochrome", "thin-typography", "minimal-shadows"},
+	},
+	"corporate": {
+		"name": "商务专业", "icon": "🏢",
+		"description": "稳重配色，清晰层级，数据驱动。适合企业后台、数据仪表盘、管理系统。",
+		"primary_colors": []string{"#2563EB", "#0891B2", "#4F46E5"},
+		"css_vars": map[string]string{"--bg": "#ffffff", "--bg-secondary": "#f8fafc", "--text": "#1e293b", "--border": "#e2e8f0", "--radius": "8px"},
+		"style_keywords": []string{"clean-layout", "card-grid", "table-focused", "status-badges"},
+	},
+	"vibrant": {
+		"name": "活力多彩", "icon": "🎨",
+		"description": "明亮色彩，渐变装饰，动态元素。适合营销页面、活动推广、创意展示。",
+		"primary_colors": []string{"#F59E0B", "#EC4899", "#8B5CF6"},
+		"css_vars": map[string]string{"--bg": "#fefce8", "--bg-secondary": "#fef9c3", "--text": "#1a1a1a", "--border": "#fde68a"},
+		"style_keywords": []string{"gradient-hero", "bold-cta", "animated-elements", "color-blocks"},
+	},
+	"elegant": {
+		"name": "优雅精致", "icon": "✨",
+		"description": "柔和色调，精致排版，微妙动效。适合品牌展示、产品目录、高端内容。",
+		"primary_colors": []string{"#7C3AED", "#BE185D", "#6D28D9"},
+		"css_vars": map[string]string{"--bg": "#faf5ff", "--bg-secondary": "#f3e8ff", "--text": "#1e1b4b", "--border": "#e9d5ff", "--radius": "16px"},
+		"style_keywords": []string{"glassmorphism", "subtle-gradients", "serif-headings", "refined-spacing"},
+	},
+	"playful": {
+		"name": "趣味卡通", "icon": "🎮",
+		"description": "圆角元素，趣味图标，明亮配色。适合教育应用、儿童产品、游戏化界面。",
+		"primary_colors": []string{"#F97316", "#10B981", "#3B82F6"},
+		"css_vars": map[string]string{"--bg": "#fff7ed", "--bg-secondary": "#ffedd5", "--text": "#1a1a1a", "--border": "#fed7aa", "--radius": "20px"},
+		"style_keywords": []string{"bouncy-animations", "emoji-rich", "rounded-everything", "bright-palette"},
+	},
+	"dark": {
+		"name": "暗色科技", "icon": "🌙",
+		"description": "深色背景，霓虹强调，科技感强。适合开发者工具、数据监控、技术产品。",
+		"primary_colors": []string{"#22D3EE", "#A78BFA", "#34D399"},
+		"css_vars": map[string]string{"--bg": "#0f172a", "--bg-secondary": "#1e293b", "--text": "#f1f5f9", "--border": "#334155", "--radius": "8px"},
+		"style_keywords": []string{"neon-accents", "glow-effects", "monospace-code", "terminal-aesthetic"},
+	},
+	"nature": {
+		"name": "自然有机", "icon": "🌿",
+		"description": "绿色基调，有机形状，自然纹理。适合环保项目、健康产品、生活方式。",
+		"primary_colors": []string{"#059669", "#16A34A", "#0D9488"},
+		"css_vars": map[string]string{"--bg": "#f0fdf4", "--bg-secondary": "#dcfce7", "--text": "#1a2e1a", "--border": "#bbf7d0"},
+		"style_keywords": []string{"organic-shapes", "leaf-patterns", "soft-textures", "earth-tones"},
+	},
+	"brutalist": {
+		"name": "粗野主义", "icon": "🧱",
+		"description": "大胆排版，原始边框，反传统审美。适合艺术项目、实验性网站、创意工作室。",
+		"primary_colors": []string{"#DC2626", "#000000", "#FACC15"},
+		"css_vars": map[string]string{"--bg": "#ffffff", "--bg-secondary": "#f5f5f5", "--text": "#000000", "--border": "#000000", "--radius": "0px", "--shadow": "none"},
+		"style_keywords": []string{"thick-borders", "raw-typography", "no-border-radius", "high-contrast"},
+	},
+}
+
+func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, mcpOutput, error) {
+	if in.Direction != "" {
+		// 返回指定设计方向的详细信息
+		theme, ok := designThemes[in.Direction]
+		if !ok {
+			return nil, mcpOutput{}, fmt.Errorf("未知设计方向: %s，可选值: minimal, corporate, vibrant, elegant, playful, dark, nature, brutalist", in.Direction)
+		}
+		result := map[string]interface{}{
+			"direction": in.Direction,
+			"theme":     theme,
+		}
+		data, _ := json.Marshal(result)
+		return nil, mcpOutput{Result: string(data)}, nil
+	}
+
+	// 返回所有设计方向概览
+	type themeOverview struct {
+		Direction     string   `json:"direction"`
+		Name          string   `json:"name"`
+		Icon          string   `json:"icon"`
+		Description   string   `json:"description"`
+		PrimaryColors []string `json:"primary_colors"`
+	}
+	var overview []themeOverview
+	for dir, theme := range designThemes {
+		colors, _ := theme["primary_colors"].([]string)
+		overview = append(overview, themeOverview{
+			Direction:     dir,
+			Name:          theme["name"].(string),
+			Icon:          theme["icon"].(string),
+			Description:   theme["description"].(string),
+			PrimaryColors: colors,
+		})
+	}
+	result := map[string]interface{}{
+		"themes": overview,
+		"usage":  "调用 create_app 时将 direction 值填入 design_direction 字段，推荐配色填入 primary_color 字段",
+	}
+	data, _ := json.Marshal(result)
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
 func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn) (*mcp.CallToolResult, mcpOutput, error) {
 	// 强制 HITL 确认：创建应用前必须先调用 ask_user 让用户确认
 	if !agent.IsHITLConfirmed("default") {
-		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 图标: %s\n- 是否公开: %v", in.Title, in.Slug, in.Description, in.Icon, in.IsPublic)
+		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 图标: %s\n- 是否公开: %v\n- 设计方向: %s\n- 主色调: %s\n- 视觉风格: %s\n- 视觉资产: %s", in.Title, in.Slug, in.Description, in.Icon, in.IsPublic, in.DesignDirection, in.PrimaryColor, in.Style, in.Visuals)
 		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
 	}
 
@@ -587,6 +701,19 @@ func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn)
 	}
 	if in.Files != nil {
 		reqBody["files"] = in.Files
+	}
+	// 蓝图信息存入 config
+	config := map[string]interface{}{}
+	if in.DesignDirection != "" || in.PrimaryColor != "" || in.Style != "" || in.Visuals != "" {
+		config["blueprint"] = map[string]interface{}{
+			"design_direction": in.DesignDirection,
+			"primary_color":    in.PrimaryColor,
+			"style":            in.Style,
+			"visuals":          in.Visuals,
+		}
+	}
+	if len(config) > 0 {
+		reqBody["config"] = config
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -644,6 +771,17 @@ func mcpUpdateApp(ctx context.Context, req *mcp.CallToolRequest, in updateAppIn)
 	}
 	if in.IsPublic != nil {
 		reqBody["is_public"] = *in.IsPublic
+	}
+	// 蓝图信息存入 config
+	if in.DesignDirection != "" || in.PrimaryColor != "" || in.Style != "" || in.Visuals != "" {
+		reqBody["config"] = map[string]interface{}{
+			"blueprint": map[string]interface{}{
+				"design_direction": in.DesignDirection,
+				"primary_color":    in.PrimaryColor,
+				"style":            in.Style,
+				"visuals":          in.Visuals,
+			},
+		}
 	}
 
 	body, _ := json.Marshal(reqBody)
@@ -826,6 +964,7 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
 
 		// 应用管理工具
+		mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案。创建应用前先调用此工具获取设计灵感，再将结果填入 create_app 的蓝图字段（design_direction/primary_color/style）"}, mcpDesignTheme)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认应用内容（标题、标识、功能描述、代码等）！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"}, mcpCreateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和代码内容"}, mcpUpdateApp)
@@ -917,6 +1056,7 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
 
 	// 应用管理工具
+	mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案"}, mcpDesignTheme)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用（HTML+CSS+JS）"}, mcpCreateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)

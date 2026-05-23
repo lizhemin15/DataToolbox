@@ -458,6 +458,9 @@ func renderAppPage(app *App) string {
 	htmlContent = regexp.MustCompile(`(?i)<head>[\s\S]*?</head>`).ReplaceAllString(htmlContent, "")
 	htmlContent = regexp.MustCompile(`(?i)</?body[^>]*>`).ReplaceAllString(htmlContent, "")
 
+	// 从 config 中提取蓝图信息，生成 CSS 变量
+	blueprintCSS := extractBlueprintCSS(app.Config)
+
 	cssContent := app.CSS
 	if cssContent == "" {
 		cssContent = `
@@ -489,8 +492,21 @@ func renderAppPage(app *App) string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>%s - 数据工具箱</title>
     <style>
+:root {
+    --primary: #4F46E5;
+    --primary-light: #818CF8;
+    --primary-dark: #3730A3;
+    --bg: #ffffff;
+    --bg-secondary: #f7fafc;
+    --text: #1a202c;
+    --text-secondary: #4a5568;
+    --border: #e2e8f0;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1);
+%s
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f7fafc; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg-secondary); color: var(--text); }
 %s
     </style>
 </head>
@@ -519,7 +535,143 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 %s
     </script>
 </body>
-</html>`, app.Title, cssContent, htmlContent, jsContent)
+</html>`, app.Title, blueprintCSS, cssContent, htmlContent, jsContent)
 
 	return page
+}
+
+// extractBlueprintCSS 从 config JSON 中提取蓝图信息，生成 CSS 变量覆盖
+func extractBlueprintCSS(configJSON string) string {
+	if configJSON == "" || configJSON == "{}" {
+		return ""
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return ""
+	}
+
+	blueprint, ok := config["blueprint"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	var cssVars []string
+
+	// 主色调 → CSS 变量
+	if primaryColor, ok := blueprint["primary_color"].(string); ok && primaryColor != "" {
+		cssVars = append(cssVars,
+			fmt.Sprintf("    --primary: %s;", primaryColor),
+			fmt.Sprintf("    --primary-light: %s;", lightenColor(primaryColor, 30)),
+			fmt.Sprintf("    --primary-dark: %s;", darkenColor(primaryColor, 20)),
+		)
+	}
+
+	// 设计方向 → 背景和文字色
+	if direction, ok := blueprint["design_direction"].(string); ok && direction != "" {
+		switch direction {
+		case "dark":
+			cssVars = append(cssVars,
+				"    --bg: #0f172a;",
+				"    --bg-secondary: #1e293b;",
+				"    --text: #f1f5f9;",
+				"    --text-secondary: #94a3b8;",
+				"    --border: #334155;",
+			)
+		case "minimal":
+			cssVars = append(cssVars,
+				"    --bg: #ffffff;",
+				"    --bg-secondary: #fafafa;",
+				"    --border: #f0f0f0;",
+				"    --radius: 12px;",
+			)
+		case "vibrant":
+			cssVars = append(cssVars,
+				"    --bg: #fefce8;",
+				"    --bg-secondary: #fef9c3;",
+				"    --border: #fde68a;",
+			)
+		case "nature":
+			cssVars = append(cssVars,
+				"    --bg: #f0fdf4;",
+				"    --bg-secondary: #dcfce7;",
+				"    --border: #bbf7d0;",
+			)
+		case "elegant":
+			cssVars = append(cssVars,
+				"    --bg: #faf5ff;",
+				"    --bg-secondary: #f3e8ff;",
+				"    --border: #e9d5ff;",
+				"    --radius: 16px;",
+			)
+		case "playful":
+			cssVars = append(cssVars,
+				"    --bg: #fff7ed;",
+				"    --bg-secondary: #ffedd5;",
+				"    --border: #fed7aa;",
+				"    --radius: 20px;",
+			)
+		case "corporate":
+			cssVars = append(cssVars,
+				"    --bg: #ffffff;",
+				"    --bg-secondary: #f8fafc;",
+				"    --border: #e2e8f0;",
+			)
+		case "brutalist":
+			cssVars = append(cssVars,
+				"    --bg: #ffffff;",
+				"    --bg-secondary: #f5f5f5;",
+				"    --border: #000000;",
+				"    --radius: 0px;",
+				"    --shadow: none;",
+			)
+		}
+	}
+
+	if len(cssVars) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(cssVars, "\n")
+}
+
+// lightenColor 将 HEX 颜色变亮
+func lightenColor(hex string, percent int) string {
+	r, g, b := hexToRGB(hex)
+	factor := float64(percent) / 100.0
+	r = int(float64(r) + (255-float64(r))*factor)
+	g = int(float64(g) + (255-float64(g))*factor)
+	b = int(float64(b) + (255-float64(b))*factor)
+	return fmt.Sprintf("#%02X%02X%02X", clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255))
+}
+
+// darkenColor 将 HEX 颜色变暗
+func darkenColor(hex string, percent int) string {
+	r, g, b := hexToRGB(hex)
+	factor := 1.0 - float64(percent)/100.0
+	r = int(float64(r) * factor)
+	g = int(float64(g) * factor)
+	b = int(float64(b) * factor)
+	return fmt.Sprintf("#%02X%02X%02X", clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255))
+}
+
+// hexToRGB 将 HEX 颜色转为 RGB
+func hexToRGB(hex string) (int, int, int) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) == 3 {
+		hex = string(hex[0]) + string(hex[0]) + string(hex[1]) + string(hex[1]) + string(hex[2]) + string(hex[2])
+	}
+	var r, g, b int
+	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+	return r, g, b
+}
+
+// clamp 限制值在 [min, max] 范围内
+func clamp(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }

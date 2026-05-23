@@ -127,6 +127,7 @@ func GetMCPToolsList() []map[string]interface{} {
 		{"name": "ask_user", "description": "询问用户"},
 		{"name": "list_apps", "description": "列出应用广场所有应用"},
 		{"name": "get_app", "description": "获取应用详情（含代码）"},
+		{"name": "design_theme", "description": "查询可用设计方向和配色方案。创建应用前先调用此工具获取设计灵感"},
 		{"name": "create_app", "description": "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"},
 		{"name": "update_app", "description": "更新应用：修改标题/网址/代码等"},
 		{"name": "delete_app", "description": "删除应用"},
