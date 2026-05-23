@@ -164,6 +164,13 @@ jobs:
             echo "Copied agent-config directory"
           fi
 
+          # 复制 components 目录（预制组件 JSON + JS 模板）
+          if [ -d "components" ]; then
+            mkdir -p package/components
+            cp components/*.json components/*.js package/components/
+            echo "Copied components directory"
+          fi
+
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
             for f in package/index.html package/js/*.js package/css/*.css; do

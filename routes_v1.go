@@ -152,8 +152,8 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/apps/", handleAppDetail)
 
 	// ==================== 预制组件 API ====================
-	mux.HandleFunc("/api/v1/components", handleListComponents)
 	mux.HandleFunc("/api/v1/components/preview", handlePreviewApp)
+	mux.HandleFunc("/api/v1/components/list", handleListComponents)
 	
 	// ==================== 应用公开访问（不需要认证）====================
 	// 注意：此路由必须放在最后，避免与其他 /api/v1/ 路由冲突
