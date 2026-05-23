@@ -67,7 +67,37 @@
 - 创意/社交 → 粉 #EC4899 或 黄 #F59E0B
 - 科技/工具 → 紫 #7C3AED 或 青 #06B6D4
 
-### Step 4: 生成应用代码
+### Step 4: 预制组件组装（优先方式）
+
+**优先使用预制组件而非手写 HTML。** 预制组件保证视觉一致性、交互完整性和代码质量。
+
+1. 调用 `list_components` 工具获取可用预制组件列表
+2. 根据蓝图选择需要的组件（chart-bar, chart-line, chart-pie, kpi-card, data-table, map-scatter, filter-bar）
+3. 调用 `preview_app` 工具生成预览 HTML，传入组件列表 + 配置 + 蓝图设计风格
+4. 调用 `ask_user` 工具（interaction_type="preview"），传入：
+   - `preview_html`: preview_app 工具返回的 HTML
+   - `config_fields`: 可交互修改的配置项（标题、颜色、图表类型等）
+5. 用户确认后，调用 `create_app_from_blueprint` 工具创建应用
+
+**组件配置示例（chart-bar）：**
+```json
+{
+  "component_id": "chart-bar",
+  "config": {
+    "title": "月度销售趋势",
+    "x_field": "month",
+    "y_fields": ["sales", "profit"],
+    "mode": "grouped",
+    "colors": ["#4F46E5", "#10B981"]
+  }
+}
+```
+
+**如果预制组件不满足需求（如复杂定制页面），可以回退到 Step 4B 手写方式。**
+
+### Step 4B: 手写应用代码（回退方式）
+
+仅在预制组件无法满足需求时使用。
 
 **严格的代码质量规则：**
 
@@ -395,12 +425,15 @@ document.addEventListener('DOMContentLoaded', () => loadData(1));
 
 ## 陷阱与规则
 
-1. **绝不能跳过蓝图确认直接创建** — 即使需求很简单
-2. **CSS 变量必须完整** — 不能只写一半，缺少的变量会导致组件用默认值
-3. **`primary_color` 必须替换 `--accent`** — 这是蓝图中的核心视觉决策
-4. **禁止 CDN 引用** — DataToolbox 必须支持离线部署
-5. **`fetchWithAuth` 不是 `fetch`** — 写错了会 401
-6. **slug 只允许 `[a-z0-9-]`** — 中文、大写、下划线都不行
-7. **表格数据 > 20 条必须分页** — 不分页 = 性能灾难
-8. **每个视图必须有加载态** — skeleton/spinner，不能白屏等待
+1. **优先使用预制组件** — 预制组件有经过测试的视觉效果和交互逻辑，不要重新造轮子
+2. **绝不能跳过蓝图确认直接创建** — 即使需求很简单
+3. **CSS 变量必须完整** — 不能只写一半，缺少的变量会导致组件用默认值
+4. **`primary_color` 必须替换 `--accent`** — 这是蓝图中的核心视觉决策
+5. **禁止 CDN 引用** — DataToolbox 必须支持离线部署，ECharts/Leaflet 必须本地化
+6. **`fetchWithAuth` 不是 `fetch`** — 写错了会 401
+7. **slug 只允许 `[a-z0-9-]`** — 中文、大写、下划线都不行
+8. **表格数据 > 20 条必须分页** — 不分页 = 性能灾难
+9. **每个视图必须有加载态** — skeleton/spinner，不能白屏等待
+10. **preview_app 必须在 ask_user(preview) 之前调用** — 先生成 HTML 再展示预览
+11. **组件 data_source 必须是真实 API 路径** — 不能硬编码假数据
 9. **错误必须有用户可见反馈** — toast/banner，不能静默失败

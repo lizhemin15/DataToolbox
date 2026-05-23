@@ -1,0 +1,61 @@
+{
+  "id": "chart-bar",
+  "name": "柱状图",
+  "category": "chart",
+  "icon": "📊",
+  "description": "柱状图/条形图，支持多系列、分组、堆叠模式",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "图表标题",
+      "default": "数据统计",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true,
+      "hint": "fetchWithAuth 请求的 API 地址，返回 {columns: [...], rows: [[...]]}"
+    },
+    "x_field": {
+      "type": "string",
+      "label": "X轴字段",
+      "default": "",
+      "required": true,
+      "hint": "columns 中的字段名"
+    },
+    "y_fields": {
+      "type": "string_list",
+      "label": "Y轴字段(多系列)",
+      "default": [],
+      "required": true,
+      "hint": "多个字段名用逗号分隔"
+    },
+    "mode": {
+      "type": "select",
+      "label": "显示模式",
+      "default": "grouped",
+      "options": ["grouped", "stacked"]
+    },
+    "colors": {
+      "type": "color_list",
+      "label": "系列颜色",
+      "default": ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"]
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    },
+    "height": {
+      "type": "number",
+      "label": "图表高度(px)",
+      "default": 400,
+      "min": 200,
+      "max": 800
+    }
+  }
+}

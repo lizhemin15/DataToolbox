@@ -2602,7 +2602,7 @@ function renderHITLCard(evt) {
 
     // Header
     let html = `<div class="hitl-card-header">
-        <span class="hitl-card-icon">${interactionType === 'confirm' ? '⚠️' : interactionType === 'form' ? '📝' : '❓'}</span>
+        <span class="hitl-card-icon">${interactionType === 'confirm' ? '⚠️' : interactionType === 'form' ? '📝' : interactionType === 'preview' ? '👁️' : '❓'}</span>
         <span class="hitl-card-title">${escapeHtml(title)}</span>
     </div>`;
 
@@ -2678,6 +2678,50 @@ function renderHITLCard(evt) {
             <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitMultiSelect('${hitlId}')">✅ 提交</button>
             <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
         </div>`;
+    } else if (interactionType === 'preview') {
+        // 预览交互类型 — iframe 预览 + 配置表单
+        const previewHtml = evt.preview_html || '';
+        const previewWidth = evt.preview_width || '100%';
+        const previewHeight = evt.preview_height || '420px';
+        const configFields = evt.config_fields || fields || [];
+
+        if (previewHtml) {
+            html += `<div class="hitl-preview-container">
+                <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>`;
+        }
+
+        // 配置表单（可交互修改组件配置）
+        if (configFields.length > 0) {
+            html += '<div class="hitl-config-section"><div class="hitl-config-title">⚙️ 组件配置</div>';
+            for (const field of configFields) {
+                const required = field.required ? ' <span class="hitl-required">*</span>' : '';
+                html += `<div class="hitl-field">
+                    <label class="hitl-field-label">${escapeHtml(field.label)}${required}</label>`;
+                if (field.type === 'select' && field.options && field.options.length > 0) {
+                    html += `<select class="hitl-field-select" data-field-id="${escapeHtml(field.id)}" onchange="hitlUpdatePreview('${hitlId}')">`;
+                    for (const fo of field.options) {
+                        const selected = field.default_value && fo.id === field.default_value ? ' selected' : '';
+                        html += `<option value="${escapeHtml(fo.id)}"${selected}>${escapeHtml(fo.label)}</option>`;
+                    }
+                    html += '</select>';
+                } else if (field.type === 'color') {
+                    html += `<input class="hitl-field-color" type="color" data-field-id="${escapeHtml(field.id)}" value="${escapeHtml(field.default_value || '#4F46E5')}" onchange="hitlUpdatePreview('${hitlId}')">`;
+                } else if (field.type === 'textarea') {
+                    html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" oninput="hitlUpdatePreview('${hitlId}')">${escapeHtml(field.default_value || '')}</textarea>`;
+                } else {
+                    html += `<input class="hitl-field-input" type="${field.type === 'number' ? 'number' : 'text'}" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(field.default_value || '')}" oninput="hitlUpdatePreview('${hitlId}')">`;
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        html += `<div class="hitl-options">
+            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitPreview('${hitlId}')">✅ 确认并创建</button>
+            <button class="hitl-option-btn hitl-option-default" onclick="hitlRefreshPreview('${hitlId}')">🔄 重新预览</button>
+            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+        </div>`;
     }
 
     html += '</div>'; // hitl-card-body
@@ -2688,6 +2732,21 @@ function renderHITLCard(evt) {
     </div>`;
 
     card.innerHTML = html;
+
+    // 如果是 preview 类型，注入 iframe 内容
+    if (interactionType === 'preview' && evt.preview_html) {
+        const iframe = card.querySelector('.hitl-preview-iframe');
+        if (iframe) {
+            // 延迟写入，等 iframe 加载完成
+            setTimeout(() => {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open();
+                doc.write(evt.preview_html);
+                doc.close();
+            }, 100);
+        }
+    }
+
     return card;
 }
 
@@ -2718,6 +2777,58 @@ function hitlSubmitMultiSelect(hitlId) {
         selected.push(el.dataset.optionId);
     });
     hitlSubmit(hitlId, 'submit', { selected: selected });
+}
+
+// 预览模式：提交确认
+function hitlSubmitPreview(hitlId) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    const values = {};
+    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
+        values[el.dataset.fieldId] = el.value;
+    });
+    hitlSubmit(hitlId, 'submit', values);
+}
+
+// 预览模式：配置变更 → 实时更新 iframe 预览
+function hitlUpdatePreview(hitlId) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    // 收集当前配置值
+    const values = {};
+    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
+        values[el.dataset.fieldId] = el.value;
+    });
+    // 通过 postMessage 通知 iframe 内的应用更新配置
+    const iframe = card.querySelector('.hitl-preview-iframe');
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'updateConfig', config: values }, '*');
+    }
+}
+
+// 预览模式：重新生成预览（请求后端重新组装）
+function hitlRefreshPreview(hitlId) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    const values = {};
+    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
+        values[el.dataset.fieldId] = el.value;
+    });
+    // 调用后端 API 重新生成预览
+    const token = localStorage.getItem('dataOntologyToken') || '';
+    fetch('/api/v1/components/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(values)
+    }).then(r => r.text()).then(html => {
+        const iframe = card.querySelector('.hitl-preview-iframe');
+        if (iframe) {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            doc.open();
+            doc.write(html);
+            doc.close();
+        }
+    }).catch(err => console.error('Refresh preview error:', err));
 }
 
 function hitlSubmit(hitlId, action, values) {

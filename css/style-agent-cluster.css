@@ -317,6 +317,13 @@ img.emoji {
 .hitl-card-footer { padding: 8px 14px; border-top: 1px solid #f3f4f6; background: #fafbfc; }
 .hitl-timeout-hint { font-size: 11px; color: #9ca3af; }
 
+/* 预览模式样式 */
+.hitl-preview-container { margin: 8px 0; border-radius: 8px; overflow: hidden; background: #fff; }
+.hitl-preview-iframe { display: block; background: #fff; }
+.hitl-config-section { margin-top: 10px; padding: 10px 12px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
+.hitl-config-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; }
+.hitl-field-color { width: 48px; height: 32px; padding: 2px; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; }
+
 /* Text content area */
 .cluster-text-content {
     padding: 14px 16px;

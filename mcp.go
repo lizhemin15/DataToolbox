@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
+	"github.com/YOUR_USERNAME/DataToolbox/components"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -257,6 +258,33 @@ type createApiIn struct {
 type executeApiIn struct {
 	Path   string                 `json:"path" jsonschema:"接口路径（如 /users）"`
 	Params map[string]interface{} `json:"params,omitempty" jsonschema:"查询参数"`
+}
+
+// ─── 预制组件工具输入类型 ─────────────────────────────────────────────────
+
+type listComponentsIn struct {
+	Category string `json:"category,omitempty" jsonschema:"按分类筛选（chart/kpi/table/map/filter），不传则返回全部"`
+}
+
+type previewAppIn struct {
+	Title           string                   `json:"title" jsonschema:"required,应用标题"`
+	Slug            string                   `json:"slug" jsonschema:"required,URL 标识"`
+	Description     string                   `json:"description,omitempty" jsonschema:"应用描述"`
+	Icon            string                   `json:"icon,omitempty" jsonschema:"图标 emoji"`
+	DesignDirection string                   `json:"design_direction,omitempty" jsonschema:"设计方向"`
+	PrimaryColor    string                   `json:"primary_color,omitempty" jsonschema:"主色调 HEX 值"`
+	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表，每个包含 component_id 和 config"`
+}
+
+type createAppFromBlueprintIn struct {
+	Title           string                   `json:"title" jsonschema:"required,应用标题"`
+	Slug            string                   `json:"slug" jsonschema:"required,URL 标识"`
+	Description     string                   `json:"description,omitempty" jsonschema:"应用描述"`
+	Icon            string                   `json:"icon,omitempty" jsonschema:"图标 emoji"`
+	DesignDirection string                   `json:"design_direction,omitempty" jsonschema:"设计方向"`
+	PrimaryColor    string                   `json:"primary_color,omitempty" jsonschema:"主色调 HEX 值"`
+	IsPublic        bool                     `json:"is_public,omitempty" jsonschema:"是否公开"`
+	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
@@ -629,6 +657,178 @@ var designThemes = map[string]map[string]interface{}{
 	},
 }
 
+// ─── 预制组件 MCP 工具 ───────────────────────────────────────────────────────
+
+func mcpListComponents(ctx context.Context, req *mcp.CallToolRequest, in listComponentsIn) (*mcp.CallToolResult, mcpOutput, error) {
+	allComps := components.ListComponents()
+
+	if in.Category != "" {
+		if catComps, ok := allComps[in.Category]; ok {
+			allComps = map[string][]*components.ComponentDef{in.Category: catComps}
+		} else {
+			return nil, mcpOutput{Result: fmt.Sprintf("分类 %q 不存在，可用分类: chart, kpi, table, map, filter", in.Category)}, nil
+		}
+	}
+
+	// 精简输出 — 不输出完整 schema
+	type compSummary struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Icon        string `json:"icon"`
+		Description string `json:"description"`
+	}
+	result := map[string][]compSummary{}
+	for cat, comps := range allComps {
+		sums := []compSummary{}
+		for _, c := range comps {
+			sums = append(sums, compSummary{ID: c.ID, Name: c.Name, Icon: c.Icon, Description: c.Description})
+		}
+		result[cat] = sums
+	}
+
+	data, _ := json.Marshal(result)
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+	if len(in.Components) == 0 {
+		return nil, mcpOutput{Result: "错误: components 列表不能为空，请至少添加一个组件"}, nil
+	}
+
+	// 验证组件 ID
+	for i, c := range in.Components {
+		def, ok := components.GetComponentDef(c.ComponentID)
+		if !ok {
+			return nil, mcpOutput{Result: fmt.Sprintf("错误: 组件 %q 不存在（第 %d 个），请先调用 list_components 查看可用组件", c.ComponentID, i+1)}, nil
+		}
+		// 填充默认值
+		if c.Config == nil {
+			c.Config = map[string]interface{}{}
+		}
+		for k, schema := range def.ConfigSchema {
+			if _, exists := c.Config[k]; !exists && schema.Default != nil {
+				c.Config[k] = schema.Default
+			}
+		}
+		in.Components[i] = c
+	}
+
+	blueprint := components.AppBlueprint{
+		Title:           in.Title,
+		Slug:            in.Slug,
+		Description:     in.Description,
+		Icon:            in.Icon,
+		DesignDirection: in.DesignDirection,
+		PrimaryColor:    in.PrimaryColor,
+		Components:      in.Components,
+	}
+
+	primaryColor := in.PrimaryColor
+	if primaryColor == "" {
+		primaryColor = "#4F46E5"
+	}
+	html := components.GeneratePreviewHTML(blueprint, primaryColor)
+
+	// 构建组件描述列表
+	compDescs := []string{}
+	for i, c := range in.Components {
+		def, _ := components.GetComponentDef(c.ComponentID)
+		name := c.ComponentID
+		if def != nil {
+			name = fmt.Sprintf("%s %s", def.Icon, def.Name)
+		}
+		compDescs = append(compDescs, fmt.Sprintf("%d. %s", i+1, name))
+	}
+
+	result := map[string]interface{}{
+		"preview_available": true,
+		"preview_type":      "iframe",
+		"preview_html":      html,
+		"components":        compDescs,
+		"title":             in.Title,
+		"primary_color":     primaryColor,
+		"message":           "预览已生成。用户可以在预览中查看应用效果，并交互修改组件配置后重新预览",
+	}
+	data, _ := json.Marshal(result)
+	return nil, mcpOutput{Result: string(data)}, nil
+}
+
+func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in createAppFromBlueprintIn) (*mcp.CallToolResult, mcpOutput, error) {
+	// 强制 HITL 确认
+	if !agent.IsHITLConfirmed("default") {
+		compDescs := []string{}
+		for i, c := range in.Components {
+			def, _ := components.GetComponentDef(c.ComponentID)
+			name := c.ComponentID
+			if def != nil {
+				name = fmt.Sprintf("%s %s", def.Icon, def.Name)
+			}
+			compDescs = append(compDescs, fmt.Sprintf("%d. %s", i+1, name))
+		}
+		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 组件: %s\n- 设计方向: %s\n- 主色调: %s\n- 是否公开: %v",
+			in.Title, in.Slug, in.Description, strings.Join(compDescs, ", "), in.DesignDirection, in.PrimaryColor, in.IsPublic)
+		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
+	}
+
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, mcpOutput{}, err
+	}
+
+	// 组装 HTML
+	blueprint := components.AppBlueprint{
+		Title:           in.Title,
+		Slug:            in.Slug,
+		Description:     in.Description,
+		Icon:            in.Icon,
+		DesignDirection: in.DesignDirection,
+		PrimaryColor:    in.PrimaryColor,
+		Components:      in.Components,
+	}
+	primaryColor := in.PrimaryColor
+	if primaryColor == "" {
+		primaryColor = "#4F46E5"
+	}
+	html := components.AssembleAppPage(blueprint, primaryColor)
+
+	// 调用后端 API 创建应用
+	reqBody := map[string]interface{}{
+		"name":        in.Title,
+		"title":       in.Title,
+		"slug":        in.Slug,
+		"description": in.Description,
+		"icon":        in.Icon,
+		"html":        html,
+		"is_public":   in.IsPublic,
+		"config": map[string]interface{}{
+			"blueprint": map[string]interface{}{
+				"design_direction": in.DesignDirection,
+				"primary_color":    in.PrimaryColor,
+				"components":       in.Components,
+			},
+		},
+	}
+
+	body, _ := json.Marshal(reqBody)
+	apiURL := fmt.Sprintf("%s/api/v1/apps", mcpLoopbackAddr)
+	httpReq, _ := http.NewRequest("POST", apiURL, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+cli.apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, mcpOutput{}, fmt.Errorf("创建应用请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return nil, mcpOutput{}, fmt.Errorf("创建应用失败 (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil, mcpOutput{Result: fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /a/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))}, nil
+}
+
 func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, mcpOutput, error) {
 	if in.Direction != "" {
 		// 返回指定设计方向的详细信息
@@ -965,7 +1165,10 @@ func initMCPHTTPHandler() {
 
 		// 应用管理工具
 		mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案。创建应用前先调用此工具获取设计灵感，再将结果填入 create_app 的蓝图字段（design_direction/primary_color/style）"}, mcpDesignTheme)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_components", Description: "列出可用的预制组件（图表、地图、表格、KPI卡片、筛选栏等），创建可视化应用时使用"}, mcpListComponents)
+		mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果：根据组件配置组装 HTML 并在 HITL 确认卡中展示预览。用户可以在预览中交互修改组件配置"}, mcpPreviewApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认应用内容（标题、标识、功能描述、代码等）！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"}, mcpCreateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_blueprint", Description: "【重要】基于预制组件蓝图创建应用！先调用 list_components 查看可用组件，再用 preview_app 预览效果，确认后创建。创建前必须先调用 ask_user 工具让用户确认！"}, mcpCreateAppFromBlueprint)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和代码内容"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定 ID 的应用"}, mcpDeleteApp)
@@ -1055,9 +1258,12 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
 
-	// 应用管理工具
+// 应用管理工具
 	mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案"}, mcpDesignTheme)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用（HTML+CSS+JS）"}, mcpCreateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_components", Description: "列出可用的预制组件"}, mcpListComponents)
+	mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果"}, mcpPreviewApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用"}, mcpCreateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_blueprint", Description: "【重要】基于预制组件蓝图创建应用！创建前必须先调用 ask_user 工具让用户确认！"}, mcpCreateAppFromBlueprint)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)

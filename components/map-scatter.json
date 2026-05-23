@@ -1,0 +1,81 @@
+{
+  "id": "map-scatter",
+  "name": "地图标注",
+  "category": "map",
+  "icon": "🗺️",
+  "description": "地图上的散点标注/热力图，支持交互弹窗",
+  "version": "1.0.0",
+  "dependencies": ["leaflet"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "地图标题",
+      "default": "地理分布",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true
+    },
+    "lat_field": {
+      "type": "string",
+      "label": "纬度字段",
+      "default": "lat",
+      "required": true
+    },
+    "lng_field": {
+      "type": "string",
+      "label": "经度字段",
+      "default": "lng",
+      "required": true
+    },
+    "name_field": {
+      "type": "string",
+      "label": "名称字段(弹窗标题)",
+      "default": "name",
+      "required": false
+    },
+    "popup_fields": {
+      "type": "string_list",
+      "label": "弹窗显示字段",
+      "default": [],
+      "required": false
+    },
+    "center_lat": {
+      "type": "number",
+      "label": "中心纬度",
+      "default": 35.86,
+      "required": false
+    },
+    "center_lng": {
+      "type": "number",
+      "label": "中心经度",
+      "default": 104.19,
+      "required": false
+    },
+    "zoom": {
+      "type": "number",
+      "label": "缩放级别",
+      "default": 4,
+      "min": 1,
+      "max": 18
+    },
+    "marker_color": {
+      "type": "color",
+      "label": "标注颜色",
+      "default": "#4F46E5"
+    },
+    "heatmap": {
+      "type": "boolean",
+      "label": "热力图模式",
+      "default": false
+    },
+    "height": {
+      "type": "number",
+      "label": "地图高度(px)",
+      "default": 500
+    }
+  }
+}

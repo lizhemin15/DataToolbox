@@ -1,0 +1,43 @@
+{
+  "id": "kpi-card",
+  "name": "指标卡片",
+  "category": "kpi",
+  "icon": "🔢",
+  "description": "关键指标展示卡片，支持数值、趋势、同比环比",
+  "version": "1.0.0",
+  "dependencies": [],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "卡片标题",
+      "default": "关键指标",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true
+    },
+    "metrics": {
+      "type": "list",
+      "label": "指标列表",
+      "item_schema": {
+        "label": { "type": "string", "label": "指标名称" },
+        "field": { "type": "string", "label": "字段名" },
+        "prefix": { "type": "string", "label": "前缀", "default": "" },
+        "suffix": { "type": "string", "label": "后缀", "default": "" },
+        "trend_field": { "type": "string", "label": "趋势字段(对比值)", "default": "" },
+        "color": { "type": "color", "label": "强调色", "default": "#4F46E5" }
+      },
+      "default": [],
+      "required": true
+    },
+    "columns": {
+      "type": "select",
+      "label": "每行显示数量",
+      "default": "4",
+      "options": ["2", "3", "4"]
+    }
+  }
+}

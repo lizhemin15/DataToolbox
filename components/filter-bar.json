@@ -1,0 +1,30 @@
+{
+  "id": "filter-bar",
+  "name": "筛选栏",
+  "category": "filter",
+  "icon": "🔍",
+  "description": "全局筛选条件栏，可联动其他组件",
+  "version": "1.0.0",
+  "dependencies": [],
+  "config_schema": {
+    "filters": {
+      "type": "list",
+      "label": "筛选条件",
+      "item_schema": {
+        "id": { "type": "string", "label": "筛选器ID" },
+        "label": { "type": "string", "label": "显示名" },
+        "type": { "type": "select", "label": "类型", "default": "select", "options": ["select", "date_range", "text", "number_range"] },
+        "data_source": { "type": "api_url", "label": "选项数据源(select类型)", "default": "" },
+        "default_value": { "type": "string", "label": "默认值", "default": "" }
+      },
+      "default": [],
+      "required": true
+    },
+    "layout": {
+      "type": "select",
+      "label": "布局",
+      "default": "horizontal",
+      "options": ["horizontal", "vertical"]
+    }
+  }
+}

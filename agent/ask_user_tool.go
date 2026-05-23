@@ -35,6 +35,9 @@ Supported interaction types:
 5. **form** — Multi-field structured form. Use when you need several pieces of information from the user at once. Each field can be text, number, select, or textarea.
    Example: Ask "请填写接口配置" with fields for name, path, method, and description.
 
+6. **preview** — Interactive preview with configurable form. Use after preview_app to show the user an iframe preview of the generated application alongside configuration fields they can adjust. Provide preview_html from the preview_app tool output, and config_fields for adjustable settings (supports color type).
+   Example: Show a dashboard preview with fields to change the title, color scheme, and chart type.
+
 Usage guidelines:
 - Always use **confirm** before any destructive database operation (DROP, TRUNCATE, bulk DELETE/UPDATE).
 - Use **single_select** or **multi_select** when options are known and finite.
@@ -77,8 +80,8 @@ func (t *AskUserTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"interaction_type": map[string]any{
 				"type":        "string",
-				"description": "Type of interaction: confirm (yes/no), single_select (pick one), multi_select (pick multiple), input (free text), form (multi-field)",
-				"enum":        []string{"confirm", "single_select", "multi_select", "input", "form"},
+				"description": "Type of interaction: confirm (yes/no), single_select (pick one), multi_select (pick multiple), input (free text), form (multi-field), preview (iframe preview + config form)",
+				"enum":        []string{"confirm", "single_select", "multi_select", "input", "form", "preview"},
 			},
 			"title": map[string]any{
 				"type":        "string",
@@ -134,6 +137,45 @@ func (t *AskUserTool) Parameters() map[string]any {
 			"timeout_seconds": map[string]any{
 				"type":        "number",
 				"description": "Timeout in seconds for user response (default 86400 = 24 hours in async mode). User can respond at any time.",
+			},
+			"preview_html": map[string]any{
+				"type":        "string",
+				"description": "(preview type only) HTML content to render in the preview iframe. Generate this from preview_app tool output.",
+			},
+			"preview_width": map[string]any{
+				"type":        "string",
+				"description": "(preview type only) Iframe width, default '100%'",
+			},
+			"preview_height": map[string]any{
+				"type":        "string",
+				"description": "(preview type only) Iframe height, default '420px'",
+			},
+			"config_fields": map[string]any{
+				"type":        "array",
+				"description": "(preview type only) Configurable fields shown alongside the preview. Same format as 'fields' but supports additional type 'color'.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id":            map[string]any{"type": "string", "description": "Unique field identifier"},
+						"label":         map[string]any{"type": "string", "description": "Display label for this field"},
+						"type":          map[string]any{"type": "string", "description": "Field input type: text|number|select|textarea|color", "enum": []string{"text", "number", "select", "textarea", "color"}},
+						"placeholder":   map[string]any{"type": "string", "description": "Placeholder text (optional)"},
+						"required":      map[string]any{"type": "boolean", "description": "Whether this field is required (optional, default false)"},
+						"default_value": map[string]any{"type": "string", "description": "Default value (optional)"},
+						"options": map[string]any{
+							"type":        "array",
+							"description": "Options for select type fields",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"id":    map[string]any{"type": "string"},
+									"label": map[string]any{"type": "string"},
+								},
+							},
+						},
+					},
+					"required": []string{"id", "label", "type"},
+				},
 			},
 		},
 		"required": []string{"interaction_type", "title"},
@@ -204,10 +246,10 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	// 验证交互类型
 	validTypes := map[string]bool{
 		"confirm": true, "single_select": true, "multi_select": true,
-		"input": true, "form": true,
+		"input": true, "form": true, "preview": true,
 	}
 	if !validTypes[interactionType] {
-		return tools.ErrorResult(fmt.Sprintf("invalid interaction_type: %s (must be confirm, single_select, multi_select, input, form)", interactionType))
+		return tools.ErrorResult(fmt.Sprintf("invalid interaction_type: %s (must be confirm, single_select, multi_select, input, form, preview)", interactionType))
 	}
 
 	// 强制规则：创建接口的 form 必须包含从数据库获取的真实数据
@@ -327,6 +369,41 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 		timeoutSeconds = ts
 	}
 
+	// 解析 preview 类型参数
+	previewHTML, _ := args["preview_html"].(string)
+	previewWidth, _ := args["preview_width"].(string)
+	previewHeight, _ := args["preview_height"].(string)
+
+	// 解析 config_fields（preview 类型专用，与 fields 格式相同但支持 color 类型）
+	var configFields []HITLField
+	if rawConfigFields, ok := args["config_fields"].([]any); ok {
+		for _, raw := range rawConfigFields {
+			if fieldMap, ok := raw.(map[string]any); ok {
+				field := HITLField{
+					ID:           strVal(fieldMap["id"]),
+					Label:        strVal(fieldMap["label"]),
+					Type:         strVal(fieldMap["type"]),
+					Placeholder:  strVal(fieldMap["placeholder"]),
+					Required:     boolVal(fieldMap["required"]),
+					DefaultValue: strVal(fieldMap["default_value"]),
+				}
+				if rawFieldOpts, ok := fieldMap["options"].([]any); ok {
+					for _, rawFO := range rawFieldOpts {
+						if foMap, ok := rawFO.(map[string]any); ok {
+							field.Options = append(field.Options, HITLOption{
+								ID:    strVal(foMap["id"]),
+								Label: strVal(foMap["label"]),
+							})
+						}
+					}
+				}
+				if field.ID != "" && field.Label != "" {
+					configFields = append(configFields, field)
+				}
+			}
+		}
+	}
+
 	// 2. 从 ctx 获取 sessionID
 	sessionID := toolshared.ToolSessionKey(ctx)
 	if sessionID == "" {
@@ -359,19 +436,33 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	// 6. 推送 hitl_interaction SSE 事件到前端
 	if t.pushEvent != nil {
 		reqJSON, _ := json.Marshal(req)
+		evtData := map[string]interface{}{
+			"hitl_id":         hitlID,
+			"session_id":      sessionID,
+			"interaction_type": interactionType,
+			"title":           title,
+			"description":     description,
+			"options":         options,
+			"fields":          fields,
+			"timeout_seconds": timeoutSeconds,
+			"request_json":    string(reqJSON),
+		}
+		// preview 类型额外字段
+		if interactionType == "preview" {
+			evtData["preview_html"] = previewHTML
+			if previewWidth != "" {
+				evtData["preview_width"] = previewWidth
+			}
+			if previewHeight != "" {
+				evtData["preview_height"] = previewHeight
+			}
+			if len(configFields) > 0 {
+				evtData["config_fields"] = configFields
+			}
+		}
 		t.pushEvent(Event{
 			Type: EventTypeHITL,
-			Data: map[string]interface{}{
-				"hitl_id":         hitlID,
-				"session_id":      sessionID,
-				"interaction_type": interactionType,
-				"title":           title,
-				"description":     description,
-				"options":         options,
-				"fields":          fields,
-				"timeout_seconds": timeoutSeconds,
-				"request_json":    string(reqJSON),
-			},
+			Data: evtData,
 		})
 		log.Printf("[ask_user] pushed hitl_interaction event: hitl_id=%s, type=%s", hitlID, interactionType)
 	}

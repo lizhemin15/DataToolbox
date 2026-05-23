@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"sync"
+
+	"github.com/YOUR_USERNAME/DataToolbox/components"
 )
 
 func main() {
@@ -36,6 +38,15 @@ func main() {
 
 	// 初始化数据本体池
 	initDataOntology()
+	// 加载预制组件库
+	if err := components.LoadComponents("components"); err != nil {
+		log.Printf("[组件] 加载预制组件失败: %v（将使用空组件库）", err)
+	} else {
+		comps := components.ListComponents()
+		total := 0
+		for _, c := range comps { total += len(c) }
+		log.Printf("[组件] 已加载 %d 个预制组件", total)
+	}
 	// 初始化网页导航
 	initWebNav()
 	// 初始化集群模式（Agent）子系统
