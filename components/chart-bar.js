@@ -2,12 +2,12 @@
 /* 本地化 echarts.min.js 必须放在 /js/lib/echarts.min.js */
 
 /* === 柱状图模板 === */
-/* config: { title, data_source, x_field, y_fields, mode, colors, show_legend, height } */
-function (config, containerId) {
+/* config: { title, data_source, x_field, y_fields, x_axis, series, mode, colors, show_legend, height } */
+/* 支持两种数据模式: data_source(API) 或 x_axis+series(直接数据) */
+function renderBarChart(config, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
-    // 加载 ECharts
     if (typeof echarts === 'undefined') {
         container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">ECharts 未加载</div>';
         return;
@@ -16,37 +16,58 @@ function (config, containerId) {
     const chart = echarts.init(container);
     const colors = config.colors || ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 
-    fetchWithAuth(config.data_source)
-        .then(r => r.json())
-        .then(data => {
-            const rows = data.rows || data.data || [];
-            const cols = data.columns || [];
-            const xData = rows.map(r => r[config.x_field]);
-            const yFields = config.y_fields || [];
+    // 直接数据模式（预览用）
+    if (config.x_axis && config.series) {
+        const xData = config.x_axis;
+        const series = config.series.map((s, i) => ({
+            name: s.name || `系列${i+1}`,
+            type: 'bar',
+            stack: config.mode === 'stacked' ? 'total' : undefined,
+            data: s.data,
+            itemStyle: { color: colors[i % colors.length], borderRadius: [4, 4, 0, 0] }
+        }));
 
-            const series = yFields.map((field, i) => ({
-                name: field,
-                type: 'bar',
-                stack: config.mode === 'stacked' ? 'total' : undefined,
-                data: rows.map(r => r[field]),
-                itemStyle: { color: colors[i % colors.length], borderRadius: [4, 4, 0, 0] }
-            }));
-
-            chart.setOption({
-                title: { text: config.title || '', left: 'center', textStyle: { fontSize: 16, fontWeight: 600 } },
-                tooltip: { trigger: 'axis' },
-                legend: { show: config.show_legend !== false, bottom: 0 },
-                grid: { left: '3%', right: '4%', bottom: config.show_legend !== false ? 40 : 20, top: config.title ? 50 : 20, containLabel: true },
-                xAxis: { type: 'category', data: xData, axisLabel: { rotate: xData.length > 8 ? 30 : 0 } },
-                yAxis: { type: 'value' },
-                series
-            });
-        })
-        .catch(err => {
-            container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
+        chart.setOption({
+            title: { text: config.title || '', left: 'center', textStyle: { fontSize: 16, fontWeight: 600 } },
+            tooltip: { trigger: 'axis' },
+            legend: { show: config.show_legend !== false, bottom: 0 },
+            grid: { left: '3%', right: '4%', bottom: config.show_legend !== false ? 40 : 20, top: config.title ? 50 : 20, containLabel: true },
+            xAxis: { type: 'category', data: xData, axisLabel: { rotate: xData.length > 8 ? 30 : 0 } },
+            yAxis: { type: 'value' },
+            series
         });
+    } else if (config.data_source) {
+        // API 数据模式
+        fetchWithAuth(config.data_source)
+            .then(r => r.json())
+            .then(data => {
+                const rows = data.rows || data.data || [];
+                const xData = rows.map(r => r[config.x_field]);
+                const yFields = config.y_fields || [];
 
-    // 响应式
+                const series = yFields.map((field, i) => ({
+                    name: field,
+                    type: 'bar',
+                    stack: config.mode === 'stacked' ? 'total' : undefined,
+                    data: rows.map(r => r[field]),
+                    itemStyle: { color: colors[i % colors.length], borderRadius: [4, 4, 0, 0] }
+                }));
+
+                chart.setOption({
+                    title: { text: config.title || '', left: 'center', textStyle: { fontSize: 16, fontWeight: 600 } },
+                    tooltip: { trigger: 'axis' },
+                    legend: { show: config.show_legend !== false, bottom: 0 },
+                    grid: { left: '3%', right: '4%', bottom: config.show_legend !== false ? 40 : 20, top: config.title ? 50 : 20, containLabel: true },
+                    xAxis: { type: 'category', data: xData, axisLabel: { rotate: xData.length > 8 ? 30 : 0 } },
+                    yAxis: { type: 'value' },
+                    series
+                });
+            })
+            .catch(err => {
+                container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
+            });
+    }
+
     window.addEventListener('resize', () => chart.resize());
     return chart;
 }

@@ -326,7 +326,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     };
 })();
 </script>
+<script>
+// 组件渲染函数
 %s
+</script>
 <script>
 // 组件初始化
 %s

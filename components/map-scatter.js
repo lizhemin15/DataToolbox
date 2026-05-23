@@ -1,5 +1,6 @@
-/* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, center_lat, center_lng, zoom, marker_color, heatmap, height } */
+/* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, center_lat, center_lng, zoom, marker_color, heatmap, height } */
 /* 依赖: Leaflet (必须本地化到 /js/lib/leaflet/) */
+/* 支持两种模式: data_source(API) 或 markers[](直接数据) */
 function renderMapScatter(config, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -9,19 +10,17 @@ function renderMapScatter(config, containerId) {
         return;
     }
 
-    // 初始化地图
     const map = L.map(containerId, {
         center: [config.center_lat || 35.86, config.center_lng || 104.19],
         zoom: config.zoom || 4
     });
 
-    // 使用 OpenStreetMap 瓦片（离线可替换）
+    // 离线瓦片优先，失败回退在线
     L.tileLayer('/js/lib/leaflet/tiles/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 18
     }).addTo(map);
 
-    // 如果离线瓦片不存在，尝试在线瓦片
     map.on('tileerror', function() {
         if (!map._onlineFallback) {
             map._onlineFallback = true;
@@ -31,49 +30,54 @@ function renderMapScatter(config, containerId) {
         }
     });
 
-    // 加载标注数据
-    fetchWithAuth(config.data_source)
-        .then(r => r.json())
-        .then(data => {
-            const rows = data.rows || data.data || [];
-            const markers = [];
-            const markerColor = config.marker_color || '#4F46E5';
+    const markerColor = config.marker_color || '#4F46E5';
 
-            rows.forEach(r => {
-                const lat = parseFloat(r[config.lat_field || 'lat']);
-                const lng = parseFloat(r[config.lng_field || 'lng']);
-                if (isNaN(lat) || isNaN(lng)) return;
+    function addMarkers(rows, latField, lngField, nameField, popupFields) {
+        const markers = [];
+        rows.forEach(r => {
+            const lat = parseFloat(r[latField || 'lat']);
+            const lng = parseFloat(r[lngField || 'lng']);
+            if (isNaN(lat) || isNaN(lng)) return;
 
-                const icon = L.divIcon({
-                    className: '',
-                    html: `<div style="width:12px;height:12px;background:${markerColor};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>`,
-                    iconSize: [12, 12],
-                    iconAnchor: [6, 6]
-                });
-
-                const marker = L.marker([lat, lng], { icon }).addTo(map);
-
-                // 弹窗
-                const name = r[config.name_field || 'name'] || '';
-                const popupFields = config.popup_fields || [];
-                if (name || popupFields.length > 0) {
-                    let popupHtml = name ? `<strong>${name}</strong>` : '';
-                    popupFields.forEach(f => {
-                        if (r[f] !== undefined) popupHtml += `<br><span style="color:#666">${f}:</span> ${r[f]}`;
-                    });
-                    marker.bindPopup(popupHtml);
-                }
-
-                markers.push(marker);
+            const icon = L.divIcon({
+                className: '',
+                html: '<div style="width:12px;height:12px;background:' + markerColor + ';border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>',
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
             });
 
-            // 自动适配边界
-            if (markers.length > 0) {
-                const group = L.featureGroup(markers);
-                map.fitBounds(group.getBounds().pad(0.1));
+            const marker = L.marker([lat, lng], { icon: icon }).addTo(map);
+            const name = r[nameField || 'name'] || '';
+            const pFields = popupFields || [];
+            if (name || pFields.length > 0) {
+                let popupHtml = name ? '<strong>' + name + '</strong>' : '';
+                pFields.forEach(f => {
+                    if (r[f] !== undefined) popupHtml += '<br><span style="color:#666">' + f + ':</span> ' + r[f];
+                });
+                marker.bindPopup(popupHtml);
             }
-        })
-        .catch(err => {
-            container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
+            markers.push(marker);
         });
+
+        if (markers.length > 0) {
+            const group = L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
+    }
+
+    // 直接数据模式: config.markers = [{lat, lng, name, ...}]
+    if (config.markers && config.markers.length > 0) {
+        addMarkers(config.markers, 'lat', 'lng', 'name', config.popup_fields);
+    } else if (config.data_source) {
+        // API 模式
+        fetchWithAuth(config.data_source)
+            .then(r => r.json())
+            .then(data => {
+                const rows = data.rows || data.data || [];
+                addMarkers(rows, config.lat_field, config.lng_field, config.name_field, config.popup_fields);
+            })
+            .catch(err => {
+                container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
+            });
+    }
 }
