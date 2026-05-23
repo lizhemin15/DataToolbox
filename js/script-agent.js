@@ -2105,10 +2105,7 @@ async function initAgentMode() {
 async function resumeActiveAgentRuns() {
     if (!currentSessionId || currentSessionId === 'default') return;
     try {
-        const token = localStorage.getItem('dataOntologyToken') || '';
-        const resp = await fetch(`${API_BASE}/api/v1/agent/runs?session_id=${currentSessionId}&status=running,waiting_hitl`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs?session_id=${currentSessionId}&status=running,waiting_hitl`);
         if (!resp.ok) return;
         const data = await resp.json();
         if (!data.success || !data.data || !data.data.runs) return;
@@ -2161,10 +2158,7 @@ async function resumeAgentRun(runId, startSeq) {
     const pollEvents = async () => {
         if (hitlPending) return;
         try {
-            const token = localStorage.getItem('dataOntologyToken') || '';
-            const resp = await fetch(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`, {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`);
             if (!resp.ok) return;
             const data = await resp.json();
             if (!data.success || !data.data) return;
@@ -2301,10 +2295,7 @@ async function sendClusterQuery(message, databases, modules) {
             if (hitlPending) return; // HITL 等待中不轮询
 
             try {
-                const token = localStorage.getItem('dataOntologyToken') || '';
-                const resp = await fetch(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
+                const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`);
                 if (!resp.ok) return;
                 const data = await resp.json();
                 if (!data.success || !data.data) return;
