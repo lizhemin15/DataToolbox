@@ -1,0 +1,44 @@
+{
+  "id": "timeline",
+  "name": "时间线",
+  "category": "chart",
+  "icon": "📅",
+  "description": "时间线/里程碑展示，适合展示项目进度、历史事件、流程步骤等",
+  "version": "1.0.0",
+  "dependencies": [],
+  "config_schema": {
+    "title": {
+      "type": "text",
+      "label": "标题",
+      "default": "项目进度",
+      "required": true
+    },
+    "events": {
+      "type": "list",
+      "label": "事件列表",
+      "hint": "事件数组，每项包含 date(日期)、title(标题)、desc(描述)、status(done/active/pending)"
+    },
+    "layout": {
+      "type": "select",
+      "label": "布局方向",
+      "default": "vertical",
+      "options": ["vertical", "horizontal"],
+      "hint": "垂直或水平时间线"
+    },
+    "primary_color": {
+      "type": "color",
+      "label": "主色调",
+      "default": "#4F46E5"
+    },
+    "show_date": {
+      "type": "boolean",
+      "label": "显示日期",
+      "default": true
+    },
+    "api_url": {
+      "type": "api_url",
+      "label": "数据接口",
+      "hint": "实时数据接口 URL（GET），返回 {events: [{date,title,desc,status}]}"
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "id": "chart-gauge",
+  "name": "仪表盘",
+  "category": "kpi",
+  "icon": "🎯",
+  "description": "仪表盘/进度指标，展示单个数值在范围中的位置，适合展示完成率、健康度等",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "text",
+      "label": "标题",
+      "default": "完成率",
+      "required": true,
+      "hint": "仪表盘标题"
+    },
+    "value": {
+      "type": "number",
+      "label": "当前值",
+      "default": 75,
+      "required": true,
+      "hint": "当前指标值"
+    },
+    "min": {
+      "type": "number",
+      "label": "最小值",
+      "default": 0,
+      "hint": "范围下限"
+    },
+    "max": {
+      "type": "number",
+      "label": "最大值",
+      "default": 100,
+      "hint": "范围上限"
+    },
+    "unit": {
+      "type": "text",
+      "label": "单位",
+      "default": "%",
+      "hint": "数值单位（如 %、分、万）"
+    },
+    "color": {
+      "type": "color",
+      "label": "仪表盘颜色",
+      "default": "#4F46E5",
+      "hint": "主色调"
+    },
+    "thresholds": {
+      "type": "list",
+      "label": "阈值区间",
+      "hint": "不同区间的颜色，如 [{value:30,color:'#ef4444'},{value:70,color:'#f59e0b'},{value:100,color:'#22c55e'}]"
+    },
+    "api_url": {
+      "type": "api_url",
+      "label": "数据接口",
+      "hint": "实时数据接口 URL（GET），返回 {value: number}"
+    }
+  }
+}

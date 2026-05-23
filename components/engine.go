@@ -207,10 +207,10 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 	for dep := range allDeps {
 		switch dep {
 		case "echarts":
-			libScripts += `<script src="/js/lib/echarts.min.js"></script>\n`
+			libScripts += `<script src="/lib/echarts.min.js"></script>\n`
 		case "leaflet":
-			libScripts += `<link rel="stylesheet" href="/js/lib/leaflet/leaflet.css">\n`
-			libScripts += `<script src="/js/lib/leaflet/leaflet.js"></script>\n`
+			libScripts += `<link rel="stylesheet" href="/lib/leaflet.min.css">\n`
+			libScripts += `<script src="/lib/leaflet.min.js"></script>\n`
 		}
 	}
 
@@ -251,6 +251,34 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
   // 组件 %d: %s (%s)
   %s(%s, '%s');
 `, i+1, def.Name, inst.GetID(), renderFunc, string(configJSON), containerID)
+
+		// 如果组件有 api_url，自动注入 filterChange 监听
+		if _, hasAPI := inst.Config["api_url"]; hasAPI {
+			componentInits += fmt.Sprintf(`
+  // 组件 %d: 监听筛选变化自动刷新
+  (function() {
+    var _baseCfg%d = JSON.parse('%s');
+    var _baseApi%d = _baseCfg%d.api_url || '';
+    var _compId%d = '%s';
+    var _fn%d = %s;
+    if (window.__appEventBus) {
+      window.__appEventBus.on('filterChange', function(filters) {
+        // 每次从原始 URL 重建，避免参数累积
+        var url = _baseApi%d;
+        if (url && filters) {
+          var sep = url.indexOf('?') >= 0 ? '&' : '?';
+          Object.keys(filters).forEach(function(k) {
+            if (filters[k]) { url += sep + encodeURIComponent(k) + '=' + encodeURIComponent(filters[k]); sep = '&'; }
+          });
+        }
+        var newCfg = Object.assign({}, _baseCfg%d, {api_url: url});
+        var el = document.getElementById(_compId%d);
+        if (el) { el.innerHTML = ''; _fn%d(newCfg, _compId%d); }
+      });
+    }
+  })();
+`, i+1, i, string(configJSON), i, i, i, containerID, i, renderFunc, i, i, i, i, i)
+		}
 	}
 
 	// 生成组件容器 HTML
@@ -336,6 +364,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 })();
 </script>
 <script>
+// 全局事件总线 — 组件间联动
+(function() {
+    var bus = {};
+    window.__appEventBus = {
+        _listeners: {},
+        on: function(event, fn) {
+            if (!bus[event]) bus[event] = [];
+            bus[event].push(fn);
+        },
+        off: function(event, fn) {
+            if (!bus[event]) return;
+            bus[event] = bus[event].filter(function(f) { return f !== fn; });
+        },
+        emit: function(event, data) {
+            if (!bus[event]) return;
+            bus[event].forEach(function(fn) { try { fn(data); } catch(e) { console.error('EventBus error:', e); } });
+        }
+    };
+})();
+</script>
+<script>
 // 组件渲染函数
 %s
 </script>
@@ -374,6 +423,12 @@ func getRenderFuncName(id string) string {
 		return "renderMapScatter"
 	case "filter-bar":
 		return "renderFilterBar"
+	case "chart-gauge":
+		return "renderChartGauge"
+	case "timeline":
+		return "renderTimeline"
+	case "chart-area":
+		return "renderChartArea"
 	default:
 		return "render" + strings.Title(strings.ReplaceAll(id, "-", ""))
 	}

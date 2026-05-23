@@ -670,18 +670,38 @@ func mcpListComponents(ctx context.Context, req *mcp.CallToolRequest, in listCom
 		}
 	}
 
-	// 精简输出 — 不输出完整 schema
+	// 精简输出 — 包含配置概要
+	type configFieldSummary struct {
+		Key     string   `json:"key"`
+		Label   string   `json:"label"`
+		Type    string   `json:"type"`
+		Default string   `json:"default,omitempty"`
+		Options []string `json:"options,omitempty"`
+	}
 	type compSummary struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Icon        string `json:"icon"`
-		Description string `json:"description"`
+		ID          string               `json:"id"`
+		Name        string               `json:"name"`
+		Icon        string               `json:"icon"`
+		Description string               `json:"description"`
+		ConfigKeys  []configFieldSummary `json:"config_keys"`
 	}
 	result := map[string][]compSummary{}
 	for cat, comps := range allComps {
 		sums := []compSummary{}
 		for _, c := range comps {
-			sums = append(sums, compSummary{ID: c.ID, Name: c.Name, Icon: c.Icon, Description: c.Description})
+			keys := []configFieldSummary{}
+			for k, s := range c.ConfigSchema {
+				if s.Type == "list" {
+					keys = append(keys, configFieldSummary{Key: k, Label: s.Label, Type: s.Type})
+					continue
+				}
+				defVal := ""
+				if s.Default != nil {
+					defVal = fmt.Sprintf("%v", s.Default)
+				}
+				keys = append(keys, configFieldSummary{Key: k, Label: s.Label, Type: s.Type, Default: defVal, Options: s.Options})
+			}
+			sums = append(sums, compSummary{ID: c.ID, Name: c.Name, Icon: c.Icon, Description: c.Description, ConfigKeys: keys})
 		}
 		result[cat] = sums
 	}
@@ -747,8 +767,91 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 		"components":        compDescs,
 		"title":             in.Title,
 		"primary_color":     primaryColor,
-		"message":           "预览已生成。用户可以在预览中查看应用效果，并交互修改组件配置后重新预览",
+		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），将 preview_html 和 config_fields 传给用户，让用户在预览中交互修改配置",
 	}
+
+	// 构建 config_fields — 从每个组件的 ConfigSchema 提取可交互配置项
+	configFields := []map[string]interface{}{}
+	// 全局配置
+	configFields = append(configFields,
+		map[string]interface{}{
+			"id": "title", "label": "应用标题", "type": "text",
+			"default_value": in.Title, "required": false,
+		},
+		map[string]interface{}{
+			"id": "primary_color", "label": "主色调", "type": "color",
+			"default_value": primaryColor,
+		},
+	)
+	// 每个组件的配置
+	for i, c := range in.Components {
+		def, _ := components.GetComponentDef(c.ComponentID)
+		if def == nil {
+			continue
+		}
+		prefix := fmt.Sprintf("comp%d_", i)
+		for key, schema := range def.ConfigSchema {
+			if schema.Type == "list" {
+				// list 类型太复杂，跳过
+				continue
+			}
+			fieldType := "text"
+			switch schema.Type {
+			case "number":
+				fieldType = "number"
+			case "color":
+				fieldType = "color"
+			case "select":
+				fieldType = "select"
+			case "boolean":
+				fieldType = "select"
+			case "api_url":
+				fieldType = "text"
+			}
+			field := map[string]interface{}{
+				"id":            prefix + key,
+				"label":         fmt.Sprintf("%s — %s", def.Name, schema.Label),
+				"type":          fieldType,
+				"default_value": c.Config[key],
+			}
+			if schema.Type == "select" && len(schema.Options) > 0 {
+				opts := []map[string]string{}
+				for _, o := range schema.Options {
+					opts = append(opts, map[string]string{"id": o, "label": o})
+				}
+				field["options"] = opts
+			}
+			if schema.Type == "boolean" {
+				field["options"] = []map[string]string{
+					{"id": "true", "label": "是"},
+					{"id": "false", "label": "否"},
+				}
+				bv := c.Config[key]
+				if bv != nil {
+					field["default_value"] = fmt.Sprintf("%v", bv)
+				} else {
+					field["default_value"] = "false"
+				}
+			}
+			if schema.Hint != "" {
+				field["placeholder"] = schema.Hint
+			}
+			configFields = append(configFields, field)
+		}
+	}
+	result["config_fields"] = configFields
+
+	// 输出 blueprint 供 ask_user 传递给前端，用于刷新预览时重建
+	result["blueprint"] = map[string]interface{}{
+		"title":            in.Title,
+		"slug":             in.Slug,
+		"description":      in.Description,
+		"icon":             in.Icon,
+		"design_direction": in.DesignDirection,
+		"primary_color":    in.PrimaryColor,
+		"components":       in.Components,
+	}
+
 	data, _ := json.Marshal(result)
 	return nil, mcpOutput{Result: string(data)}, nil
 }
@@ -1166,7 +1269,7 @@ func initMCPHTTPHandler() {
 		// 应用管理工具
 		mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案。创建应用前先调用此工具获取设计灵感，再将结果填入 create_app 的蓝图字段（design_direction/primary_color/style）"}, mcpDesignTheme)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_components", Description: "列出可用的预制组件（图表、地图、表格、KPI卡片、筛选栏等），创建可视化应用时使用"}, mcpListComponents)
-		mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果：根据组件配置组装 HTML 并在 HITL 确认卡中展示预览。用户可以在预览中交互修改组件配置"}, mcpPreviewApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果：根据组件配置组装 HTML 并在 HITL 确认卡中展示预览。输出包含 preview_html、config_fields 和 blueprint。调用后必须紧接着调用 ask_user(interaction_type=\"preview\")，把 preview_html、config_fields、blueprint 都传过去，让用户在预览中交互修改组件配置"}, mcpPreviewApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认应用内容（标题、标识、功能描述、代码等）！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"}, mcpCreateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_blueprint", Description: "【重要】基于预制组件蓝图创建应用！先调用 list_components 查看可用组件，再用 preview_app 预览效果，确认后创建。创建前必须先调用 ask_user 工具让用户确认！"}, mcpCreateAppFromBlueprint)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
@@ -1257,16 +1360,6 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示"}, mcpGetDbSQLHints)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
-
-// 应用管理工具
-	mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案"}, mcpDesignTheme)
-	mcp.AddTool(server, &mcp.Tool{Name: "list_components", Description: "列出可用的预制组件"}, mcpListComponents)
-	mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果"}, mcpPreviewApp)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认！创建纯前端应用"}, mcpCreateApp)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_blueprint", Description: "【重要】基于预制组件蓝图创建应用！创建前必须先调用 ask_user 工具让用户确认！"}, mcpCreateAppFromBlueprint)
-	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
-	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
-	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)

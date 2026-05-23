@@ -2600,6 +2600,13 @@ function renderHITLCard(evt) {
     card.className = 'hitl-card';
     card.dataset.hitlId = hitlId;
 
+    // 如果是 preview 类型，存蓝图数据以便刷新预览时重建
+    if (interactionType === 'preview' && evt.blueprint) {
+        try {
+            card.dataset.blueprint = JSON.stringify(evt.blueprint);
+        } catch(e) {}
+    }
+
     // Header
     let html = `<div class="hitl-card-header">
         <span class="hitl-card-icon">${interactionType === 'confirm' ? '⚠️' : interactionType === 'form' ? '📝' : interactionType === 'preview' ? '👁️' : '❓'}</span>
@@ -2810,16 +2817,43 @@ function hitlUpdatePreview(hitlId) {
 function hitlRefreshPreview(hitlId) {
     const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
     if (!card) return;
+
+    // 收集当前配置值
     const values = {};
     card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
         values[el.dataset.fieldId] = el.value;
     });
-    // 调用后端 API 重新生成预览
+
+    // 构建请求体：蓝图 + 修改后的配置
+    let reqBody = values;
+    if (card.dataset.blueprint) {
+        try {
+            const blueprint = JSON.parse(card.dataset.blueprint);
+            // 将配置值映射回蓝图
+            if (values.title) blueprint.title = values.title;
+            if (values.primary_color) blueprint.primary_color = values.primary_color;
+            // 映射组件配置（comp0_xxx → 第0个组件的 xxx 字段）
+            for (let i = 0; i < blueprint.components.length; i++) {
+                if (!blueprint.components[i].config) blueprint.components[i].config = {};
+                const prefix = `comp${i}_`;
+                for (const key of Object.keys(values)) {
+                    if (key.startsWith(prefix)) {
+                        const fieldKey = key.slice(prefix.length);
+                        blueprint.components[i].config[fieldKey] = values[key];
+                    }
+                }
+            }
+            reqBody = blueprint;
+        } catch(e) {
+            console.error('Blueprint parse error:', e);
+        }
+    }
+
     const token = localStorage.getItem('dataOntologyToken') || '';
     fetch('/api/v1/components/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify(values)
+        body: JSON.stringify(reqBody)
     }).then(r => r.text()).then(html => {
         const iframe = card.querySelector('.hitl-preview-iframe');
         if (iframe) {

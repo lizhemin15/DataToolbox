@@ -177,6 +177,10 @@ func (t *AskUserTool) Parameters() map[string]any {
 					"required": []string{"id", "label", "type"},
 				},
 			},
+			"blueprint": map[string]any{
+				"type":        "object",
+				"description": "(preview type only) The app blueprint data for re-generating preview when user changes config. Pass the blueprint from preview_app output.",
+			},
 		},
 		"required": []string{"interaction_type", "title"},
 	}
@@ -374,6 +378,12 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	previewWidth, _ := args["preview_width"].(string)
 	previewHeight, _ := args["preview_height"].(string)
 
+	// 解析 blueprint（preview 类型专用，用于刷新预览时重建）
+	var blueprint map[string]any
+	if bp, ok := args["blueprint"].(map[string]any); ok {
+		blueprint = bp
+	}
+
 	// 解析 config_fields（preview 类型专用，与 fields 格式相同但支持 color 类型）
 	var configFields []HITLField
 	if rawConfigFields, ok := args["config_fields"].([]any); ok {
@@ -458,6 +468,9 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 			}
 			if len(configFields) > 0 {
 				evtData["config_fields"] = configFields
+			}
+			if blueprint != nil {
+				evtData["blueprint"] = blueprint
 			}
 		}
 		t.pushEvent(Event{

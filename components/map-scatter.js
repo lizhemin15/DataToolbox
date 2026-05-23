@@ -1,12 +1,12 @@
 /* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, center_lat, center_lng, zoom, marker_color, heatmap, height } */
-/* 依赖: Leaflet (必须本地化到 /js/lib/leaflet/) */
+/* 依赖: Leaflet (必须本地化到 /lib/leaflet.min.js) */
 /* 支持两种模式: data_source(API) 或 markers[](直接数据) */
 function renderMapScatter(config, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
     if (typeof L === 'undefined') {
-        container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">Leaflet 未加载，请确保 /js/lib/leaflet/ 目录存在</div>';
+        container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">Leaflet 未加载，请确保 /lib/leaflet.min.js 存在</div>';
         return;
     }
 
@@ -16,7 +16,7 @@ function renderMapScatter(config, containerId) {
     });
 
     // 离线瓦片优先，失败回退在线
-    L.tileLayer('/js/lib/leaflet/tiles/{z}/{x}/{y}.png', {
+    L.tileLayer('/lib/leaflet-images/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 18
     }).addTo(map);

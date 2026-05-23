@@ -49,8 +49,21 @@ function renderFilterBar(config, containerId) {
         container.querySelectorAll('[data-filter-id]').forEach(el => {
             el.addEventListener('change', () => {
                 filterState[el.dataset.filterId] = el.value;
-                // 触发全局筛选变更事件
+                // 触发全局筛选变更事件（两种方式：原生 + 事件总线）
                 window.dispatchEvent(new CustomEvent('filterChange', { detail: filterState }));
+                if (window.__appEventBus) window.__appEventBus.emit('filterChange', filterState);
+            });
+        });
+        // 文本输入也触发（防抖 300ms）
+        container.querySelectorAll('input[type="text"][data-filter-id]').forEach(el => {
+            let debounce = null;
+            el.addEventListener('input', () => {
+                clearTimeout(debounce);
+                debounce = setTimeout(() => {
+                    filterState[el.dataset.filterId] = el.value;
+                    window.dispatchEvent(new CustomEvent('filterChange', { detail: filterState }));
+                    if (window.__appEventBus) window.__appEventBus.emit('filterChange', filterState);
+                }, 300);
             });
         });
     });

@@ -1,5 +1,5 @@
 /* ECharts 统一依赖 — 所有图表组件共用 */
-/* 本地化 echarts.min.js 必须放在 /js/lib/echarts.min.js */
+/* 本地化 echarts.min.js 必须放在 /lib/echarts.min.js */
 
 /* === 柱状图模板 === */
 /* config: { title, data_source, x_field, y_fields, x_axis, series, mode, colors, show_legend, height } */

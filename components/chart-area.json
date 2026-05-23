@@ -1,0 +1,58 @@
+{
+  "id": "chart-area",
+  "name": "趋势图",
+  "category": "chart",
+  "icon": "📈",
+  "description": "面积趋势图，展示多指标随时间变化的趋势，适合展示业务增长、对比分析等",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "text",
+      "label": "标题",
+      "default": "业务趋势",
+      "required": true
+    },
+    "x_field": {
+      "type": "text",
+      "label": "X轴字段",
+      "default": "month",
+      "hint": "时间维度字段名"
+    },
+    "y_fields": {
+      "type": "list",
+      "label": "Y轴字段",
+      "hint": "数值字段数组，如 [{name:'收入',color:'#4F46E5'},{name:'成本',color:'#ef4444'}]"
+    },
+    "smooth": {
+      "type": "boolean",
+      "label": "平滑曲线",
+      "default": true
+    },
+    "area_opacity": {
+      "type": "number",
+      "label": "面积透明度",
+      "default": 0.15,
+      "min": 0,
+      "max": 1,
+      "hint": "0=纯线，1=填满"
+    },
+    "stack_mode": {
+      "type": "select",
+      "label": "堆叠模式",
+      "default": "none",
+      "options": ["none", "stack", "percent"],
+      "hint": "none=独立，stack=堆叠，percent=百分比堆叠"
+    },
+    "primary_color": {
+      "type": "color",
+      "label": "主色调",
+      "default": "#4F46E5"
+    },
+    "api_url": {
+      "type": "api_url",
+      "label": "数据接口",
+      "hint": "返回数组，每项包含 x_field 和各 y_field 值"
+    }
+  }
+}
