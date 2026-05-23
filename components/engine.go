@@ -36,8 +36,17 @@ type ConfigField struct {
 
 // ComponentInstance 页面上的组件实例（组件+配置）
 type ComponentInstance struct {
-	ComponentID string                 `json:"component_id"`
+	ComponentID string                 `json:"component_id"` // 规范字段
+	Type        string                 `json:"type"`         // 兼容简写（优先使用 component_id）
 	Config      map[string]interface{} `json:"config"`
+}
+
+// GetID 返回组件 ID（优先 component_id，回退 type）
+func (c ComponentInstance) GetID() string {
+	if c.ComponentID != "" {
+		return c.ComponentID
+	}
+	return c.Type
 }
 
 // AppBlueprint 应用蓝图（组件布局 + 配置）
@@ -184,7 +193,7 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 	// 收集所有依赖
 	allDeps := map[string]bool{}
 	for _, inst := range blueprint.Components {
-		def, ok := componentRegistry[inst.ComponentID]
+		def, ok := componentRegistry[inst.GetID()]
 		if !ok {
 			continue
 		}
@@ -214,13 +223,13 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 	// 生成组件 JS 初始化代码
 	componentInits := ""
 	for i, inst := range blueprint.Components {
-		def, ok := componentRegistry[inst.ComponentID]
+		def, ok := componentRegistry[inst.GetID()]
 		if !ok {
 			continue
 		}
 
 		// 确定渲染函数名
-		renderFunc := getRenderFuncName(inst.ComponentID)
+		renderFunc := getRenderFuncName(inst.GetID())
 		containerID := fmt.Sprintf("comp-%d", i)
 
 		// 序列化 config 为 JSON
@@ -241,13 +250,13 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 		componentInits += fmt.Sprintf(`
   // 组件 %d: %s (%s)
   %s(%s, '%s');
-`, i+1, def.Name, inst.ComponentID, renderFunc, string(configJSON), containerID)
+`, i+1, def.Name, inst.GetID(), renderFunc, string(configJSON), containerID)
 	}
 
 	// 生成组件容器 HTML
 	componentHTML := ""
 	for i, inst := range blueprint.Components {
-		def, ok := componentRegistry[inst.ComponentID]
+		def, ok := componentRegistry[inst.GetID()]
 		if !ok {
 			continue
 		}
@@ -273,7 +282,7 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 	// 组装组件 JS 模板代码
 	componentJSCode := ""
 	for _, inst := range blueprint.Components {
-		if tmpl, ok := componentTemplates[inst.ComponentID]; ok {
+		if tmpl, ok := componentTemplates[inst.GetID()]; ok {
 			componentJSCode += tmpl + "\n"
 		}
 	}

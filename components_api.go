@@ -61,9 +61,9 @@ func handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 
 	// 验证组件 ID + 填充默认值
 	for i, c := range req.Components {
-		def, ok := components.GetComponentDef(c.ComponentID)
+		def, ok := components.GetComponentDef(c.GetID())
 		if !ok {
-			http.Error(w, fmt.Sprintf("component %q not found", c.ComponentID), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("component %q not found", c.GetID()), http.StatusBadRequest)
 			return
 		}
 		if c.Config == nil {
