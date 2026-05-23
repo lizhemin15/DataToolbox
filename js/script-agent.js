@@ -2237,12 +2237,31 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
         if (!processWrapperRef.wrapper) {
             const wrapper = createClusterBlock('⚙️ 中间过程', 'cluster-block-process');
             wrapper.classList.add('cluster-process-wrapper');
+            // 流式过程中保持展开
+            wrapper.classList.remove('collapsed');
+            const body = wrapper.querySelector('.cluster-block-body');
+            if (body) body.style.display = 'block';
+            const chevron = wrapper.querySelector('.cluster-block-chevron');
+            if (chevron) chevron.textContent = '▼';
             blocksEl.appendChild(wrapper);
             processWrapperRef.wrapper = wrapper;
-            processWrapperRef.body = wrapper.querySelector('.cluster-block-body');
+            processWrapperRef.body = body;
             processWrapperRef.count = 0;
         }
-        return processWrapperRef.body;
+        // 每次访问时确保展开状态，滚动到最新子块
+        const body = processWrapperRef.body;
+        if (body) {
+            body.style.display = 'block';
+            processWrapperRef.wrapper.classList.remove('collapsed');
+            // 自动滚动到最新子块
+            requestAnimationFrame(() => {
+                body.scrollTop = body.scrollHeight;
+                // 同时滚动整个消息区域
+                const messagesEl = document.getElementById('aiChatMessages');
+                if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+            });
+        }
+        return body;
     }
 
     switch (evt.type) {

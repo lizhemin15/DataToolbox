@@ -82,7 +82,7 @@ img.emoji {
 /* Cluster mode — PicoClaw-style collapsible blocks */
 .cluster-response-card {
     padding: 0 !important;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .cluster-blocks {
@@ -102,9 +102,11 @@ img.emoji {
 }
 .cluster-process-wrapper > .cluster-block-body {
     padding: 0;
-    max-height: none;
+    max-height: 60vh;
+    overflow-y: auto;
     background: #f9fafb;
     border-left: none;
+    scroll-behavior: smooth;
 }
 /* 外层块内的子块样式 */
 .cluster-process-wrapper .cluster-block {
@@ -130,6 +132,11 @@ img.emoji {
 /* 外层折叠时隐藏子块 */
 .cluster-process-wrapper.collapsed .cluster-block-body {
     display: none;
+}
+/* 完成后折叠时取消 max-height，避免残留空白 */
+.cluster-process-wrapper.collapsed > .cluster-block-body {
+    max-height: none;
+    overflow-y: hidden;
 }
 
 .cluster-block {
