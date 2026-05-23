@@ -2097,9 +2097,148 @@ function removeClusterModeGuide() {
 // Initialize session system on DOMContentLoaded
 async function initAgentMode() {
     await initSessionSystem();
+    // 恢复正在进行的 agent run（断线重连）
+    await resumeActiveAgentRuns();
 }
 
-// Send message via cluster mode (SSE) — PicoClaw-style card UI
+// 断线重连：检查当前会话是否有正在进行的 agent run，恢复轮询
+async function resumeActiveAgentRuns() {
+    if (!currentSessionId || currentSessionId === 'default') return;
+    try {
+        const token = localStorage.getItem('dataOntologyToken') || '';
+        const resp = await fetch(`${API_BASE}/api/v1/agent/runs?session_id=${currentSessionId}&status=running,waiting_hitl`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.success || !data.data || !data.data.runs) return;
+
+        const activeRuns = data.data.runs;
+        for (const run of activeRuns) {
+            // 为每个活跃 run 创建卡片并开始轮询
+            await resumeAgentRun(run.run_id, run.last_seq || 0);
+        }
+    } catch (e) {
+        console.error('Resume active runs error:', e);
+    }
+}
+
+// 恢复单个 agent run 的轮询
+async function resumeAgentRun(runId, startSeq) {
+    const messagesEl = document.getElementById('aiChatMessages');
+    messagesEl.classList.add('cluster-mode');
+
+    const cardId = 'cluster-card-resume-' + runId;
+    // 检查是否已有卡片
+    if (document.getElementById(cardId)) return;
+
+    const cardHtml = `
+        <div class="ai-message assistant" id="${cardId}">
+            <div class="ai-message-avatar">${getAiAvatarSvg()}</div>
+            <div class="ai-message-content">
+                <div class="ai-message-bubble cluster-response-card">
+                    <div id="${cardId}-blocks" class="cluster-blocks"></div>
+                    <div id="${cardId}-text" class="cluster-text-content"></div>
+                    <div id="${cardId}-typing" class="cluster-typing-indicator"><span></span><span></span><span></span></div>
+                </div>
+                <div class="ai-message-meta"><span>恢复同步中...</span></div>
+            </div>
+        </div>`;
+    messagesEl.insertAdjacentHTML('beforeend', cardHtml);
+
+    const blocksEl = document.getElementById(`${cardId}-blocks`);
+    const textEl = document.getElementById(`${cardId}-text`);
+    const typingEl = document.getElementById(`${cardId}-typing`);
+
+    let currentBlock = null;
+    let fullText = '';
+    const processWrapperRef = { wrapper: null, body: null, count: 0 };
+    let lastSeq = startSeq;
+    let runStatus = 'running';
+    let hitlPending = false;
+    let pollInterval = null;
+
+    const pollEvents = async () => {
+        if (hitlPending) return;
+        try {
+            const token = localStorage.getItem('dataOntologyToken') || '';
+            const resp = await fetch(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`, {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (!data.success || !data.data) return;
+
+            const events = data.data.events || [];
+            runStatus = data.data.run_status || runStatus;
+
+            for (const evt of events) {
+                let evtData;
+                try { evtData = JSON.parse(evt.event_data); } catch (e) { evtData = { type: evt.event_type, message: evt.event_data }; }
+                if (!evtData.type) evtData.type = evt.event_type;
+
+                const content = evtData.content || evtData.text || evtData.message || '';
+                if (evtData.type === 'text' && evtData.partial === false && content) fullText = content;
+                else if (evtData.type === 'text' && content) fullText += content;
+
+                currentBlock = handleClusterEventV2(evtData, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
+
+                if (evt.event_type === 'hitl_interaction') {
+                    hitlPending = true;
+                    const hitlCard = blocksEl.querySelector(`.hitl-card[data-hitl-id="${evtData.hitl_id}"]`);
+                    if (hitlCard) { hitlCard.dataset.runId = runId; hitlCard.dataset.resumePoll = 'true'; }
+                }
+                lastSeq = evt.seq;
+            }
+
+            if (runStatus === 'completed' || runStatus === 'error') {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                finishClusterResponse();
+            }
+        } catch (e) { console.error('Resume poll error:', e); }
+    };
+
+    const finishClusterResponse = () => {
+        typingEl.style.display = 'none';
+        if (fullText) textEl.innerHTML = formatClusterMarkdown(fullText);
+        const pw = processWrapperRef.wrapper;
+        if (pw) {
+            pw.classList.add('collapsed');
+            const pwBody = pw.querySelector('.cluster-block-body');
+            if (pwBody) { pwBody.style.display = 'none'; pwBody.style.maxHeight = 'none'; pwBody.style.overflowY = 'hidden'; }
+            const chevron = pw.querySelector('.cluster-block-chevron');
+            if (chevron) chevron.textContent = '▶';
+            const titleEl = pw.querySelector('.cluster-block-title');
+            if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
+        }
+        const blocksData = [];
+        blocksEl.querySelectorAll(':scope > .cluster-block').forEach(b => {
+            const titleEl = b.querySelector(':scope > .cluster-block-header .cluster-block-title');
+            const bodyEl = b.querySelector(':scope > .cluster-block-body');
+            blocksData.push({ title: titleEl ? titleEl.textContent : '', className: b.className.replace('cluster-block ', '').replace(' collapsed', '').replace(' closed', ''), bodyHtml: bodyEl ? bodyEl.innerHTML : '' });
+        });
+        if (fullText || blocksData.length > 0) saveCurrentSessionMessage('assistant', fullText || '', blocksData.length > 0 ? blocksData : null);
+    };
+
+    pollInterval = setInterval(pollEvents, 500);
+    await pollEvents();
+
+    const card = document.getElementById(cardId);
+    if (card) {
+        card.dataset.runId = runId;
+        card._pollInterval = pollInterval;
+        card._pollEvents = pollEvents;
+        card._finishClusterResponse = finishClusterResponse;
+        card._processWrapperRef = processWrapperRef;
+        card._hitlPending = () => hitlPending;
+        card._setHitlPending = (v) => { hitlPending = v; };
+    }
+}
+
+// Send message via cluster mode — 异步轮询模式
+// 用户发消息后，后端独立执行，前端轮询事件同步状态
+// 用户关闭页面不影响后端执行，回来后可继续同步
 async function sendClusterQuery(message, databases, modules) {
     const messagesEl = document.getElementById('aiChatMessages');
     messagesEl.classList.add('cluster-mode');
@@ -2126,96 +2265,156 @@ async function sendClusterQuery(message, databases, modules) {
     const typingEl = document.getElementById(`${cardId}-typing`);
     
     clusterTraceData = [];
-    let currentBlock = null; // 当前活跃的折叠块
+    let currentBlock = null;
     let fullText = '';
-    let processWrapper = null; // 外层"中间过程"折叠块
-    let processBody = null; // 外层折叠块的 body 容器
-    let processBlockCount = 0; // 中间过程子块计数
-    const processWrapperRef = { wrapper: null, body: null, count: 0 }; // 引用对象，传给 handleClusterEventV2
+    const processWrapperRef = { wrapper: null, body: null, count: 0 };
 
     try {
-        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/ai-query`, {
+        // 1. 创建异步运行
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 message, 
                 databases, 
                 modules, 
-                mode: 'cluster',
                 session_id: currentSessionId || 'default'
             })
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        if (!result.success || !result.data || !result.data.run_id) {
+            throw new Error(result.message || '创建运行失败');
+        }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let currentEventType = '';
+        const runId = result.data.run_id;
+        typingEl.style.display = 'flex';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+        // 2. 轮询事件
+        let lastSeq = 0;
+        let runStatus = 'running';
+        let pollInterval = null;
+        let hitlPending = false; // HITL 等待中，暂停轮询直到用户响应
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+        const pollEvents = async () => {
+            if (hitlPending) return; // HITL 等待中不轮询
 
-            for (const line of lines) {
-                const eventMatch = line.match(/^event:\s*(\w+)/);
-                if (eventMatch) { currentEventType = eventMatch[1]; continue; }
-                if (!line.startsWith('data: ')) continue;
-                const dataStr = line.slice(6).trim();
-                if (!dataStr) continue;
+            try {
+                const token = localStorage.getItem('dataOntologyToken') || '';
+                const resp = await fetch(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (!data.success || !data.data) return;
 
-                try {
-                    const evt = JSON.parse(dataStr);
-                    if (!evt.type && currentEventType) evt.type = currentEventType;
-                    const evtContent = evt.content || evt.text || evt.message || '';
-                    
-                    if (evt.type === 'text' && evt.partial === false && evtContent) {
-                        fullText = evtContent;
-                    } else if (evt.type === 'text' && evtContent) {
-                        fullText += evtContent;
+                const events = data.data.events || [];
+                runStatus = data.data.run_status || runStatus;
+
+                for (const evt of events) {
+                    // 解析 event_data JSON
+                    let evtData;
+                    try {
+                        evtData = JSON.parse(evt.event_data);
+                    } catch (e) {
+                        evtData = { type: evt.event_type, message: evt.event_data };
                     }
-                    
-                    currentBlock = handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
-                } catch (e) {}
-                currentEventType = '';
+
+                    // 设置事件类型
+                    if (!evtData.type) evtData.type = evt.event_type;
+
+                    // 处理 text 事件的 fullText
+                    const content = evtData.content || evtData.text || evtData.message || '';
+                    if (evtData.type === 'text' && evtData.partial === false && content) {
+                        fullText = content;
+                    } else if (evtData.type === 'text' && content) {
+                        fullText += content;
+                    }
+
+                    // 复用现有渲染逻辑
+                    currentBlock = handleClusterEventV2(evtData, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
+
+                    // HITL: 暂停轮询，等用户响应
+                    if (evt.event_type === 'hitl_interaction') {
+                        hitlPending = true;
+                        // 在 HITL 卡片上绑定恢复轮询的回调
+                        const hitlCard = blocksEl.querySelector(`.hitl-card[data-hitl-id="${evtData.hitl_id}"]`);
+                        if (hitlCard) {
+                            hitlCard.dataset.runId = runId;
+                            hitlCard.dataset.resumePoll = 'true';
+                        }
+                    }
+
+                    lastSeq = evt.seq;
+                }
+
+                // 运行结束
+                if (runStatus === 'completed' || runStatus === 'error') {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    finishClusterResponse();
+                }
+            } catch (e) {
+                console.error('Poll events error:', e);
             }
-        }
+        };
 
-        // 完成：隐藏打字指示器，渲染最终文本，折叠中间过程
-        typingEl.style.display = 'none';
-        if (fullText) {
-            textEl.innerHTML = formatClusterMarkdown(fullText);
-        }
-        // 折叠外层"中间过程"块（里面所有子块一起折叠）
-        const pw = processWrapperRef.wrapper;
-        if (pw) {
-            pw.classList.add('collapsed');
-            const pwBody = pw.querySelector('.cluster-block-body');
-            if (pwBody) pwBody.style.display = 'none';
-            const chevron = pw.querySelector('.cluster-block-chevron');
-            if (chevron) chevron.textContent = '▶';
-            // 更新标题显示子块数量
-            const titleEl = pw.querySelector('.cluster-block-title');
-            if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
-        }
+        // 完成处理（渲染最终文本、折叠中间过程、保存会话）
+        const finishClusterResponse = () => {
+            typingEl.style.display = 'none';
+            if (fullText) {
+                textEl.innerHTML = formatClusterMarkdown(fullText);
+            }
+            // 折叠外层"中间过程"块
+            const pw = processWrapperRef.wrapper;
+            if (pw) {
+                pw.classList.add('collapsed');
+                const pwBody = pw.querySelector('.cluster-block-body');
+                if (pwBody) { pwBody.style.display = 'none'; pwBody.style.maxHeight = 'none'; pwBody.style.overflowY = 'hidden'; }
+                const chevron = pw.querySelector('.cluster-block-chevron');
+                if (chevron) chevron.textContent = '▶';
+                const titleEl = pw.querySelector('.cluster-block-title');
+                if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
+            }
 
-        // 从 DOM 提取折叠块数据，用于刷新后恢复（只提取顶层块）
-        const blocksData = [];
-        blocksEl.querySelectorAll(':scope > .cluster-block').forEach(b => {
-            const titleEl = b.querySelector(':scope > .cluster-block-header .cluster-block-title');
-            const bodyEl = b.querySelector(':scope > .cluster-block-body');
-            blocksData.push({
-                title: titleEl ? titleEl.textContent : '',
-                className: b.className.replace('cluster-block ', '').replace(' collapsed', '').replace(' closed', ''),
-                bodyHtml: bodyEl ? bodyEl.innerHTML : ''
+            // 保存会话
+            const blocksData = [];
+            blocksEl.querySelectorAll(':scope > .cluster-block').forEach(b => {
+                const titleEl = b.querySelector(':scope > .cluster-block-header .cluster-block-title');
+                const bodyEl = b.querySelector(':scope > .cluster-block-body');
+                blocksData.push({
+                    title: titleEl ? titleEl.textContent : '',
+                    className: b.className.replace('cluster-block ', '').replace(' collapsed', '').replace(' closed', ''),
+                    bodyHtml: bodyEl ? bodyEl.innerHTML : ''
+                });
             });
-        });
+            if (fullText || blocksData.length > 0) saveCurrentSessionMessage('assistant', fullText || '', blocksData.length > 0 ? blocksData : null);
+        };
 
-        if (fullText || blocksData.length > 0) saveCurrentSessionMessage('assistant', fullText || '', blocksData.length > 0 ? blocksData : null);
+        // 每 500ms 轮询
+        pollInterval = setInterval(pollEvents, 500);
+        // 立即执行一次
+        await pollEvents();
+
+        // 将轮询控制信息存到卡片上，供 HITL 恢复时使用
+        const card = document.getElementById(cardId);
+        if (card) {
+            card.dataset.runId = runId;
+            card.dataset.lastSeq = lastSeq;
+            card._pollInterval = pollInterval;
+            card._pollEvents = pollEvents;
+            card._finishClusterResponse = finishClusterResponse;
+            card._processWrapperRef = processWrapperRef;
+            card._fullText = '';
+            Object.defineProperty(card, '_currentFullText', {
+                get: () => fullText,
+                set: (v) => { fullText = v; }
+            });
+            card._currentBlock = currentBlock;
+            card._hitlPending = () => hitlPending;
+            card._setHitlPending = (v) => { hitlPending = v; };
+        }
 
     } catch (e) {
         console.error('Cluster query error:', e);
@@ -2492,9 +2691,9 @@ function renderHITLCard(evt) {
 
     html += '</div>'; // hitl-card-body
 
-    // Timeout indicator
+    // Footer — 不再显示超时倒计时，后端会一直等待
     html += `<div class="hitl-card-footer">
-        <span class="hitl-timeout-hint">⏱ 等待响应中（超时 ${timeoutSeconds}s）</span>
+        <span class="hitl-timeout-hint">⏱ 等待您的响应</span>
     </div>`;
 
     card.innerHTML = html;
@@ -2539,7 +2738,7 @@ function hitlSubmit(hitlId, action, values) {
             btn.style.opacity = '0.5';
         });
         const footer = card.querySelector('.hitl-card-footer');
-        if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">✅ 响应已提交</span>';
+        if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">✅ 响应已提交，智能助手继续执行...</span>';
     }
 
     const token = localStorage.getItem('dataOntologyToken') || '';
@@ -2553,6 +2752,16 @@ function hitlSubmit(hitlId, action, values) {
             if (card) {
                 const footer = card.querySelector('.hitl-card-footer');
                 if (footer) footer.innerHTML = `<span class="hitl-timeout-hint" style="color:#dc2626">❌ ${escapeHtml(data.message)}</span>`;
+            }
+        } else {
+            // HITL 提交成功，恢复轮询
+            const assistantCard = card ? card.closest('.ai-message.assistant') : null;
+            if (assistantCard && assistantCard._setHitlPending) {
+                assistantCard._setHitlPending(false);
+                // 立即触发一次轮询
+                if (assistantCard._pollEvents) {
+                    assistantCard._pollEvents();
+                }
             }
         }
     }).catch(err => {

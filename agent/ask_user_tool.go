@@ -40,7 +40,7 @@ Usage guidelines:
 - Use **single_select** or **multi_select** when options are known and finite.
 - Use **input** for simple free-text responses.
 - Use **form** when you need multiple structured inputs at once.
-- Set timeout_seconds appropriately (default 300 = 5 minutes). For confirm actions, shorter timeouts (60-120) are usually sufficient.
+- Set timeout_seconds appropriately (default 86400 = 24 hours in async mode). User can respond at any time — no rush.
 - The tool will block until the user responds or the timeout expires. The user's response will be returned as JSON for you to process.
 
 Response format:
@@ -133,7 +133,7 @@ func (t *AskUserTool) Parameters() map[string]any {
 			},
 			"timeout_seconds": map[string]any{
 				"type":        "number",
-				"description": "Timeout in seconds for user response (default 300 = 5 minutes). After timeout, the tool returns action=timeout.",
+				"description": "Timeout in seconds for user response (default 86400 = 24 hours in async mode). User can respond at any time.",
 			},
 		},
 		"required": []string{"interaction_type", "title"},
@@ -318,8 +318,8 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 		}
 	}
 
-	// 解析 timeout
-	timeoutSeconds := 300 // 默认 5 分钟
+	// 解析 timeout（异步模式下默认 24h，前端不再超时断开）
+	timeoutSeconds := 86400 // 默认 24 小时
 	if ts, ok := args["timeout_seconds"].(float64); ok && ts > 0 {
 		timeoutSeconds = int(ts)
 	}

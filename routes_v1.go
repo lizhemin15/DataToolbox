@@ -99,6 +99,22 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	// HITL
 	mux.HandleFunc("/api/v1/agent/hitl/respond", handleHITLRespond)
 	mux.HandleFunc("/api/v1/agent/hitl/pending", handleHITLPending)
+
+	// Agent 异步运行（事件轮询模式）
+	// POST /api/v1/agent/runs → 创建运行
+	// GET /api/v1/agent/runs → 列出运行（断线重连）
+	mux.HandleFunc("/api/v1/agent/runs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			handleAgentRuns(w, r)
+		} else if r.Method == http.MethodGet {
+			handleAgentRunList(w, r)
+		} else {
+			apiBadRequest(w, "仅支持 GET/POST 方法")
+		}
+	})
+	// GET /api/v1/agent/runs/{id} → 运行状态
+	// GET /api/v1/agent/runs/{id}/events → 轮询事件
+	mux.HandleFunc("/api/v1/agent/runs/", handleAgentRunDetail)
 	
 	// ==================== 表检索 API ====================
 	mux.HandleFunc("/api/v1/retrieval/sync", handleTableRetrievalSync)

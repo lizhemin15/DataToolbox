@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -271,6 +272,30 @@ func createStoreTables(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_apps_owner ON apps(owner)`,
 		`CREATE INDEX IF NOT EXISTS idx_apps_slug ON apps(slug)`,
+
+		// Agent 运行记录
+		`CREATE TABLE IF NOT EXISTS agent_runs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            error_message TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_runs_session ON agent_runs(session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_runs_username ON agent_runs(username)`,
+
+		// Agent 事件流
+		`CREATE TABLE IF NOT EXISTS agent_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            event_data TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_events_run_seq ON agent_events(run_id, seq)`,
 	}
 
 	for _, stmt := range stmts {
@@ -1847,4 +1872,186 @@ func sqlIncrementAppViewCount(id string) error {
 
 	_, err := storeDB.Exec("UPDATE apps SET view_count = view_count + 1 WHERE id = ?", id)
 	return err
+}
+
+// ============================================================
+// Agent Runs & Events CRUD
+// ============================================================
+
+// AgentRun 模型
+type AgentRun struct {
+	ID           string    `json:"id"`
+	SessionID    string    `json:"session_id"`
+	Username     string    `json:"username"`
+	Status       string    `json:"status"` // running/completed/error/waiting_hitl
+	ErrorMessage string    `json:"error_message,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// AgentEvent 模型
+type AgentEvent struct {
+	ID        int64     `json:"id"`
+	RunID     string    `json:"run_id"`
+	Seq       int       `json:"seq"`
+	EventType string    `json:"event_type"`
+	EventData string    `json:"event_data"` // JSON string
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// sqlCreateAgentRun 创建 Agent 运行记录
+func sqlCreateAgentRun(run *AgentRun) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	_, err := storeDB.Exec(
+		"INSERT INTO agent_runs (id, session_id, username, status, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		run.ID, run.SessionID, run.Username, run.Status, run.ErrorMessage, now, now,
+	)
+	if err != nil {
+		log.Printf("[存储] 创建 AgentRun 失败: %v", err)
+		return err
+	}
+	return nil
+}
+
+// sqlUpdateAgentRunStatus 更新 Agent 运行状态
+func sqlUpdateAgentRunStatus(id, status, errorMessage string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	_, err := storeDB.Exec(
+		"UPDATE agent_runs SET status=?, error_message=?, updated_at=? WHERE id=?",
+		status, errorMessage, now, id,
+	)
+	if err != nil {
+		log.Printf("[存储] 更新 AgentRun 状态失败: %v", err)
+		return err
+	}
+	return nil
+}
+
+// sqlAppendAgentEvent 追加 Agent 事件
+func sqlAppendAgentEvent(runID string, seq int, eventType string, eventData string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	_, err := storeDB.Exec(
+		"INSERT INTO agent_events (run_id, seq, event_type, event_data) VALUES (?, ?, ?, ?)",
+		runID, seq, eventType, eventData,
+	)
+	if err != nil {
+		log.Printf("[存储] 追加 AgentEvent 失败: %v", err)
+		return err
+	}
+	return nil
+}
+
+// sqlGetAgentRun 获取单个 Agent 运行记录
+func sqlGetAgentRun(id string) (*AgentRun, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	var run AgentRun
+	var createdAt, updatedAt sql.NullString
+	err := storeDB.QueryRow(
+		"SELECT id, session_id, username, status, error_message, created_at, updated_at FROM agent_runs WHERE id = ?",
+		id,
+	).Scan(&run.ID, &run.SessionID, &run.Username, &run.Status, &run.ErrorMessage, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if createdAt.Valid {
+		run.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+	}
+	if updatedAt.Valid {
+		run.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+	}
+	return &run, nil
+}
+
+// sqlGetAgentEvents 获取指定 run 的事件列表（afterSeq 之后的）
+func sqlGetAgentEvents(runID string, afterSeq int) ([]AgentEvent, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	rows, err := storeDB.Query(
+		"SELECT id, run_id, seq, event_type, event_data, created_at FROM agent_events WHERE run_id = ? AND seq > ? ORDER BY seq",
+		runID, afterSeq,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []AgentEvent
+	for rows.Next() {
+		var evt AgentEvent
+		var createdAt sql.NullString
+		if err := rows.Scan(&evt.ID, &evt.RunID, &evt.Seq, &evt.EventType, &evt.EventData, &createdAt); err != nil {
+			log.Printf("[存储] 扫描 AgentEvent 行失败: %v", err)
+			continue
+		}
+		if createdAt.Valid {
+			evt.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		}
+		events = append(events, evt)
+	}
+	return events, nil
+}
+
+// sqlListAgentRuns 列出 Agent 运行记录（按 session_id 和 status 过滤）
+func sqlListAgentRuns(sessionID, status string) ([]AgentRun, error) {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+
+	query := "SELECT id, session_id, username, status, error_message, created_at, updated_at FROM agent_runs WHERE 1=1"
+	var args []interface{}
+	if sessionID != "" {
+		query += " AND session_id = ?"
+		args = append(args, sessionID)
+	}
+	if status != "" {
+		// 支持逗号分隔的多状态查询
+		statuses := strings.Split(status, ",")
+		if len(statuses) > 1 {
+			query += " AND status IN (?" + strings.Repeat(",?", len(statuses)-1) + ")"
+			for _, s := range statuses {
+				args = append(args, s)
+			}
+		} else {
+			query += " AND status = ?"
+			args = append(args, status)
+		}
+	}
+	query += " ORDER BY created_at DESC LIMIT 50"
+
+	rows, err := storeDB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var runs []AgentRun
+	for rows.Next() {
+		var run AgentRun
+		var createdAt, updatedAt sql.NullString
+		if err := rows.Scan(&run.ID, &run.SessionID, &run.Username, &run.Status, &run.ErrorMessage, &createdAt, &updatedAt); err != nil {
+			log.Printf("[存储] 扫描 AgentRun 行失败: %v", err)
+			continue
+		}
+		if createdAt.Valid {
+			run.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt.String)
+		}
+		if updatedAt.Valid {
+			run.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt.String)
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
 }
