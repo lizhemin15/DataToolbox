@@ -2128,6 +2128,10 @@ async function sendClusterQuery(message, databases, modules) {
     clusterTraceData = [];
     let currentBlock = null; // 当前活跃的折叠块
     let fullText = '';
+    let processWrapper = null; // 外层"中间过程"折叠块
+    let processBody = null; // 外层折叠块的 body 容器
+    let processBlockCount = 0; // 中间过程子块计数
+    const processWrapperRef = { wrapper: null, body: null, count: 0 }; // 引用对象，传给 handleClusterEventV2
 
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/ai-query`, {
@@ -2175,29 +2179,35 @@ async function sendClusterQuery(message, databases, modules) {
                         fullText += evtContent;
                     }
                     
-                    currentBlock = handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock);
+                    currentBlock = handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
                 } catch (e) {}
                 currentEventType = '';
             }
         }
 
-        // 完成：隐藏打字指示器，折叠所有块，渲染最终文本
+        // 完成：隐藏打字指示器，渲染最终文本，折叠中间过程
         typingEl.style.display = 'none';
         if (fullText) {
             textEl.innerHTML = formatClusterMarkdown(fullText);
         }
-        // 折叠所有 trace 块
-        blocksEl.querySelectorAll('.cluster-block').forEach(b => {
-            b.classList.add('collapsed');
-            const body = b.querySelector('.cluster-block-body');
-            if (body) body.style.display = 'none';
-        });
+        // 折叠外层"中间过程"块（里面所有子块一起折叠）
+        const pw = processWrapperRef.wrapper;
+        if (pw) {
+            pw.classList.add('collapsed');
+            const pwBody = pw.querySelector('.cluster-block-body');
+            if (pwBody) pwBody.style.display = 'none';
+            const chevron = pw.querySelector('.cluster-block-chevron');
+            if (chevron) chevron.textContent = '▶';
+            // 更新标题显示子块数量
+            const titleEl = pw.querySelector('.cluster-block-title');
+            if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
+        }
 
-        // 从 DOM 提取折叠块数据，用于刷新后恢复
+        // 从 DOM 提取折叠块数据，用于刷新后恢复（只提取顶层块）
         const blocksData = [];
-        blocksEl.querySelectorAll('.cluster-block').forEach(b => {
-            const titleEl = b.querySelector('.cluster-block-title');
-            const bodyEl = b.querySelector('.cluster-block-body');
+        blocksEl.querySelectorAll(':scope > .cluster-block').forEach(b => {
+            const titleEl = b.querySelector(':scope > .cluster-block-header .cluster-block-title');
+            const bodyEl = b.querySelector(':scope > .cluster-block-body');
             blocksData.push({
                 title: titleEl ? titleEl.textContent : '',
                 className: b.className.replace('cluster-block ', '').replace(' collapsed', '').replace(' closed', ''),
@@ -2215,11 +2225,25 @@ async function sendClusterQuery(message, databases, modules) {
 }
 
 // Handle cluster SSE events — PicoClaw-style structured blocks
-function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
+// processWrapperRef: { wrapper, body, count } — 外层"中间过程"折叠块的引用
+function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, processWrapperRef) {
     if (!evt || !evt.type) return currentBlock;
     const content = evt.content || evt.text || evt.message || '';
     const agent = evt.agent || evt.from || '';
     const tool = evt.tool || '';
+
+    // 确保中间过程需要的事件能获取到外层 wrapper
+    function ensureProcessWrapper() {
+        if (!processWrapperRef.wrapper) {
+            const wrapper = createClusterBlock('⚙️ 中间过程', 'cluster-block-process');
+            wrapper.classList.add('cluster-process-wrapper');
+            blocksEl.appendChild(wrapper);
+            processWrapperRef.wrapper = wrapper;
+            processWrapperRef.body = wrapper.querySelector('.cluster-block-body');
+            processWrapperRef.count = 0;
+        }
+        return processWrapperRef.body;
+    }
 
     switch (evt.type) {
         case 'start':
@@ -2241,11 +2265,13 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
             break;
 
         case 'thinking': {
-            // 创建或追加到思考折叠块
-            let thinkBlock = blocksEl.querySelector('.cluster-block-thinking:not(.closed)');
+            // 追加到外层"中间过程"块内
+            const pBody = ensureProcessWrapper();
+            let thinkBlock = pBody.querySelector('.cluster-block-thinking:not(.closed)');
             if (!thinkBlock) {
                 thinkBlock = createClusterBlock('💭 思考过程', 'cluster-block-thinking');
-                blocksEl.appendChild(thinkBlock);
+                pBody.appendChild(thinkBlock);
+                processWrapperRef.count++;
             }
             const body = thinkBlock.querySelector('.cluster-block-body');
             if (content) {
@@ -2256,17 +2282,20 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
         }
 
         case 'tool_call': {
-            // 创建工具调用折叠块
+            // 工具调用折叠块 → 追加到外层"中间过程"块内
+            const pBody = ensureProcessWrapper();
             const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
             const body = toolBlock.querySelector('.cluster-block-body');
             if (content) body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-detail">${escapeHtml(content.substring(0, 500))}</div>`);
-            blocksEl.appendChild(toolBlock);
+            pBody.appendChild(toolBlock);
+            processWrapperRef.count++;
             currentBlock = toolBlock;
             break;
         }
 
         case 'tool_result': {
-            // 追加到当前工具块，或创建新块
+            // 追加到当前工具块，或创建新块（都在外层"中间过程"内）
+            const pBody = ensureProcessWrapper();
             if (currentBlock && currentBlock.classList.contains('cluster-block-tool')) {
                 const body = currentBlock.querySelector('.cluster-block-body');
                 body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
@@ -2275,18 +2304,38 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
                 const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
                 const body = resultBlock.querySelector('.cluster-block-body');
                 body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
-                blocksEl.appendChild(resultBlock);
+                pBody.appendChild(resultBlock);
                 resultBlock.classList.add('closed');
+                processWrapperRef.count++;
                 currentBlock = resultBlock;
             }
             break;
         }
 
         case 'agent_switch': {
+            const pBody = ensureProcessWrapper();
             const switchBlock = createClusterBlock(`🔀 ${evt.from || '?'} → ${evt.to || '?'}`, 'cluster-block-switch');
-            blocksEl.appendChild(switchBlock);
+            pBody.appendChild(switchBlock);
             switchBlock.classList.add('closed');
+            processWrapperRef.count++;
             currentBlock = switchBlock;
+            break;
+        }
+
+        case 'llm_retry': {
+            // LLM 重试事件 → 追加到外层"中间过程"块内
+            const pBody = ensureProcessWrapper();
+            const retryBlock = createClusterBlock(`⚠️ 重试`, 'cluster-block-retry');
+            const body = retryBlock.querySelector('.cluster-block-body');
+            const reason = evt.reason || '未知';
+            const attempt = evt.attempt || '?';
+            const maxAttempts = evt.max_attempts || '?';
+            const backoff = evt.backoff_secs || 0;
+            body.insertAdjacentHTML('beforeend', `<div class="cluster-retry-detail">${escapeHtml(`${reason}，第 ${attempt}/${maxAttempts} 次重试，等待 ${backoff}s...`)}</div>`);
+            pBody.appendChild(retryBlock);
+            retryBlock.classList.add('closed');
+            processWrapperRef.count++;
+            currentBlock = retryBlock;
             break;
         }
 
@@ -2294,13 +2343,14 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock) {
             const errBlock = createClusterBlock(`❌ 错误`, 'cluster-block-error');
             const body = errBlock.querySelector('.cluster-block-body');
             body.insertAdjacentHTML('beforeend', `<div class="cluster-error-detail">${escapeHtml(evt.message || content || '未知错误')}</div>`);
+            // error 保持独立，不包在中间过程里
             blocksEl.appendChild(errBlock);
             currentBlock = errBlock;
             break;
         }
 
         case 'hitl_interaction': {
-            // HITL 人在环路交互卡片
+            // HITL 人在环路交互卡片 — 保持独立，不包在中间过程里
             const hitlCard = renderHITLCard(evt);
             if (hitlCard) {
                 blocksEl.appendChild(hitlCard);

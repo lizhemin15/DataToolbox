@@ -89,6 +89,49 @@ img.emoji {
     border-bottom: 1px solid #e5e7eb;
 }
 
+/* 外层"中间过程"折叠块 */
+.cluster-process-wrapper {
+    border-bottom: 1px solid #e5e7eb;
+}
+.cluster-process-wrapper > .cluster-block-header {
+    background: #f8fafc;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 1px solid #e2e8f0;
+}
+.cluster-process-wrapper > .cluster-block-body {
+    padding: 0;
+    max-height: none;
+    background: #f9fafb;
+    border-left: none;
+}
+/* 外层块内的子块样式 */
+.cluster-process-wrapper .cluster-block {
+    border-bottom: 1px solid #f0f0f0;
+    border-left: 3px solid #cbd5e1;
+    margin: 2px 8px;
+    border-radius: 4px;
+    background: #fff;
+}
+.cluster-process-wrapper .cluster-block:last-child {
+    border-bottom: none;
+}
+.cluster-process-wrapper .cluster-block-header {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.cluster-process-wrapper .cluster-block-body {
+    padding: 4px 10px 8px;
+    font-size: 11px;
+    max-height: 150px;
+}
+/* 外层折叠时隐藏子块 */
+.cluster-process-wrapper.collapsed .cluster-block-body {
+    display: none;
+}
+
 .cluster-block {
     border-bottom: 1px solid #f3f4f6;
     transition: background 0.15s;
