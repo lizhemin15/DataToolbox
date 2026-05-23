@@ -742,6 +742,9 @@ func buildPicoClawConfig(aiConfig *AIConfig, username string, sessionID string) 
 	cfg.Agents.Defaults.Temperature = &temp
 	cfg.Agents.Defaults.MaxParallelTurns = 1
 
+	cfg.Agents.Defaults.MaxLLMRetries = 5
+	cfg.Agents.Defaults.LLMRetryBackoffSecs = 10
+
 	// 沙箱隔离 — 每会话独立 workspace，限制在安装目录/agent-workspace/username/sessionID/
 	// 路径从可执行文件位置推导，不硬编码
 	exePath, _ := os.Executable()

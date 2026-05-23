@@ -304,6 +304,26 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 			}
 		}
 
+	case runtimeevents.KindAgentLLMRetry:
+		// LLM 请求重试（429 限速、网络错误、超时等）
+		if p, ok := payload.(picoclawagent.LLMRetryPayload); ok {
+			reasonMap := map[string]string{
+				"rate_limit":        "速率限制",
+				"timeout":           "请求超时",
+				"network":           "网络错误",
+				"context_limit":     "上下文溢出",
+				"vision_unsupported": "视觉不支持",
+			}
+			reasonText := reasonMap[p.Reason]
+			if reasonText == "" {
+				reasonText = p.Reason
+			}
+			out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
+				"content": fmt.Sprintf("⚠️ %s，第 %d/%d 次重试，等待 %v...", reasonText, p.Attempt, p.MaxRetries, p.Backoff.Round(time.Second)),
+				"agent":   evt.Source.Name,
+			}}
+		}
+
 	case runtimeevents.KindAgentError:
 		if p, ok := payload.(picoclawagent.ErrorPayload); ok {
 			out <- Event{Type: EventTypeError, Data: map[string]interface{}{
