@@ -94,6 +94,42 @@ func handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 
 	html := components.GeneratePreviewHTML(blueprint, primaryColor)
 
+	// 判断返回格式：如果有 Accept: application/json 或 ?format=json，返回 JSON
+	acceptJSON := r.Header.Get("Accept") == "application/json" || r.URL.Query().Get("format") == "json"
+	if acceptJSON {
+		// 生成 config_fields
+		configFields := []map[string]interface{}{}
+		for _, c := range req.Components {
+			def, _ := components.GetComponentDef(c.GetID())
+			if def == nil {
+				continue
+			}
+			fields, _ := components.GenerateConfigFormJSON(c.GetID(), c.Config)
+			configFields = append(configFields, map[string]interface{}{
+				"component_id": c.GetID(),
+				"component_name": def.Name,
+				"fields":        fields,
+			})
+		}
+
+		result := map[string]interface{}{
+			"preview_html":  html,
+			"config_fields": configFields,
+			"blueprint": map[string]interface{}{
+				"title":            req.Title,
+				"slug":             req.Slug,
+				"description":      req.Description,
+				"icon":             req.Icon,
+				"design_direction": req.DesignDirection,
+				"primary_color":    req.PrimaryColor,
+				"components":       req.Components,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
 }

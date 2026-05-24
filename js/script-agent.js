@@ -2700,7 +2700,7 @@ function renderHITLCard(evt) {
 
         // 配置表单（可交互修改组件配置）
         if (configFields.length > 0) {
-            html += '<div class="hitl-config-section"><div class="hitl-config-title">⚙️ 组件配置</div>';
+            html += '<div class="hitl-config-section"><div class="hitl-config-title">⚙️ 组件配置</div><div class="hitl-config-fields">';
             for (const field of configFields) {
                 const required = field.required ? ' <span class="hitl-required">*</span>' : '';
                 html += `<div class="hitl-field">
@@ -2721,7 +2721,7 @@ function renderHITLCard(evt) {
                 }
                 html += '</div>';
             }
-            html += '</div>';
+            html += '</div></div>'; // hitl-config-fields + hitl-config-section
         }
 
         html += `<div class="hitl-options">
@@ -2850,19 +2850,67 @@ function hitlRefreshPreview(hitlId) {
     }
 
     const token = localStorage.getItem('dataOntologyToken') || '';
-    fetch('/api/v1/components/preview', {
+    fetch('/api/v1/components/preview?format=json', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify(reqBody)
-    }).then(r => r.text()).then(html => {
+    }).then(r => r.json()).then(data => {
+        // 更新 blueprint（可能有新的默认值填充）
+        if (data.blueprint) {
+            card.dataset.blueprint = JSON.stringify(data.blueprint);
+        }
         const iframe = card.querySelector('.hitl-preview-iframe');
-        if (iframe) {
+        if (iframe && data.preview_html) {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             doc.open();
-            doc.write(html);
+            doc.write(data.preview_html);
             doc.close();
         }
+        // 更新 config_fields 表单
+        if (data.config_fields) {
+            updateHITLConfigFields(card, data.config_fields);
+        }
     }).catch(err => console.error('Refresh preview error:', err));
+}
+
+// 更新 HITL 卡片中的组件配置表单（刷新预览后调用）
+function updateHITLConfigFields(card, configFields) {
+    const container = card.querySelector('.hitl-config-fields');
+    if (!container || !configFields || configFields.length === 0) return;
+    container.innerHTML = '';
+    configFields.forEach((cf, idx) => {
+        if (!cf.fields || cf.fields.length === 0) return;
+        const section = document.createElement('div');
+        section.style.cssText = 'margin-bottom:12px;padding:8px;background:#f8fafc;border-radius:6px;';
+        section.innerHTML = `<div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:600;">${cf.component_name || cf.component_id}</div>`;
+        cf.fields.forEach(f => {
+            const fieldId = `comp${idx}_${f.id}`;
+            let input = '';
+            if (f.type === 'select' && f.options) {
+                input = `<select class="hitl-field-select" data-field-id="${fieldId}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+                f.options.forEach(o => {
+                    const val = typeof o === 'object' ? o.value : o;
+                    const label = typeof o === 'object' ? o.label : o;
+                    input += `<option value="${val}" ${String(val) === String(f.default ?? '') ? 'selected' : ''}>${label}</option>`;
+                });
+                input += '</select>';
+            } else if (f.type === 'color' || f.type === 'color_list') {
+                input = `<input type="text" class="hitl-field-color" data-field-id="${fieldId}" value="${f.default ?? ''}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;" placeholder="${f.label}">`;
+            } else if (f.type === 'number') {
+                input = `<input type="number" class="hitl-field-input" data-field-id="${fieldId}" value="${f.default ?? ''}" min="${f.min ?? ''}" max="${f.max ?? ''}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+            } else if (f.type === 'boolean') {
+                input = `<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" class="hitl-field-input" data-field-id="${fieldId}" ${f.default ? 'checked' : ''}> ${f.label}</label>`;
+            } else {
+                input = `<input type="text" class="hitl-field-input" data-field-id="${fieldId}" value="${f.default ?? ''}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;" placeholder="${f.label}">`;
+            }
+            if (f.type !== 'boolean') {
+                section.innerHTML += `<div style="margin-bottom:4px;"><label style="font-size:11px;color:#9ca3af;">${f.label}</label>${input}</div>`;
+            } else {
+                section.innerHTML += `<div style="margin-bottom:4px;">${input}</div>`;
+            }
+        });
+        container.appendChild(section);
+    });
 }
 
 function hitlSubmit(hitlId, action, values) {
