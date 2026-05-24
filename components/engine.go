@@ -220,10 +220,10 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 	for dep := range allDeps {
 		switch dep {
 		case "echarts":
-			libScripts += `<script src="/lib/echarts.min.js"></script>\n`
+			libScripts += `<script src="/lib/echarts.min.js"></script>` + "\n"
 		case "leaflet":
-			libScripts += `<link rel="stylesheet" href="/lib/leaflet.min.css">\n`
-			libScripts += `<script src="/lib/leaflet.min.js"></script>\n`
+			libScripts += `<link rel="stylesheet" href="/lib/leaflet.min.css">` + "\n"
+			libScripts += `<script src="/lib/leaflet.min.js"></script>` + "\n"
 		}
 	}
 
