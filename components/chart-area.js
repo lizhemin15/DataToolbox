@@ -89,8 +89,7 @@
     }
 
     if (apiUrl) {
-        var token = localStorage.getItem('dataOntologyToken') || '';
-        fetch(apiUrl, { headers: { 'Authorization': 'Bearer ' + token } })
+        fetchWithAuth(apiUrl)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var d = Array.isArray(data) ? data : (data.data && Array.isArray(data.data) ? data.data : sampleData);

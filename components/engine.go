@@ -348,7 +348,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 // 注入认证 token
 (function() {
     const params = new URLSearchParams(window.location.search);
-    window._appToken = params.get('token') || '';
+    window._appToken = params.get('token') || localStorage.getItem('dataOntologyToken') || '';
     window.fetchWithAuth = function(url, options) {
         options = options || {};
         options.headers = options.headers || {};

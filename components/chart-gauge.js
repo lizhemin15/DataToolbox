@@ -74,8 +74,7 @@
 
     // 如果有 API，先获取数据
     if (apiUrl) {
-        var token = localStorage.getItem('dataOntologyToken') || '';
-        fetch(apiUrl, { headers: { 'Authorization': 'Bearer ' + token } })
+        fetchWithAuth(apiUrl)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var v = data.value !== undefined ? data.value : (data.data && data.data.value !== undefined ? data.data.value : value);
