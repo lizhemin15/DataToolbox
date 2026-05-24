@@ -1,6 +1,5 @@
 /* 数据表格模板 */
 /* config: { title, data_source, columns, rows, page_size, show_search, height } */
-/* 支持两种模式: data_source(API) 或 rows(直接数据) */
 function renderDataTable(config, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -40,7 +39,17 @@ function renderDataTable(config, containerId) {
         return;
     }
 
-    container.innerHTML = html + '<div style="padding:20px;color:#999;">未配置数据源</div>';
+    // 演示数据回退
+    const demoCols = ['姓名', '邮箱', '城市', '订单数', '金额(元)'];
+    const demoRows = [
+        { '姓名': '张伟', '邮箱': 'zhangwei@example.com', '城市': '北京', '订单数': 23, '金额(元)': 12800 },
+        { '姓名': '李娜', '邮箱': 'lina@example.com', '城市': '上海', '订单数': 18, '金额(元)': 9650 },
+        { '姓名': '王磊', '邮箱': 'wanglei@example.com', '城市': '广州', '订单数': 31, '金额(元)': 18320 },
+        { '姓名': '赵敏', '邮箱': 'zhaomin@example.com', '城市': '深圳', '订单数': 15, '金额(元)': 7430 },
+        { '姓名': '陈浩', '邮箱': 'chenhao@example.com', '城市': '成都', '订单数': 27, '金额(元)': 15100 }
+    ];
+    html += buildTableHTML(demoCols, demoRows, containerId, pageSize);
+    container.innerHTML = html;
 }
 
 function buildTableHTML(cols, rows, containerId, pageSize) {

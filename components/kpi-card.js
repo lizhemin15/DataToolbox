@@ -37,7 +37,31 @@ function renderKpiCards(config, containerId) {
     container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     container.style.gap = '16px';
 
-    if (!config.data_source || !config.metrics || config.metrics.length === 0) {
+    // 演示数据回退：无 metrics 且无 data_source 时显示演示 KPI
+    const hasMetrics = config.metrics && config.metrics.length > 0;
+    const hasDataSource = config.data_source;
+
+    if (!hasMetrics && !hasDataSource) {
+        const demoMetrics = [
+            { label: '总收入', value: '¥128,500', trend: 'up', trend_value: '12.5%', color: '#4F46E5' },
+            { label: '订单数', value: '2,340', trend: 'up', trend_value: '8.2%', color: '#10B981' },
+            { label: '客单价', value: '¥54.9', trend: 'down', trend_value: '3.1%', color: '#F59E0B' },
+            { label: '转化率', value: '24.6%', trend: 'up', trend_value: '5.3%', color: '#8B5CF6' }
+        ];
+        container.innerHTML = demoMetrics.map(m => {
+            const trendColor = m.trend === 'up' ? '#10B981' : '#EF4444';
+            const trendIcon = m.trend === 'up' ? '↑' : '↓';
+            return `
+            <div class="kpi-card" style="background:var(--bg);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);border-left:3px solid ${m.color}">
+                <div style="color:var(--text-secondary);font-size:13px;margin-bottom:8px">${m.label}</div>
+                <div style="font-size:28px;font-weight:700;color:${m.color}">${m.value}</div>
+                <div style="margin-top:8px;font-size:13px;color:${trendColor}">${trendIcon} ${m.trend_value}</div>
+            </div>`;
+        }).join('');
+        return;
+    }
+
+    if (!hasMetrics || !hasDataSource) {
         container.innerHTML = '<div style="padding:20px;color:#999;">未配置数据源或指标</div>';
         return;
     }

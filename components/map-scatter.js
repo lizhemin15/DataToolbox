@@ -1,6 +1,5 @@
 /* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, center_lat, center_lng, zoom, marker_color, heatmap, height } */
 /* 依赖: Leaflet (必须本地化到 /lib/leaflet.min.js) */
-/* 支持两种模式: data_source(API) 或 markers[](直接数据) */
 function renderMapScatter(config, containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -68,8 +67,11 @@ function renderMapScatter(config, containerId) {
     // 直接数据模式: config.markers = [{lat, lng, name, ...}]
     if (config.markers && config.markers.length > 0) {
         addMarkers(config.markers, 'lat', 'lng', 'name', config.popup_fields);
-    } else if (config.data_source) {
-        // API 模式
+        return;
+    }
+
+    // API 模式
+    if (config.data_source) {
         fetchWithAuth(config.data_source)
             .then(r => r.json())
             .then(data => {
@@ -79,5 +81,16 @@ function renderMapScatter(config, containerId) {
             .catch(err => {
                 container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
             });
+        return;
     }
+
+    // 演示数据回退
+    const demoMarkers = [
+        { lat: 39.9, lng: 116.4, name: '北京', population: '2189万' },
+        { lat: 31.2, lng: 121.5, name: '上海', population: '2487万' },
+        { lat: 23.1, lng: 113.3, name: '广州', population: '1868万' },
+        { lat: 22.5, lng: 114.1, name: '深圳', population: '1756万' },
+        { lat: 30.6, lng: 104.1, name: '成都', population: '2094万' }
+    ];
+    addMarkers(demoMarkers, 'lat', 'lng', 'name', ['population']);
 }
