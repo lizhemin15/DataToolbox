@@ -147,7 +147,7 @@ jobs:
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           chmod +x package/update.sh
-          cp -r index.html share.html quality-audit.html app-editor.html js css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
+          cp -r index.html share.html quality-audit.html app-editor.html favicon.ico js css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
 
           # 复制 apps 目录（数据本体池等子应用）
           if [ -d "apps" ]; then
