@@ -1276,13 +1276,26 @@ function handleAiInputChange(e) {
     }
 }
 
+// AI模块 → 标签页 映射关系（模块只在对应标签页可见时才在@联想中显示）
+const AI_MODULE_TAB_MAP = {
+    'db-manage': 'database',
+    'api-dispatch': 'api',
+    'data-governance': 'governance',
+    'quality-audit': 'quality',
+    'ontology': 'ontology',
+    'small-model': 'models'
+};
+
 // 显示 @ 联想建议。
 function showDbSuggestions(searchTerm) {
-    const matchedModules = aiModules.filter(m =>
-        m.name.toLowerCase().includes(searchTerm) ||
-        m.id.toLowerCase().includes(searchTerm) ||
-        (m.aliases && m.aliases.some(a => a.toLowerCase().includes(searchTerm)))
-    );
+    const matchedModules = aiModules.filter(m => {
+        // 过滤掉对应标签页不可见的模块
+        const tabId = AI_MODULE_TAB_MAP[m.id];
+        if (tabId && currentTabVisibility[tabId] === false) return false;
+        return m.name.toLowerCase().includes(searchTerm) ||
+            m.id.toLowerCase().includes(searchTerm) ||
+            (m.aliases && m.aliases.some(a => a.toLowerCase().includes(searchTerm)));
+    });
     const matchedDbs = databases.filter(db =>
         db.name.toLowerCase().includes(searchTerm)
     );
