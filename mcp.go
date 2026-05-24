@@ -724,21 +724,11 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 		in.Components[i] = c
 	}
 
-	blueprint := components.AppBlueprint{
-		Title:           in.Title,
-		Slug:            in.Slug,
-		Description:     in.Description,
-		Icon:            in.Icon,
-		DesignDirection: in.DesignDirection,
-		PrimaryColor:    in.PrimaryColor,
-		Components:      in.Components,
-	}
-
 	primaryColor := in.PrimaryColor
 	if primaryColor == "" {
 		primaryColor = "#4F46E5"
 	}
-	html := components.GeneratePreviewHTML(blueprint, primaryColor)
+	// 注意：preview_html 由 ask_user 后端从 blueprint 自动生成，不在 tool_result 中返回（太大，会卡 LLM）
 
 	// 构建组件描述列表
 	compDescs := []string{}
@@ -754,11 +744,10 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 	result := map[string]interface{}{
 		"preview_available": true,
 		"preview_type":      "iframe",
-		"preview_html":      html,
 		"components":        compDescs,
 		"title":             in.Title,
 		"primary_color":     primaryColor,
-		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html（太大），服务器会自动从 blueprint 生成预览 HTML",
+		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html，服务器会自动从 blueprint 生成预览",
 	}
 
 	// 构建 config_fields — 按组件分组的嵌套格式
@@ -867,7 +856,7 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 		if primaryColor == "" {
 			primaryColor = "#4F46E5"
 		}
-		html := components.AssembleAppPage(blueprint, primaryColor)
+		// 注意：preview_html 由 ask_user 后端从 blueprint 自动生成，不在 tool_result 中返回（太大，会卡 LLM）
 
 		// 生成配置字段
 		configFields := []map[string]interface{}{}
@@ -888,10 +877,9 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 
 		result := map[string]interface{}{
 			"action":        "preview",
-			"preview_html":  html,
 			"config_fields": configFields,
 			"blueprint":     blueprint,
-			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 对象和 config_fields。不要传 preview_html（太大），服务器会自动从 blueprint 生成预览。用户确认后再次调用 create_app 即可正式创建。"),
+			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html，服务器会自动从 blueprint 生成预览。用户确认后再次调用 create_app(confirmed=true) 即可正式创建。"),
 		}
 		data, _ := json.Marshal(result)
 		return mcpTextResult(string(data)), nil, nil
