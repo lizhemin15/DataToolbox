@@ -2799,8 +2799,9 @@ function renderHITLCard(evt) {
                 const doc = iframe.contentDocument || iframe.contentWindow.document;
                 doc.open();
                 // 注入 _appBaseURL，因为 about:blank iframe 的 location.origin 是 "null"
+                // 使用 Object.defineProperty 防止旧 IIFE 覆盖
                 const baseURL = window.location.origin;
-                const baseInject = `<script>window._appBaseURL="${baseURL}";window._appToken=localStorage.getItem('dataOntologyToken')||'';<\/script>`;
+                const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});<\/script>`;
                 doc.write(baseInject + evt.preview_html);
                 doc.close();
             }, 100);
@@ -2929,7 +2930,7 @@ function hitlRefreshPreview(hitlId) {
         if (iframe && data.preview_html) {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             const baseURL = window.location.origin;
-            const baseInject = `<script>window._appBaseURL="${baseURL}";window._appToken=localStorage.getItem('dataOntologyToken')||'';<\/script>`;
+            const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});<\/script>`;
             doc.open();
             doc.write(baseInject + data.preview_html);
             doc.close();
