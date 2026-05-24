@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	toolshared "github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/tools/shared"
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/tools"
+	"github.com/YOUR_USERNAME/DataToolbox/components"
 )
 
 // ============================================================
@@ -35,7 +36,7 @@ Supported interaction types:
 5. **form** — Multi-field structured form. Use when you need several pieces of information from the user at once. Each field can be text, number, select, or textarea.
    Example: Ask "请填写接口配置" with fields for name, path, method, and description.
 
-6. **preview** — Interactive preview with configurable form. Use after preview_app to show the user an iframe preview of the generated application alongside configuration fields they can adjust. Provide preview_html from the preview_app tool output, and config_fields for adjustable settings (supports color type).
+6. **preview** — Interactive preview with configurable form. Use after create_app(confirmed=false) to show the user an iframe preview alongside configuration fields they can adjust. You MUST pass the blueprint from create_app output — the server will auto-generate preview_html from blueprint (do NOT pass preview_html manually, it's too large and will be truncated). Also pass config_fields for adjustable settings.
    Example: Show a dashboard preview with fields to change the title, color scheme, and chart type.
 
 Usage guidelines:
@@ -140,7 +141,7 @@ func (t *AskUserTool) Parameters() map[string]any {
 			},
 			"preview_html": map[string]any{
 				"type":        "string",
-				"description": "(preview type only) HTML content to render in the preview iframe. Generate this from preview_app tool output.",
+				"description": "(preview type only, OPTIONAL) HTML content to render in the preview iframe. If you pass blueprint instead, preview_html will be auto-generated. Do NOT pass large HTML strings — use blueprint instead.",
 			},
 			"preview_width": map[string]any{
 				"type":        "string",
@@ -179,7 +180,7 @@ func (t *AskUserTool) Parameters() map[string]any {
 			},
 			"blueprint": map[string]any{
 				"type":        "object",
-				"description": "(preview type only) The app blueprint data for re-generating preview when user changes config. Pass the blueprint from preview_app output.",
+				"description": "(preview type only, REQUIRED) The app blueprint data. The server will auto-generate preview_html from this blueprint. Pass the exact blueprint object from create_app output.",
 			},
 		},
 		"required": []string{"interaction_type", "title"},
@@ -374,7 +375,20 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	}
 
 	// 解析 preview 类型参数
-	previewHTML, _ := args["preview_html"].(string)
+	// 优先从 blueprint 自动生成 preview_html，避免 AI agent 传 10KB+ HTML 字符串（经常截断或丢失）
+	var previewHTML string
+	if rawHTML, ok := args["preview_html"].(string); ok && rawHTML != "" {
+		previewHTML = rawHTML
+	}
+	// 如果 agent 没传 preview_html 但传了 blueprint，自动生成
+	if previewHTML == "" {
+		if bpMap, ok := args["blueprint"].(map[string]any); ok && len(bpMap) > 0 {
+			bp, primaryColor, err := parseBlueprintFromArgs(bpMap)
+			if err == nil {
+				previewHTML = components.AssembleAppPage(bp, primaryColor)
+			}
+		}
+	}
 	previewWidth, _ := args["preview_width"].(string)
 	previewHeight, _ := args["preview_height"].(string)
 
@@ -507,4 +521,39 @@ func boolVal(v any) bool {
 		return b
 	}
 	return false
+}
+
+// parseBlueprintFromArgs 从 ask_user 的 blueprint 参数（map[string]any）解析为 AppBlueprint
+func parseBlueprintFromArgs(bpMap map[string]any) (components.AppBlueprint, string, error) {
+	var bp components.AppBlueprint
+	bp.Title = strVal(bpMap["title"])
+	bp.Slug = strVal(bpMap["slug"])
+	bp.Description = strVal(bpMap["description"])
+	bp.Icon = strVal(bpMap["icon"])
+	bp.DesignDirection = strVal(bpMap["design_direction"])
+
+	primaryColor := strVal(bpMap["primary_color"])
+	if primaryColor == "" {
+		primaryColor = "#4F46E5"
+	}
+
+	// 解析 components
+	if rawComps, ok := bpMap["components"].([]any); ok {
+		for _, rc := range rawComps {
+			compMap, ok := rc.(map[string]any)
+			if !ok {
+				continue
+			}
+			c := components.ComponentInstance{
+				ComponentID: strVal(compMap["component_id"]),
+				Config:      map[string]any{},
+			}
+			if cfg, ok := compMap["config"].(map[string]any); ok {
+				c.Config = cfg
+			}
+			bp.Components = append(bp.Components, c)
+		}
+	}
+
+	return bp, primaryColor, nil
 }

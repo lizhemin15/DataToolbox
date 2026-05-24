@@ -758,7 +758,7 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 		"components":        compDescs,
 		"title":             in.Title,
 		"primary_color":     primaryColor,
-		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），将 preview_html 和 config_fields 传给用户，让用户在预览中交互修改配置",
+		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html（太大），服务器会自动从 blueprint 生成预览 HTML",
 	}
 
 	// 构建 config_fields — 按组件分组的嵌套格式
@@ -891,7 +891,7 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 			"preview_html":  html,
 			"config_fields": configFields,
 			"blueprint":     blueprint,
-			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"）展示给用户。用户确认后再次调用 create_app 即可正式创建。"),
+			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 对象和 config_fields。不要传 preview_html（太大），服务器会自动从 blueprint 生成预览。用户确认后再次调用 create_app 即可正式创建。"),
 		}
 		data, _ := json.Marshal(result)
 		return mcpTextResult(string(data)), nil, nil
@@ -1230,7 +1230,7 @@ func initMCPHTTPHandler() {
 		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用（一步完成预览+创建）。
 
-【工作流】首次调用→自动生成预览HTML+blueprint→立即调用ask_user(interaction_type="preview")展示→用户确认后再次调用本工具→正式创建。
+【工作流】首次调用(confirmed=false)→返回preview_html+blueprint→立即调用ask_user(interaction_type="preview")传入blueprint和config_fields（不要传preview_html）→用户确认后再次调用本工具(confirmed=true)→正式创建。
 
 【可用组件】
 - 图表类：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)

@@ -73,11 +73,11 @@
 
 1. 调用 `list_components` 工具获取可用预制组件列表
 2. 根据蓝图选择需要的组件（chart-bar, chart-line, chart-pie, kpi-card, data-table, map-scatter, filter-bar）
-3. 调用 `preview_app` 工具生成预览 HTML，传入组件列表 + 配置 + 蓝图设计风格
+3. 调用 `create_app` 工具（confirmed=false）生成预览，传入组件列表 + 配置 + 蓝图设计风格
 4. 调用 `ask_user` 工具（interaction_type="preview"），传入：
-   - `preview_html`: preview_app 工具返回的 HTML
+   - `blueprint`: create_app 返回的 blueprint 对象（**不要传 preview_html**，服务器会自动从 blueprint 生成）
    - `config_fields`: 可交互修改的配置项（标题、颜色、图表类型等）
-5. 用户确认后，调用 `create_app_from_blueprint` 工具创建应用
+5. 用户确认后，再次调用 `create_app` 工具（confirmed=true）正式创建应用
 
 **组件配置示例（chart-bar）：**
 ```json
@@ -434,6 +434,6 @@ document.addEventListener('DOMContentLoaded', () => loadData(1));
 7. **slug 只允许 `[a-z0-9-]`** — 中文、大写、下划线都不行
 8. **表格数据 > 20 条必须分页** — 不分页 = 性能灾难
 9. **每个视图必须有加载态** — skeleton/spinner，不能白屏等待
-10. **preview_app 必须在 ask_user(preview) 之前调用** — 先生成 HTML 再展示预览
+10. **ask_user(preview) 必须传 blueprint，不要传 preview_html** — 服务器会自动从 blueprint 生成 preview_html。preview_html 有 10KB+，LLM 传参时经常截断或丢失
 11. **组件 data_source 必须是真实 API 路径** — 不能硬编码假数据
 9. **错误必须有用户可见反馈** — toast/banner，不能静默失败
