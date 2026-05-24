@@ -2801,7 +2801,7 @@ function renderHITLCard(evt) {
                 // 注入 _appBaseURL，因为 about:blank iframe 的 location.origin 是 "null"
                 // 使用 Object.defineProperty 防止旧 IIFE 覆盖
                 const baseURL = window.location.origin;
-                const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}console.log('[HITL-inject] _appBaseURL:',window._appBaseURL,'origin:',window.location.origin);<\/script>`;
+                const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}<\/script>`;
                 doc.write(baseInject + evt.preview_html);
                 doc.close();
             }, 100);
@@ -2930,7 +2930,7 @@ function hitlRefreshPreview(hitlId) {
         if (iframe && data.preview_html) {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             const baseURL = window.location.origin;
-            const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}console.log('[HITL-update] _appBaseURL:',window._appBaseURL);<\/script>`;
+            const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}<\/script>`;
             doc.open();
             doc.write(baseInject + data.preview_html);
             doc.close();

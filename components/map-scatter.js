@@ -14,21 +14,40 @@ function renderMapScatter(config, containerId) {
         zoom: config.zoom || 4
     });
 
-    // 离线瓦片优先，失败回退在线
+    // 离线瓦片（唯一底图，不回退 OSM — 云服务器 IP 被 OSM 封禁 403）
     var _base = (window._appBaseURL && window._appBaseURL !== 'null') ? window._appBaseURL : (window.location.origin && window.location.origin !== 'null' ? window.location.origin : '');
-    console.log('[map-scatter] _appBaseURL:', window._appBaseURL, '_base:', _base, 'location.origin:', window.location.origin);
     L.tileLayer(_base + '/lib/leaflet-images/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 5,
         maxNativeZoom: 5
     }).addTo(map);
 
-    map.on('tileerror', function() {
-        if (!map._onlineFallback) {
-            map._onlineFallback = true;
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                maxZoom: 18
-            }).addTo(map);
+    // zoom > 5 时用纯色 Canvas 瓦片替代（无离线瓦片，也不请求 OSM）
+    L.tileLayer.canvas = undefined; // safety
+    var CanvasTile = L.TileLayer.extend({
+        createTile: function(coords) {
+            var tile = document.createElement('canvas');
+            tile.width = 256; tile.height = 256;
+            var ctx = tile.getContext('2d');
+            ctx.fillStyle = '#e8e8e8';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = '#d0d0d0';
+            ctx.strokeRect(0, 0, 256, 256);
+            ctx.fillStyle = '#bbb';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('z' + coords.z, 128, 128);
+            return tile;
+        }
+    });
+    var canvasLayer = new CanvasTile('', { minZoom: 6, maxZoom: 18 });
+    map.on('zoomend', function() {
+        if (map.getZoom() > 5 && !map._canvasAdded) {
+            map._canvasAdded = true;
+            canvasLayer.addTo(map);
+        } else if (map.getZoom() <= 5 && map._canvasAdded) {
+            map._canvasAdded = false;
+            map.removeLayer(canvasLayer);
         }
     });
 
