@@ -290,6 +290,7 @@ type createAppFromBlueprintIn struct {
 	DesignDirection string                   `json:"design_direction,omitempty" jsonschema:"设计方向：minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist"`
 	PrimaryColor    string                   `json:"primary_color,omitempty" jsonschema:"主色调 HEX（如 #4F46E5）"`
 	IsPublic        bool                     `json:"is_public,omitempty" jsonschema:"是否公开"`
+	Confirmed       bool                     `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建应用；未确认时调用只生成预览"`
 	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表，每个含 component_id 和 config。可用组件ID：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)、data-table(数据表格)、filter-bar(筛选栏)、kpi-card(KPI卡片)、map-scatter(地图散点)、timeline(时间线)"`
 }
 
@@ -858,8 +859,8 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 		Components:      in.Components,
 	}
 
-	// 首次调用（无 HITL）：生成预览，返回给 AI 让它调用 ask_user(preview) 展示
-	if !agent.IsHITLConfirmed("default") {
+	// 首次调用（confirmed=false）：生成预览，返回给 AI 让它调用 ask_user(preview) 展示
+	if !in.Confirmed {
 		primaryColor := in.PrimaryColor
 		if primaryColor == "" {
 			primaryColor = "#4F46E5"
