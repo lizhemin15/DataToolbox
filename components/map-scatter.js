@@ -17,7 +17,8 @@ function renderMapScatter(config, containerId) {
     // 离线瓦片优先，失败回退在线
     L.tileLayer('/lib/leaflet-images/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
-        maxZoom: 18
+        maxZoom: 5,
+        maxNativeZoom: 5
     }).addTo(map);
 
     map.on('tileerror', function() {
