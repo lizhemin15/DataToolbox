@@ -170,7 +170,7 @@ func (m *legacyContextManager) forceCompression(sessionKey string) (compressionR
 }
 
 func (m *legacyContextManager) summarizeSession(agent *AgentInstance, sessionKey string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	history := agent.Sessions.GetHistory(sessionKey)

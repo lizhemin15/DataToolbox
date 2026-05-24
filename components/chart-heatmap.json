@@ -1,0 +1,60 @@
+{
+  "id": "chart-heatmap",
+  "name": "热力图",
+  "category": "chart",
+  "icon": "🔥",
+  "description": "热力图，适合展示数据密度分布（如时段访问量、区域活跃度）",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "图表标题",
+      "default": "热力分布",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true,
+      "hint": "返回 {columns: [...], rows: [[x, y, value], ...]}"
+    },
+    "x_field": {
+      "type": "string",
+      "label": "X轴字段",
+      "default": "",
+      "required": true
+    },
+    "y_field": {
+      "type": "string",
+      "label": "Y轴字段",
+      "default": "",
+      "required": true
+    },
+    "value_field": {
+      "type": "string",
+      "label": "值字段",
+      "default": "",
+      "required": true
+    },
+    "color_range": {
+      "type": "select",
+      "label": "配色方案",
+      "default": "blue-red",
+      "options": ["blue-red", "green-yellow", "purple-orange"]
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    },
+    "height": {
+      "type": "number",
+      "label": "图表高度(px)",
+      "default": 400,
+      "min": 200,
+      "max": 800
+    }
+  }
+}

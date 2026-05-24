@@ -1,0 +1,55 @@
+{
+  "id": "dashboard-summary",
+  "name": "统计报表",
+  "category": "chart",
+  "icon": "📋",
+  "description": "统计报表卡片组，展示多个KPI指标及同比/环比变化",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "报表标题",
+      "default": "数据概览",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true,
+      "hint": "返回 {columns: [...], rows: [[metric, value, change, trend], ...]}"
+    },
+    "metric_field": {
+      "type": "string",
+      "label": "指标名字段",
+      "default": "",
+      "required": true
+    },
+    "value_field": {
+      "type": "string",
+      "label": "值字段",
+      "default": "",
+      "required": true
+    },
+    "change_field": {
+      "type": "string",
+      "label": "变化率字段",
+      "default": "",
+      "required": false,
+      "hint": "百分比变化，如 12.5 表示 +12.5%"
+    },
+    "columns": {
+      "type": "number",
+      "label": "每行卡片数",
+      "default": 4,
+      "min": 2,
+      "max": 6
+    },
+    "colors": {
+      "type": "color_list",
+      "label": "卡片颜色",
+      "default": ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"]
+    }
+  }
+}

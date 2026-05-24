@@ -1,0 +1,61 @@
+{
+  "id": "chart-combo",
+  "name": "组合图",
+  "category": "chart",
+  "icon": "📈",
+  "description": "柱状+折线组合图，适合同时展示数量和趋势（如销售额+增长率）",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "图表标题",
+      "default": "数据对比",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true,
+      "hint": "返回 {columns: [...], rows: [[...]]}"
+    },
+    "x_field": {
+      "type": "string",
+      "label": "X轴字段",
+      "default": "",
+      "required": true
+    },
+    "bar_fields": {
+      "type": "string_list",
+      "label": "柱状字段",
+      "default": [],
+      "required": true,
+      "hint": "显示为柱状的字段名，逗号分隔"
+    },
+    "line_fields": {
+      "type": "string_list",
+      "label": "折线字段",
+      "default": [],
+      "required": true,
+      "hint": "显示为折线的字段名，逗号分隔（使用右侧Y轴）"
+    },
+    "colors": {
+      "type": "color_list",
+      "label": "系列颜色",
+      "default": ["#4F46E5", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"]
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    },
+    "height": {
+      "type": "number",
+      "label": "图表高度(px)",
+      "default": 400,
+      "min": 200,
+      "max": 800
+    }
+  }
+}

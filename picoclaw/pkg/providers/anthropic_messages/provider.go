@@ -33,7 +33,7 @@ type (
 const (
 	defaultAPIVersion     = "2023-06-01"
 	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultRequestTimeout = 120 * time.Second
+	defaultRequestTimeout = 180 * time.Second
 )
 
 // Provider implements Anthropic Messages API via HTTP (without SDK).

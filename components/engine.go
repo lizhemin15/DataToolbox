@@ -454,10 +454,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
                     var el = document.getElementById(_compIds[i]);
                     var fn = window[_renderFuncs[i]];
                     if (el && fn) {
+                        // Dispose ECharts instance before re-render
+                        if (typeof echarts !== 'undefined') {
+                            try { echarts.getInstanceByDom(el) && echarts.getInstanceByDom(el).dispose(); } catch(e) {}
+                        }
                         el.innerHTML = '';
                         try { fn(newCfg, _compIds[i]); } catch(e) { console.error('Re-render error:', e); }
                     }
                 }
+            }
+        }
+        // Handle resize events from HITL preview
+        if (e.data && e.data.type === 'resize') {
+            if (typeof echarts !== 'undefined') {
+                setTimeout(function() {
+                    var charts = document.querySelectorAll('div[_echarts_instance_]');
+                    charts.forEach(function(el) {
+                        var inst = echarts.getInstanceByDom(el);
+                        if (inst) inst.resize();
+                    });
+                }, 100);
             }
         }
     });
@@ -509,6 +525,14 @@ func getRenderFuncName(id string) string {
 		return "renderTimeline"
 	case "chart-area":
 		return "renderChartArea"
+	case "chart-combo":
+		return "renderComboChart"
+	case "chart-heatmap":
+		return "renderHeatmapChart"
+	case "dashboard-summary":
+		return "renderDashboardSummary"
+	case "map-choropleth":
+		return "renderMapChoropleth"
 	default:
 		return "render" + strings.Title(strings.ReplaceAll(id, "-", ""))
 	}

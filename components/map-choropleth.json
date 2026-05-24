@@ -1,0 +1,61 @@
+{
+  "id": "map-choropleth",
+  "name": "区域地图",
+  "category": "map",
+  "icon": "🗺️",
+  "description": "区域着色地图，按区域展示数值分布（如各省销售额、各区人口密度）",
+  "version": "1.0.0",
+  "dependencies": ["echarts"],
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "地图标题",
+      "default": "区域分布",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": true,
+      "hint": "返回 {columns: [...], rows: [[region, value], ...]}"
+    },
+    "region_field": {
+      "type": "string",
+      "label": "区域字段",
+      "default": "",
+      "required": true,
+      "hint": "区域名称（如省份、城市）"
+    },
+    "value_field": {
+      "type": "string",
+      "label": "值字段",
+      "default": "",
+      "required": true
+    },
+    "map_level": {
+      "type": "select",
+      "label": "地图级别",
+      "default": "china",
+      "options": ["china", "province"]
+    },
+    "color_range": {
+      "type": "select",
+      "label": "配色方案",
+      "default": "blue",
+      "options": ["blue", "green", "red", "purple"]
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    },
+    "height": {
+      "type": "number",
+      "label": "地图高度(px)",
+      "default": 500,
+      "min": 300,
+      "max": 900
+    }
+  }
+}

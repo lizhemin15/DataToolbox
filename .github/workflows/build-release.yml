@@ -171,6 +171,13 @@ jobs:
             echo "Copied components directory"
           fi
 
+          # 复制 assets 目录（地图 GeoJSON 等静态资源）
+          if [ -d "assets" ]; then
+            mkdir -p package/assets
+            cp assets/*.json package/assets/
+            echo "Copied assets directory"
+          fi
+
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
             for f in package/index.html package/js/*.js package/css/*.css; do

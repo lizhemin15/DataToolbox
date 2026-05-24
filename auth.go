@@ -58,7 +58,7 @@ func initDataOntology() {
 			URL:               "https://api.siliconflow.cn/v1",
 			APIKey:            "", // 用户需要自行配置
 			Model:             "Qwen/Qwen3-32B",
-			Timeout:           120,
+			Timeout:           180,
 			EnableFunctionCall: &trueVal,
 			EnableThinking:    &trueVal,
 			EnableStreaming:   &trueVal,

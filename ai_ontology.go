@@ -886,7 +886,7 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 	// 使用配置的超时时间，默认120秒，避免大模型首次响应过慢导致超时
 	timeout := config.Timeout
 	if timeout <= 0 {
-		timeout = 120
+		timeout = 180
 	}
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,

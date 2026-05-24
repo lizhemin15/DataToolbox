@@ -1204,32 +1204,19 @@ func initMCPHTTPHandler() {
 		// 注册所有 16 个工具
 		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
-		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构（字段名、类型、是否可空、默认值、键信息等）"}, mcpDescribeTable)
-		mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "在指定数据库上执行 SQL 语句。SELECT/SHOW/DESCRIBE/EXPLAIN 返回查询结果；INSERT/UPDATE/DELETE/CREATE/DROP 等返回影响行数。请谨慎使用写操作。"}, mcpExecuteSQL)
-		mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出数据本体池中已配置的接口（path、method、关联数据库）"}, mcpListApis)
-		mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取指定接口的完整详情，包括 SQL 语句、参数定义、描述、关联数据库等"}, mcpGetApiDetail)
-		mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用已配置的接口，传入接口 ID 和 params 执行并返回数据"}, mcpCallApi)
-		mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "根据关键词搜索数据库中的表，支持指定数据库范围"}, mcpSearchTables)
-		mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取指定数据库的完整 schema 信息，包括所有表结构、列定义、索引等"}, mcpGetDbSchema)
-		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示，包括数据库类型和方言特性说明"}, mcpGetDbSQLHints)
-		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "【重要】创建接口前必须先调用 ask_user 工具让用户确认配置！创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
-		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取表的列结构（字段名、类型、键信息）"}, mcpDescribeTable)
+		mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "执行SQL。SELECT返回结果；写操作返回影响行数，谨慎使用"}, mcpExecuteSQL)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出已配置的接口"}, mcpListApis)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取接口详情（SQL、参数、描述）"}, mcpGetApiDetail)
+		mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用接口，传入ID和params"}, mcpCallApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "关键词搜索表"}, mcpSearchTables)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取数据库完整schema"}, mcpGetDbSchema)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取数据库SQL方言提示"}, mcpGetDbSQLHints)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建数据接口（需先ask_user确认）"}, mcpCreateApi)
+		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过路径调用接口"}, mcpExecuteApi)
 
 		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
-		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用（一步完成预览+创建）。
-
-【工作流】首次调用(confirmed=false)→返回preview_html+blueprint→立即调用ask_user(interaction_type="preview")传入blueprint和config_fields（不要传preview_html）→用户确认后再次调用本工具(confirmed=true)→正式创建。
-
-【可用组件】
-- 图表类：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)
-- 数据类：data-table(数据表格)、kpi-card(KPI卡片)
-- 交互类：filter-bar(筛选栏，联动其他组件刷新数据)
-- 地图类：map-scatter(地图散点)
-- 其他类：timeline(时间线)
-
-【设计方向】minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist
-
-组件config示例：{"component_id":"chart-bar","config":{"title":"销售额","data_source":"/api/v1/data/sales","x_field":"month","y_fields":["revenue"]}}`}, mcpCreateAppFromBlueprint)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
@@ -1306,21 +1293,21 @@ func runMCPServer() {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, nil)
 	// Stdio 模式注册所有 16 个工具（与 HTTP 模式一致）
-	mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
-	mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
-	mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取指定数据库中某张表的列结构"}, mcpDescribeTable)
-	mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "在指定数据库上执行 SQL 语句"}, mcpExecuteSQL)
-	mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出数据本体池中已配置的接口"}, mcpListApis)
-	mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取指定接口的完整详情"}, mcpGetApiDetail)
-	mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用已配置的接口"}, mcpCallApi)
-	mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "根据关键词搜索数据库中的表"}, mcpSearchTables)
-	mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取指定数据库的完整 schema"}, mcpGetDbSchema)
-	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示"}, mcpGetDbSQLHints)
-	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
-	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出已配置的数据库"}, mcpListDatabases)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表"}, mcpGetTables)
+	mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取表的列结构"}, mcpDescribeTable)
+	mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "执行SQL语句"}, mcpExecuteSQL)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出已配置的接口"}, mcpListApis)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取接口详情"}, mcpGetApiDetail)
+	mcp.AddTool(server, &mcp.Tool{Name: "call_api", Description: "调用接口"}, mcpCallApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "search_tables", Description: "关键词搜索表"}, mcpSearchTables)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_db_schema", Description: "获取数据库完整schema"}, mcpGetDbSchema)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取数据库SQL方言提示"}, mcpGetDbSQLHints)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建数据接口"}, mcpCreateApi)
+	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过路径调用接口"}, mcpExecuteApi)
 
 	// 应用管理工具
-	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用（一步完成预览+创建）。首次调用自动生成预览，请立即调用ask_user展示给用户，确认后再次调用正式创建。可用组件：chart-bar/chart-line/chart-pie/chart-area/chart-gauge/data-table/filter-bar/kpi-card/map-scatter/timeline`}, mcpCreateAppFromBlueprint)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)

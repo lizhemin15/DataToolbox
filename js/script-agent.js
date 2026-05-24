@@ -2702,7 +2702,12 @@ function renderHITLCard(evt) {
 
         // 始终渲染 iframe 容器（即使 preview_html 暂时为空，后续可能异步加载）
         html += `<div class="hitl-preview-container">
-            <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;" sandbox="allow-scripts allow-same-origin"></iframe>
+            <div style="display:flex;gap:4px;margin-bottom:6px;">
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','100%','420px')" title="桌面" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">🖥️ 桌面</button>
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','768px','500px')" title="平板" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📱 平板</button>
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','375px','600px')" title="手机" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📲 手机</button>
+            </div>
+            <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;transition:width 0.2s,height 0.2s;" sandbox="allow-scripts allow-same-origin"></iframe>
         </div>`;
 
         // 配置表单（按组件分组，可交互修改组件配置）
@@ -2768,9 +2773,11 @@ function renderHITLCard(evt) {
             html += '</div></div>'; // hitl-config-fields + hitl-config-section
         }
 
-        html += `<div class="hitl-options">
+        html += `<div class="hitl-options" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#6b7280;cursor:pointer;"><input type="checkbox" id="hitl-live-${hitlId}" checked onchange="hitlToggleLive('${hitlId}')"> 实时预览</label>
+            <span style="flex:1;"></span>
             <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitPreview('${hitlId}')">✅ 确认并创建</button>
-            <button class="hitl-option-btn hitl-option-default" onclick="hitlRefreshPreview('${hitlId}')">🔄 重新预览</button>
+            <button class="hitl-option-btn hitl-option-default" onclick="hitlRefreshPreview('${hitlId}')">🔄 重新生成</button>
             <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
         </div>`;
     }
@@ -2895,12 +2902,36 @@ function collectHITLConfigValues(card) {
 function hitlUpdatePreview(hitlId) {
     const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
     if (!card) return;
+    // 检查实时预览开关
+    const liveToggle = document.getElementById(`hitl-live-${hitlId}`);
+    if (liveToggle && !liveToggle.checked) return;
     const values = collectHITLConfigValues(card);
     // 通过 postMessage 通知 iframe 内的应用更新配置
     const iframe = card.querySelector('.hitl-preview-iframe');
     if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage({ type: 'updateConfig', config: values }, '*');
     }
+}
+
+// 实时预览开关
+function hitlToggleLive(hitlId) {
+    // 开关状态由 hitlUpdatePreview 内部检查，无需额外逻辑
+}
+
+// 预览设备尺寸切换
+function hitlSetDeviceSize(hitlId, w, h) {
+    const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
+    if (!card) return;
+    const iframe = card.querySelector('.hitl-preview-iframe');
+    if (!iframe) return;
+    iframe.style.width = w;
+    iframe.style.height = h;
+    // 通知 iframe 内 ECharts 重绘
+    setTimeout(() => {
+        if (iframe.contentWindow) {
+            iframe.contentWindow.postMessage({ type: 'resize' }, '*');
+        }
+    }, 250);
 }
 
 // 预览模式：重新生成预览（请求后端重新组装）
