@@ -37,7 +37,7 @@ type ConfigField struct {
 // ComponentInstance 页面上的组件实例（组件+配置）
 type ComponentInstance struct {
 	ComponentID string                 `json:"component_id"` // 规范字段
-	Type        string                 `json:"type"`         // 兼容简写（优先使用 component_id）
+	Type        string                 `json:"type,omitempty" jsonschema:"组件ID（同 component_id，二选一即可）"` // 兼容简写（优先使用 component_id）
 	Config      map[string]interface{} `json:"config"`
 }
 
