@@ -24,5 +24,16 @@ func newStaticFileHandler() http.Handler {
 
 	// 静态文件直接在可执行文件目录下
 	// 修改静态文件无需重新编译，直接替换即可
-	return http.FileServer(http.Dir(execPath))
+	fileServer := http.FileServer(http.Dir(execPath))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// JS/CSS/HTML 文件禁用缓存，确保更新即时生效
+		path := r.URL.Path
+		if len(path) > 3 && (path[len(path)-3:] == ".js" || path[len(path)-4:] == ".css" || path[len(path)-5:] == ".html") {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
