@@ -506,13 +506,10 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 	case <-ctx.Done():
 		// 上下文超时或取消
 		log.Printf("[ask_user] context cancelled: hitl_id=%s, err=%v", hitlID, ctx.Err())
-		// 清理 HITL 请求
-		t.hitlMgr.SubmitResponse(hitlID, HITLResponse{
-			HitlID:    hitlID,
-			Action:    "cancel",
-			Timestamp: time.Now(),
-		})
-		return tools.NewToolResult(fmt.Sprintf("Request cancelled due to context timeout: %v", ctx.Err()))
+		// 注意：不清理 HITL 请求，让用户仍可响应
+		// agent 会话超时/取消不应阻止用户在前端提交响应
+		// pending entry 会被超时机制或下次 SubmitResponse 自动清理
+		return tools.NewToolResult(fmt.Sprintf("Request cancelled due to context timeout: %v. HITL request %s is still pending for user response.", ctx.Err(), hitlID))
 	}
 }
 

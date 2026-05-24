@@ -101,15 +101,26 @@ func (m *HITLManager) RegisterRequest(req HITLRequest) <-chan HITLResponse {
 	m.pending[req.ID] = entry
 	m.sessions[req.SessionID] = append(m.sessions[req.SessionID], req.ID)
 
-	// 超时自动取消
+	// 超时自动通知（仅发 channel 信号，不删除 pending entry）
+	// 这样 agent 侧的 <-respCh 会收到 timeout，但用户仍可在前端响应
 	if req.TimeoutSeconds > 0 {
 		go func() {
 			time.Sleep(time.Duration(req.TimeoutSeconds) * time.Second)
-			m.SubmitResponse(req.ID, HITLResponse{
+			m.mu.RLock()
+			entry, exists := m.pending[req.ID]
+			m.mu.RUnlock()
+			if !exists {
+				return // 已被用户响应移除
+			}
+			// 非阻塞发送超时信号给等待的 goroutine
+			select {
+			case entry.Response <- HITLResponse{
 				HitlID:    req.ID,
 				Action:    "timeout",
 				Timestamp: time.Now(),
-			})
+			}:
+			default:
+			}
 		}()
 	}
 
