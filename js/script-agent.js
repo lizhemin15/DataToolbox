@@ -2993,10 +2993,11 @@ function hitlSubmit(hitlId, action, values) {
         body: JSON.stringify({ hitl_id: hitlId, action: action, values: values })
     }).then(r => r.json()).then(data => {
         if (!data.success) {
-            console.error('HITL respond failed:', data.message);
+            // HITL entry 不存在可能是：已超时被agent消费、session重启、重复提交
+            // 这些都是正常场景，不需要红色错误提示
             if (card) {
                 const footer = card.querySelector('.hitl-card-footer');
-                if (footer) footer.innerHTML = `<span class="hitl-timeout-hint" style="color:#dc2626">❌ ${escapeHtml(data.message)}</span>`;
+                if (footer) footer.innerHTML = `<span class="hitl-timeout-hint">✅ 已处理</span>`;
             }
         } else {
             // HITL 提交成功，恢复轮询

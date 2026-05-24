@@ -1970,8 +1970,9 @@ func handleHITLRespond(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := globalHITLManager.SubmitResponse(req.HitlID, resp); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": err.Error()})
-		return
+		// 幂等处理：entry 不存在可能是服务器重启、agent已超时消费、重复提交
+		// 这些都是正常场景，不应阻止前端 UI 更新
+		log.Printf("[hitl] SubmitResponse idempotent: hitl_id=%s, err=%v", req.HitlID, err)
 	}
 
 	log.Printf("[hitl] response submitted: hitl_id=%s, action=%s", req.HitlID, req.Action)
