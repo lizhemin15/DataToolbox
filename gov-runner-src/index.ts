@@ -15,12 +15,14 @@ const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8080';
 class BufferFile implements FileLike {
   name: string;
   size: number;
+  content: string; // 文本内容（用于文本输入模式的虚拟文件）
   private buffer: Buffer;
 
-  constructor(name: string, buffer: Buffer) {
+  constructor(name: string, buffer: Buffer, content?: string) {
     this.name = name;
     this.size = buffer.length;
     this.buffer = buffer;
+    this.content = content || buffer.toString('utf-8');
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {

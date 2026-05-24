@@ -200,6 +200,7 @@ export interface GovContext {
 export interface FileLike {
   name: string;
   size: number;
+  content?: string; // 文本内容（用于文本输入模式的虚拟文件）
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;
 }
@@ -212,6 +213,8 @@ export interface GovOutputFile {
 export interface GovHelper {
   log(msg: string): void;
   showTable(data: any[]): void;
+  table: (data: any[]) => void;
+  getDefaultFont(): { name: string; size: number };
   getDbType(): string;
   getDatabases(): Array<{ id: string; name: string; type: string }>;
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
@@ -222,7 +225,7 @@ export interface GovHelper {
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
-  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
+  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont?: { name: string; size: number } | null): Promise<void>;
   writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
   fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
   writeCSV(filename: string, data: any[][]): void;
@@ -232,9 +235,12 @@ export interface GovHelper {
   parseWordStructure(file: FileLike, options?: { maxTextLength?: number }): Promise<{
     title: string;
     sections: Array<{ level: number; title: string; paragraphs: string[] }>;
+    sectionsFlat: Array<{ level: number; title: string; paragraphs: string[] }>;
     tables: any[];
     rawText: string;
   }>;
+  treeToJSON(nodes: any[], options?: { baseIndent?: number; paragraphsKey?: string }): any[];
+  countTree(nodes: any[]): { total: number; maxDepth: number };
 }
 
 /**
@@ -248,7 +254,7 @@ export function createGovHelper(
   const { apiBase, token, databaseId, dbType, databases } = ctx;
 
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
-    const resp = await fetch(`${apiBase}/api/data-ontology/governance/execute-sql`, {
+    const resp = await fetch(`${apiBase}/api/v1/gov/execute-sql`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`, 
@@ -287,12 +293,16 @@ export function createGovHelper(
     showTable,
     table: showTable,
 
+    getDefaultFont() {
+      return { name: '仿宋_GB2312', size: 16 };
+    },
+
     getDbType() {
       return dbType;
     },
 
     getDatabases() {
-      return databases || [];
+      return (databases || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type }));
     },
 
     async readExcel(file: FileLike): Promise<XLSX.WorkBook> {
@@ -411,7 +421,7 @@ export function createGovHelper(
     },
 
     async callAI(prompt: string): Promise<string> {
-      const resp = await fetch(`${apiBase}/api/data-ontology/ai/completion`, {
+      const resp = await fetch(`${apiBase}/api/v1/agent/completion`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`, 
@@ -424,7 +434,8 @@ export function createGovHelper(
       return data.content || '';
     },
 
-    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string) {
+    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont: { name: string; size: number } | null = null) {
+      const effectiveDefaultFont = defaultFont || { name: '仿宋_GB2312', size: 16 };
       if (!templateFile) throw new Error('未提供模板文件');
       const buf = Buffer.from(await templateFile.arrayBuffer());
       const zip = new PizZip(buf);
@@ -791,6 +802,31 @@ export function createGovHelper(
       return { title, sections: tree, sectionsFlat: sections, tables, rawText };
     },
 
+    treeToJSON(nodes: any[], options: { baseIndent?: number; paragraphsKey?: string } = {}): any[] {
+      const baseIndent = options.baseIndent || 0;
+      const paragraphsKey = options.paragraphsKey || 'paragraphs';
+
+      const convert = (nodeList: any[], parentLevel: number = 0): any[] => {
+        return nodeList.map((node: any) => {
+          const indent = '  '.repeat(baseIndent + Math.max(0, node.level - 1));
+          const paragraphs = (node[paragraphsKey] || []).map((p: any) => {
+            return { paragraph: typeof p === 'string' ? p : (p.paragraph || JSON.stringify(p)) };
+          });
+          return {
+            level: node.level,
+            title: node.title,
+            indent: indent,
+            paragraphs: paragraphs,
+            children: node.children && node.children.length > 0
+              ? convert(node.children, node.level)
+              : []
+          };
+        });
+      };
+
+      return convert(nodes);
+    },
+
     /**
      * 统计树形结构信息
      * @param nodes - 树形节点数组
@@ -845,6 +881,7 @@ export async function runUserCode(
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
     const fn = new AsyncFunction(
       'gov',
+      'currentGovTask',
       'INPUT_FILE',
       'INPUT_TEXT',
       'XLSX',
@@ -853,12 +890,12 @@ export async function runUserCode(
       'PizZip',
       'Docxtemplater',
       'INPUT_FILES',
-      'currentGovTask',
       code
     );
 
     const result = fn(
       gov,
+      options.currentGovTask || null,
       inputFile,
       options.inputText || '',
       XLSX,
@@ -866,8 +903,7 @@ export async function runUserCode(
       mammoth,
       PizZip,
       Docxtemplater,
-      inputFiles,
-      options.currentGovTask || null
+      inputFiles
     );
 
     // 显式等待用户代码返回的 Promise（包括 async function main() 调用）
