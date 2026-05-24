@@ -2798,7 +2798,10 @@ function renderHITLCard(evt) {
             setTimeout(() => {
                 const doc = iframe.contentDocument || iframe.contentWindow.document;
                 doc.open();
-                doc.write(evt.preview_html);
+                // 注入 _appBaseURL，因为 about:blank iframe 的 location.origin 是 "null"
+                const baseURL = window.location.origin;
+                const baseInject = `<script>window._appBaseURL="${baseURL}";window._appToken=localStorage.getItem('dataOntologyToken')||'';<\/script>`;
+                doc.write(baseInject + evt.preview_html);
                 doc.close();
             }, 100);
         }
@@ -2925,8 +2928,10 @@ function hitlRefreshPreview(hitlId) {
         const iframe = card.querySelector('.hitl-preview-iframe');
         if (iframe && data.preview_html) {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
+            const baseURL = window.location.origin;
+            const baseInject = `<script>window._appBaseURL="${baseURL}";window._appToken=localStorage.getItem('dataOntologyToken')||'';<\/script>`;
             doc.open();
-            doc.write(data.preview_html);
+            doc.write(baseInject + data.preview_html);
             doc.close();
         }
         // 更新 config_fields 表单

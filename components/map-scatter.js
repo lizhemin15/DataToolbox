@@ -15,7 +15,8 @@ function renderMapScatter(config, containerId) {
     });
 
     // 离线瓦片优先，失败回退在线
-    L.tileLayer('/lib/leaflet-images/{z}/{x}/{y}.png', {
+    var _base = (window._appBaseURL && window._appBaseURL !== 'null') ? window._appBaseURL : (window.location.origin && window.location.origin !== 'null' ? window.location.origin : '');
+    L.tileLayer(_base + '/lib/leaflet-images/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 5,
         maxNativeZoom: 5

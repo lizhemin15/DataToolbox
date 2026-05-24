@@ -377,7 +377,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 (function() {
     const params = new URLSearchParams(window.location.search);
     window._appToken = params.get('token') || localStorage.getItem('dataOntologyToken') || '';
-    window._appBaseURL = window.location.origin || (window.location.protocol + '//' + window.location.host);
+    // 不覆盖前端 doc.write 注入的 _appBaseURL（about:blank iframe 里 location.origin 是 "null"）
+    if (!window._appBaseURL || window._appBaseURL === 'null') {
+        window._appBaseURL = (window.location.origin && window.location.origin !== 'null') ? window.location.origin : (window.location.protocol + '//' + window.location.host);
+    }
     window.fetchWithAuth = function(url, options) {
         options = options || {};
         options.headers = options.headers || {};
