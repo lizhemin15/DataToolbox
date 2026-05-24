@@ -16,6 +16,7 @@ function renderMapScatter(config, containerId) {
 
     // 离线瓦片优先，失败回退在线
     var _base = (window._appBaseURL && window._appBaseURL !== 'null') ? window._appBaseURL : (window.location.origin && window.location.origin !== 'null' ? window.location.origin : '');
+    console.log('[map-scatter] _appBaseURL:', window._appBaseURL, '_base:', _base, 'location.origin:', window.location.origin);
     L.tileLayer(_base + '/lib/leaflet-images/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
         maxZoom: 5,
