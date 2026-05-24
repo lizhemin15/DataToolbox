@@ -2112,8 +2112,9 @@ async function resumeActiveAgentRuns() {
 
         const activeRuns = data.data.runs;
         for (const run of activeRuns) {
+            if (!run.id) continue; // 防御性检查
             // 为每个活跃 run 创建卡片并开始轮询
-            await resumeAgentRun(run.run_id, run.last_seq || 0);
+            await resumeAgentRun(run.id, run.last_seq || 0);
         }
     } catch (e) {
         console.error('Resume active runs error:', e);
@@ -2122,6 +2123,7 @@ async function resumeActiveAgentRuns() {
 
 // 恢复单个 agent run 的轮询
 async function resumeAgentRun(runId, startSeq) {
+    if (!runId || runId === 'undefined') return; // 防御性检查
     const messagesEl = document.getElementById('aiChatMessages');
     messagesEl.classList.add('cluster-mode');
 
