@@ -2704,28 +2704,65 @@ function renderHITLCard(evt) {
             </div>`;
         }
 
-        // 配置表单（可交互修改组件配置）
+        // 配置表单（按组件分组，可交互修改组件配置）
         if (configFields.length > 0) {
             html += '<div class="hitl-config-section"><div class="hitl-config-title">⚙️ 组件配置</div><div class="hitl-config-fields">';
-            for (const field of configFields) {
-                const required = field.required ? ' <span class="hitl-required">*</span>' : '';
-                html += `<div class="hitl-field">
-                    <label class="hitl-field-label">${escapeHtml(field.label)}${required}</label>`;
-                if (field.type === 'select' && field.options && field.options.length > 0) {
-                    html += `<select class="hitl-field-select" data-field-id="${escapeHtml(field.id)}" onchange="hitlUpdatePreview('${hitlId}')">`;
-                    for (const fo of field.options) {
-                        const selected = field.default_value && fo.id === field.default_value ? ' selected' : '';
-                        html += `<option value="${escapeHtml(fo.id)}"${selected}>${escapeHtml(fo.label)}</option>`;
+            // 检测嵌套格式：[{component_id, component_name, fields: [...]}]
+            const isNested = configFields[0] && configFields[0].component_id && configFields[0].fields;
+            if (isNested) {
+                configFields.forEach((cf, compIdx) => {
+                    if (!cf.fields || cf.fields.length === 0) return;
+                    html += `<div style="margin-bottom:12px;padding:8px;background:#f8fafc;border-radius:6px;">`;
+                    html += `<div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:600;">${escapeHtml(cf.component_name || cf.component_id)}</div>`;
+                    cf.fields.forEach(field => {
+                        const fieldId = `comp${compIdx}_${field.id}`;
+                        const required = field.required ? ' <span class="hitl-required">*</span>' : '';
+                        html += `<div style="margin-bottom:4px;"><label style="font-size:11px;color:#9ca3af;">${escapeHtml(field.label)}${required}</label>`;
+                        if (field.type === 'select' && field.options && field.options.length > 0) {
+                            html += `<select class="hitl-field-select" data-field-id="${escapeHtml(fieldId)}" onchange="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+                            for (const fo of field.options) {
+                                const foVal = typeof fo === 'object' ? fo.id : fo;
+                                const foLabel = typeof fo === 'object' ? fo.label : fo;
+                                const selected = field.default_value && foVal === field.default_value ? ' selected' : '';
+                                html += `<option value="${escapeHtml(String(foVal))}"${selected}>${escapeHtml(String(foLabel))}</option>`;
+                            }
+                            html += '</select>';
+                        } else if (field.type === 'color' || field.type === 'color_list') {
+                            html += `<input class="hitl-field-color" type="color" data-field-id="${escapeHtml(fieldId)}" value="${escapeHtml(field.default_value || '#4F46E5')}" onchange="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+                        } else if (field.type === 'number') {
+                            html += `<input class="hitl-field-input" type="number" data-field-id="${escapeHtml(fieldId)}" value="${escapeHtml(String(field.default_value || ''))}" min="${field.min ?? ''}" max="${field.max ?? ''}" oninput="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+                        } else if (field.type === 'boolean') {
+                            html += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input class="hitl-field-input" type="checkbox" data-field-id="${escapeHtml(fieldId)}" ${field.default_value ? 'checked' : ''} onchange="hitlUpdatePreview('${hitlId}')"> ${escapeHtml(field.label)}</label>`;
+                        } else if (field.type === 'textarea') {
+                            html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(fieldId)}" placeholder="${escapeHtml(field.placeholder || '')}" oninput="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">${escapeHtml(String(field.default_value || ''))}</textarea>`;
+                        } else {
+                            html += `<input class="hitl-field-input" type="text" data-field-id="${escapeHtml(fieldId)}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(String(field.default_value || ''))}" oninput="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
+                        }
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                });
+            } else {
+                // 兼容平铺格式
+                for (const field of configFields) {
+                    const required = field.required ? ' <span class="hitl-required">*</span>' : '';
+                    html += `<div class="hitl-field"><label class="hitl-field-label">${escapeHtml(field.label)}${required}</label>`;
+                    if (field.type === 'select' && field.options && field.options.length > 0) {
+                        html += `<select class="hitl-field-select" data-field-id="${escapeHtml(field.id)}" onchange="hitlUpdatePreview('${hitlId}')">`;
+                        for (const fo of field.options) {
+                            const selected = field.default_value && fo.id === field.default_value ? ' selected' : '';
+                            html += `<option value="${escapeHtml(fo.id)}"${selected}>${escapeHtml(fo.label)}</option>`;
+                        }
+                        html += '</select>';
+                    } else if (field.type === 'color') {
+                        html += `<input class="hitl-field-color" type="color" data-field-id="${escapeHtml(field.id)}" value="${escapeHtml(field.default_value || '#4F46E5')}" onchange="hitlUpdatePreview('${hitlId}')">`;
+                    } else if (field.type === 'textarea') {
+                        html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" oninput="hitlUpdatePreview('${hitlId}')">${escapeHtml(field.default_value || '')}</textarea>`;
+                    } else {
+                        html += `<input class="hitl-field-input" type="${field.type === 'number' ? 'number' : 'text'}" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(field.default_value || '')}" oninput="hitlUpdatePreview('${hitlId}')">`;
                     }
-                    html += '</select>';
-                } else if (field.type === 'color') {
-                    html += `<input class="hitl-field-color" type="color" data-field-id="${escapeHtml(field.id)}" value="${escapeHtml(field.default_value || '#4F46E5')}" onchange="hitlUpdatePreview('${hitlId}')">`;
-                } else if (field.type === 'textarea') {
-                    html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" oninput="hitlUpdatePreview('${hitlId}')">${escapeHtml(field.default_value || '')}</textarea>`;
-                } else {
-                    html += `<input class="hitl-field-input" type="${field.type === 'number' ? 'number' : 'text'}" data-field-id="${escapeHtml(field.id)}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(field.default_value || '')}" oninput="hitlUpdatePreview('${hitlId}')">`;
+                    html += '</div>';
                 }
-                html += '</div>';
             }
             html += '</div></div>'; // hitl-config-fields + hitl-config-section
         }
@@ -2745,6 +2782,11 @@ function renderHITLCard(evt) {
     </div>`;
 
     card.innerHTML = html;
+
+    // 保存 blueprint 数据，供 hitlRefreshPreview 使用
+    if (interactionType === 'preview' && evt.blueprint) {
+        card.dataset.blueprint = JSON.stringify(evt.blueprint);
+    }
 
     // 如果是 preview 类型，注入 iframe 内容
     if (interactionType === 'preview' && evt.preview_html) {
@@ -2796,22 +2838,30 @@ function hitlSubmitMultiSelect(hitlId) {
 function hitlSubmitPreview(hitlId) {
     const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
     if (!card) return;
+    const values = collectHITLConfigValues(card);
+    hitlSubmit(hitlId, 'submit', values);
+}
+
+// 收集 HITL 配置表单值（处理 checkbox 的 checked 状态）
+function collectHITLConfigValues(card) {
     const values = {};
     card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
-        values[el.dataset.fieldId] = el.value;
+        if (el.type === 'checkbox') {
+            values[el.dataset.fieldId] = el.checked;
+        } else if (el.type === 'number') {
+            values[el.dataset.fieldId] = el.value !== '' ? Number(el.value) : '';
+        } else {
+            values[el.dataset.fieldId] = el.value;
+        }
     });
-    hitlSubmit(hitlId, 'submit', values);
+    return values;
 }
 
 // 预览模式：配置变更 → 实时更新 iframe 预览
 function hitlUpdatePreview(hitlId) {
     const card = document.querySelector(`.hitl-card[data-hitl-id="${hitlId}"]`);
     if (!card) return;
-    // 收集当前配置值
-    const values = {};
-    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
-        values[el.dataset.fieldId] = el.value;
-    });
+    const values = collectHITLConfigValues(card);
     // 通过 postMessage 通知 iframe 内的应用更新配置
     const iframe = card.querySelector('.hitl-preview-iframe');
     if (iframe && iframe.contentWindow) {
@@ -2825,10 +2875,7 @@ function hitlRefreshPreview(hitlId) {
     if (!card) return;
 
     // 收集当前配置值
-    const values = {};
-    card.querySelectorAll('.hitl-field-input, .hitl-field-select, .hitl-field-textarea, .hitl-field-color').forEach(el => {
-        values[el.dataset.fieldId] = el.value;
-    });
+    const values = collectHITLConfigValues(card);
 
     // 构建请求体：蓝图 + 修改后的配置
     let reqBody = values;
@@ -2836,16 +2883,24 @@ function hitlRefreshPreview(hitlId) {
         try {
             const blueprint = JSON.parse(card.dataset.blueprint);
             // 将配置值映射回蓝图
-            if (values.title) blueprint.title = values.title;
-            if (values.primary_color) blueprint.primary_color = values.primary_color;
-            // 映射组件配置（comp0_xxx → 第0个组件的 xxx 字段）
-            for (let i = 0; i < blueprint.components.length; i++) {
-                if (!blueprint.components[i].config) blueprint.components[i].config = {};
-                const prefix = `comp${i}_`;
-                for (const key of Object.keys(values)) {
-                    if (key.startsWith(prefix)) {
-                        const fieldKey = key.slice(prefix.length);
-                        blueprint.components[i].config[fieldKey] = values[key];
+            // fieldId 格式: compN_fieldName, N 是 config_fields 数组索引
+            // configFields[0] = _global (全局配置)
+            // configFields[1..N] = 组件配置, 对应 blueprint.components[0..N-1]
+            for (const key of Object.keys(values)) {
+                if (!key.startsWith('comp')) continue;
+                const parts = key.split('_');
+                const compIdx = parseInt(parts[0].replace('comp', ''), 10);
+                const fieldName = parts.slice(1).join('_');
+                if (compIdx === 0) {
+                    // 全局配置: comp0_title, comp0_primary_color
+                    if (fieldName === 'title') blueprint.title = values[key];
+                    else if (fieldName === 'primary_color') blueprint.primary_color = values[key];
+                } else {
+                    // 组件配置: comp1_xxx → blueprint.components[0].config.xxx
+                    const bpCompIdx = compIdx - 1;
+                    if (bpCompIdx < blueprint.components.length) {
+                        if (!blueprint.components[bpCompIdx].config) blueprint.components[bpCompIdx].config = {};
+                        blueprint.components[bpCompIdx].config[fieldName] = values[key];
                     }
                 }
             }

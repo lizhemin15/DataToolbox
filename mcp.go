@@ -761,28 +761,30 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 		"message":           "预览已生成。接下来请调用 ask_user 工具（interaction_type=\"preview\"），将 preview_html 和 config_fields 传给用户，让用户在预览中交互修改配置",
 	}
 
-	// 构建 config_fields — 从每个组件的 ConfigSchema 提取可交互配置项
+	// 构建 config_fields — 按组件分组的嵌套格式
+	// 格式: [{component_id, component_name, fields: [{id, label, type, default_value, ...}]}]
 	configFields := []map[string]interface{}{}
-	// 全局配置
-	configFields = append(configFields,
-		map[string]interface{}{
-			"id": "title", "label": "应用标题", "type": "text",
-			"default_value": in.Title, "required": false,
-		},
-		map[string]interface{}{
-			"id": "primary_color", "label": "主色调", "type": "color",
-			"default_value": primaryColor,
-		},
-	)
+
+	// 全局配置作为一个特殊组件
+	globalFields := []map[string]interface{}{
+		{"id": "title", "label": "应用标题", "type": "text", "default_value": in.Title, "required": false},
+		{"id": "primary_color", "label": "主色调", "type": "color", "default_value": primaryColor},
+	}
+	configFields = append(configFields, map[string]interface{}{
+		"component_id":   "_global",
+		"component_name": "📐 全局配置",
+		"fields":         globalFields,
+	})
+
 	// 每个组件的配置
-	for i, c := range in.Components {
+	for _, c := range in.Components {
 		def, _ := components.GetComponentDef(c.ComponentID)
 		if def == nil {
 			continue
 		}
-		prefix := fmt.Sprintf("comp%d_", i)
+		compFields := []map[string]interface{}{}
 		for key, schema := range def.ConfigSchema {
-			if schema.Type == "list" {
+			if schema.Type == "list" || schema.Type == "string_list" {
 				// list 类型太复杂，跳过
 				continue
 			}
@@ -795,15 +797,22 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 			case "select":
 				fieldType = "select"
 			case "boolean":
-				fieldType = "select"
+				fieldType = "boolean"
 			case "api_url":
 				fieldType = "text"
 			}
 			field := map[string]interface{}{
-				"id":            prefix + key,
-				"label":         fmt.Sprintf("%s — %s", def.Name, schema.Label),
+				"id":            key,
+				"label":         schema.Label,
 				"type":          fieldType,
 				"default_value": c.Config[key],
+				"required":      schema.Required,
+			}
+			if schema.Min != nil {
+				field["min"] = *schema.Min
+			}
+			if schema.Max != nil {
+				field["max"] = *schema.Max
 			}
 			if schema.Type == "select" && len(schema.Options) > 0 {
 				opts := []map[string]string{}
@@ -812,23 +821,16 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 				}
 				field["options"] = opts
 			}
-			if schema.Type == "boolean" {
-				field["options"] = []map[string]string{
-					{"id": "true", "label": "是"},
-					{"id": "false", "label": "否"},
-				}
-				bv := c.Config[key]
-				if bv != nil {
-					field["default_value"] = fmt.Sprintf("%v", bv)
-				} else {
-					field["default_value"] = "false"
-				}
-			}
 			if schema.Hint != "" {
 				field["placeholder"] = schema.Hint
 			}
-			configFields = append(configFields, field)
+			compFields = append(compFields, field)
 		}
+		configFields = append(configFields, map[string]interface{}{
+			"component_id":   c.ComponentID,
+			"component_name": fmt.Sprintf("%s %s", def.Icon, def.Name),
+			"fields":         compFields,
+		})
 	}
 	result["config_fields"] = configFields
 

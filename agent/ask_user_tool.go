@@ -384,34 +384,14 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 		blueprint = bp
 	}
 
-	// 解析 config_fields（preview 类型专用，与 fields 格式相同但支持 color 类型）
-	var configFields []HITLField
+	// 解析 config_fields（preview 类型专用）
+	// 支持两种格式：
+	//   1) 平铺格式: [{id, label, type, ...}]
+	//   2) 嵌套格式: [{component_id, component_name, fields: [{id, label, type, ...}]}]
+	// 直接原样透传到前端，不做类型转换，避免嵌套结构丢失
+	var configFieldsRaw []any
 	if rawConfigFields, ok := args["config_fields"].([]any); ok {
-		for _, raw := range rawConfigFields {
-			if fieldMap, ok := raw.(map[string]any); ok {
-				field := HITLField{
-					ID:           strVal(fieldMap["id"]),
-					Label:        strVal(fieldMap["label"]),
-					Type:         strVal(fieldMap["type"]),
-					Placeholder:  strVal(fieldMap["placeholder"]),
-					Required:     boolVal(fieldMap["required"]),
-					DefaultValue: strVal(fieldMap["default_value"]),
-				}
-				if rawFieldOpts, ok := fieldMap["options"].([]any); ok {
-					for _, rawFO := range rawFieldOpts {
-						if foMap, ok := rawFO.(map[string]any); ok {
-							field.Options = append(field.Options, HITLOption{
-								ID:    strVal(foMap["id"]),
-								Label: strVal(foMap["label"]),
-							})
-						}
-					}
-				}
-				if field.ID != "" && field.Label != "" {
-					configFields = append(configFields, field)
-				}
-			}
-		}
+		configFieldsRaw = rawConfigFields
 	}
 
 	// 2. 从 ctx 获取 sessionID
@@ -466,8 +446,8 @@ func (t *AskUserTool) Execute(ctx context.Context, args map[string]any) *tools.T
 			if previewHeight != "" {
 				evtData["preview_height"] = previewHeight
 			}
-			if len(configFields) > 0 {
-				evtData["config_fields"] = configFields
+			if len(configFieldsRaw) > 0 {
+				evtData["config_fields"] = configFieldsRaw
 			}
 			if blueprint != nil {
 				evtData["blueprint"] = blueprint
