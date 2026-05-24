@@ -2796,14 +2796,25 @@ function renderHITLCard(evt) {
             const baseURL = window.location.origin;
             const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}<\/script>`;
             
+            // 安全写入 iframe 的辅助函数
+            function writeIframeContent(html) {
+                const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                if (!doc) {
+                    // iframe 还没准备好，等 load 事件再写入
+                    iframe.addEventListener('load', () => {
+                        const d = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                        if (d) { d.open(); d.write(baseInject + html); d.close(); }
+                    }, { once: true });
+                    return;
+                }
+                doc.open();
+                doc.write(baseInject + html);
+                doc.close();
+            }
+            
             if (evt.preview_html) {
                 // 直接写入已有的 preview_html
-                setTimeout(() => {
-                    const doc = iframe.contentDocument || iframe.contentWindow.document;
-                    doc.open();
-                    doc.write(baseInject + evt.preview_html);
-                    doc.close();
-                }, 100);
+                setTimeout(() => writeIframeContent(evt.preview_html), 100);
             } else if (evt.blueprint) {
                 // 没有 preview_html 但有 blueprint → 从服务器生成
                 iframe.style.background = '#f9fafb';
@@ -2814,10 +2825,7 @@ function renderHITLCard(evt) {
                     body: JSON.stringify({ blueprint: evt.blueprint })
                 }).then(r => r.json()).then(data => {
                     if (data.preview_html) {
-                        const doc = iframe.contentDocument || iframe.contentWindow.document;
-                        doc.open();
-                        doc.write(baseInject + data.preview_html);
-                        doc.close();
+                        writeIframeContent(data.preview_html);
                     }
                     iframe.style.background = '';
                 }).catch(err => {
