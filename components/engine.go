@@ -130,6 +130,10 @@ func GenerateConfigFormJSON(componentID string, currentConfig map[string]interfa
 
 	fields := []map[string]interface{}{}
 	for key, schema := range def.ConfigSchema {
+		if schema.Type == "list" || schema.Type == "string_list" {
+			// 复杂列表类型跳过，不适合表单编辑
+			continue
+		}
 		field := map[string]interface{}{
 			"id":           key,
 			"label":        schema.Label,
@@ -143,6 +147,14 @@ func GenerateConfigFormJSON(componentID string, currentConfig map[string]interfa
 			field["default_value"] = val
 		} else if schema.Default != nil {
 			field["default_value"] = schema.Default
+		}
+
+		// number 类型的范围限制
+		if schema.Min != nil {
+			field["min"] = *schema.Min
+		}
+		if schema.Max != nil {
+			field["max"] = *schema.Max
 		}
 
 		// select 类型的选项
@@ -163,28 +175,29 @@ func GenerateConfigFormJSON(componentID string, currentConfig map[string]interfa
 }
 
 // mapFieldType 将组件 schema 类型映射为 HITL form 字段类型
+// 前端支持: text, number, color, select, boolean, checkbox
 func mapFieldType(t string) string {
 	switch t {
 	case "string":
-		return "input"
+		return "text"
 	case "number":
-		return "input"
+		return "number"
 	case "boolean":
-		return "single_select"
+		return "boolean"
 	case "select":
-		return "single_select"
+		return "select"
 	case "color":
-		return "input"
+		return "color"
 	case "color_list":
-		return "input"
+		return "text"
 	case "string_list":
-		return "input"
+		return "text"
 	case "api_url":
-		return "input"
+		return "text"
 	case "list":
-		return "input" // 复杂列表用 JSON 输入
+		return "text" // 复杂列表用 JSON 输入
 	default:
-		return "input"
+		return "text"
 	}
 }
 
@@ -219,6 +232,21 @@ func AssembleAppPage(blueprint AppBlueprint, primaryColor string) string {
 		primaryColor, lightenColor(primaryColor), darkenColor(primaryColor))
 	cssVars += "  --bg: #ffffff; --bg-secondary: #f7fafc; --text: #1a202c; --text-secondary: #4a5568;\n"
 	cssVars += "  --border: #e2e8f0; --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.1);\n}\n"
+
+	// 收集 HITL postMessage 用的组件配置/容器ID/渲染函数数据
+	configSnapshots := []map[string]interface{}{}
+	containerIDList := []string{}
+	renderFuncList := []string{}
+	for _, inst := range blueprint.Components {
+		configSnapshots = append(configSnapshots, inst.Config)
+	}
+	for i, inst := range blueprint.Components {
+		containerIDList = append(containerIDList, fmt.Sprintf("comp-%d", i))
+		renderFuncList = append(renderFuncList, getRenderFuncName(inst.GetID()))
+	}
+	configsJSON, _ := json.Marshal(configSnapshots)
+	containerIDsJSON, _ := json.Marshal(containerIDList)
+	renderFuncsJSON, _ := json.Marshal(renderFuncList)
 
 	// 生成组件 JS 初始化代码
 	componentInits := ""
@@ -385,6 +413,49 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 })();
 </script>
 <script>
+// HITL 预览配置更新 — 监听 postMessage 重新渲染组件
+(function() {
+    var _compConfigs = %s;  // 原始组件配置快照
+    var _compIds = %s;      // 组件容器 ID 列表
+    var _renderFuncs = %s;  // 渲染函数名列表
+
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'updateConfig') {
+            var cfg = e.data.config || {};
+            // 更新标题
+            var h1 = document.querySelector('.app-header h1');
+            if (h1 && cfg.comp0_title) h1.textContent = cfg.comp0_title;
+            // 更新主色调
+            if (cfg.comp0_primary_color) {
+                document.documentElement.style.setProperty('--primary', cfg.comp0_primary_color);
+            }
+            // 更新各组件配置
+            for (var i = 0; i < _compConfigs.length; i++) {
+                var compIdx = i + 1;  // comp0 是全局，comp1 开始是组件
+                var changed = false;
+                var newCfg = Object.assign({}, _compConfigs[i]);
+                for (var key in cfg) {
+                    if (key.indexOf('comp' + compIdx + '_') === 0) {
+                        var fieldKey = key.slice(('comp' + compIdx + '_').length);
+                        newCfg[fieldKey] = cfg[key];
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    _compConfigs[i] = newCfg;
+                    var el = document.getElementById(_compIds[i]);
+                    var fn = window[_renderFuncs[i]];
+                    if (el && fn) {
+                        el.innerHTML = '';
+                        try { fn(newCfg, _compIds[i]); } catch(e) { console.error('Re-render error:', e); }
+                    }
+                }
+            }
+        }
+    });
+})();
+</script>
+<script>
 // 组件渲染函数
 %s
 </script>
@@ -400,6 +471,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 		blueprint.Icon, blueprint.Title,
 		blueprint.Description,
 		componentHTML,
+		configsJSON, containerIDsJSON, renderFuncsJSON,
 		componentJSCode,
 		componentInits)
 
