@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/YOUR_USERNAME/DataToolbox/components"
 )
 
 // ============================================================
@@ -66,6 +68,7 @@ func handleCreateApp(w http.ResponseWriter, r *http.Request, username string) {
 		Config      map[string]interface{} `json:"config"`
 		Tags        []string               `json:"tags"`
 		IsPublic    bool                   `json:"is_public"`
+		Components  []components.ComponentInstance `json:"components"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -112,16 +115,32 @@ func handleCreateApp(w http.ResponseWriter, r *http.Request, username string) {
 		configJSON = toJSON(req.Config)
 	}
 
+	// 如果有 components，调用 AssembleAppPage 生成 HTML
+	appTitle := req.Title
+	if appTitle == "" {
+		appTitle = req.Name
+	}
+	appHTML := req.HTML
+	if len(req.Components) > 0 && appHTML == "" {
+		blueprint := components.AppBlueprint{
+			Title:       appTitle,
+			Slug:        req.Slug,
+			Description: req.Description,
+			Components:  req.Components,
+		}
+		appHTML = components.AssembleAppPage(blueprint, "")
+	}
+
 	// 创建应用对象
 	app := &App{
 		ID:          appID,
 		Owner:       username,
 		Name:        req.Name,
 		Slug:        req.Slug,
-		Title:       req.Title,
+		Title:       appTitle,
 		Description: req.Description,
 		Icon:        req.Icon,
-		HTML:        req.HTML,
+		HTML:        appHTML,
 		CSS:         req.CSS,
 		JS:          req.JS,
 		Files:       req.Files,
