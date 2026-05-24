@@ -2700,11 +2700,10 @@ function renderHITLCard(evt) {
         const previewHeight = evt.preview_height || '420px';
         const configFields = evt.config_fields || fields || [];
 
-        if (previewHtml) {
-            html += `<div class="hitl-preview-container">
-                <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;" sandbox="allow-scripts allow-same-origin"></iframe>
-            </div>`;
-        }
+        // 始终渲染 iframe 容器（即使 preview_html 暂时为空，后续可能异步加载）
+        html += `<div class="hitl-preview-container">
+            <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>`;
 
         // 配置表单（按组件分组，可交互修改组件配置）
         if (configFields.length > 0) {
@@ -2791,20 +2790,41 @@ function renderHITLCard(evt) {
     }
 
     // 如果是 preview 类型，注入 iframe 内容
-    if (interactionType === 'preview' && evt.preview_html) {
+    if (interactionType === 'preview') {
         const iframe = card.querySelector('.hitl-preview-iframe');
         if (iframe) {
-            // 延迟写入，等 iframe 加载完成
-            setTimeout(() => {
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                doc.open();
-                // 注入 _appBaseURL，因为 about:blank iframe 的 location.origin 是 "null"
-                // 使用 Object.defineProperty 防止旧 IIFE 覆盖
-                const baseURL = window.location.origin;
-                const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}<\/script>`;
-                doc.write(baseInject + evt.preview_html);
-                doc.close();
-            }, 100);
+            const baseURL = window.location.origin;
+            const baseInject = `<script>Object.defineProperty(window,'_appBaseURL',{value:"${baseURL}",writable:false});try{Object.defineProperty(window,'_appToken',{value:localStorage.getItem('dataOntologyToken')||'',writable:false});}catch(e){Object.defineProperty(window,'_appToken',{value:'',writable:false});}<\/script>`;
+            
+            if (evt.preview_html) {
+                // 直接写入已有的 preview_html
+                setTimeout(() => {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    doc.open();
+                    doc.write(baseInject + evt.preview_html);
+                    doc.close();
+                }, 100);
+            } else if (evt.blueprint) {
+                // 没有 preview_html 但有 blueprint → 从服务器生成
+                iframe.style.background = '#f9fafb';
+                const token = localStorage.getItem('dataOntologyToken') || '';
+                fetch('/api/v1/components/preview?format=json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ blueprint: evt.blueprint })
+                }).then(r => r.json()).then(data => {
+                    if (data.preview_html) {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        doc.open();
+                        doc.write(baseInject + data.preview_html);
+                        doc.close();
+                    }
+                    iframe.style.background = '';
+                }).catch(err => {
+                    console.error('Auto-generate preview from blueprint failed:', err);
+                    iframe.style.background = '#fee2e2';
+                });
+            }
         }
     }
 
