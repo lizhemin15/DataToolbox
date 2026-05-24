@@ -279,6 +279,7 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request, username string, ap
 		Config      map[string]interface{} `json:"config"`
 		Tags        []string               `json:"tags"`
 		IsPublic    *bool                  `json:"is_public"`
+		Components  []components.ComponentInstance `json:"components"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -343,6 +344,21 @@ func handleUpdateApp(w http.ResponseWriter, r *http.Request, username string, ap
 	}
 	if req.IsPublic != nil {
 		app.IsPublic = *req.IsPublic
+	}
+
+	// 如果传了 components，重新组装 HTML
+	if len(req.Components) > 0 && req.HTML == "" {
+		blueprint := components.AppBlueprint{
+			Title:       app.Title,
+			Slug:        app.Slug,
+			Description: app.Description,
+			Components:  req.Components,
+		}
+		app.HTML = components.AssembleAppPage(blueprint, "")
+		// 同时保存 components 到 config
+		if app.Config == "" {
+			app.Config = "{}"
+		}
 	}
 
 	app.UpdatedAt = time.Now()
