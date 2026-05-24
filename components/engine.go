@@ -373,13 +373,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   %s
 </div>
 <script>
-// 注入认证 token
+// 注入认证 token 和基础 URL
 (function() {
     const params = new URLSearchParams(window.location.search);
     window._appToken = params.get('token') || localStorage.getItem('dataOntologyToken') || '';
+    window._appBaseURL = window.location.origin || (window.location.protocol + '//' + window.location.host);
     window.fetchWithAuth = function(url, options) {
         options = options || {};
         options.headers = options.headers || {};
+        // 将相对路径转为绝对路径（doc.write 写入的 iframe base URL 是 about:blank）
+        if (url && typeof url === 'string' && url.startsWith('/') && window._appBaseURL) {
+            url = window._appBaseURL + url;
+        }
         if (window._appToken) {
             if (options.headers instanceof Headers) {
                 options.headers.set('Authorization', 'Bearer ' + window._appToken);
