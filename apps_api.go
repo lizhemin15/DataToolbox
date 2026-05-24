@@ -442,18 +442,17 @@ func handleAppPublic(w http.ResponseWriter, r *http.Request) {
 
 // renderAppPage 渲染应用页面 HTML
 func renderAppPage(app *App) string {
-	// 构建完整的 HTML 页面
-	// 将应用的 HTML、CSS、JS 嵌入到页面中
-
 	htmlContent := app.HTML
 	if htmlContent == "" {
 		htmlContent = `<div class="app-container"><h1>` + app.Title + `</h1><p>` + app.Description + `</p></div>`
 	}
 
-	// 清理 HTML 中的 <script> 标签（JS 应在 js 字段中）
-	htmlContent = regexp.MustCompile(`<script[^>]*>[\s\S]*?</script>`).ReplaceAllString(htmlContent, "")
-	htmlContent = regexp.MustCompile(`<script[^>]*/>`).ReplaceAllString(htmlContent, "")
+	// 组件化应用：HTML 是完整文档（由 AssembleAppPage 生成），直接输出
+	if strings.HasPrefix(strings.TrimSpace(htmlContent), "<!DOCTYPE") || strings.HasPrefix(strings.TrimSpace(htmlContent), "<html") {
+		return htmlContent
+	}
 
+	// AI 生成的 HTML：清理完整文档结构，保留 script（组件需要 JS）
 	// 清理 HTML 中的完整文档结构（<!DOCTYPE>, <html>, <head>, <body>）
 	htmlContent = regexp.MustCompile(`(?i)<!DOCTYPE[^>]*>`).ReplaceAllString(htmlContent, "")
 	htmlContent = regexp.MustCompile(`(?i)</?html[^>]*>`).ReplaceAllString(htmlContent, "")
