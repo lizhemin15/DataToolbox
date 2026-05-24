@@ -197,9 +197,15 @@ func newLoopbackMCPClient(apiKey string) *mcpClient {
 // 替换旧的手写 JSON-RPC 端点，使用 go-sdk 标准实现，兼容 PicoClaw 的 streamable-http transport。
 // 使用 Stateless + JSONResponse 模式：每个请求创建临时会话，返回 application/json 响应。
 
-// mcpOutput 是工具函数的输出类型
-type mcpOutput struct {
-	Result string `json:"result"`
+// mcpOutput 已废弃 — 改用 any + nil 避免 go-sdk 双层序列化
+// 旧: (*mcp.CallToolResult, any, error) → 新: (*mcp.CallToolResult, any, error)
+
+// mcpTextResult 创建包含纯文本内容的 CallToolResult
+// go-sdk AddTool 看到 out=nil 时不再序列化到 structuredContent
+func mcpTextResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+	}
 }
 
 // ─── 工具输入类型定义 ─────────────────────────────────────────────────────────
@@ -278,32 +284,16 @@ type previewAppIn struct {
 
 type createAppFromBlueprintIn struct {
 	Title           string                   `json:"title" jsonschema:"required,应用标题"`
-	Slug            string                   `json:"slug" jsonschema:"required,URL 标识"`
+	Slug            string                   `json:"slug" jsonschema:"required,URL 标识（如 sales-dashboard），只能含字母数字中划线"`
 	Description     string                   `json:"description,omitempty" jsonschema:"应用描述"`
-	Icon            string                   `json:"icon,omitempty" jsonschema:"图标 emoji"`
-	DesignDirection string                   `json:"design_direction,omitempty" jsonschema:"设计方向"`
-	PrimaryColor    string                   `json:"primary_color,omitempty" jsonschema:"主色调 HEX 值"`
+	Icon            string                   `json:"icon,omitempty" jsonschema:"图标 emoji（如 📊、🗺️）"`
+	DesignDirection string                   `json:"design_direction,omitempty" jsonschema:"设计方向：minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist"`
+	PrimaryColor    string                   `json:"primary_color,omitempty" jsonschema:"主色调 HEX（如 #4F46E5）"`
 	IsPublic        bool                     `json:"is_public,omitempty" jsonschema:"是否公开"`
-	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表"`
+	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表，每个含 component_id 和 config。可用组件ID：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)、data-table(数据表格)、filter-bar(筛选栏)、kpi-card(KPI卡片)、map-scatter(地图散点)、timeline(时间线)"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
-
-type createAppIn struct {
-	Title           string                 `json:"title" jsonschema:"required,应用显示标题"`
-	Slug            string                 `json:"slug" jsonschema:"required,URL 友好的唯一标识（如 my-app），只能包含字母、数字、中划线"`
-	Description     string                 `json:"description,omitempty" jsonschema:"应用功能描述"`
-	Icon            string                 `json:"icon,omitempty" jsonschema:"应用图标 emoji（如 🎨、📊、🚀）"`
-	DesignDirection string                 `json:"design_direction,omitempty" jsonschema:"设计方向，可选值：minimal(极简留白)、corporate(商务专业)、vibrant(活力多彩)、elegant(优雅精致)、playful(趣味卡通)、dark(暗色科技)、nature(自然有机)、brutalist(粗野主义)"`
-	PrimaryColor    string                 `json:"primary_color,omitempty" jsonschema:"主色调 HEX 值（如 #4F46E5），决定品牌色和强调色"`
-	Style           string                 `json:"style,omitempty" jsonschema:"视觉风格描述，用关键词指定（如：glassmorphism, neumorphism, gradient-heavy, flat-design, isometric）"`
-	Visuals         string                 `json:"visuals,omitempty" jsonschema:"视觉资产规划：图标库（lucide/heroicons/feather）、图片风格（illustration/photo/3d）、动效级别（subtle/moderate/expressive）"`
-	HTML            string                 `json:"html,omitempty" jsonschema:"HTML 代码，应用的页面结构"`
-	CSS             string                 `json:"css,omitempty" jsonschema:"CSS 代码，应用的样式"`
-	JS              string                 `json:"js,omitempty" jsonschema:"JavaScript 代码，应用的交互逻辑"`
-	Files           map[string]interface{} `json:"files,omitempty" jsonschema:"附加文件列表（JSON 对象，键为文件名，值为文件内容）"`
-	IsPublic        bool                   `json:"is_public,omitempty" jsonschema:"是否公开访问（默认 false，仅登录用户可访问）"`
-}
 
 type listAppsIn struct{}
 
@@ -333,40 +323,40 @@ type deleteAppIn struct {
 
 // ─── 工具处理函数（HTTP 模式和 Stdio 模式共用） ──────────────────────────────
 
-func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatabasesIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/databases", nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describeTableIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describeTableIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	
 	// 先获取数据库类型
 	dbData, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	var dbInfo struct {
 		Success bool `json:"success"`
@@ -375,7 +365,7 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(dbData, &dbInfo); err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	
 	// 根据数据库类型选择表结构查询 SQL
@@ -400,19 +390,19 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 	})
 	data, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", body)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	// SQL 安全检查
 	if allowed, reason := checkSQLSafety(in.SQL); !allowed {
-		return nil, mcpOutput{}, fmt.Errorf("SQL 安全检查失败: %s", reason)
+		return nil, nil, fmt.Errorf("SQL 安全检查失败: %s", reason)
 	}
 	body, _ := json.Marshal(map[string]interface{}{
 		"database_id": in.DatabaseID,
@@ -421,39 +411,39 @@ func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLI
 	})
 	data, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", body)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/openapis", nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpGetApiDetail(ctx context.Context, req *mcp.CallToolRequest, in getApiDetailIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpGetApiDetail(ctx context.Context, req *mcp.CallToolRequest, in getApiDetailIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/openapis/"+in.ApiID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	body, _ := json.Marshal(map[string]interface{}{"params": in.Params})
 	if body == nil {
@@ -461,15 +451,15 @@ func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*m
 	}
 	data, err := cli.do(http.MethodPost, "/api/v1/openapis/"+in.ApiID+"/test", body)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTablesIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTablesIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"query":    in.Query,
@@ -477,32 +467,32 @@ func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTab
 	})
 	data, err := cli.do(http.MethodPost, "/api/v1/retrieval/search", reqBody)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpGetDbSchema(ctx context.Context, req *mcp.CallToolRequest, in getDbSchemaIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpGetDbSchema(ctx context.Context, req *mcp.CallToolRequest, in getDbSchemaIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQLHintsIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQLHintsIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	// 先获取数据库信息以提取类型
 	data, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	// 从返回数据中提取数据库类型，生成方言提示
 	var dbInfo struct {
@@ -512,29 +502,29 @@ func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQL
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &dbInfo); err != nil {
-		return nil, mcpOutput{}, fmt.Errorf("解析数据库信息失败: %w", err)
+		return nil, nil, fmt.Errorf("解析数据库信息失败: %w", err)
 	}
 	dbType := strings.ToLower(dbInfo.Data.Type)
 	hints := buildSQLDialectHints(dbType, dbInfo.Data.Name)
 	hintsData, _ := json.Marshal(hints)
-	return nil, mcpOutput{Result: string(hintsData)}, nil
+	return mcpTextResult(string(hintsData)), nil, nil
 }
 
-func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn) (*mcp.CallToolResult, any, error) {
 	// 强制 HITL 确认：创建接口前必须先调用 ask_user 让用户确认配置
 	if !agent.IsHITLConfirmed("default") {
 		confirmMsg := fmt.Sprintf("⚠️ 创建接口前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 名称: %s\n- 路径: %s\n- 方法: %s\n- SQL: %s\n- 数据库: %s\n- 描述: %s", in.Name, in.Path, in.Method, in.SQL, in.Database, in.Description)
-		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
+		return mcpTextResult(confirmMsg), nil, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
 	}
 
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	// 通过数据库名称查找 database_id
 	dbsData, err := cli.do(http.MethodGet, "/api/v1/databases", nil)
 	if err != nil {
-		return nil, mcpOutput{}, fmt.Errorf("获取数据库列表失败: %w", err)
+		return nil, nil, fmt.Errorf("获取数据库列表失败: %w", err)
 	}
 	var dbsResp struct {
 		Databases []struct {
@@ -543,7 +533,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		} `json:"databases"`
 	}
 	if err := json.Unmarshal(dbsData, &dbsResp); err != nil {
-		return nil, mcpOutput{}, fmt.Errorf("解析数据库列表失败: %w", err)
+		return nil, nil, fmt.Errorf("解析数据库列表失败: %w", err)
 	}
 	var databaseID string
 	for _, db := range dbsResp.Databases {
@@ -553,7 +543,7 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 		}
 	}
 	if databaseID == "" {
-		return nil, mcpOutput{}, fmt.Errorf("未找到名为 %q 的数据库", in.Database)
+		return nil, nil, fmt.Errorf("未找到名为 %q 的数据库", in.Database)
 	}
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"name":           in.Name,
@@ -566,15 +556,15 @@ func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn)
 	})
 	data, err := cli.do(http.MethodPost, "/api/v1/openapis", reqBody)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	// 构建带查询参数的 URL
 	apiPath := in.Path
@@ -590,9 +580,9 @@ func mcpExecuteApi(ctx context.Context, req *mcp.CallToolRequest, in executeApiI
 	}
 	data, err := cli.do(http.MethodGet, apiPath, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
 // ─── 应用管理工具处理函数 ─────────────────────────────────────────────────────
@@ -659,14 +649,14 @@ var designThemes = map[string]map[string]interface{}{
 
 // ─── 预制组件 MCP 工具 ───────────────────────────────────────────────────────
 
-func mcpListComponents(ctx context.Context, req *mcp.CallToolRequest, in listComponentsIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpListComponents(ctx context.Context, req *mcp.CallToolRequest, in listComponentsIn) (*mcp.CallToolResult, any, error) {
 	allComps := components.ListComponents()
 
 	if in.Category != "" {
 		if catComps, ok := allComps[in.Category]; ok {
 			allComps = map[string][]*components.ComponentDef{in.Category: catComps}
 		} else {
-			return nil, mcpOutput{Result: fmt.Sprintf("分类 %q 不存在，可用分类: chart, kpi, table, map, filter", in.Category)}, nil
+			return mcpTextResult(fmt.Sprintf("分类 %q 不存在，可用分类: chart, kpi, table, map, filter", in.Category)), nil, nil
 		}
 	}
 
@@ -707,19 +697,19 @@ func mcpListComponents(ctx context.Context, req *mcp.CallToolRequest, in listCom
 	}
 
 	data, _ := json.Marshal(result)
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppIn) (*mcp.CallToolResult, any, error) {
 	if len(in.Components) == 0 {
-		return nil, mcpOutput{Result: "错误: components 列表不能为空，请至少添加一个组件"}, nil
+		return mcpTextResult("错误: components 列表不能为空，请至少添加一个组件"), nil, nil
 	}
 
 	// 验证组件 ID
 	for i, c := range in.Components {
 		def, ok := components.GetComponentDef(c.ComponentID)
 		if !ok {
-			return nil, mcpOutput{Result: fmt.Sprintf("错误: 组件 %q 不存在（第 %d 个），请先调用 list_components 查看可用组件", c.ComponentID, i+1)}, nil
+			return mcpTextResult(fmt.Sprintf("错误: 组件 %q 不存在（第 %d 个），请先调用 list_components 查看可用组件", c.ComponentID, i+1)), nil, nil
 		}
 		// 填充默认值
 		if c.Config == nil {
@@ -853,32 +843,11 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 	}
 
 	data, _ := json.Marshal(result)
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in createAppFromBlueprintIn) (*mcp.CallToolResult, mcpOutput, error) {
-	// 强制 HITL 确认
-	if !agent.IsHITLConfirmed("default") {
-		compDescs := []string{}
-		for i, c := range in.Components {
-			def, _ := components.GetComponentDef(c.ComponentID)
-			name := c.ComponentID
-			if def != nil {
-				name = fmt.Sprintf("%s %s", def.Icon, def.Name)
-			}
-			compDescs = append(compDescs, fmt.Sprintf("%d. %s", i+1, name))
-		}
-		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 组件: %s\n- 设计方向: %s\n- 主色调: %s\n- 是否公开: %v",
-			in.Title, in.Slug, in.Description, strings.Join(compDescs, ", "), in.DesignDirection, in.PrimaryColor, in.IsPublic)
-		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
-	}
-
-	cli, err := getMCPClientFromContext(ctx)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-
-	// 组装 HTML
+func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in createAppFromBlueprintIn) (*mcp.CallToolResult, any, error) {
+	// 组装蓝图
 	blueprint := components.AppBlueprint{
 		Title:           in.Title,
 		Slug:            in.Slug,
@@ -888,13 +857,55 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 		PrimaryColor:    in.PrimaryColor,
 		Components:      in.Components,
 	}
+
+	// 首次调用（无 HITL）：生成预览，返回给 AI 让它调用 ask_user(preview) 展示
+	if !agent.IsHITLConfirmed("default") {
+		primaryColor := in.PrimaryColor
+		if primaryColor == "" {
+			primaryColor = "#4F46E5"
+		}
+		html := components.AssembleAppPage(blueprint, primaryColor)
+
+		// 生成配置字段
+		configFields := []map[string]interface{}{}
+		for _, c := range in.Components {
+			def, _ := components.GetComponentDef(c.ComponentID)
+			if def == nil {
+				continue
+			}
+			fields, _ := components.GenerateConfigFormJSON(c.ComponentID, c.Config)
+			componentName := def.Name
+			componentIcon := def.Icon
+			configFields = append(configFields, map[string]interface{}{
+				"component_id":   c.ComponentID,
+				"component_name": fmt.Sprintf("%s %s", componentIcon, componentName),
+				"fields":         fields,
+			})
+		}
+
+		result := map[string]interface{}{
+			"action":        "preview",
+			"preview_html":  html,
+			"config_fields": configFields,
+			"blueprint":     blueprint,
+			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"）展示给用户。用户确认后再次调用 create_app 即可正式创建。"),
+		}
+		data, _ := json.Marshal(result)
+		return mcpTextResult(string(data)), nil, nil
+	}
+
+	// HITL 已确认：正式创建应用
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	primaryColor := in.PrimaryColor
 	if primaryColor == "" {
 		primaryColor = "#4F46E5"
 	}
 	html := components.AssembleAppPage(blueprint, primaryColor)
 
-	// 调用后端 API 创建应用
 	reqBody := map[string]interface{}{
 		"name":        in.Title,
 		"title":       in.Title,
@@ -920,31 +931,31 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return nil, mcpOutput{}, fmt.Errorf("创建应用请求失败: %w", err)
+		return nil, nil, fmt.Errorf("创建应用请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return nil, mcpOutput{}, fmt.Errorf("创建应用失败 (%d): %s", resp.StatusCode, string(respBody))
+		return nil, nil, fmt.Errorf("创建应用失败 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
-	return nil, mcpOutput{Result: fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /a/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))}, nil
+	return mcpTextResult(fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /a/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
 }
 
-func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, any, error) {
 	if in.Direction != "" {
 		// 返回指定设计方向的详细信息
 		theme, ok := designThemes[in.Direction]
 		if !ok {
-			return nil, mcpOutput{}, fmt.Errorf("未知设计方向: %s，可选值: minimal, corporate, vibrant, elegant, playful, dark, nature, brutalist", in.Direction)
+			return nil, nil, fmt.Errorf("未知设计方向: %s，可选值: minimal, corporate, vibrant, elegant, playful, dark, nature, brutalist", in.Direction)
 		}
 		result := map[string]interface{}{
 			"direction": in.Direction,
 			"theme":     theme,
 		}
 		data, _ := json.Marshal(result)
-		return nil, mcpOutput{Result: string(data)}, nil
+		return mcpTextResult(string(data)), nil, nil
 	}
 
 	// 返回所有设计方向概览
@@ -971,82 +982,29 @@ func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThem
 		"usage":  "调用 create_app 时将 direction 值填入 design_direction 字段，推荐配色填入 primary_color 字段",
 	}
 	data, _ := json.Marshal(result)
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpCreateApp(ctx context.Context, req *mcp.CallToolRequest, in createAppIn) (*mcp.CallToolResult, mcpOutput, error) {
-	// 强制 HITL 确认：创建应用前必须先调用 ask_user 让用户确认
-	if !agent.IsHITLConfirmed("default") {
-		confirmMsg := fmt.Sprintf("⚠️ 创建应用前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 标题: %s\n- Slug: %s\n- 描述: %s\n- 图标: %s\n- 是否公开: %v\n- 设计方向: %s\n- 主色调: %s\n- 视觉风格: %s\n- 视觉资产: %s", in.Title, in.Slug, in.Description, in.Icon, in.IsPublic, in.DesignDirection, in.PrimaryColor, in.Style, in.Visuals)
-		return nil, mcpOutput{Result: confirmMsg}, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
-	}
-
+func mcpListApps(ctx context.Context, req *mcp.CallToolRequest, _ listAppsIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-
-	// 构建请求体（name 使用 title 或 slug）
-	name := in.Title
-	if name == "" {
-		name = in.Slug
-	}
-	reqBody := map[string]interface{}{
-		"name":        name,
-		"title":       in.Title,
-		"slug":        in.Slug,
-		"description": in.Description,
-		"icon":        in.Icon,
-		"html":        in.HTML,
-		"css":         in.CSS,
-		"js":          in.JS,
-		"is_public":   in.IsPublic,
-	}
-	if in.Files != nil {
-		reqBody["files"] = in.Files
-	}
-	// 蓝图信息存入 config
-	config := map[string]interface{}{}
-	if in.DesignDirection != "" || in.PrimaryColor != "" || in.Style != "" || in.Visuals != "" {
-		config["blueprint"] = map[string]interface{}{
-			"design_direction": in.DesignDirection,
-			"primary_color":    in.PrimaryColor,
-			"style":            in.Style,
-			"visuals":          in.Visuals,
-		}
-	}
-	if len(config) > 0 {
-		reqBody["config"] = config
-	}
-
-	body, _ := json.Marshal(reqBody)
-	data, err := cli.do(http.MethodPost, "/api/v1/apps", body)
-	if err != nil {
-		return nil, mcpOutput{}, err
-	}
-	return nil, mcpOutput{Result: string(data)}, nil
-}
-
-func mcpListApps(ctx context.Context, req *mcp.CallToolRequest, _ listAppsIn) (*mcp.CallToolResult, mcpOutput, error) {
-	cli, err := getMCPClientFromContext(ctx)
-	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 	data, err := cli.do(http.MethodGet, "/api/v1/apps", nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpUpdateApp(ctx context.Context, req *mcp.CallToolRequest, in updateAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpUpdateApp(ctx context.Context, req *mcp.CallToolRequest, in updateAppIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 
 	if in.ID == "" {
-		return nil, mcpOutput{}, fmt.Errorf("缺少应用 ID")
+		return nil, nil, fmt.Errorf("缺少应用 ID")
 	}
 
 	// 构建请求体（只包含非空字段）
@@ -1090,26 +1048,26 @@ func mcpUpdateApp(ctx context.Context, req *mcp.CallToolRequest, in updateAppIn)
 	body, _ := json.Marshal(reqBody)
 	data, err := cli.do(http.MethodPut, "/api/v1/apps/"+in.ID, body)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
-func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn) (*mcp.CallToolResult, mcpOutput, error) {
+func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn) (*mcp.CallToolResult, any, error) {
 	cli, err := getMCPClientFromContext(ctx)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
 
 	if in.ID == "" {
-		return nil, mcpOutput{}, fmt.Errorf("缺少应用 ID")
+		return nil, nil, fmt.Errorf("缺少应用 ID")
 	}
 
 	data, err := cli.do(http.MethodDelete, "/api/v1/apps/"+in.ID, nil)
 	if err != nil {
-		return nil, mcpOutput{}, err
+		return nil, nil, err
 	}
-	return nil, mcpOutput{Result: string(data)}, nil
+	return mcpTextResult(string(data)), nil, nil
 }
 
 // ─── MCP 客户端上下文传递 ────────────────────────────────────────────────────
@@ -1266,15 +1224,24 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "【重要】创建接口前必须先调用 ask_user 工具让用户确认配置！创建新的数据接口，定义接口路径、方法、SQL 和参数等"}, mcpCreateApi)
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口，传入查询参数获取数据"}, mcpExecuteApi)
 
-		// 应用管理工具
-		mcp.AddTool(server, &mcp.Tool{Name: "design_theme", Description: "查询可用设计方向和配色方案。创建应用前先调用此工具获取设计灵感，再将结果填入 create_app 的蓝图字段（design_direction/primary_color/style）"}, mcpDesignTheme)
-		mcp.AddTool(server, &mcp.Tool{Name: "list_components", Description: "列出可用的预制组件（图表、地图、表格、KPI卡片、筛选栏等），创建可视化应用时使用"}, mcpListComponents)
-		mcp.AddTool(server, &mcp.Tool{Name: "preview_app", Description: "预览应用效果：根据组件配置组装 HTML 并在 HITL 确认卡中展示预览。输出包含 preview_html、config_fields 和 blueprint。调用后必须紧接着调用 ask_user(interaction_type=\"preview\")，把 preview_html、config_fields、blueprint 都传过去，让用户在预览中交互修改组件配置"}, mcpPreviewApp)
-		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: "【重要】创建应用前必须先调用 ask_user 工具让用户确认应用内容（标题、标识、功能描述、代码等）！创建纯前端应用（HTML+CSS+JS），发布后可通过 /a/{slug} 访问"}, mcpCreateApp)
-		mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_blueprint", Description: "【重要】基于预制组件蓝图创建应用！先调用 list_components 查看可用组件，再用 preview_app 预览效果，确认后创建。创建前必须先调用 ask_user 工具让用户确认！"}, mcpCreateAppFromBlueprint)
-		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用，包括应用的标题、标识、描述等信息"}, mcpListApps)
-		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用的信息，可修改标题、标识、描述和代码内容"}, mcpUpdateApp)
-		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定 ID 的应用"}, mcpDeleteApp)
+		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用（一步完成预览+创建）。
+
+【工作流】首次调用→自动生成预览HTML+blueprint→立即调用ask_user(interaction_type="preview")展示→用户确认后再次调用本工具→正式创建。
+
+【可用组件】
+- 图表类：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)
+- 数据类：data-table(数据表格)、kpi-card(KPI卡片)
+- 交互类：filter-bar(筛选栏，联动其他组件刷新数据)
+- 地图类：map-scatter(地图散点)
+- 其他类：timeline(时间线)
+
+【设计方向】minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist
+
+组件config示例：{"component_id":"chart-bar","config":{"title":"销售额","data_source":"/api/v1/data/sales","x_field":"month","y_fields":["revenue"]}}`}, mcpCreateAppFromBlueprint)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
+		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
 
 		return server
 	}
@@ -1360,6 +1327,12 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取指定数据库的 SQL 方言提示"}, mcpGetDbSQLHints)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建新的数据接口"}, mcpCreateApi)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过接口路径直接调用已配置的数据接口"}, mcpExecuteApi)
+
+	// 应用管理工具
+	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用（一步完成预览+创建）。首次调用自动生成预览，请立即调用ask_user展示给用户，确认后再次调用正式创建。可用组件：chart-bar/chart-line/chart-pie/chart-area/chart-gauge/data-table/filter-bar/kpi-card/map-scatter/timeline`}, mcpCreateAppFromBlueprint)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
+	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)
