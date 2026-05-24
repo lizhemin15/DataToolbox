@@ -2193,7 +2193,10 @@ async function resumeAgentRun(runId, startSeq) {
         } catch (e) { console.error('Resume poll error:', e); }
     };
 
+    let finished = false;
     const finishClusterResponse = () => {
+        if (finished) return;
+        finished = true;
         typingEl.style.display = 'none';
         if (fullText) textEl.innerHTML = formatClusterMarkdown(fullText);
         const pw = processWrapperRef.wrapper;
@@ -2352,7 +2355,10 @@ async function sendClusterQuery(message, databases, modules) {
         };
 
         // 完成处理（渲染最终文本、折叠中间过程、保存会话）
+        let finished = false;
         const finishClusterResponse = () => {
+            if (finished) return;
+            finished = true;
             typingEl.style.display = 'none';
             if (fullText) {
                 textEl.innerHTML = formatClusterMarkdown(fullText);
