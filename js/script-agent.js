@@ -4212,7 +4212,7 @@ async function loadAppsMarketplace() {
                 <h3 class="app-card-title">${escapeHtml(app.title)}</h3>
                 <p class="app-card-desc">${escapeHtml(app.description || '暂无描述')}</p>
                 <div class="app-card-meta">
-                    <span class="app-card-slug">/a/${escapeHtml(app.slug)}</span>
+                    <span class="app-card-slug">/app/${escapeHtml(app.slug)}</span>
                     <span>访问: ${app.view_count || 0}</span>
                     ${designLabel ? `<span class="app-card-badge" ${primaryColor ? `style="background:${primaryColor}22;color:${primaryColor};border:1px solid ${primaryColor}44"` : ''}>${designLabel}</span>` : ''}
                     ${primaryColor ? `<span class="app-card-color-dot" style="background:${primaryColor}" title="${primaryColor}"></span>` : ''}
@@ -4282,7 +4282,7 @@ function openAppEditor() {
             .replace(/^-|-$/g, '')
             .substring(0, 30);
         document.getElementById('codepenAppSlug').value = slug;
-        document.getElementById('codepenSlugPreview').textContent = `/a/${slug || 'my-app'}`;
+        document.getElementById('codepenSlugPreview').textContent = `/app/${slug || 'my-app'}`;
     });
     
     // 绑定图标选择
@@ -4308,7 +4308,7 @@ function closeAppEditor() {
 
 function openAppInMarketplace(slug) {
     const token = localStorage.getItem('dataOntologyToken');
-    const url = token ? `/a/${slug}?token=${encodeURIComponent(token)}` : `/a/${slug}`;
+    const url = token ? `/app/${slug}?token=${encodeURIComponent(token)}` : `/app/${slug}`;
     window.open(url, '_blank');
 }
 
@@ -4484,7 +4484,7 @@ async function loadAppIntoEditor(appId) {
         document.getElementById('codepenHtmlEditor').value = app.html_content || '';
         document.getElementById('codepenCssEditor').value = app.css_content || '';
         document.getElementById('codepenJsEditor').value = app.js_content || '';
-        document.getElementById('codepenSlugPreview').textContent = `/a/${app.slug || 'my-app'}`;
+        document.getElementById('codepenSlugPreview').textContent = `/app/${app.slug || 'my-app'}`;
         document.getElementById('codepenDeleteBtn').style.display = 'inline-block';
         document.getElementById('codepenLastSaved').textContent = '已加载';
         

@@ -307,7 +307,7 @@
                 <div class="form-group">
                     <label class="form-label">唯一标识 (Slug) *</label>
                     <input type="text" class="form-input" id="appSlug" placeholder="my-app" maxlength="30" pattern="[a-z0-9-_]+">
-                    <div class="slug-preview">访问地址: <code id="slugUrl">/a/my-app</code></div>
+                    <div class="slug-preview">访问地址: <code id="slugUrl">/app/my-app</code></div>
                 </div>
 
                 <div class="form-group">
@@ -479,7 +479,7 @@ button:hover {
                 let value = slugInput.value.toLowerCase();
                 value = value.replace(/[^a-z0-9-_]/g, '-');
                 slugInput.value = value;
-                slugUrl.textContent = `/a/${value || 'my-app'}`;
+                slugUrl.textContent = `/app/${value || 'my-app'}`;
             });
         }
 
@@ -552,7 +552,7 @@ button:hover {
                     });
                 }
 
-                document.getElementById('slugUrl').textContent = `/a/${app.slug}`;
+                document.getElementById('slugUrl').textContent = `/app/${app.slug}`;
                 document.getElementById('statusMsg').textContent = '应用已加载';
                 previewApp();
             } catch (err) {

@@ -162,11 +162,12 @@ func handleAppDetail(w http.ResponseWriter, r *http.Request) {
 	// URL 格式: /api/v1/apps/{id}
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
-	if len(parts) < 4 || parts[3] == "" {
+	// parts = ["", "api", "v1", "apps", "{id}"]
+	if len(parts) < 5 || parts[4] == "" {
 		apiBadRequest(w, "缺少应用 ID")
 		return
 	}
-	appID := parts[3]
+	appID := parts[4]
 
 	switch r.Method {
 	case http.MethodGet:
@@ -382,12 +383,13 @@ func handleDeleteApp(w http.ResponseWriter, r *http.Request, username string, ap
 // ============================================================
 
 // handleAppPublic 公开访问应用页面
-// GET /a/{slug} - 返回渲染后的 HTML 页面
+// GET /app/{slug} - 返回渲染后的 HTML 页面
 func handleAppPublic(w http.ResponseWriter, r *http.Request) {
 	// 从 URL 中提取 slug
-	// URL 格式: /a/{slug}
+	// URL 格式: /app/{slug}
 	path := r.URL.Path
 	parts := strings.Split(path, "/")
+	// parts = ["", "app", "{slug}"]
 	if len(parts) < 3 || parts[2] == "" {
 		http.Error(w, "缺少应用 slug", http.StatusBadRequest)
 		return

@@ -941,7 +941,7 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, nil, fmt.Errorf("创建应用失败 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
-	return mcpTextResult(fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /a/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
+	return mcpTextResult(fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /app/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
 }
 
 func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, any, error) {

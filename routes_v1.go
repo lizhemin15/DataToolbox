@@ -156,6 +156,6 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/components/list", handleListComponents)
 	
 	// ==================== 应用公开访问（不需要认证）====================
-	// 注意：此路由必须放在最后，避免与其他 /api/v1/ 路由冲突
-	mux.HandleFunc("/a/", handleAppPublic)
+	// 注意：此路由必须放在最后，避免与其他路由冲突
+	mux.HandleFunc("/app/", handleAppPublic)
 }
