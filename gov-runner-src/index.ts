@@ -10,19 +10,37 @@ import { runUserCode, type GovContext, type FileLike } from './runner';
 const PORT = parseInt(process.env.GOV_RUNNER_PORT || '3100');
 const API_BASE = process.env.API_BASE || 'http://127.0.0.1:8080';
 
+// ==================== 文件类型判断 ====================
+
+const TEXT_EXTENSIONS = ['.txt', '.csv', '.json', '.xml', '.html', '.css', '.js', '.ts', '.md', '.yaml', '.yml', '.log', '.sql', '.py', '.sh', '.bat', '.ini', '.conf', '.env'];
+
+function isTextFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return TEXT_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
 // ==================== 文件包装器 ====================
 
 class BufferFile implements FileLike {
   name: string;
   size: number;
-  content: string; // 文本内容（用于文本输入模式的虚拟文件）
+  content: string; // 文本内容（仅用于纯文本输入模式）
   private buffer: Buffer;
 
   constructor(name: string, buffer: Buffer, content?: string) {
     this.name = name;
     this.size = buffer.length;
     this.buffer = buffer;
-    this.content = content || buffer.toString('utf-8');
+    // 仅在显式传入 content 时使用（如纯文本虚拟文件），
+    // 不要对二进制文件（.docx/.xlsx 等）调用 buffer.toString('utf-8')，
+    // 否则会产生乱码，导致脚本误用 file.content 跳过 readWord 解析
+    if (content !== undefined) {
+      this.content = content;
+    } else if (isTextFile(name)) {
+      this.content = buffer.toString('utf-8');
+    } else {
+      this.content = '';
+    }
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {
