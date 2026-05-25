@@ -562,7 +562,44 @@ export function createGovHelper(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resp = await fetch(url, { ...init, signal: controller.signal });
-      return resp;
+      // 确保完整读取 body，避免超时 abort 导致半截 JSON → resp.json() 解析失败
+      // 与前端 fetchWithAuth 一致：先完整读取文本，再让调用方解析
+      const text = await resp.text();
+      try {
+        const data = JSON.parse(text);
+        // 返回模拟 Response 对象，json() 返回已解析的数据，避免二次解析失败
+        return {
+          ok: resp.ok,
+          status: resp.status,
+          statusText: resp.statusText,
+          headers: resp.headers,
+          json: async () => data,
+          text: async () => text,
+        } as any as Response;
+      } catch (parseErr) {
+        // JSON 解析失败，返回原始文本让上层处理（与 Go 侧 callAIService 一致）
+        return {
+          ok: resp.ok,
+          status: resp.status,
+          statusText: resp.statusText,
+          headers: resp.headers,
+          json: async () => { throw new SyntaxError(`JSON 解析失败: ${text.substring(0, 200)}`); },
+          text: async () => text,
+        } as any as Response;
+      }
+    } catch (e) {
+      // 超时 abort → 与前端 fetchWithAuth 一致，返回友好超时 Response（不是抛异常）
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        return {
+          ok: false,
+          status: 0,
+          statusText: 'Timeout',
+          json: async () => ({ success: false, message: `请求超时(${Math.round(timeoutMs/1000)}秒)` }),
+          text: async () => `请求超时(${Math.round(timeoutMs/1000)}秒)`,
+          headers: new Headers(),
+        } as any as Response;
+      }
+      throw e;
     } finally {
       clearTimeout(timer);
     }
