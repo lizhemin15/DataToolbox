@@ -702,152 +702,114 @@ function createGovHelper(logLines, uploadedFiles) {
      * @param {Object} formatMap - 格式映射 {占位符: {text, bold, indent, fonts, defaultFont}}
      * @returns {string} - 处理后的 XML
      */
+    function _escapeXml(text) {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    function _unescapeXml(text) {
+        return text
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'");
+    }
+
+    /**
+     * 对 docx XML 应用格式化（正则方式，与后端 applyDocxFormatting 一致）
+     * 支持：加粗、字体标记、首行缩进、szCs
+     */
     function _applyDocxFormatting(xmlContent, formatMap) {
         if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
 
-        // 解析 XML
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xmlContent, 'application/xml');
-
-        // Word 命名空间
-        const NS_W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-
-        // 查找所有文本节点
-        const textNodes = doc.getElementsByTagNameNS(NS_W, 't');
-
-        for (let i = 0; i < textNodes.length; i++) {
-            const tNode = textNodes[i];
-            const textContent = tNode.textContent || '';
-
-            // 查找匹配的格式规则
-            let matchedFormat = null;
+        // 查找所有匹配的格式规则
+        const findMatchedFormat = (textContent) => {
             for (const [key, format] of Object.entries(formatMap)) {
                 if (textContent.includes(format.text)) {
-                    matchedFormat = format;
-                    break;
+                    return format;
                 }
             }
+            return null;
+        };
 
-            if (!matchedFormat) continue;
+        // 处理每个 <w:p> 段落
+        return xmlContent.replace(/<w:p[^>]*>([\s\S]*?)<\/w:p>/g, (pMatch, pContent) => {
+            let modifiedP = pContent;
+            let hasModification = false;
+            let indentApplied = false;
 
-            const rNode = tNode.parentNode; // <w:r>
-            if (!rNode || rNode.localName !== 'r') continue;
+            // 处理段落中的 <w:r> 元素
+            modifiedP = modifiedP.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
+                const rawText = _unescapeXml(text);
+                const matchedFormat = findMatchedFormat(rawText);
+                if (!matchedFormat) return rMatch;
 
-            const pNode = rNode.parentNode; // <w:p>
-            if (!pNode || pNode.localName !== 'p') continue;
+                hasModification = true;
+                const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
 
-            // 默认字体配置
-            const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
-
-            // 处理首行缩进
-            if (matchedFormat.indent) {
-                let pPr = pNode.getElementsByTagNameNS(NS_W, 'pPr')[0];
-                if (!pPr) {
-                    pPr = doc.createElementNS(NS_W, 'w:pPr');
-                    pNode.insertBefore(pPr, pNode.firstChild);
+                // 处理首行缩进 — 标记以便外层处理
+                if (matchedFormat.indent && !indentApplied) {
+                    indentApplied = true;
                 }
 
-                // 检查是否已有 ind
-                let ind = pPr.getElementsByTagNameNS(NS_W, 'ind')[0];
-                if (!ind) {
-                    ind = doc.createElementNS(NS_W, 'w:ind');
-                    pPr.appendChild(ind);
+                const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
+                const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
+
+                if (hasBold || hasFonts) {
+                    // 拆分成多个 <w:r> 节点
+                    const segments = _splitTextByFormat(rawText, matchedFormat);
+                    const runs = segments.map(seg => {
+                        let runXml = '<w:r><w:rPr>';
+                        // 字体
+                        runXml += `<w:rFonts w:ascii="${seg.fontName}" w:eastAsia="${seg.fontName}" w:hAnsi="${seg.fontName}"/>`;
+                        // 字号
+                        runXml += `<w:sz w:val="${seg.fontSize * 2}"/>`;
+                        runXml += `<w:szCs w:val="${seg.fontSize * 2}"/>`;
+                        // 加粗
+                        if (seg.bold) {
+                            runXml += '<w:b/>';
+                        }
+                        runXml += '</w:rPr>';
+                        // 文本
+                        runXml += `<w:t${seg.text.startsWith(' ') || seg.text.endsWith(' ') ? ' xml:space="preserve"' : ''}>${_escapeXml(seg.text)}</w:t>`;
+                        runXml += '</w:r>';
+                        return runXml;
+                    });
+                    return runs.join('');
+                } else {
+                    // 只设置默认字体
+                    let newRPr = '<w:rPr>';
+                    newRPr += `<w:rFonts w:ascii="${defaultFont.name}" w:eastAsia="${defaultFont.name}" w:hAnsi="${defaultFont.name}"/>`;
+                    newRPr += `<w:sz w:val="${defaultFont.size * 2}"/>`;
+                    newRPr += `<w:szCs w:val="${defaultFont.size * 2}"/>`;
+                    newRPr += '</w:rPr>';
+                    return `<w:r>${newRPr}<w:t${rawText.startsWith(' ') || rawText.endsWith(' ') ? ' xml:space="preserve"' : ''}>${_escapeXml(rawText)}</w:t></w:r>`;
                 }
-                ind.setAttribute('w:firstLine', '640'); // 2 字符 = 640 twips
-            }
+            });
 
-            // 处理加粗和字体混排
-            const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
-            const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
-
-            if (hasBold || hasFonts) {
-                // 需要拆分成多个 <w:r> 节点
-                const segments = _splitTextByFormat(textContent, matchedFormat);
-
-                // 移除原有的 <w:r>
-                const nextSibling = rNode.nextSibling;
-                pNode.removeChild(rNode);
-
-                // 为每个片段创建新的 <w:r>
-                for (const segment of segments) {
-                    const newR = doc.createElementNS(NS_W, 'w:r');
-
-                    // 创建 rPr
-                    const rPr = doc.createElementNS(NS_W, 'w:rPr');
-                    newR.appendChild(rPr);
-
-                    // 设置字体
-                    const rFonts = doc.createElementNS(NS_W, 'w:rFonts');
-                    rFonts.setAttribute('w:ascii', segment.fontName);
-                    rFonts.setAttribute('w:eastAsia', segment.fontName);
-                    rFonts.setAttribute('w:hAnsi', segment.fontName);
-                    rPr.appendChild(rFonts);
-
-                    // 设置字号（pt -> half-points）
-                    const sz = doc.createElementNS(NS_W, 'w:sz');
-                    sz.setAttribute('w:val', String(segment.fontSize * 2));
-                    rPr.appendChild(sz);
-
-                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
-                    szCs.setAttribute('w:val', String(segment.fontSize * 2));
-                    rPr.appendChild(szCs);
-
-                    // 设置加粗
-                    if (segment.bold) {
-                        const b = doc.createElementNS(NS_W, 'w:b');
-                        rPr.appendChild(b);
-                    }
-
-                    // 创建文本节点
-                    const newT = doc.createElementNS(NS_W, 'w:t');
-                    newT.textContent = segment.text;
-                    if (segment.text.startsWith(' ') || segment.text.endsWith(' ')) {
-                        newT.setAttribute('xml:space', 'preserve');
-                    }
-                    newR.appendChild(newT);
-
-                    // 插入到段落中
-                    if (nextSibling) {
-                        pNode.insertBefore(newR, nextSibling);
+            // 处理首行缩进：在 <w:pPr> 中添加 <w:ind w:firstLine="640"/>
+            if (indentApplied) {
+                if (modifiedP.includes('<w:pPr>')) {
+                    if (modifiedP.includes('<w:ind')) {
+                        modifiedP = modifiedP.replace(/<w:ind([^>]*)\/?>/g, (indMatch, attrs) => {
+                            if (attrs.includes('w:firstLine')) return indMatch;
+                            return `<w:ind${attrs} w:firstLine="640"/>`;
+                        });
                     } else {
-                        pNode.appendChild(newR);
+                        modifiedP = modifiedP.replace('<w:pPr>', '<w:pPr><w:ind w:firstLine="640"/>');
                     }
-                }
-            } else {
-                // 没有加粗和字体标记，只设置默认字体
-                let rPr = rNode.getElementsByTagNameNS(NS_W, 'rPr')[0];
-                if (!rPr) {
-                    rPr = doc.createElementNS(NS_W, 'w:rPr');
-                    rNode.insertBefore(rPr, rNode.firstChild);
-                }
-
-                // 设置字体
-                let rFonts = rPr.getElementsByTagNameNS(NS_W, 'rFonts')[0];
-                if (!rFonts) {
-                    rFonts = doc.createElementNS(NS_W, 'w:rFonts');
-                    rPr.insertBefore(rFonts, rPr.firstChild);
-                }
-                rFonts.setAttribute('w:ascii', defaultFont.name);
-                rFonts.setAttribute('w:eastAsia', defaultFont.name);
-                rFonts.setAttribute('w:hAnsi', defaultFont.name);
-
-                // 设置字号
-                if (!rPr.getElementsByTagNameNS(NS_W, 'sz').length) {
-                    const sz = doc.createElementNS(NS_W, 'w:sz');
-                    sz.setAttribute('w:val', String(defaultFont.size * 2));
-                    rPr.appendChild(sz);
-                }
-                if (!rPr.getElementsByTagNameNS(NS_W, 'szCs').length) {
-                    const szCs = doc.createElementNS(NS_W, 'w:szCs');
-                    szCs.setAttribute('w:val', String(defaultFont.size * 2));
-                    rPr.appendChild(szCs);
+                } else {
+                    modifiedP = `<w:pPr><w:ind w:firstLine="640"/></w:pPr>` + modifiedP;
                 }
             }
-        }
 
-        // 序列化回 XML
-        const serializer = new XMLSerializer();
-        return serializer.serializeToString(doc);
+            return `<w:p>${modifiedP}</w:p>`;
+        });
     }
 
     /**
@@ -1157,8 +1119,32 @@ function createGovHelper(logLines, uploadedFiles) {
         async parseWordStructure(file, options = {}) {
             if (!file) throw new Error('缺少文件');
             const arrayBuffer = await file.arrayBuffer();
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            const rawText = result.value || '';
+            
+            // 使用 PizZip 直接从 XML 提取文本（与后端 runner 一致）
+            await ensureGovLibsLoaded();
+            if (!window.PizZip) throw new Error('PizZip 未加载');
+            const buf = new Uint8Array(arrayBuffer);
+            const zip = new window.PizZip(buf);
+            const docXml = zip.file('word/document.xml');
+            if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
+            const xml = docXml.asText() || '';
+            
+            // 按段落提取文本（每个 <w:p> 对应一个段落，用换行分隔）
+            const paragraphRegex = /<w:p[^>]*>([\s\S]*?)<\/w:p>/g;
+            const extractedParagraphs = [];
+            let pMatch;
+            while ((pMatch = paragraphRegex.exec(xml)) !== null) {
+                const pXml = pMatch[1];
+                const tMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
+                const text = tMatches.map(m => {
+                    const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
+                    return m2 ? m2[1] : '';
+                }).join('');
+                if (text.trim()) {
+                    extractedParagraphs.push(text);
+                }
+            }
+            const rawText = extractedParagraphs.join('\n');
             const maxLen = options.maxTextLength || 50000;
             const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
 
