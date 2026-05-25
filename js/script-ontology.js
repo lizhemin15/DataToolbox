@@ -970,10 +970,24 @@ function createGovHelper(logLines, uploadedFiles) {
         async readWord(file) {
             if (!file) throw new Error('缺少文件');
             const filename = (file.name || '').toLowerCase();
+            let docxFile = file;
             if (filename.endsWith('.doc') || filename.endsWith('.wps')) {
-                throw new Error('前端模式不支持 .doc/.wps 格式，请使用 .docx 格式，或在后端模式下运行');
+                // 通过后端 API 转换 .doc/.wps → .docx，与后端 runner 行为一致
+                const formData = new FormData();
+                formData.append('file', file, file.name);
+                const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/convert-word`, {
+                    method: 'POST',
+                    body: formData
+                }, 60000);
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.message || '.doc/.wps 格式转换失败');
+                }
+                const blob = await resp.blob();
+                const baseName = file.name.replace(/\.[^.]+$/, '');
+                docxFile = new File([blob], baseName + '.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
             }
-            const arrayBuffer = await file.arrayBuffer();
+            const arrayBuffer = await docxFile.arrayBuffer();
             return mammoth.extractRawText({ arrayBuffer });
         },
         async querySQL(sql, params) {
@@ -1124,10 +1138,24 @@ function createGovHelper(logLines, uploadedFiles) {
         async parseWordStructure(file, options = {}) {
             if (!file) throw new Error('缺少文件');
             const filename = (file.name || '').toLowerCase();
+            let docxFile = file;
             if (filename.endsWith('.doc') || filename.endsWith('.wps')) {
-                throw new Error('前端模式不支持 .doc/.wps 格式，请使用 .docx 格式，或在后端模式下运行');
+                // 通过后端 API 转换 .doc/.wps → .docx，与后端 runner 行为一致
+                const formData = new FormData();
+                formData.append('file', file, file.name);
+                const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/convert-word`, {
+                    method: 'POST',
+                    body: formData
+                }, 60000);
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.message || '.doc/.wps 格式转换失败');
+                }
+                const blob = await resp.blob();
+                const baseName = file.name.replace(/\.[^.]+$/, '');
+                docxFile = new File([blob], baseName + '.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
             }
-            const arrayBuffer = await file.arrayBuffer();
+            const arrayBuffer = await docxFile.arrayBuffer();
             
             // 使用 PizZip 直接从 XML 提取文本（与后端 runner 一致）
             await ensureGovLibsLoaded();

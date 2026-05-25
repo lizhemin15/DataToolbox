@@ -67,6 +67,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/gov/download-api-output", handleGovernanceDownloadAPIOutput)
 	mux.HandleFunc("/api/v1/gov/execute-sql", handleGovernanceExecuteSQL)
 	mux.HandleFunc("/api/v1/gov/parse-text", handleGovParseText)
+	mux.HandleFunc("/api/v1/gov/convert-word", handleGovernanceConvertWord)
 	mux.HandleFunc("/api/v1/gov/task-api/", handleGovernanceTaskAPI)
 	
 	// ==================== 分享 API ====================

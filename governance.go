@@ -2599,3 +2599,102 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 }
+
+// handleGovernanceConvertWord POST /api/v1/gov/convert-word
+// 接收 .doc/.wps 文件，用 LibreOffice 转为 .docx 后返回二进制内容
+// 前端 readWord/parseWordStructure 遇到 .doc/.wps 时调用此接口，实现前后端行为一致
+func handleGovernanceConvertWord(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 POST"})
+		return
+	}
+
+	// 解析 multipart form（最大 32MB）
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "文件解析失败: " + err.Error()})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未找到文件字段"})
+		return
+	}
+	defer file.Close()
+
+	filename := strings.ToLower(header.Filename)
+	if !strings.HasSuffix(filename, ".doc") && !strings.HasSuffix(filename, ".wps") && !strings.HasSuffix(filename, ".docx") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "仅支持 .doc/.wps/.docx 格式"})
+		return
+	}
+
+	// 如果已经是 .docx，直接返回原文件内容
+	if strings.HasSuffix(filename, ".docx") {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取文件失败"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+header.Filename+"\"")
+		w.Write(data)
+		return
+	}
+
+	// .doc/.wps → 用 LibreOffice 转 .docx
+	tmpDir, err := os.MkdirTemp("", "word-convert-")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建临时目录失败"})
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	inputPath := filepath.Join(tmpDir, header.Filename)
+	f, err := os.Create(inputPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "写入临时文件失败"})
+		return
+	}
+	if _, err := io.Copy(f, file); err != nil {
+		f.Close()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "写入临时文件失败"})
+		return
+	}
+	f.Close()
+
+	// soffice --headless --convert-to docx
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "soffice", "--headless", "--convert-to", "docx", inputPath, "--outdir", tmpDir)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("[convert-word] LibreOffice 转换失败: %v, output: %s", err, string(output))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "LibreOffice 转换失败，请确认服务端已安装 LibreOffice"})
+		return
+	}
+
+	// 读取转换后的 .docx
+	baseName := header.Filename
+	if idx := strings.LastIndex(baseName, "."); idx >= 0 {
+		baseName = baseName[:idx]
+	}
+	outputPath := filepath.Join(tmpDir, baseName+".docx")
+	docxData, err := os.ReadFile(outputPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "读取转换结果失败"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+baseName+".docx\"")
+	w.Write(docxData)
+}
