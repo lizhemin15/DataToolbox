@@ -556,8 +556,20 @@ export function createGovHelper(
     throw new Error(`模板文件 ${name} 在上传列表中未找到，请确保 File 对象可用`);
   }
 
+  /** 带 60s 超时的 fetch（与前端 fetchWithAuth 超时一致，防止后端任务卡死） */
+  async function _fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 60000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...init, signal: controller.signal });
+      return resp;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
-    const resp = await fetch(`${apiBase}/api/v1/gov/execute-sql`, {
+    const resp = await _fetchWithTimeout(`${apiBase}/api/v1/gov/execute-sql`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`, 
@@ -691,7 +703,7 @@ export function createGovHelper(
     },
 
     async callAI(prompt: string): Promise<string> {
-      const resp = await fetch(`${apiBase}/api/v1/agent/completion`, {
+      const resp = await _fetchWithTimeout(`${apiBase}/api/v1/agent/completion`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`, 

@@ -585,7 +585,7 @@ function createGovHelper(logLines, uploadedFiles) {
      * @returns {{text: string, bold: Array<[number, number]>, indent: boolean, fonts: Array<[number, number, string, number]>}}
      */
     function parseFormatText(str, defaultFont = null) {
-        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [] };
+        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
 
         let indent = false;
         let text = str;
@@ -969,6 +969,10 @@ function createGovHelper(logLines, uploadedFiles) {
         },
         async readWord(file) {
             if (!file) throw new Error('缺少文件');
+            const filename = (file.name || '').toLowerCase();
+            if (filename.endsWith('.doc') || filename.endsWith('.wps')) {
+                throw new Error('前端模式不支持 .doc/.wps 格式，请使用 .docx 格式，或在后端模式下运行');
+            }
             const arrayBuffer = await file.arrayBuffer();
             return mammoth.extractRawText({ arrayBuffer });
         },
@@ -1118,6 +1122,10 @@ function createGovHelper(logLines, uploadedFiles) {
          */
         async parseWordStructure(file, options = {}) {
             if (!file) throw new Error('缺少文件');
+            const filename = (file.name || '').toLowerCase();
+            if (filename.endsWith('.doc') || filename.endsWith('.wps')) {
+                throw new Error('前端模式不支持 .doc/.wps 格式，请使用 .docx 格式，或在后端模式下运行');
+            }
             const arrayBuffer = await file.arrayBuffer();
             
             // 使用 PizZip 直接从 XML 提取文本（与后端 runner 一致）

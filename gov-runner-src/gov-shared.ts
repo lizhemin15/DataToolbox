@@ -112,6 +112,12 @@ export function govCsvEscapeCell(val: unknown): string {
 
 // ==================== 纯函数：Word 文档解析 ====================
 
+/**
+ * ⚠️ DEPRECATED: 此简化版缺少 splitInlineTitleContent、buildTree、sectionsFlat 等功能，
+ * 与前端 script-ontology.js / runner.ts 中内联的完整版严重不一致。
+ * 请使用 runner.ts 中的 parseWordStructure（内联完整版）或前端 script-ontology.js 的版本。
+ * 此函数保留仅为向后兼容，不建议新代码使用。
+ */
 export function govParseWordStructure(text: string, options: { maxTextLength?: number } = {}): {
   title: string;
   sections: Array<{ level: number; title: string; paragraphs: string[] }>;
