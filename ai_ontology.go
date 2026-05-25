@@ -851,6 +851,10 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 			},
 		},
 		"temperature": 0.1,
+		// chat_type=normal 确保思考模型（如 Qwen3.5 via SiliconFlow）正常返回 content，
+		// 而非将思考过程放入 reasoning_content 导致 content 为空。
+		// 此参数对非思考模型无影响，对不支持此参数的 API 会被忽略。
+		"chat_type": "normal",
 	}
 
 	// 如果支持JSON模式且需要结构化输出，启用JSON模式
@@ -937,6 +941,16 @@ func callAIServiceWithCapabilities(config *AIConfig, capabilities *AICapabilitie
 	if choices, ok := result["choices"].([]interface{}); ok && len(choices) > 0 {
 		if choice, ok := choices[0].(map[string]interface{}); ok {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].(string); ok && content != "" {
+					return content, nil
+				}
+				// 思考模型（如 Qwen3.5 via SiliconFlow）默认可能将思考过程放入 reasoning_content，
+				// 而 content 为空。这种情况下 reasoning_content 包含的是原始 prompt 而非模型回复，
+				// 不能直接使用。需要通过 chat_type=normal 参数让模型正确返回 content。
+				// 此处仅记录日志，返回空 content 让调用方知道
+				if reasoningContent, ok := message["reasoning_content"].(string); ok && reasoningContent != "" {
+					log.Printf("[AI Service] 警告: content 为空但 reasoning_content 有内容(长度=%d)，可能是思考模型未正确配置 chat_type 参数", len(reasoningContent))
+				}
 				if content, ok := message["content"].(string); ok {
 					return content, nil
 				}
