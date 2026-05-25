@@ -171,6 +171,13 @@ jobs:
             echo "Copied components directory"
           fi
 
+          # 复制治理脚本目录（治理任务运行时需要这些脚本）
+          if [ -d "scripts" ]; then
+            mkdir -p package/scripts
+            cp scripts/*.js package/scripts/
+            echo "Copied governance scripts directory"
+          fi
+
           # 复制 assets 目录（地图 GeoJSON 等静态资源）
           if [ -d "assets" ]; then
             mkdir -p package/assets

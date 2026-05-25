@@ -1545,14 +1545,16 @@ func syncGovernancePresetExamplesFromEmbed(includeJS bool) int {
 			t.ExampleFiles = append([]GovernanceExampleFile(nil), def.ExampleFiles...)
 			changed = true
 		}
-		if t.CronExpr != def.CronExpr {
+		if t.CronExpr != def.CronExpr && def.CronExpr != "" {
 			t.CronExpr = def.CronExpr
 			changed = true
 		}
-		if t.Enabled != def.Enabled {
-			t.Enabled = def.Enabled
-			changed = true
-		}
+		// Enabled 是用户运行时状态，不应被预置定义覆盖
+		// （预置中 Enabled 默认为 false，会覆盖用户手动启用）
+		// if t.Enabled != def.Enabled {
+		// 	t.Enabled = def.Enabled
+		// 	changed = true
+		// }
 		if includeJS && def.JsCode != "" {
 			if t.JsCode != def.JsCode {
 				t.JsCode = def.JsCode
