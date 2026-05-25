@@ -2444,7 +2444,7 @@ var (
 // getSFTPSession 线程安全地获取并刷新会话最后使用时间
 
 // handleGovernanceTaskAPI 处理注册为 API 的治理任务调用
-// 路由: POST /api/tasks/{api_path}
+// 路由: POST /api/v1/gov/task-api/{api_path}
 func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -2461,7 +2461,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// 提取 api_path
-	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/gov/tasks/"), "/")
+	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/gov/task-api/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "缺少API路径"})
 		return
