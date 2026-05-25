@@ -988,7 +988,8 @@ function createGovHelper(logLines, uploadedFiles) {
                 docxFile = new File([blob], baseName + '.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
             }
             const arrayBuffer = await docxFile.arrayBuffer();
-            return mammoth.extractRawText({ arrayBuffer });
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return { value: result.value };
         },
         async querySQL(sql, params) {
             if (!dbId) throw new Error('请先选择治理任务关联的数据库');

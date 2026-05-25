@@ -1241,7 +1241,7 @@ export function createGovHelper(
 
       const sectionTree = buildTree(sections);
 
-      return { title, sections: sectionTree, sectionsFlat: sections, tables, rawText };
+      return { title, sections: sectionTree, sectionsFlat: sections, tables, rawText: text };
     },
 
     treeToJSON(nodes: any[], options: { baseIndent?: number; paragraphsKey?: string } = {}): any[] {
