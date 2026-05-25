@@ -703,6 +703,7 @@ export function createGovHelper(
     },
 
     async callAI(prompt: string): Promise<string> {
+      // AI 生成可能较慢，给180秒超时（比默认60秒长，避免大prompt超时中断）
       const resp = await _fetchWithTimeout(`${apiBase}/api/v1/agent/completion`, {
         method: 'POST',
         headers: { 
@@ -710,7 +711,7 @@ export function createGovHelper(
           'Content-Type': 'application/json' 
         },
         body: JSON.stringify({ prompt })
-      });
+      }, 180000);
       const data = await resp.json();
       if (!data.success) throw new Error(data.message || 'AI 调用失败');
       return data.content || '';

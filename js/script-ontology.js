@@ -996,11 +996,12 @@ function createGovHelper(logLines, uploadedFiles) {
         },
         // 调用 AI 接口；会自动携带 AI 配置的 URL/API Key/超时等参数
         async callAI(prompt) {
+            // AI 生成可能较慢，给180秒超时（与后端runner一致）
             const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
-            });
+            }, 180000);
             const data = await resp.json();
             if (!data.success) throw new Error(data.message || 'AI 调用失败');
             return data.content || '';
