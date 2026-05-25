@@ -11,7 +11,295 @@ import Docxtemplater from 'docxtemplater';
 import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure } from './gov-shared';
 
 /**
- * 处理富文本格式：**加粗**、[f:字体,s:字号]文字、>首行缩进
+ * 检查数据中是否包含格式标记（与前端 _hasFormatMarkers 一致）
+ */
+function hasFormatMarkers(data: any): boolean {
+  if (!data || typeof data !== 'object') return false;
+  for (const value of Object.values(data)) {
+    if (typeof value === 'string') {
+      if (value.includes('**') || value.startsWith('>') || value.includes('[f:')) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 解析格式化文本语法（与前端 parseFormatText 一致）
+ * 支持语法：
+ *   **文字** - 加粗
+ *   >文字 - 首行缩进 2 字符
+ *   [f:字体,s:字号] - 指定字体和字号
+ */
+function parseFormatText(str: string, defaultFont: { name: string; size: number } | null = null): {
+  text: string; bold: Array<[number, number]>; indent: boolean;
+  fonts: Array<[number, number, string, number]>;
+  defaultFont: { name: string; size: number };
+} {
+  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
+
+  let indent = false;
+  let text = str;
+
+  // 检测首行缩进语法（行首的 >）
+  if (text.startsWith('>')) {
+    indent = true;
+    text = text.slice(1);
+  }
+
+  // 解析字体字号标记 [f:字体,s:字号]
+  const fontMarkers: Array<{ markerStart: number; markerLength: number; fontName: string; fontSize: number; contentLength: number }> = [];
+  const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
+  let fontMatch;
+  while ((fontMatch = fontRegex.exec(text)) !== null) {
+    const fontName = fontMatch[1].trim();
+    const fontSize = parseInt(fontMatch[2], 10);
+    const markerStart = fontMatch.index;
+    const markerLength = fontMatch[0].length;
+    const afterMarker = text.slice(markerStart + markerLength);
+    const nextMarker = afterMarker.search(/\[f:|$/);
+    const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
+    fontMarkers.push({ markerStart, markerLength, fontName, fontSize, contentLength });
+  }
+
+  // 移除字体标记，计算最终文本
+  let textWithoutFontMarkers = text.replace(fontRegex, '');
+
+  // 计算字体标记在移除标记后的文本中的位置
+  const fonts: Array<[number, number, string, number]> = [];
+  let offsetAdjustment = 0;
+  for (const marker of fontMarkers) {
+    const adjustedStart = marker.markerStart - offsetAdjustment;
+    fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
+    offsetAdjustment += marker.markerLength;
+  }
+
+  // 解析加粗语法 **文字**
+  const bold: Array<[number, number]> = [];
+  const result: string[] = [];
+  let idx = 0;
+  text = textWithoutFontMarkers;
+  while (idx < text.length) {
+    if (text[idx] === '*' && text[idx + 1] === '*') {
+      const end = text.indexOf('**', idx + 2);
+      if (end !== -1) {
+        const boldText = text.slice(idx + 2, end);
+        const startOffset = result.length;
+        result.push(boldText);
+        bold.push([startOffset, startOffset + boldText.length]);
+        idx = end + 2;
+      } else {
+        result.push(text[idx]);
+        idx++;
+      }
+    } else {
+      result.push(text[idx]);
+      idx++;
+    }
+  }
+
+  const finalText = result.join('');
+
+  // 调整字体位置（因为加粗标记也被移除了）
+  const adjustedFonts = fonts.map(([start, end, name, size]) => {
+    let boldAdjustment = 0;
+    for (const [boldStart, boldEnd] of bold) {
+      if (boldStart <= start) boldAdjustment += 2;
+      if (boldEnd <= end) boldAdjustment += 2;
+    }
+    return [start - boldAdjustment, end - boldAdjustment, name, size] as [number, number, string, number];
+  });
+
+  return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
+}
+
+/**
+ * 预处理数据中的格式标记（与前端 _processFormatData 一致）
+ * 返回处理后的纯文本数据和格式映射
+ */
+function processFormatData(data: any, defaultFont: { name: string; size: number } | null = null): { data: any; formatMap: Record<string, any> } {
+  if (!data || typeof data !== 'object') return { data, formatMap: {} };
+
+  const formatMap: Record<string, any> = {};
+  const processedData: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'string' && (value.includes('**') || value.startsWith('>') || value.includes('[f:'))) {
+      const parsed = parseFormatText(value, defaultFont);
+      processedData[key] = parsed.text;
+      formatMap[key] = parsed;
+    } else {
+      processedData[key] = value;
+    }
+  }
+
+  return { data: processedData, formatMap };
+}
+
+/**
+ * 根据格式信息拆分文本（与前端 _splitTextByFormat 一致）
+ */
+function splitTextByFormat(text: string, format: any): Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> {
+  const segments: Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> = [];
+  const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
+
+  // 创建文本位置到格式的映射
+  const formatPosMap = new Map<number, { fontName: string; fontSize: number }>();
+  if (format.fonts && format.fonts.length > 0) {
+    for (const [start, end, fontName, fontSize] of format.fonts as Array<[number, number, string, number]>) {
+      for (let i = start; i < end; i++) {
+        formatPosMap.set(i, { fontName, fontSize });
+      }
+    }
+  }
+
+  // 映射加粗信息
+  const boldSet = new Set<number>();
+  if (format.bold && format.bold.length > 0) {
+    for (const [start, end] of format.bold as Array<[number, number]>) {
+      for (let i = start; i < end; i++) {
+        boldSet.add(i);
+      }
+    }
+  }
+
+  if (text.length === 0) return segments;
+
+  let currentSegment = {
+    text: '',
+    bold: boldSet.has(0),
+    fontName: formatPosMap.has(0) ? formatPosMap.get(0)!.fontName : defaultFont.name,
+    fontSize: formatPosMap.has(0) ? formatPosMap.get(0)!.fontSize : defaultFont.size
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const charBold = boldSet.has(i);
+    const charFont = formatPosMap.has(i) ? formatPosMap.get(i)! : defaultFont;
+
+    if (charBold !== currentSegment.bold ||
+        charFont.fontName !== currentSegment.fontName ||
+        charFont.fontSize !== currentSegment.fontSize) {
+      if (currentSegment.text.length > 0) {
+        segments.push(currentSegment);
+      }
+      currentSegment = {
+        text: text[i],
+        bold: charBold,
+        fontName: charFont.fontName,
+        fontSize: charFont.fontSize
+      };
+    } else {
+      currentSegment.text += text[i];
+    }
+  }
+
+  if (currentSegment.text.length > 0) {
+    segments.push(currentSegment);
+  }
+
+  return segments;
+}
+
+/**
+ * 对 docx XML 应用格式化（与前端 _applyDocxFormatting 一致，但用正则代替 DOMParser）
+ * 支持：加粗、字体标记、首行缩进、szCs
+ */
+function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>): string {
+  if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
+
+  // 查找所有匹配的格式规则
+  const findMatchedFormat = (textContent: string): any | null => {
+    for (const [key, format] of Object.entries(formatMap)) {
+      if (textContent.includes(format.text)) {
+        return format;
+      }
+    }
+    return null;
+  };
+
+  // 处理每个 <w:p> 段落
+  return xmlContent.replace(/<w:p[^>]*>([\s\S]*?)<\/w:p>/g, (pMatch, pContent) => {
+    let modifiedP = pContent;
+    let hasModification = false;
+    let indentApplied = false;
+
+    // 处理段落中的 <w:r> 元素
+    modifiedP = modifiedP.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
+      const rawText = unescapeXml(text);
+      const matchedFormat = findMatchedFormat(rawText);
+      if (!matchedFormat) return rMatch;
+
+      hasModification = true;
+      const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
+
+      // 处理首行缩进 — 需要在段落级别添加，标记以便外层处理
+      if (matchedFormat.indent && !indentApplied) {
+        indentApplied = true;
+      }
+
+      const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
+      const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
+
+      if (hasBold || hasFonts) {
+        // 拆分成多个 <w:r> 节点
+        const segments = splitTextByFormat(rawText, matchedFormat);
+        const runs = segments.map(seg => {
+          let runXml = '<w:r><w:rPr>';
+          // 字体
+          runXml += `<w:rFonts w:ascii="${seg.fontName}" w:eastAsia="${seg.fontName}" w:hAnsi="${seg.fontName}"/>`;
+          // 字号
+          runXml += `<w:sz w:val="${seg.fontSize * 2}"/>`;
+          runXml += `<w:szCs w:val="${seg.fontSize * 2}"/>`;
+          // 加粗
+          if (seg.bold) {
+            runXml += '<w:b/>';
+          }
+          runXml += '</w:rPr>';
+          // 文本
+          runXml += `<w:t${seg.text.startsWith(' ') || seg.text.endsWith(' ') ? ' xml:space="preserve"' : ''}>${escapeXml(seg.text)}</w:t>`;
+          runXml += '</w:r>';
+          return runXml;
+        });
+        return runs.join('');
+      } else {
+        // 只设置默认字体
+        let newRPr = '<w:rPr>';
+        newRPr += `<w:rFonts w:ascii="${defaultFont.name}" w:eastAsia="${defaultFont.name}" w:hAnsi="${defaultFont.name}"/>`;
+        newRPr += `<w:sz w:val="${defaultFont.size * 2}"/>`;
+        newRPr += `<w:szCs w:val="${defaultFont.size * 2}"/>`;
+        newRPr += '</w:rPr>';
+        return `<w:r>${newRPr}<w:t${rawText.startsWith(' ') || rawText.endsWith(' ') ? ' xml:space="preserve"' : ''}>${escapeXml(rawText)}</w:t></w:r>`;
+      }
+    });
+
+    // 处理首行缩进：在 <w:pPr> 中添加 <w:ind w:firstLine="640"/>
+    if (indentApplied) {
+      if (modifiedP.includes('<w:pPr>')) {
+        // 已有 pPr，检查是否有 ind
+        if (modifiedP.includes('<w:ind')) {
+          // 已有 ind，添加 firstLine 属性
+          modifiedP = modifiedP.replace(/<w:ind([^>]*)\/?>/g, (indMatch: string, attrs: string) => {
+            if (attrs.includes('w:firstLine')) return indMatch;
+            return `<w:ind${attrs} w:firstLine="640"/>`;
+          });
+        } else {
+          // 没有 ind，在 pPr 中添加
+          modifiedP = modifiedP.replace('<w:pPr>', '<w:pPr><w:ind w:firstLine="640"/>');
+        }
+      } else {
+        // 没有 pPr，创建一个
+        modifiedP = `<w:pPr><w:ind w:firstLine="640"/></w:pPr>` + modifiedP;
+      }
+    }
+
+    return `<w:p>${modifiedP}</w:p>`;
+  });
+}
+
+/**
+ * 旧版 processRichTextFormatting 保留作为 fallback（不含首行缩进和 szCs）
+ * @deprecated 使用 applyDocxFormatting 替代
  */
 function processRichTextFormatting(xml: string): string {
   // 找到所有包含 ** 或 [f: 的 <w:r> 元素，并替换其中的内容
@@ -225,9 +513,9 @@ export interface GovHelper {
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
-  fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont?: { name: string; size: number } | null): Promise<void>;
+  fillWordTemplate(templateFile: FileLike | string, data: any, outputFilename: string, defaultFont?: { name: string; size: number } | null): Promise<void>;
   writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
-  fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string): Promise<void>;
+  fillExcelTemplate(templateFile: FileLike | string, data: any, outputFilename: string): Promise<void>;
   writeCSV(filename: string, data: any[][]): void;
   writeText(filename: string, content: string): void;
   writeJSON(filename: string, data: any): void;
@@ -249,9 +537,24 @@ export interface GovHelper {
 export function createGovHelper(
   ctx: GovContext,
   logLines: string[],
-  outputFiles: GovOutputFile[]
+  outputFiles: GovOutputFile[],
+  inputFiles: FileLike[] = []
 ): GovHelper {
   const { apiBase, token, databaseId, dbType, databases } = ctx;
+
+  /**
+   * 解析模板文件参数（与前端 _resolveGovTemplateFile 一致）
+   * 支持传入字符串文件名，从上传文件列表中查找
+   */
+  function _resolveGovTemplateFile(templateFile: FileLike | string): FileLike {
+    if (typeof templateFile !== 'string') return templateFile as FileLike;
+    const name = (templateFile as string).trim();
+    if (!name) throw new Error('模板文件名不能为空');
+    const found = inputFiles.find(f => f && f.name === name)
+      || inputFiles.find(f => f && (f.name.endsWith(name) || name.endsWith(f.name)));
+    if (found) return found;
+    throw new Error(`模板文件 ${name} 在上传列表中未找到，请确保 File 对象可用`);
+  }
 
   async function _runSQL(dbId: string, sql: string, params: any[] = []): Promise<any> {
     const resp = await fetch(`${apiBase}/api/v1/gov/execute-sql`, {
@@ -331,14 +634,8 @@ export function createGovHelper(
       const isDocx = filename.endsWith('.docx');
       const isDoc = filename.endsWith('.doc') || filename.endsWith('.wps');
       
-      let docxBuffer: Buffer;
-      
-      if (isDocx) {
-        // 直接使用 docx
-        docxBuffer = buf;
-      } else if (isDoc) {
+      if (isDoc) {
         // .doc 或 .wps 格式，需要转换为 docx
-        // 写入临时文件
         const fs = await import('fs');
         const path = await import('path');
         const os = await import('os');
@@ -346,56 +643,29 @@ export function createGovHelper(
         
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-convert-'));
         const inputFile = path.join(tmpDir, file.name);
-        // LibreOffice 输出文件名是原文件名加 .docx
         const baseName = file.name.replace(/\.[^.]+$/, '');
         const outputFile = path.join(tmpDir, `${baseName}.docx`);
         
         try {
           fs.writeFileSync(inputFile, buf);
-          
-          // 用 LibreOffice 转换
           execSync(`soffice --headless --convert-to docx "${inputFile}" --outdir "${tmpDir}"`, {
             timeout: 30000,
             stdio: 'pipe'
           });
-          
-          docxBuffer = fs.readFileSync(outputFile);
+          const docxBuf = fs.readFileSync(outputFile);
+          // 用 mammoth 提取文本（与前端一致）
+          const result = await mammoth.extractRawText({ buffer: docxBuf });
+          return { value: result.value };
         } finally {
-          // 清理临时文件
-          try {
-            fs.rmSync(tmpDir, { recursive: true });
-          } catch {}
+          try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
         }
+      } else if (isDocx) {
+        // 直接用 mammoth 提取文本（与前端一致）
+        const result = await mammoth.extractRawText({ buffer: buf });
+        return { value: result.value };
       } else {
         throw new Error(`不支持的文件格式: ${file.name}`);
       }
-      
-      // 解析 docx（zip 包）
-      const zip = new PizZip(docxBuffer);
-      // docx 是 zip 包，文档内容在 word/document.xml
-      const docXml = zip.file('word/document.xml');
-      if (!docXml) throw new Error('无效的 docx 文件: 缺少 word/document.xml');
-      const xml = docXml.asText() || '';
-      
-      // 按段落提取文本（每个 <w:p> 对应一个段落，用换行分隔）
-      // 这样 parseWordStructure 才能正确解析章节结构
-      const paragraphRegex = /<w:p[^>]*>([\s\S]*?)<\/w:p>/g;
-      const paragraphs: string[] = [];
-      let match;
-      while ((match = paragraphRegex.exec(xml)) !== null) {
-        const pXml = match[1];
-        // 提取段落内所有 <w:t> 标签的文本
-        const tMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-        const text = tMatches.map(m => {
-          const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
-          return m2 ? m2[1] : '';
-        }).join('');
-        if (text.trim()) {
-          paragraphs.push(text);
-        }
-      }
-      const value = paragraphs.join('\n');
-      return { value };
     },
 
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
@@ -434,27 +704,40 @@ export function createGovHelper(
       return data.content || '';
     },
 
-    async fillWordTemplate(templateFile: FileLike, data: any, outputFilename: string, defaultFont: { name: string; size: number } | null = null) {
+    async fillWordTemplate(templateFile: FileLike | string, data: any, outputFilename: string, defaultFont: { name: string; size: number } | null = null) {
       const effectiveDefaultFont = defaultFont || { name: '仿宋_GB2312', size: 16 };
-      if (!templateFile) throw new Error('未提供模板文件');
-      const buf = Buffer.from(await templateFile.arrayBuffer());
+      const fileObj = _resolveGovTemplateFile(templateFile);
+      if (!fileObj) throw new Error('未提供模板文件');
+      const buf = Buffer.from(await fileObj.arrayBuffer());
       const zip = new PizZip(buf);
+
+      // 检查是否有格式标记（与前端一致：先预处理 data）
+      const hasFormatting = hasFormatMarkers(data);
+      let processedData = data;
+      let fmtMap: Record<string, any> = {};
+
+      if (hasFormatting) {
+        const processed = processFormatData(data, effectiveDefaultFont);
+        processedData = processed.data;
+        fmtMap = processed.formatMap;
+      }
+
       const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-      doc.setData(data || {});
+      doc.setData(processedData || {});
       doc.render();
-      
+
       // 获取生成的文档内容
       const generatedZip = doc.getZip();
-      let documentXml = generatedZip.file('word/document.xml')?.asText();
-      
-      if (documentXml) {
-        // 处理富文本格式
-        documentXml = processRichTextFormatting(documentXml);
-        
-        // 更新 zip 中的 document.xml
-        generatedZip.file('word/document.xml', documentXml);
+
+      // 如果有格式标记，后处理 XML（与前端一致）
+      if (hasFormatting && Object.keys(fmtMap).length > 0) {
+        const documentXml = generatedZip.file('word/document.xml')?.asText();
+        if (documentXml) {
+          const formattedXml = applyDocxFormatting(documentXml, fmtMap);
+          generatedZip.file('word/document.xml', formattedXml);
+        }
       }
-      
+
       const out = generatedZip.generate({ type: 'nodebuffer' }) as Buffer;
       const base = outputFilename || 'output.docx';
       const name = /\.docx$/i.test(base) ? base : `${base}.docx`;
@@ -483,11 +766,12 @@ export function createGovHelper(
       logLines.push(`已生成输出文件: ${outName}`);
     },
 
-    async fillExcelTemplate(templateFile: FileLike, data: any, outputFilename: string) {
-      if (!templateFile) throw new Error('未提供模板文件');
+    async fillExcelTemplate(templateFile: FileLike | string, data: any, outputFilename: string) {
+      const fileObj = _resolveGovTemplateFile(templateFile);
+      if (!fileObj) throw new Error('未提供模板文件');
       if (!data || typeof data !== 'object') throw new Error('data 须为对象');
       const wb = await (async () => {
-        const arrayBuffer = await templateFile.arrayBuffer();
+        const arrayBuffer = await fileObj.arrayBuffer();
         const u8 = new Uint8Array(arrayBuffer);
         const w = XLSX.read(u8, { type: 'array' });
         if (!w || !w.SheetNames || w.SheetNames.length === 0) {
@@ -533,11 +817,10 @@ export function createGovHelper(
     writeText(filename: string, content: string) {
       if (!filename) throw new Error('未提供文件名');
       const text = content === undefined || content === null ? '' : String(content);
-      const base = filename;
-      const outName = /\.txt$/i.test(base) ? base : `${base}.txt`;
+      // 与前端一致：不自动追加 .txt 后缀
       const buf = Buffer.from(text, 'utf8');
-      outputFiles.push({ name: outName, content_base64: buf.toString('base64') });
-      logLines.push(`已生成输出文件: ${outName}`);
+      outputFiles.push({ name: filename, content_base64: buf.toString('base64') });
+      logLines.push(`已生成输出文件: ${filename}`);
     },
 
     writeJSON(filename: string, data: any) {
@@ -584,7 +867,7 @@ export function createGovHelper(
 
     /**
      * 解析 Word 文档结构，识别公文格式的标题层级、段落、表格等。
-     * 从前端 script.js 移植
+     * 与前端 script-ontology.js parseWordStructure 保持一致
      */
     async parseWordStructure(file: FileLike, options: { maxTextLength?: number } = {}) {
       if (!file) throw new Error('缺少文件');
@@ -597,7 +880,6 @@ export function createGovHelper(
       const isDoc = filename.endsWith('.doc') || filename.endsWith('.wps');
       
       if (isDoc) {
-        // .doc 或 .wps 格式，需要转换为 docx
         const fs = await import('fs');
         const path = await import('path');
         const os = await import('os');
@@ -605,25 +887,18 @@ export function createGovHelper(
         
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-convert-'));
         const inputFile = path.join(tmpDir, file.name);
-        // LibreOffice 输出文件名是原文件名加 .docx
         const baseName = file.name.replace(/\.[^.]+$/, '');
         const outputFile = path.join(tmpDir, `${baseName}.docx`);
         
         try {
           fs.writeFileSync(inputFile, buf);
-          
-          // 用 LibreOffice 转换
           execSync(`soffice --headless --convert-to docx "${inputFile}" --outdir "${tmpDir}"`, {
             timeout: 30000,
             stdio: 'pipe'
           });
-          
           buf = fs.readFileSync(outputFile);
         } finally {
-          // 清理临时文件
-          try {
-            fs.rmSync(tmpDir, { recursive: true });
-          } catch {}
+          try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
         }
       } else if (!isDocx) {
         throw new Error(`不支持的文件格式: ${file.name}`);
@@ -643,7 +918,6 @@ export function createGovHelper(
       let pMatch;
       while ((pMatch = paragraphRegex.exec(xml)) !== null) {
         const pXml = pMatch[1];
-        // 提取段落内所有 <w:t> 标签的文本
         const tMatches = pXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
         const text = tMatches.map((m: string) => {
           const m2 = m.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
@@ -658,27 +932,52 @@ export function createGovHelper(
       const maxLen = options.maxTextLength || 50000;
       const text = rawText.length > maxLen ? rawText.slice(0, maxLen) : rawText;
 
-      // ===== 扩展公文标题正则模式 =====
+      // ===== 扩展公文标题正则模式（与前端一致） =====
       const titlePatterns = [
-        /^[一二三四五六七八九十]+、[^\n]+/,
-        /^（[一二三四五六七八九十]+）[^\n]+/,
-        /^\d+[\.、．：][^\n]+/,
-        /^（\d+）[^\n]+/,
-        /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/,
-        /^第[一二三四五六七八九十\d]+章[^\n]*/,
-        /^第[一二三四五六七八九十\d]+条[^\n]*/,
-        /^[•●○◆■★][\s　][^\n]+/,
-        /^[\u25A0\u25B2\u25CB\u25CF][\s　][^\n]+/,
-        /^[\d]+\.[\s　]+[^\n]+/,
-        /^[\\(（]?[a-zA-Z0-9]+[\\)）]?[\.、：\s　]+[^\n]+/
+        /^[一二三四五六七八九十]+、[^\n]+/,                    // 一、标题
+        /^（[一二三四五六七八九十]+）[^\n]+/,                  // （一）标题
+        /^\d+[\.、．：][^\n]+/,                                 // 1. 标题 或 1、标题
+        /^（\d+）[^\n]+/,                                      // （1）标题
+        /^[（\(][一二三四五六七八九十\d]+[）\)][^\n]+/,        // 混合括号
+        /^第[一二三四五六七八九十\d]+章[^\n]*/,                // 第一章、第二章
+        /^第[一二三四五六七八九十\d]+条[^\n]*/,                // 第1条、第2条
+        /^[•●○◆■★][\s　][^\n]+/,                             // • xxx 无序列表
+        /^[\u25A0\u25B2\u25CB\u25CF][\s　][^\n]+/,            // ■ ★ ◆ ● ○ 无序列表变体
+        /^[\d]+\.[\s　]+[^\n]+/,                              // 1. xxx 数字点开头
+        /^[\(（]?[a-zA-Z0-9]+[\)）]?[\.、：\s　]+[^\n]+/       // a. A. (1) 等字母数字编号
       ];
+
+      // 无序列表符号模式（用于识别内容行）
+      const bulletPattern = /^[•●○◆■★\u25A0\u25B2\u25CB\u25CF][\s　]+(.+)$/;
+
+      // 冒号内联标题拆分函数（与前端 splitInlineTitleContent 一致）
+      function splitInlineTitleContent(prefix: string, rest: string): { title: string; paragraphs: string[] } {
+        const restText = (rest || '').trim();
+        if (!restText) {
+          return { title: prefix, paragraphs: [] };
+        }
+        const colonIndex = restText.search(/[：:]/);
+        if (colonIndex > 0) {
+          const titlePart = restText.slice(0, colonIndex).trim();
+          const contentPart = restText.slice(colonIndex + 1).trim();
+          return {
+            title: `${prefix}${titlePart}`,
+            paragraphs: contentPart ? [contentPart] : []
+          };
+        }
+        return {
+          title: `${prefix}${restText}`,
+          paragraphs: []
+        };
+      }
 
       const lines = text.split(/\r?\n/).map((l: string) => l.trim()).filter((l: string) => l.length > 0);
       const sections: any[] = [];
+      const tables: any[] = [];
       let currentSection: any = null;
       let title = '';
 
-      // 尝试识别文档标题
+      // 尝试识别文档标题（第一个非空行，通常是大标题）
       for (let i = 0; i < Math.min(10, lines.length); i++) {
         const line = lines[i];
         if (line && line.length > 2 && line.length < 100) {
@@ -696,8 +995,9 @@ export function createGovHelper(
         }
       }
 
-      // 解析章节
-      for (const line of lines) {
+      // 解析章节和段落（与前端逻辑完全一致）
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
         if (!line) continue;
 
         // 检测一级标题：一、二、三、
@@ -716,23 +1016,25 @@ export function createGovHelper(
           continue;
         }
 
-        // 检测三级标题：1. 2.
+        // 检测三级标题：1. 2. 或 1、2、（带冒号内联标题拆分）
         const m3 = line.match(/^(\d+)([\.、．])(.*)$/);
         if (m3) {
           if (currentSection) sections.push(currentSection);
-          currentSection = { level: 3, title: `${m3[1]}${m3[2]}${(m3[3] || '').trim()}`.trim(), paragraphs: [] };
+          const inline = splitInlineTitleContent(`${m3[1]}${m3[2]}`, m3[3]);
+          currentSection = { level: 3, title: inline.title, paragraphs: inline.paragraphs };
           continue;
         }
 
-        // 检测四级标题：（1）（2）
+        // 检测四级标题：（1）（2）（带冒号内联标题拆分）
         const m4 = line.match(/^（(\d+)）(.*)$/);
         if (m4) {
           if (currentSection) sections.push(currentSection);
-          currentSection = { level: 4, title: `（${m4[1]}）${(m4[2] || '').trim()}`.trim(), paragraphs: [] };
+          const inline = splitInlineTitleContent(`（${m4[1]}）`, m4[2]);
+          currentSection = { level: 4, title: inline.title, paragraphs: inline.paragraphs };
           continue;
         }
 
-        // 检测第一章、第二章
+        // 检测第一章、第二章...（阿拉伯数字章节）
         const mChapter = line.match(/^第(\d+)章[：:\s]*(.*)$/);
         if (mChapter) {
           if (currentSection) sections.push(currentSection);
@@ -740,66 +1042,156 @@ export function createGovHelper(
           continue;
         }
 
-        // 检测第1条、第2条
-        const mArticle = line.match(/^第(\d+)条[：:\s]*(.*)$/);
-        if (mArticle) {
+        // 检测第一章、第二章...（中文数字章节）
+        const mChapterCN = line.match(/^第([一二三四五六七八九十]+)章[：:\s]*(.*)$/);
+        if (mChapterCN) {
           if (currentSection) sections.push(currentSection);
-          currentSection = { level: 1, title: `第${mArticle[1]}条 ${(mArticle[2] || '').trim()}`.trim(), paragraphs: [] };
+          currentSection = { level: 1, title: `第${mChapterCN[1]}章 ${(mChapterCN[2] || '').trim()}`.trim(), paragraphs: [] };
           continue;
         }
 
-        // 如果没有匹配任何标题模式，作为段落添加
-        if (currentSection) {
-          currentSection.paragraphs.push(line);
+        // 检测第1条、第2条...（阿拉伯数字条目）→ level 2
+        const mArticle = line.match(/^第(\d+)条[：:\s]*(.*)$/);
+        if (mArticle) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 2, title: `第${mArticle[1]}条 ${(mArticle[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
         }
-      }
 
-      if (currentSection) sections.push(currentSection);
-
-      // 将扁平结构转换为树形结构
-      // 使用栈算法：维护当前路径上的父节点
-      const tree: any[] = [];
-      const stack: { level: number; node: any }[] = [];
-      
-      for (const section of sections) {
-        const node = { ...section, children: [] };
-        
-        // 弹出所有 level >= 当前 level 的节点
-        while (stack.length > 0 && stack[stack.length - 1].level >= section.level) {
-          stack.pop();
+        // 检测第一条、第二条...（中文数字条目）
+        const mArticleCN = line.match(/^第([一二三四五六七八九十]+)条[：:\s]*(.*)$/);
+        if (mArticleCN) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 2, title: `第${mArticleCN[1]}条 ${(mArticleCN[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
         }
-        
-        if (stack.length === 0) {
-          // 没有父节点，添加到根
-          tree.push(node);
-        } else {
-          // 添加到最近的父节点
-          stack[stack.length - 1].node.children.push(node);
-        }
-        
-        // 当前节点入栈，作为后续节点的潜在父节点
-        stack.push({ level: section.level, node });
-      }
 
-      // 尝试提取表格
-      const tables: any[] = [];
-      const tableXmlMatches = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [];
-      for (const tableXml of tableXmlMatches.slice(0, 20)) {
-        const rows: string[][] = [];
-        const rowMatches = tableXml.match(/<w:tr[\s\S]*?<\/w:tr>/g) || [];
-        for (const rowXml of rowMatches) {
-          const cells: string[] = [];
-          const cellMatches = rowXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || [];
-          for (const cell of cellMatches) {
-            const m = cell.match(/<w:t[^>]*>([^<]*)<\/w:t>/);
-            cells.push(m ? m[1] : '');
+        // 检测无序列表：• xxx（作为内容节点，层级为5）
+        const mBullet = line.match(bulletPattern);
+        if (mBullet) {
+          const bulletContent = mBullet[1] || line;
+          if (currentSection) {
+            currentSection.paragraphs.push(line);
+          } else {
+            if (currentSection) sections.push(currentSection);
+            currentSection = { level: 5, title: bulletContent.trim().slice(0, 50), paragraphs: [line] };
           }
-          if (cells.length > 0) rows.push(cells);
+          continue;
         }
-        if (rows.length > 0) tables.push(rows);
+
+        // 检测半角括号格式：(1) (2)（带冒号内联标题拆分）
+        const mParenHalf = line.match(/^\((\d+)\)[\s]*(.*)$/);
+        if (mParenHalf) {
+          if (currentSection) sections.push(currentSection);
+          const inline = splitInlineTitleContent(`(${mParenHalf[1]})`, mParenHalf[2]);
+          currentSection = { level: 4, title: inline.title, paragraphs: inline.paragraphs };
+          continue;
+        }
+
+        // 检测半角括号格式：(一) (二)
+        const mParenHalfCN = line.match(/^\(([一二三四五六七八九十]+)\)[\s]*(.*)$/);
+        if (mParenHalfCN) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 2, title: `(${mParenHalfCN[1]}) ${(mParenHalfCN[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 检测字母编号：a. b. c. 或 A. B. C.
+        const mLetter = line.match(/^([a-zA-Z])[\.、．：][\s]*(.*)$/);
+        if (mLetter) {
+          if (currentSection) sections.push(currentSection);
+          currentSection = { level: 4, title: `${mLetter[1]}. ${(mLetter[2] || '').trim()}`.trim(), paragraphs: [] };
+          continue;
+        }
+
+        // 非标题行：添加到当前段落
+        if (currentSection) {
+          if (line.length > 0) {
+            currentSection.paragraphs.push(line);
+          }
+        } else {
+          // 还没有遇到标题，可能是前言
+          if (!sections.find((s: any) => s.level === 0)) {
+            sections.push({ level: 0, title: '前言', paragraphs: [line] });
+            currentSection = sections[sections.length - 1];
+          } else if (sections.length > 0) {
+            sections[sections.length - 1].paragraphs.push(line);
+          }
+        }
+
+        // 简单的表格检测：连续包含多个制表符或 | 分隔的行
+        if (line.includes('\t') || line.includes('|')) {
+          const cells = line.split(/[\t|]+/).filter((c: string) => c.trim());
+          if (cells.length >= 2) {
+            const lastTable = tables.length > 0 ? tables[tables.length - 1] : null;
+            if (lastTable && (lastTable as any)._building) {
+              lastTable.rows.push(cells);
+            } else {
+              tables.push({ headers: cells, rows: [] as string[][], _building: true });
+            }
+          }
+        } else {
+          // 结束表格构建
+          if (tables.length > 0) {
+            const lastTable = tables[tables.length - 1];
+            if ((lastTable as any)._building) {
+              delete (lastTable as any)._building;
+            }
+          }
+        }
       }
 
-      return { title, sections: tree, sectionsFlat: sections, tables, rawText };
+      // 保存最后一个 section
+      if (currentSection) {
+        sections.push(currentSection);
+      }
+
+      // 清理表格对象中的临时属性
+      for (const t of tables) {
+        delete (t as any)._building;
+      }
+
+      // ===== 构建树形结构（与前端 buildTree 逻辑一致，含层级自动降级） =====
+      function buildTree(flatSections: any[]): any[] {
+        const root: any = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
+        const bStack: any[] = [root];
+
+        for (const sec of flatSections) {
+          let targetLevel = sec.level;
+          const currentParentLevel = bStack[bStack.length - 1].level;
+
+          // 层级自动降级规则：
+          // - L1 后直接出现 L3 → 降为 L2
+          // - L1 后直接出现 L4 → 降为 L2
+          // - L2 后直接出现 L4 → 降为 L3
+          if (targetLevel > currentParentLevel + 1) {
+            targetLevel = currentParentLevel + 1;
+          }
+
+          sec.level = targetLevel;
+
+          // 弹出栈中 level >= 当前的节点
+          while (bStack.length > 1 && bStack[bStack.length - 1].level >= targetLevel) {
+            bStack.pop();
+          }
+
+          const parent = bStack[bStack.length - 1];
+          const node = {
+            level: sec.level,
+            title: sec.title,
+            paragraphs: sec.paragraphs || [],
+            children: [] as any[]
+          };
+          parent.children.push(node);
+          bStack.push(node);
+        }
+
+        return root.children;
+      }
+
+      const sectionTree = buildTree(sections);
+
+      return { title, sections: sectionTree, sectionsFlat: sections, tables, rawText };
     },
 
     treeToJSON(nodes: any[], options: { baseIndent?: number; paragraphsKey?: string } = {}): any[] {
@@ -867,7 +1259,13 @@ export async function runUserCode(
 ): Promise<{ success: boolean; output: string[]; error?: string; output_files?: GovOutputFile[] }> {
   const logLines: string[] = [];
   const outputFiles: GovOutputFile[] = [];
-  const gov = createGovHelper(ctx, logLines, outputFiles);
+  const gov = createGovHelper(ctx, logLines, outputFiles,
+    options.inputFiles && options.inputFiles.length > 0
+      ? options.inputFiles
+      : options.inputFile
+        ? [options.inputFile]
+        : []
+  );
 
   const inputFiles =
     options.inputFiles && options.inputFiles.length > 0
