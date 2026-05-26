@@ -805,12 +805,14 @@ function createGovHelper(logLines, uploadedFiles) {
                     // 拆分成多个 <w:r> 节点
                     const segments = _splitTextByFormat(rawText, effectiveFormat);
                     const runs = segments.map(seg => {
+                        const fontName = seg.fontName || defaultFont.name;
+                        const fontSize = (typeof seg.fontSize === 'number' && !isNaN(seg.fontSize)) ? seg.fontSize : defaultFont.size;
                         let runXml = '<w:r><w:rPr>';
                         // 字体
-                        runXml += `<w:rFonts w:ascii="${seg.fontName}" w:eastAsia="${seg.fontName}" w:hAnsi="${seg.fontName}"/>`;
+                        runXml += `<w:rFonts w:ascii="${fontName}" w:eastAsia="${fontName}" w:hAnsi="${fontName}"/>`;
                         // 字号
-                        runXml += `<w:sz w:val="${seg.fontSize * 2}"/>`;
-                        runXml += `<w:szCs w:val="${seg.fontSize * 2}"/>`;
+                        runXml += `<w:sz w:val="${fontSize * 2}"/>`;
+                        runXml += `<w:szCs w:val="${fontSize * 2}"/>`;
                         // 加粗
                         if (seg.bold) {
                             runXml += '<w:b/>';
@@ -1074,6 +1076,17 @@ function createGovHelper(logLines, uploadedFiles) {
             const fileObj = await _resolveGovTemplateFile(templateFile);
             const buf = await fileObj.arrayBuffer();
             const zip = new window.PizZip(buf);
+            
+            // 修复模板 XML 中的常见结构问题（WPS 生成的模板可能有嵌套/重复标签）
+            const docXmlEntry = zip.file('word/document.xml');
+            if (docXmlEntry) {
+                let fixedXml = docXmlEntry.asText();
+                // 修复1: 删除连续的 </w:p></w:p>（空嵌套段落）→ 只保留一个 </w:p>
+                fixedXml = fixedXml.replace(/<\/w:p><\/w:p>/g, '</w:p>');
+                // 修复2: </w:r> 后直接跟 <w:p>（内层段落嵌套在外层段落中）→ 补上 </w:p>
+                fixedXml = fixedXml.replace(/<\/w:r><w:p>/g, '</w:r></w:p><w:p>');
+                zip.file('word/document.xml', fixedXml);
+            }
             
             // 检查是否有格式标记
             const hasFormatting = _hasFormatMarkers(data);
