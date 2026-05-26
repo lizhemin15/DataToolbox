@@ -781,7 +781,7 @@ function createGovHelper(logLines, uploadedFiles) {
             let indentApplied = false;
 
             // 处理段落中的 <w:r> 元素
-            modifiedP = modifiedP.replace(/<w:r>(<w:rPr(?:\/>|>[\s\S]*?<\/w:rPr>)?)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
+            modifiedP = modifiedP.replace(/<w:r>\s*(<w:rPr(?:\/>|>[\s\S]*?<\/w:rPr>)?)?\s*<w:t[^>]*>([^<]*)<\/w:t>\s*<\/w:r>/g, (rMatch, rPr, text) => {
                 const rawText = _unescapeXml(text);
                 const matchedFormat = findMatchedFormat(rawText);
                 if (!matchedFormat) return rMatch;
