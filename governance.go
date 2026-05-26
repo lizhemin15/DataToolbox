@@ -716,10 +716,17 @@ func sanitizeGovernanceExampleFilename(s string) string {
 }
 
 func getGovernanceExampleFile(safe string) ([]byte, error) {
-	// 只从磁盘读取，不再使用 embed fallback
+	// 优先从 data/example_files 读取
 	dataDir := filepath.Dir(getDataOntologyStorePath())
 	diskPath := filepath.Join(dataDir, "example_files", safe)
-	return os.ReadFile(diskPath)
+	if data, err := os.ReadFile(diskPath); err == nil {
+		return data, nil
+	}
+	// fallback: 从 apps/data-ontology/example_files 读取
+	exePath, _ := os.Executable()
+	rootDir := filepath.Dir(exePath)
+	fallbackPath := filepath.Join(rootDir, "apps", "data-ontology", "example_files", safe)
+	return os.ReadFile(fallbackPath)
 }
 
 type ExampleFile struct {
@@ -727,10 +734,9 @@ type ExampleFile struct {
 	Size int64  `json:"size"`
 }
 
-// 只从磁盘读取示例文件列表
+// 从磁盘读取示例文件列表，优先 data/example_files，fallback 到 apps/data-ontology/example_files
 func listGovernanceExampleFiles() ([]ExampleFile, error) {
-	dataDir := filepath.Dir(getDataOntologyStorePath())
-	exampleDir := filepath.Join(dataDir, "example_files")
+	exampleDir := getGovernanceExampleDir()
 	var examples []ExampleFile
 	entries, err := os.ReadDir(exampleDir)
 	if err != nil {
@@ -748,6 +754,18 @@ func listGovernanceExampleFiles() ([]ExampleFile, error) {
 		examples = append(examples, ExampleFile{Name: entry.Name(), Size: size})
 	}
 	return examples, nil
+}
+
+// getGovernanceExampleDir 返回示例文件目录，优先 data/example_files，fallback 到 apps/data-ontology/example_files
+func getGovernanceExampleDir() string {
+	dataDir := filepath.Dir(getDataOntologyStorePath())
+	primary := filepath.Join(dataDir, "example_files")
+	if _, err := os.Stat(primary); err == nil {
+		return primary
+	}
+	exePath, _ := os.Executable()
+	rootDir := filepath.Dir(exePath)
+	return filepath.Join(rootDir, "apps", "data-ontology", "example_files")
 }
 
 // handleGovernanceExamplesList GET …/examples 返回示例文件列表
