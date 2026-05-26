@@ -772,9 +772,9 @@ function createGovHelper(logLines, uploadedFiles) {
                 const { format, lineFormat } = lineMatchIndex.get(cleanText);
                 return { ...format, _lineFormat: lineFormat };
             }
-            // 降级：整体 includes（兼容无 lines 数据的旧格式）
+            // 降级：整体精确匹配（严格：要求文本完全相等，避免部分匹配导致格式错乱）
             for (const [key, format] of Object.entries(formatMap)) {
-                if (format.text && cleanText.includes(format.text)) {
+                if (format.text && cleanText === format.text) {
                     return format;
                 }
             }
@@ -893,12 +893,12 @@ function createGovHelper(logLines, uploadedFiles) {
             }
         }
 
-        // 映射加粗信息
+        // 映射加粗信息（跳过超出文本长度的偏移，防止格式错位）
         const boldSet = new Set();
         if (format.bold && format.bold.length > 0) {
             for (const [start, end] of format.bold) {
-                for (let i = start; i < end; i++) {
-                    boldSet.add(i);
+                for (let i = start; i < Math.min(end, text.length); i++) {
+                    if (i >= 0) boldSet.add(i);
                 }
             }
         }
@@ -1501,13 +1501,8 @@ function createGovHelper(logLines, uploadedFiles) {
                         currentSection.paragraphs.push(line);
                     }
                 } else {
-                    // 还没有遇到标题，可能是前言
-                    if (!sections.find(s => s.level === 0)) {
-                        sections.push({ level: 0, title: '前言', paragraphs: [line] });
-                        currentSection = sections[sections.length - 1];
-                    } else if (sections.length > 0) {
-                        sections[sections.length - 1].paragraphs.push(line);
-                    }
+                    // 还没有遇到正式标题，跳过（文档标题已在前面识别为 doc.title）
+                    // 不再创建 "前言" section，避免 level=0 与 ROOT 冲突导致 buildTree 层级错乱
                 }
 
                 // 简单的表格检测：连续包含多个制表符或 | 分隔的行
@@ -1551,7 +1546,7 @@ function createGovHelper(logLines, uploadedFiles) {
             // 将扁平的 sections 数组转换为层级树
             // 支持层级跳跃容错：自动降级处理（L1→L3 变为 L1→L2，L2→L4 变为 L2→L3）
             function buildTree(flatSections) {
-                const root = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
+                const root = { level: 0, title: 'ROOT', children: [], paragraphs: [] };
                 const stack = [root]; // 栈顶是当前父节点
 
                 for (const sec of flatSections) {
