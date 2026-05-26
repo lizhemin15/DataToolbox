@@ -26,21 +26,13 @@ function hasFormatMarkers(data: any): boolean {
 }
 
 /**
- * 解析格式化文本语法（与前端 parseFormatText 一致）
- * 支持语法：
- *   **文字** - 加粗
- *   >文字 - 首行缩进 2 字符
- *   [f:字体,s:字号] - 指定字体和字号
+ * 解析单行格式化文本
  */
-function parseFormatText(str: string, defaultFont: { name: string; size: number } | null = null): {
-  text: string; bold: Array<[number, number]>; indent: boolean;
-  fonts: Array<[number, number, string, number]>;
-  defaultFont: { name: string; size: number };
+function parseSingleLine(line: string, defaultFont: { name: string; size: number }): {
+  text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]>;
 } {
-  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
-
   let indent = false;
-  let text = str;
+  let text = line;
 
   // 检测首行缩进语法（行首的 >）
   if (text.startsWith('>')) {
@@ -63,10 +55,10 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
     fontMarkers.push({ markerStart, markerLength, fontName, fontSize, contentLength });
   }
 
-  // 移除字体标记，计算最终文本
+  // 移除字体标记
   let textWithoutFontMarkers = text.replace(fontRegex, '');
 
-  // 计算字体标记在移除标记后的文本中的位置
+  // 计算字体位置
   const fonts: Array<[number, number, string, number]> = [];
   let offsetAdjustment = 0;
   for (const marker of fontMarkers) {
@@ -85,7 +77,7 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
       const end = text.indexOf('**', idx + 2);
       if (end !== -1) {
         const boldText = text.slice(idx + 2, end);
-        const startOffset = result.length;
+        const startOffset = result.join('').length;
         result.push(boldText);
         bold.push([startOffset, startOffset + boldText.length]);
         idx = end + 2;
@@ -101,7 +93,7 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
 
   const finalText = result.join('');
 
-  // 调整字体位置（因为加粗标记也被移除了）
+  // 调整字体位置
   const adjustedFonts = fonts.map(([start, end, name, size]) => {
     let boldAdjustment = 0;
     for (const [boldStart, boldEnd] of bold) {
@@ -111,7 +103,61 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
     return [start - boldAdjustment, end - boldAdjustment, name, size] as [number, number, string, number];
   });
 
-  return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
+  return { text: finalText, bold, indent, fonts: adjustedFonts };
+}
+
+/**
+ * 解析格式化文本语法（逐行解析，支持多行文本中的独立格式）
+ * 支持语法：
+ *   **文字** - 加粗
+ *   >文字 - 首行缩进 2 字符
+ *   [f:字体,s:字号] - 指定字体和字号
+ *
+ * 返回值说明：
+ *   text: 去除格式标记后的纯文本（保留换行符）
+ *   lines: 按行存储的格式信息，每行独立解析
+ *     - text: 该行纯文本
+ *     - bold: 加粗范围 [[start, end], ...]
+ *     - indent: 该行是否需要首行缩进
+ *     - fonts: 字体范围 [[start, end, name, size], ...]
+ *   bold/indent/fonts: 兼容旧版（仅单行文本时准确）
+ *   defaultFont: 默认字体
+ */
+function parseFormatText(str: string, defaultFont: { name: string; size: number } | null = null): {
+  text: string; bold: Array<[number, number]>; indent: boolean;
+  fonts: Array<[number, number, string, number]>;
+  lines: Array<{ text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]> }>;
+  defaultFont: { name: string; size: number };
+} {
+  const df = defaultFont || { name: '仿宋_GB2312', size: 16 };
+  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], lines: [], defaultFont: df };
+
+  const rawLines = str.split('\n');
+  const lines: Array<{ text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]> }> = [];
+  const allTextParts: string[] = [];
+  const allBold: Array<[number, number]> = [];
+  const allFonts: Array<[number, number, string, number]> = [];
+  let textOffset = 0;
+
+  for (const rawLine of rawLines) {
+    const lineResult = parseSingleLine(rawLine, df);
+    lines.push(lineResult);
+
+    // 合并到全局结果（兼容旧版）
+    allTextParts.push(lineResult.text);
+    for (const [bs, be] of lineResult.bold) {
+      allBold.push([textOffset + bs, textOffset + be]);
+    }
+    for (const [fs, fe, fn, fz] of lineResult.fonts) {
+      allFonts.push([textOffset + fs, textOffset + fe, fn, fz]);
+    }
+    textOffset += lineResult.text.length + 1; // +1 for \n
+  }
+
+  const finalText = allTextParts.join('\n');
+  const firstIndent = lines.length > 0 && lines[0].indent;
+
+  return { text: finalText, bold: allBold, indent: firstIndent, fonts: allFonts, lines, defaultFont: df };
 }
 
 /**
@@ -208,10 +254,28 @@ function splitTextByFormat(text: string, format: any): Array<{ text: string; bol
 function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>): string {
   if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
 
-  // 查找所有匹配的格式规则
+  // 构建逐行匹配索引：lineText → { format, lineFormat }
+  const lineMatchIndex = new Map<string, { format: any; lineFormat: any }>();
+  for (const [key, format] of Object.entries(formatMap)) {
+    if (format.lines && format.lines.length > 0) {
+      for (const lineFormat of format.lines) {
+        if (lineFormat.text && lineFormat.text.length > 0) {
+          lineMatchIndex.set(lineFormat.text, { format, lineFormat });
+        }
+      }
+    }
+  }
+
+  // 查找匹配的格式规则（优先逐行匹配，降级到整体 includes）
   const findMatchedFormat = (textContent: string): any | null => {
+    // 优先：逐行精确匹配
+    if (lineMatchIndex.has(textContent)) {
+      const { format, lineFormat } = lineMatchIndex.get(textContent)!;
+      return { ...format, _lineFormat: lineFormat };
+    }
+    // 降级：整体 includes（兼容无 lines 数据的旧格式）
     for (const [key, format] of Object.entries(formatMap)) {
-      if (textContent.includes(format.text)) {
+      if (format.text && textContent.includes(format.text)) {
         return format;
       }
     }
@@ -225,7 +289,7 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
     let indentApplied = false;
 
     // 处理段落中的 <w:r> 元素
-    modifiedP = modifiedP.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
+    modifiedP = modifiedP.replace(/<w:r>(<w:rPr(?:\/>|>[\s\S]*?<\/w:rPr>)?)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
       const rawText = unescapeXml(text);
       const matchedFormat = findMatchedFormat(rawText);
       if (!matchedFormat) return rMatch;
@@ -233,17 +297,20 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
       hasModification = true;
       const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
 
+      // 使用逐行格式（如果有），否则使用整体格式
+      const effectiveFormat = matchedFormat._lineFormat || matchedFormat;
+
       // 处理首行缩进 — 需要在段落级别添加，标记以便外层处理
-      if (matchedFormat.indent && !indentApplied) {
+      if (effectiveFormat.indent && !indentApplied) {
         indentApplied = true;
       }
 
-      const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
-      const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
+      const hasBold = effectiveFormat.bold && effectiveFormat.bold.length > 0;
+      const hasFonts = effectiveFormat.fonts && effectiveFormat.fonts.length > 0;
 
       if (hasBold || hasFonts) {
         // 拆分成多个 <w:r> 节点
-        const segments = splitTextByFormat(rawText, matchedFormat);
+        const segments = splitTextByFormat(rawText, effectiveFormat);
         const runs = segments.map(seg => {
           let runXml = '<w:r><w:rPr>';
           // 字体
@@ -275,7 +342,7 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
 
     // 处理首行缩进：在 <w:pPr> 中添加 <w:ind w:firstLine="640"/>
     if (indentApplied) {
-      if (modifiedP.includes('<w:pPr>')) {
+      if (modifiedP.includes('<w:pPr>') || modifiedP.includes('<w:pPr/>')) {
         // 已有 pPr，检查是否有 ind
         if (modifiedP.includes('<w:ind')) {
           // 已有 ind，添加 firstLine 属性
@@ -283,9 +350,12 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
             if (attrs.includes('w:firstLine')) return indMatch;
             return `<w:ind${attrs} w:firstLine="640"/>`;
           });
-        } else {
+        } else if (modifiedP.includes('<w:pPr>')) {
           // 没有 ind，在 pPr 中添加
           modifiedP = modifiedP.replace('<w:pPr>', '<w:pPr><w:ind w:firstLine="640"/>');
+        } else {
+          // <w:pPr/> 自闭合 → 替换为 <w:pPr><w:ind.../></w:pPr>
+          modifiedP = modifiedP.replace('<w:pPr/>', '<w:pPr><w:ind w:firstLine="640"/></w:pPr>');
         }
       } else {
         // 没有 pPr，创建一个
@@ -304,7 +374,7 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
 function processRichTextFormatting(xml: string): string {
   // 找到所有包含 ** 或 [f: 的 <w:r> 元素，并替换其中的内容
   // 注意：需要匹配整个 <w:r> 元素，而不是只匹配 <w:t>
-  return xml.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (match, rPr, text) => {
+  return xml.replace(/<w:r>(<w:rPr(?:\/>|>[\s\S]*?<\/w:rPr>)?)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (match, rPr, text) => {
     if (!text) return match;
     
     // docxtemplater 已经对文本进行了 XML 转义（如 < 变成 &lt;）

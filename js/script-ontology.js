@@ -585,10 +585,45 @@ function createGovHelper(logLines, uploadedFiles) {
      * @returns {{text: string, bold: Array<[number, number]>, indent: boolean, fonts: Array<[number, number, string, number]>}}
      */
     function parseFormatText(str, defaultFont = null) {
-        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
+        if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], lines: [], defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
 
+        const df = defaultFont || { name: '仿宋_GB2312', size: 16 };
+
+        // 逐行解析（与后端 parseFormatText 一致）
+        const rawLines = str.split('\n');
+        const lines = [];
+        const allTextParts = [];
+        const allBold = [];
+        const allFonts = [];
+        let textOffset = 0;
+
+        for (const rawLine of rawLines) {
+            const lineResult = _parseSingleLine(rawLine, df);
+            lines.push(lineResult);
+
+            // 合并到全局结果（兼容旧版）
+            allTextParts.push(lineResult.text);
+            for (const [bs, be] of lineResult.bold) {
+                allBold.push([textOffset + bs, textOffset + be]);
+            }
+            for (const [fs, fe, fn, fz] of lineResult.fonts) {
+                allFonts.push([textOffset + fs, textOffset + fe, fn, fz]);
+            }
+            textOffset += lineResult.text.length + 1; // +1 for \n
+        }
+
+        const finalText = allTextParts.join('\n');
+        const firstIndent = lines.length > 0 && lines[0].indent;
+
+        return { text: finalText, bold: allBold, indent: firstIndent, fonts: allFonts, lines, defaultFont: df };
+    }
+
+    /**
+     * 逐行解析格式化文本（与后端 parseSingleLine 一致）
+     */
+    function _parseSingleLine(line, defaultFont) {
         let indent = false;
-        let text = str;
+        let text = line;
 
         // 检测首行缩进语法（行首的 >）
         if (text.startsWith('>')) {
@@ -605,25 +640,16 @@ function createGovHelper(logLines, uploadedFiles) {
             const fontSize = parseInt(fontMatch[2], 10);
             const markerStart = fontMatch.index;
             const markerLength = fontMatch[0].length;
-
-            // 找到标记后的文字（直到下一个标记或字符串结束）
             const afterMarker = text.slice(markerStart + markerLength);
             const nextMarker = afterMarker.search(/\[f:|$/);
             const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
-
-            fontMarkers.push({
-                markerStart,
-                markerLength,
-                fontName,
-                fontSize,
-                contentLength
-            });
+            fontMarkers.push({ markerStart, markerLength, fontName, fontSize, contentLength });
         }
 
-        // 移除字体标记，计算最终文本
+        // 移除字体标记
         let textWithoutFontMarkers = text.replace(fontRegex, '');
 
-        // 计算字体标记在移除标记后的文本中的位置
+        // 计算字体位置
         const fonts = [];
         let offsetAdjustment = 0;
         for (const marker of fontMarkers) {
@@ -639,11 +665,10 @@ function createGovHelper(logLines, uploadedFiles) {
         text = textWithoutFontMarkers;
         while (i < text.length) {
             if (text[i] === '*' && text[i + 1] === '*') {
-                // 找到结束的 **
                 const end = text.indexOf('**', i + 2);
                 if (end !== -1) {
                     const boldText = text.slice(i + 2, end);
-                    const startOffset = result.length;
+                    const startOffset = result.join('').length;
                     result.push(boldText);
                     bold.push([startOffset, startOffset + boldText.length]);
                     i = end + 2;
@@ -660,23 +685,17 @@ function createGovHelper(logLines, uploadedFiles) {
 
         const finalText = result.join('');
 
-        // 调整字体位置（因为加粗标记也被移除了）
+        // 调整字体位置（因为加粗标记被移除）
         const adjustedFonts = fonts.map(([start, end, name, size]) => {
-            // 计算加粗标记移除后的位置调整
             let boldAdjustment = 0;
-            let pos = 0;
             for (const [boldStart, boldEnd] of bold) {
-                if (boldStart <= start) {
-                    boldAdjustment += 2; // 开始的 **
-                }
-                if (boldEnd <= end) {
-                    boldAdjustment += 2; // 结束的 **
-                }
+                if (boldStart <= start) boldAdjustment += 2; // 开始的 **
+                if (boldEnd <= end) boldAdjustment += 2;     // 结束的 **
             }
             return [start - boldAdjustment, end - boldAdjustment, name, size];
         });
 
-        return { text: finalText, bold, indent, fonts: adjustedFonts, defaultFont: defaultFont || { name: '仿宋_GB2312', size: 16 } };
+        return { text: finalText, bold, indent, fonts: adjustedFonts };
     }
 
     /**
@@ -723,14 +742,33 @@ function createGovHelper(logLines, uploadedFiles) {
     /**
      * 对 docx XML 应用格式化（正则方式，与后端 applyDocxFormatting 一致）
      * 支持：加粗、字体标记、首行缩进、szCs
+     * 改进：支持逐行匹配 lines 数组，解决多行文本 includes 匹配失败的问题
      */
     function _applyDocxFormatting(xmlContent, formatMap) {
         if (!formatMap || Object.keys(formatMap).length === 0) return xmlContent;
 
-        // 查找所有匹配的格式规则
+        // 构建逐行匹配索引：lineText → { format, lineFormat }
+        const lineMatchIndex = new Map();
+        for (const [key, format] of Object.entries(formatMap)) {
+            if (format.lines && format.lines.length > 0) {
+                for (const lineFormat of format.lines) {
+                    if (lineFormat.text && lineFormat.text.length > 0) {
+                        lineMatchIndex.set(lineFormat.text, { format, lineFormat });
+                    }
+                }
+            }
+        }
+
+        // 查找匹配的格式规则（优先逐行匹配，降级到整体 includes）
         const findMatchedFormat = (textContent) => {
+            // 优先：逐行精确匹配
+            if (lineMatchIndex.has(textContent)) {
+                const { format, lineFormat } = lineMatchIndex.get(textContent);
+                return { ...format, _lineFormat: lineFormat };
+            }
+            // 降级：整体 includes（兼容无 lines 数据的旧格式）
             for (const [key, format] of Object.entries(formatMap)) {
-                if (textContent.includes(format.text)) {
+                if (format.text && textContent.includes(format.text)) {
                     return format;
                 }
             }
@@ -744,7 +782,7 @@ function createGovHelper(logLines, uploadedFiles) {
             let indentApplied = false;
 
             // 处理段落中的 <w:r> 元素
-            modifiedP = modifiedP.replace(/<w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
+            modifiedP = modifiedP.replace(/<w:r>(<w:rPr(?:\/>|>[\s\S]*?<\/w:rPr>)?)?<w:t[^>]*>([^<]*)<\/w:t><\/w:r>/g, (rMatch, rPr, text) => {
                 const rawText = _unescapeXml(text);
                 const matchedFormat = findMatchedFormat(rawText);
                 if (!matchedFormat) return rMatch;
@@ -752,17 +790,20 @@ function createGovHelper(logLines, uploadedFiles) {
                 hasModification = true;
                 const defaultFont = matchedFormat.defaultFont || { name: '仿宋_GB2312', size: 16 };
 
+                // 使用逐行格式（如果有），否则使用整体格式
+                const effectiveFormat = matchedFormat._lineFormat || matchedFormat;
+
                 // 处理首行缩进 — 标记以便外层处理
-                if (matchedFormat.indent && !indentApplied) {
+                if (effectiveFormat.indent && !indentApplied) {
                     indentApplied = true;
                 }
 
-                const hasBold = matchedFormat.bold && matchedFormat.bold.length > 0;
-                const hasFonts = matchedFormat.fonts && matchedFormat.fonts.length > 0;
+                const hasBold = effectiveFormat.bold && effectiveFormat.bold.length > 0;
+                const hasFonts = effectiveFormat.fonts && effectiveFormat.fonts.length > 0;
 
                 if (hasBold || hasFonts) {
                     // 拆分成多个 <w:r> 节点
-                    const segments = _splitTextByFormat(rawText, matchedFormat);
+                    const segments = _splitTextByFormat(rawText, effectiveFormat);
                     const runs = segments.map(seg => {
                         let runXml = '<w:r><w:rPr>';
                         // 字体
@@ -794,14 +835,17 @@ function createGovHelper(logLines, uploadedFiles) {
 
             // 处理首行缩进：在 <w:pPr> 中添加 <w:ind w:firstLine="640"/>
             if (indentApplied) {
-                if (modifiedP.includes('<w:pPr>')) {
+                if (modifiedP.includes('<w:pPr>') || modifiedP.includes('<w:pPr/>')) {
                     if (modifiedP.includes('<w:ind')) {
                         modifiedP = modifiedP.replace(/<w:ind([^>]*)\/?>/g, (indMatch, attrs) => {
                             if (attrs.includes('w:firstLine')) return indMatch;
                             return `<w:ind${attrs} w:firstLine="640"/>`;
                         });
-                    } else {
+                    } else if (modifiedP.includes('<w:pPr>')) {
                         modifiedP = modifiedP.replace('<w:pPr>', '<w:pPr><w:ind w:firstLine="640"/>');
+                    } else {
+                        // <w:pPr/> 自闭合 → 替换为 <w:pPr><w:ind.../></w:pPr>
+                        modifiedP = modifiedP.replace('<w:pPr/>', '<w:pPr><w:ind w:firstLine="640"/></w:pPr>');
                     }
                 } else {
                     modifiedP = `<w:pPr><w:ind w:firstLine="640"/></w:pPr>` + modifiedP;
