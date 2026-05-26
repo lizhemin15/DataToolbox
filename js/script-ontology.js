@@ -760,14 +760,21 @@ function createGovHelper(logLines, uploadedFiles) {
 
         // 查找匹配的格式规则（优先逐行匹配，降级到整体 includes）
         const findMatchedFormat = (textContent) => {
+            // 从 XML 中取出的文本可能含 Markdown 标记（**加粗**、>缩进、[f:,s:]字体），
+            // 需要先去掉这些标记再匹配（因为 lineMatchIndex 的 key 是已去掉标记的纯文本）
+            let cleanText = textContent;
+            while (cleanText.startsWith('>')) cleanText = cleanText.slice(1);
+            cleanText = cleanText.replace(/\[f:[^,\]]+,s:\d+\]/g, '');
+            cleanText = cleanText.replace(/\*\*/g, '');
+
             // 优先：逐行精确匹配
-            if (lineMatchIndex.has(textContent)) {
-                const { format, lineFormat } = lineMatchIndex.get(textContent);
+            if (lineMatchIndex.has(cleanText)) {
+                const { format, lineFormat } = lineMatchIndex.get(cleanText);
                 return { ...format, _lineFormat: lineFormat };
             }
             // 降级：整体 includes（兼容无 lines 数据的旧格式）
             for (const [key, format] of Object.entries(formatMap)) {
-                if (format.text && textContent.includes(format.text)) {
+                if (format.text && cleanText.includes(format.text)) {
                     return format;
                 }
             }
@@ -797,12 +804,19 @@ function createGovHelper(logLines, uploadedFiles) {
                     indentApplied = true;
                 }
 
+                // 从 rawText 中去掉 Markdown 标记（**加粗**、>缩进、[f:,s:]字体）
+                // 因为 formatData 的偏移是基于去掉标记后的纯文本
+                let cleanRaw = rawText;
+                while (cleanRaw.startsWith('>')) cleanRaw = cleanRaw.slice(1);
+                cleanRaw = cleanRaw.replace(/\[f:[^,\]]+,s:\d+\]/g, '');
+                cleanRaw = cleanRaw.replace(/\*\*/g, '');
+
                 const hasBold = effectiveFormat.bold && effectiveFormat.bold.length > 0;
                 const hasFonts = effectiveFormat.fonts && effectiveFormat.fonts.length > 0;
 
                 if (hasBold || hasFonts) {
-                    // 拆分成多个 <w:r> 节点
-                    const segments = _splitTextByFormat(rawText, effectiveFormat);
+                    // 拆分成多个 <w:r> 节点（使用去掉标记后的文本）
+                    const segments = _splitTextByFormat(cleanRaw, effectiveFormat);
                     const runs = segments.map(seg => {
                         const fontName = seg.fontName || defaultFont.name;
                         const fontSize = (typeof seg.fontSize === 'number' && !isNaN(seg.fontSize)) ? seg.fontSize : defaultFont.size;
@@ -830,7 +844,7 @@ function createGovHelper(logLines, uploadedFiles) {
                     newRPr += `<w:sz w:val="${defaultFont.size * 2}"/>`;
                     newRPr += `<w:szCs w:val="${defaultFont.size * 2}"/>`;
                     newRPr += '</w:rPr>';
-                    return `<w:r>${newRPr}<w:t${rawText.startsWith(' ') || rawText.endsWith(' ') ? ' xml:space="preserve"' : ''}>${_escapeXml(rawText)}</w:t></w:r>`;
+                    return `<w:r>${newRPr}<w:t${cleanRaw.startsWith(' ') || cleanRaw.endsWith(' ') ? ' xml:space="preserve"' : ''}>${_escapeXml(cleanRaw)}</w:t></w:r>`;
                 }
             });
 
