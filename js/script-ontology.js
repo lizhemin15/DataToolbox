@@ -589,23 +589,42 @@ function createGovHelper(logLines, uploadedFiles) {
 
         const df = defaultFont || { name: '仿宋_GB2312', size: 16 };
 
-        // 逐行解析（与后端 parseFormatText 一致）
-        const rawLines = str.split('\n');
+        // 第一步：在整段文本上解析加粗（支持跨行加粗）
+        const globalBold = [];
+        let globalText = '';
+        let gIdx = 0;
+        while (gIdx < str.length) {
+            if (str[gIdx] === '*' && str[gIdx + 1] === '*') {
+                const end = str.indexOf('**', gIdx + 2);
+                if (end !== -1) {
+                    const boldText = str.slice(gIdx + 2, end);
+                    const startOffset = globalText.length;
+                    globalText += boldText;
+                    globalBold.push([startOffset, startOffset + boldText.length]);
+                    gIdx = end + 2;
+                } else {
+                    // 未配对的 ** — 直接去掉
+                    gIdx += 2;
+                }
+            } else {
+                globalText += str[gIdx];
+                gIdx++;
+            }
+        }
+
+        // 第二步：在去掉加粗标记后的文本上逐行处理缩进和字体
+        const rawLines = globalText.split('\n');
         const lines = [];
         const allTextParts = [];
-        const allBold = [];
         const allFonts = [];
         let textOffset = 0;
 
         for (const rawLine of rawLines) {
-            const lineResult = _parseSingleLine(rawLine, df);
+            const lineResult = _parseSingleLineFormatting(rawLine, df);
             lines.push(lineResult);
 
-            // 合并到全局结果（兼容旧版）
             allTextParts.push(lineResult.text);
-            for (const [bs, be] of lineResult.bold) {
-                allBold.push([textOffset + bs, textOffset + be]);
-            }
+            // 加粗范围已在全局计算
             for (const [fs, fe, fn, fz] of lineResult.fonts) {
                 allFonts.push([textOffset + fs, textOffset + fe, fn, fz]);
             }
@@ -615,7 +634,53 @@ function createGovHelper(logLines, uploadedFiles) {
         const finalText = allTextParts.join('\n');
         const firstIndent = lines.length > 0 && lines[0].indent;
 
-        return { text: finalText, bold: allBold, indent: firstIndent, fonts: allFonts, lines, defaultFont: df };
+        return { text: finalText, bold: globalBold, indent: firstIndent, fonts: allFonts, lines, defaultFont: df };
+    }
+
+    /**
+     * 逐行解析格式（仅缩进和字体，加粗由全局 parseFormatText 处理）
+     */
+    function _parseSingleLineFormatting(line, defaultFont) {
+        let indent = false;
+        let text = line;
+
+        // 检测首行缩进语法（行首的 >）
+        if (text.startsWith('>')) {
+            indent = true;
+            text = text.slice(1);
+        }
+
+        // 解析字体字号标记 [f:字体,s:字号]
+        const fontMarkers = [];
+        const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
+        let fontMatch;
+        while ((fontMatch = fontRegex.exec(text)) !== null) {
+            const fontName = fontMatch[1].trim();
+            const fontSize = parseInt(fontMatch[2], 10);
+            const markerStart = fontMatch.index;
+            const markerLength = fontMatch[0].length;
+            const afterMarker = text.slice(markerStart + markerLength);
+            const nextMarker = afterMarker.search(/\[f:|$/);
+            const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
+            fontMarkers.push({ markerStart, markerLength, fontName, fontSize, contentLength });
+        }
+
+        // 移除字体标记
+        let textWithoutFontMarkers = text.replace(fontRegex, '');
+
+        // 计算字体位置
+        const fonts = [];
+        let offsetAdjustment = 0;
+        for (const marker of fontMarkers) {
+            const adjustedStart = marker.markerStart - offsetAdjustment;
+            fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
+            offsetAdjustment += marker.markerLength;
+        }
+
+        // 不处理加粗（加粗已在全局处理）
+        const finalText = textWithoutFontMarkers;
+
+        return { text: finalText, bold: [], indent, fonts };
     }
 
     /**
@@ -673,8 +738,7 @@ function createGovHelper(logLines, uploadedFiles) {
                     bold.push([startOffset, startOffset + boldText.length]);
                     i = end + 2;
                 } else {
-                    // 未配对的 ** — 保留为纯文本（整对保留，不是只保留一个 *）
-                    result.push('**');
+                    // 未配对的 ** — 直接去掉（跨行加粗不合法，去掉比残留更合理）
                     i += 2;
                 }
             } else {
