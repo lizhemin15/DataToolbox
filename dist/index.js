@@ -72255,6 +72255,12 @@ function processFormatData(data, defaultFont = null) {
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === "string" && (value.includes("**") || value.startsWith(">") || value.includes("[f:"))) {
       const parsed = parseFormatText(value, defaultFont);
+      if (key === "tomorrow_plan") {
+        console.log("[DEBUG-FORMAT] tomorrow_plan parsed.text:");
+        for (const line of parsed.lines) {
+          console.log(`  line: text="${line.text}" bold=${JSON.stringify(line.bold)} indent=${line.indent}`);
+        }
+      }
       processedData[key] = parsed.text;
       formatMap[key] = parsed;
     } else {
@@ -72277,8 +72283,9 @@ function splitTextByFormat(text, format) {
   const boldSet = new Set;
   if (format.bold && format.bold.length > 0) {
     for (const [start, end] of format.bold) {
-      for (let i = start;i < end; i++) {
-        boldSet.add(i);
+      for (let i = start;i < Math.min(end, text.length); i++) {
+        if (i >= 0)
+          boldSet.add(i);
       }
     }
   }
@@ -72336,7 +72343,7 @@ function applyDocxFormatting(xmlContent, formatMap) {
       return { ...format, _lineFormat: lineFormat };
     }
     for (const [key, format] of Object.entries(formatMap)) {
-      if (format.text && cleanText.includes(format.text)) {
+      if (format.text && cleanText === format.text) {
         return format;
       }
     }
@@ -72975,13 +72982,6 @@ function createGovHelper(ctx, logLines, outputFiles, inputFiles = []) {
           if (line.length > 0) {
             currentSection.paragraphs.push(line);
           }
-        } else {
-          if (!sections.find((s) => s.level === 0)) {
-            sections.push({ level: 0, title: "\u524D\u8A00", paragraphs: [line] });
-            currentSection = sections[sections.length - 1];
-          } else if (sections.length > 0) {
-            sections[sections.length - 1].paragraphs.push(line);
-          }
         }
         if (line.includes("\t") || line.includes("|")) {
           const cells = line.split(/[\t|]+/).filter((c) => c.trim());
@@ -73009,7 +73009,7 @@ function createGovHelper(ctx, logLines, outputFiles, inputFiles = []) {
         delete t._building;
       }
       function buildTree(flatSections) {
-        const root = { level: -1, title: "ROOT", children: [], paragraphs: [] };
+        const root = { level: 0, title: "ROOT", children: [], paragraphs: [] };
         const bStack = [root];
         for (const sec of flatSections) {
           let targetLevel = sec.level;

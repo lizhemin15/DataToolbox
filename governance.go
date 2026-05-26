@@ -2345,11 +2345,32 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 		return &GovRunnerResult{Success: false, Error: errMsg}
 	}
 
-	var result GovRunnerResult
-	if err := json.Unmarshal(outBytes, &result); err != nil {
+	// 提取 stdout 中最后一个完整的 JSON 对象（以 { 开头）
+	// runner 的 console.log 调试输出可能混入 stdout，需跳过
+	outStr := string(outBytes)
+	jsonStart := strings.LastIndex(outStr, "{\n  \"success\"")
+	if jsonStart < 0 {
+		// fallback: 尝试找第一个 { 开始的 JSON
+		jsonStart = strings.Index(outStr, "{")
+	}
+	if jsonStart < 0 {
 		return &GovRunnerResult{
 			Success: false,
-			Error:   "解析结果失败: " + err.Error(),
+			Error:   "解析结果失败: stdout 中未找到 JSON 输出",
+		}
+	}
+	jsonBytes := []byte(outStr[jsonStart:])
+
+	var result GovRunnerResult
+	if err := json.Unmarshal(jsonBytes, &result); err != nil {
+		// 输出前200字符用于调试
+		preview := outStr
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return &GovRunnerResult{
+			Success: false,
+			Error:   "解析结果失败: " + err.Error() + " | stdout前200字符: " + preview,
 		}
 	}
 	return &result
