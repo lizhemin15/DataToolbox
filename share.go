@@ -621,7 +621,7 @@ func handleGovernanceTaskShareDisable(w http.ResponseWriter, r *http.Request, ta
 	}
 
 	task.ShareEnabled = false
-	task.ShareToken = ""
+	// 保留 ShareToken，避免重新开启时生成新 token 导致已有输出文件不可访问
 	dataOntologyMu.Unlock()
 
 	if err := saveDataOntologyStore(); err != nil {

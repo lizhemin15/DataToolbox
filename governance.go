@@ -180,9 +180,8 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			task.ShareEnabled = true
 		} else {
-			// 前端明确关闭分享：清除 token，与 DELETE /share API 行为一致
+			// 前端明确关闭分享：保留 token，避免重新开启时生成新 token 导致已有输出文件不可访问
 			task.ShareEnabled = false
-			task.ShareToken = ""
 		}
 		// API 路径冲突检测
 		if update.RegisterAsAPI && update.APIPath != "" {
