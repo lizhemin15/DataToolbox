@@ -1306,7 +1306,7 @@ export function createGovHelper(
 
       // ===== 构建树形结构（与前端 buildTree 逻辑一致，含层级自动降级） =====
       function buildTree(flatSections: any[]): any[] {
-        const root: any = { level: -1, title: 'ROOT', children: [], paragraphs: [] };
+        const root: any = { level: 0, title: 'ROOT', children: [], paragraphs: [] };
         const bStack: any[] = [root];
 
         for (const sec of flatSections) {
