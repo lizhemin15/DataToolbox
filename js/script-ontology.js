@@ -673,9 +673,9 @@ function createGovHelper(logLines, uploadedFiles) {
                     bold.push([startOffset, startOffset + boldText.length]);
                     i = end + 2;
                 } else {
-                    // 没有结束符，保留原样
-                    result.push(text[i]);
-                    i++;
+                    // 未配对的 ** — 保留为纯文本（整对保留，不是只保留一个 *）
+                    result.push('**');
+                    i += 2;
                 }
             } else {
                 result.push(text[i]);

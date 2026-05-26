@@ -82,8 +82,9 @@ function parseSingleLine(line: string, defaultFont: { name: string; size: number
         bold.push([startOffset, startOffset + boldText.length]);
         idx = end + 2;
       } else {
-        result.push(text[idx]);
-        idx++;
+        // 未配对的 ** — 保留为纯文本（整对保留，不是只保留一个 *）
+        result.push('**');
+        idx += 2;
       }
     } else {
       result.push(text[idx]);
