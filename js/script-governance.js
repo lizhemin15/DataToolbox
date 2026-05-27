@@ -1557,8 +1557,11 @@ function addAiMessage(role, content) {
         if (parts.length > 1) {
             displayContent += '<div' + parts.slice(1).join('<div');
         }
+    } else if (role === 'assistant') {
+        // 助手回复用 markdown 渲染
+        displayContent = formatClusterMarkdown(content);
     } else {
-        // 普通文本全部转义后再处理引用。
+        // 用户消息全部转义后再处理引用。
         displayContent = escapeHtml(content);
         const dbMatches = [...content.matchAll(/@([^\s]+)/g)];
         for (const match of dbMatches) {

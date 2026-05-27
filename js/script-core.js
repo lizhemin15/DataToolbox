@@ -228,7 +228,7 @@ function appendMessageToChat(role, content) {
     div.innerHTML = `
         <div class="ai-message-avatar">${isUser ? getUserAvatarSvg() : getAiAvatarSvg()}</div>
         <div class="ai-message-content">
-            <div class="ai-message-bubble">${content}</div>
+            <div class="ai-message-bubble">${isUser ? escapeHtml(content) : formatClusterMarkdown(content)}</div>
             <div class="ai-message-meta"><span>${time}</span></div>
         </div>`;
     messagesEl.appendChild(div);

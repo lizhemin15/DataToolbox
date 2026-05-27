@@ -1022,3 +1022,34 @@
     color: white;
 }
 
+
+/* Markdown table in AI message bubble */
+.ai-message-bubble table.md-table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 13px;
+    width: 100%;
+    overflow-x: auto;
+    display: block;
+}
+.ai-message-bubble table.md-table thead {
+    background: #f7f8fa;
+}
+.ai-message-bubble table.md-table th,
+.ai-message-bubble table.md-table td {
+    border: 1px solid #e2e8f0;
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+}
+.ai-message-bubble table.md-table th {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 12px;
+}
+.ai-message-bubble table.md-table td {
+    color: #4a5568;
+}
+.ai-message-bubble table.md-table tbody tr:hover {
+    background: #f7fafc;
+}

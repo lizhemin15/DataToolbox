@@ -3142,7 +3142,20 @@ function formatClusterMarkdown(text) {
     }
 
     if (mainContent.trim()) {
-        let html = escapeHtml(mainContent);
+        // 先提取表格（在 escapeHtml 之前，因为表格需要保留 | 结构）
+        const tableBlocks = [];
+        let textWithoutTables = mainContent;
+        // markdown table: lines with |, separator line with |---|
+        const tableRegex = /((?:^[ \t]*\|.+\|[ \t]*\n)+(?:^[ \t]*\|[-: ]+\|.+\|[ \t]*\n)(?:^[ \t]*\|.+\|[ \t]*\n)*)/gm;
+        let tblMatch;
+        while ((tblMatch = tableRegex.exec(mainContent)) !== null) {
+            const tblText = tblMatch[1];
+            const tblId = `__TABLE_${tableBlocks.length}__`;
+            textWithoutTables = textWithoutTables.replace(tblText, tblId);
+            tableBlocks.push({ id: tblId, text: tblText });
+        }
+
+        let html = escapeHtml(textWithoutTables);
         // bold
         html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         // italic
@@ -3172,6 +3185,27 @@ function formatClusterMarkdown(text) {
         // remove <br> around headers
         html = html.replace(/<br><h[234]>/g, (m) => m.slice(4));
         html = html.replace(/<\/h[234]><br>/g, (m) => m.slice(0, -4));
+
+        // 渲染表格
+        for (const tbl of tableBlocks) {
+            const lines = tbl.text.trim().split('\n');
+            const rows = lines.map(line => line.trim().replace(/^ \|/, '').replace(/\| $/, '').split('|').map(c => c.trim()));
+            // 分隔行（|---|---|）跳过
+            let tableHtml = '<table class="md-table"><thead><tr>';
+            // 第一行作为表头
+            const headerCells = rows[0];
+            headerCells.forEach(cell => { tableHtml += `<th>${escapeHtml(cell)}</th>`; });
+            tableHtml += '</tr></thead><tbody>';
+            // 数据行（跳过分隔行）
+            for (let i = 2; i < rows.length; i++) {
+                tableHtml += '<tr>';
+                rows[i].forEach(cell => { tableHtml += `<td>${escapeHtml(cell)}</td>`; });
+                tableHtml += '</tr>';
+            }
+            tableHtml += '</tbody></table>';
+            html = html.replace(tbl.id, tableHtml);
+        }
+
         result += html;
     }
     return result;
