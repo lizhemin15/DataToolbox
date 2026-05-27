@@ -824,11 +824,11 @@ function renderTablesList(tables) {
         const tableComment = typeof table === 'object' ? (table.comment || '') : '';
         const isActive = currentPreviewTable === tableName;
         const activeClass = isActive ? ' active' : '';
-        const displayText = tableComment ? escapeHtml(tableComment) : escapeHtml(tableName);
-        const nameText = tableComment ? escapeHtml(tableName) : '';
+        const displayName = escapeHtml(tableName);
+        const commentTag = tableComment ? `<span class="table-comment">(${escapeHtml(tableComment)})</span>` : '';
         return `
-            <div class="table-item${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableName)}">
-                <span class="table-name">${nameText ? nameText + '<br><span style=\"color:#999;font-size:11px\">' + displayText + '</span>' : displayText}</span>
+            <div class="table-item${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableName)}${tableComment ? ' — '+escapeHtml(tableComment) : ''}">
+                <span class="table-name">${displayName}</span>${commentTag}
             </div>
         `;
     }).join('');
