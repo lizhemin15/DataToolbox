@@ -30,7 +30,7 @@
 }
 
 .preview-actions .btn-primary {
-    background: linear-gradient(135deg, #444 0%, #444 100%);
+    background: #444;
     color: white;
     border: none;
     position: relative;
@@ -56,7 +56,7 @@
 }
 
 .preview-actions .btn-primary:hover {
-    background: linear-gradient(135deg, #444 0%, #555 100%);
+    background: #444;
     box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
 }
 
@@ -74,14 +74,14 @@
 }
 
 .preview-actions .btn-danger {
-    background: linear-gradient(135deg, #f56565 0%, #555 100%);
+    background: #555;
     color: white;
     border: none;
 }
 
 .preview-actions .btn-danger:hover {
-    background: linear-gradient(135deg, #555 0%, #c53030 100%);
-    box-shadow: 0 4px 8px rgba(229, 62, 62, 0.3);
+    background: #555;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .table-preview {
@@ -124,7 +124,7 @@
 }
 
 .preview-table th {
-    background: linear-gradient(180deg, #333 0%, #5568d3 100%);
+    background: #333;
     color: white;
     font-weight: 600;
     text-transform: uppercase;
@@ -172,7 +172,7 @@
 }
 
 .btn-icon-delete {
-    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+    background: #555;
     border: none;
     cursor: pointer;
     font-size: 14px;
@@ -185,7 +185,7 @@
 
 .btn-icon-delete:hover {
     box-shadow: 0 4px 8px rgba(238, 90, 82, 0.3);
-    background: linear-gradient(135deg, #ff5252 0%, #e63946 100%);
+    background: #555;
 }
 
 .btn-icon-delete:active {
@@ -199,7 +199,7 @@
 }
 
 .editable-cell.editing {
-    background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%) !important;
+    background: #f7f7f7 !important;
     border: 2px solid #fbbf24 !important;
     box-shadow: inset 0 2px 4px rgba(251, 191, 36, 0.1);
 }
@@ -207,12 +207,12 @@
 .editable-cell.editing:focus {
     outline: none;
     border: 2px solid #333 !important;
-    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%) !important;
+    background: #f5f5f5 !important;
     box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .null-value {
-    color: #cbd5e0;
+    color: #d0d0d0;
     font-style: italic;
     font-size: 12px;
     user-select: none;
@@ -238,7 +238,7 @@
 
 @keyframes deletedRowPulse {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4);
+        box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.1);
     }
     50% {
         box-shadow: 0 0 0 6px rgba(229, 62, 62, 0);
@@ -251,13 +251,13 @@
     left: -90px;
     top: 50%;
     transform: translateY(-50%);
-    background: linear-gradient(135deg, #555 0%, #c53030 100%);
+    background: #555;
     color: white;
     padding: 4px 10px;
     border-radius: 6px;
     font-size: 11px;
     font-weight: 600;
-    box-shadow: 0 2px 6px rgba(229, 62, 62, 0.4);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
     animation: slideInLeft 0.3s ease;
     z-index: 10;
 }
@@ -274,12 +274,12 @@
 }
 
 .row-deleted .btn-icon-delete {
-    background: linear-gradient(135deg, #444 0%, #444 100%);
+    background: #444;
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.3);
 }
 
 .row-deleted .btn-icon-delete:hover {
-    background: linear-gradient(135deg, #444 0%, #555 100%);
+    background: #444;
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.5);
 }
 
@@ -361,7 +361,7 @@
 }
 
 .table-column-item .btn-icon {
-    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+    background: #555;
     border: none;
     color: white;
     width: 32px;
@@ -534,7 +534,7 @@
 }
 
 .stats-deleted {
-    background: linear-gradient(135deg, #fed7d7 0%, #fc8181 100%);
+    background: linear-gradient(135deg, #f0f0f0 0%, #999 100%);
     color: #742a2a;
 }
 
@@ -543,7 +543,7 @@
     position: fixed;
     bottom: 30px;
     right: 30px;
-    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    background: linear-gradient(135deg, #fbbf24 0%, #888 100%);
     color: white;
     padding: 12px 20px;
     border-radius: 8px;
@@ -571,7 +571,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%) scale(0.8);
-    background: linear-gradient(135deg, #444 0%, #444 100%);
+    background: #444;
     color: white;
     padding: 24px 36px;
     border-radius: 16px;
@@ -612,8 +612,8 @@
 
 /* SQL语法错误提示 */
 .sql-syntax-error {
-    background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
-    border: 2px solid #fc8181;
+    background: linear-gradient(135deg, #f5f5f5 0%, #f0f0f0 100%);
+    border: 2px solid #999;
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 20px;
@@ -641,7 +641,7 @@
 .error-title {
     font-size: 16px;
     font-weight: 600;
-    color: #c53030;
+    color: #666;
     margin-bottom: 8px;
 }
 
@@ -657,11 +657,11 @@
     background: rgba(255, 255, 255, 0.6);
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid #fc8181;
+    border: 1px solid #999;
 }
 
 .error-fix strong {
-    color: #c53030;
+    color: #666;
     display: block;
     margin-bottom: 8px;
 }
@@ -673,11 +673,11 @@
 }
 
 .fix-before {
-    background: #fff5f5;
+    background: #f5f5f5;
     padding: 8px 12px;
     border-radius: 6px;
     margin-bottom: 6px;
-    color: #c53030;
+    color: #666;
     border-left: 3px solid #555;
 }
 

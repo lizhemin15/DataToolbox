@@ -51,8 +51,8 @@
 }
 
 .param-type.required {
-    background: #fed7d7;
-    color: #c53030;
+    background: #f0f0f0;
+    color: #666;
 }
 
 .param-type.optional {
@@ -382,7 +382,7 @@
     text-align: left;
     font-weight: 600;
     color: #2d3748;
-    border-bottom: 2px solid #cbd5e0;
+    border-bottom: 2px solid #d0d0d0;
     white-space: nowrap;
 }
 
@@ -422,7 +422,7 @@
 }
 
 .value-undefined {
-    color: #cbd5e0;
+    color: #d0d0d0;
     font-style: italic;
 }
 

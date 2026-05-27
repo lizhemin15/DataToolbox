@@ -208,7 +208,7 @@
     flex-shrink: 0;
     margin-top: 2px;
     padding: 4px 8px;
-    background: #fee2e2;
+    background: #f5f5f5;
     color: #dc2626;
     border: none;
     border-radius: 4px;
@@ -217,7 +217,7 @@
     line-height: 1;
 }
 .qa-fill-rm:hover {
-    background: #fecaca;
+    background: #e8e8e8;
 }
 .qa-fill-add { margin-top: 8px; }
 .qa-fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -235,7 +235,7 @@
 }
 .qa-msg { margin: 8px 0; padding: 8px; border-radius: 6px; font-size: 13px; display: none; }
 .qa-msg.show { display: block; }
-.qa-msg.err { background: #fff5f5; color: #c53030; }
+.qa-msg.err { background: #f5f5f5; color: #666; }
 .qa-msg.ok { background: #f0fff4; color: #333; }
 
 .qa-audit-result {
@@ -279,7 +279,7 @@
     font-weight: 600;
 }
 .qa-badge-pass { background: #c6f6d5; color: #22543d; }
-.qa-badge-fail { background: #fed7d7; color: #822727; }
+.qa-badge-fail { background: #f0f0f0; color: #822727; }
 .qa-badge-skip { background: #e2e8f0; color: #4a5568; }
 .qa-detail-sample { margin-top: 8px; overflow-x: auto; }
 .qa-sample-table {
@@ -290,7 +290,7 @@
 }
 .qa-sample-table th,
 .qa-sample-table td {
-    border: 1px solid #cbd5e0;
+    border: 1px solid #d0d0d0;
     padding: 4px 6px;
 }
 .qa-sample-table th { background: #edf2f7; }
@@ -623,7 +623,7 @@
 }
 
 #toastContainer > div.toast-error {
-    background: linear-gradient(135deg, #f56565 0%, #555 100%);
+    background: #555;
     color: white;
 }
 

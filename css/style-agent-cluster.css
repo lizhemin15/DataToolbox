@@ -215,11 +215,11 @@ img.emoji {
 
 /* Tool block */
 .cluster-block-tool .cluster-block-header {
-    color: #d97706;
+    color: #777;
 }
 .cluster-block-tool .cluster-block-body {
-    border-left: 3px solid #fcd34d;
-    background: #fffbeb;
+    border-left: 3px solid #ddd;
+    background: #f9f9f0;
 }
 .cluster-tool-detail {
     padding: 3px 0;
@@ -229,8 +229,8 @@ img.emoji {
 }
 .cluster-tool-result {
     padding: 3px 0;
-    color: #059669;
-    border-top: 1px solid #d1fae5;
+    color: #666;
+    border-top: 1px solid #f0f0f0;
     margin-top: 4px;
 }
 
@@ -272,7 +272,7 @@ img.emoji {
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
-    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    background: #f5f5f5;
     border-bottom: 1px solid #bae6fd;
 }
 .hitl-card-icon { font-size: 16px; }
@@ -306,7 +306,7 @@ img.emoji {
 .hitl-option-primary:hover:not(:disabled) { background: #2563eb; border-color: #2563eb; }
 .hitl-option-danger { background: #fff; color: #dc2626; border-color: #fca5a5; }
 .hitl-option-danger:hover:not(:disabled) { background: #fef2f2; border-color: #f87171; }
-.hitl-option-warning { background: #fffbeb; color: #d97706; border-color: #fcd34d; }
+.hitl-option-warning { background: #f9f9f0; color: #777; border-color: #ddd; }
 .hitl-checkbox-label {
     display: flex; align-items: center; gap: 6px; padding: 6px 10px;
     font-size: 13px; cursor: pointer; border: 1px solid #e5e7eb;
@@ -565,7 +565,7 @@ img.emoji {
 }
 
 .agent-config-item-status.running {
-    background: #10b981;
+    background: #444;
     box-shadow: 0 0 4px rgba(16,185,129,0.4);
 }
 
@@ -601,7 +601,7 @@ img.emoji {
 .agent-toggle-track {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: #cbd5e0;
+    background: #d0d0d0;
     border-radius: 9px;
     transition: background 0.3s;
 }
@@ -689,7 +689,7 @@ img.emoji {
 .agent-cluster-indicator .pulse-dot {
     width: 6px;
     height: 6px;
-    background: #10b981;
+    background: #444;
     border-radius: 50%;
     animation: pulse 1.5s infinite;
 }

@@ -146,7 +146,7 @@
     flex-shrink: 0;
     font-size: 11px;
     padding: 4px 8px;
-    border: 1px solid #cbd5e0;
+    border: 1px solid #d0d0d0;
     background: #fff;
     border-radius: 4px;
     cursor: pointer;
@@ -209,7 +209,7 @@
 }
 
 .gov-status-icon.error {
-    color: #fc8181;
+    color: #999;
 }
 
 .gov-api-badge {
@@ -236,7 +236,7 @@
 }
 
 .gov-upload-zone {
-    border: 2px dashed #cbd5e0;
+    border: 2px dashed #d0d0d0;
     border-radius: 8px;
     padding: 32px;
     text-align: center;
@@ -351,7 +351,7 @@
 
 .gov-log-status.error {
     background: rgba(252, 129, 129, 0.2);
-    color: #fc8181;
+    color: #999;
 }
 
 .gov-log-status.running {
@@ -402,13 +402,13 @@
 }
 
 .gov-table-empty {
-    color: #94a3b8;
+    color: #aaa;
     font-style: italic;
     padding: 8px;
 }
 
 .gov-log-error {
-    color: #fc8181;
+    color: #999;
     white-space: pre-wrap;
     word-break: break-all;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -469,7 +469,7 @@
     position: absolute;
     cursor: pointer;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: #cbd5e0;
+    background: #d0d0d0;
     border-radius: 24px;
     transition: 0.3s;
 }
@@ -821,7 +821,7 @@
 
 .onto-btn:hover {
     background: #f7fafc;
-    border-color: #cbd5e0;
+    border-color: #d0d0d0;
     color: #2d3748;
 }
 
@@ -845,7 +845,7 @@
 
 .onto-btn-demo {
     background: #f7fafc;
-    border-color: #cbd5e0;
+    border-color: #d0d0d0;
     color: #333;
     font-weight: 500;
 }
@@ -1227,7 +1227,7 @@
 
 .onto-panel-bd::-webkit-scrollbar { width: 4px; }
 .onto-panel-bd::-webkit-scrollbar-track { background: transparent; }
-.onto-panel-bd::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
+.onto-panel-bd::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 2px; }
 
 .onto-insight-placeholder {
     text-align: center;
@@ -1280,7 +1280,7 @@
     font-weight: 600;
 }
 
-.onto-insight-badge.high { background: #fff5f5; color: #c53030; }
+.onto-insight-badge.high { background: #f5f5f5; color: #666; }
 .onto-insight-badge.medium { background: #fffff0; color: #b7791f; }
 .onto-insight-badge.low { background: #f0fff4; color: #333; }
 .onto-insight-badge.info { background: #ebf8ff; color: #2b6cb0; }
@@ -1361,7 +1361,7 @@
 
 .onto-popup-bd::-webkit-scrollbar { width: 4px; }
 .onto-popup-bd::-webkit-scrollbar-track { background: transparent; }
-.onto-popup-bd::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
+.onto-popup-bd::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 2px; }
 
 .onto-popup-section { margin-bottom: 12px; }
 
@@ -1397,9 +1397,9 @@
 }
 
 .onto-tag.issue {
-    background: #fff5f5;
-    border-color: #feb2b2;
-    color: #c53030;
+    background: #f5f5f5;
+    border-color: #ccc;
+    color: #666;
 }
 
 /* 图例 */
