@@ -27,9 +27,11 @@ func newStaticFileHandler() http.Handler {
 	fileServer := http.FileServer(http.Dir(execPath))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// JS/CSS/HTML 文件禁用缓存，确保更新即时生效
+		// JS/CSS/HTML 文件及根路径禁用缓存，确保更新即时生效
 		path := r.URL.Path
-		if len(path) > 3 && (path[len(path)-3:] == ".js" || path[len(path)-4:] == ".css" || path[len(path)-5:] == ".html") {
+		isStatic := len(path) > 3 && (path[len(path)-3:] == ".js" || path[len(path)-4:] == ".css" || path[len(path)-5:] == ".html")
+		isRoot := path == "/" || path == "/index.html"
+		if isStatic || isRoot {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Expires", "0")
