@@ -3099,7 +3099,7 @@ function createClusterBlock(title, className) {
 // 将工具调用/返回内容格式化为用户友好的显示
 function formatToolContent(rawContent, isResult) {
     if (!rawContent || rawContent.trim() === '' || rawContent.trim() === 'null' || rawContent.trim() === 'None') {
-        return isResult ? '<div class="cluster-tool-summary"><span class="tool-status-empty">无返回数据</span></div>' : '<div class="cluster-tool-summary"><span class="tool-status-empty">空调用</span></div>';
+        return isResult ? '<div class="cluster-tool-summary"><span class="tool-status-empty">无返回数据</span></div>' : '<div class="cluster-tool-summary"><span class="tool-status-empty">无参数</span></div>';
     }
     
     // 尝试解析JSON

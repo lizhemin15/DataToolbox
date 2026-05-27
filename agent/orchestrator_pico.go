@@ -245,9 +245,14 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 		// 工具调用开始 — 转发为 tool_call
 		if p, ok := payload.(picoclawagent.ToolExecStartPayload); ok {
 			argsJSON, _ := json.Marshal(p.Arguments)
+			contentStr := string(argsJSON)
+			// 无参数工具: json.Marshal(nil) → "null"，前端显示为"空调用"，改为空对象
+			if contentStr == "null" {
+				contentStr = "{}"
+			}
 			out <- Event{Type: EventTypeToolCall, Data: map[string]interface{}{
 				"tool":    p.Tool,
-				"content": string(argsJSON),
+				"content": contentStr,
 				"agent":   evt.Source.Name,
 			}}
 		}
