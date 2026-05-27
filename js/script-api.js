@@ -1,4 +1,32 @@
 
+// ===== 三列布局辅助函数 =====
+
+// 重置第二列和第三列为占位提示（数据库被删除或切换时调用）。
+function resetDbColumns() {
+    const dbNameEl = document.getElementById('colTablesDbName');
+    if (dbNameEl) dbNameEl.textContent = '数据表列表';
+    const dbInfoEl = document.getElementById('colTablesDbInfo');
+    if (dbInfoEl) dbInfoEl.textContent = '';
+    const listEl = document.getElementById('tablesList');
+    if (listEl) {
+        listEl.innerHTML = '<div class="col-tables-placeholder"><div class="placeholder-icon">📂</div><p>← 请先选择数据库</p></div>';
+    }
+    resetDetailColumn();
+}
+
+// 重置第三列为占位提示（关闭表预览时调用）。
+function resetDetailColumn() {
+    currentPreviewTable = null;
+    const nameEl = document.getElementById('previewTableName');
+    if (nameEl) nameEl.textContent = '← 请先选择数据表';
+    const contentEl = document.getElementById('previewContent');
+    if (contentEl) {
+        contentEl.innerHTML = '<div id="detailPlaceholder" class="col-detail-placeholder"><div class="placeholder-icon">📋</div><p>请先选择数据表查看详情</p></div>';
+    }
+}
+
+// ===== 原有函数 =====
+
 // 显示编辑数据库弹窗。
 function handleEditDatabase() {
     if (!currentDb) return;
@@ -581,10 +609,11 @@ async function loadDatabases() {
                     currentDb = updatedDb;
                 } else {
                     currentDb = null;
-                    document.getElementById('welcomeView').style.display = 'flex';
-                    document.getElementById('colTableList').style.display = 'none';
-                    document.getElementById('colTableDetail').style.display = 'none';
+                    resetDbColumns();
                 }
+            } else {
+                // 无选中数据库时，设置第二列占位提示。
+                resetDbColumns();
             }
         }
     } catch (error) {
@@ -644,11 +673,8 @@ function selectDatabase(dbId) {
 // 显示数据库加载状态。
 function showDatabaseLoading() {
     closeUserMgmtPanel(true);
-    document.getElementById('welcomeView').style.display = 'none';
-    document.getElementById('colTableList').style.display = 'flex';
-    document.getElementById('colTableDetail').style.display = 'none';
     
-    // 先显示占位信息。
+    // 更新第二列标题为加载状态。
     document.getElementById('colTablesDbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
     document.getElementById('colTablesDbInfo').textContent = '';
     
@@ -659,6 +685,9 @@ function showDatabaseLoading() {
             <div style="margin-top:12px;">正在加载数据库详情...</div>
         </div>
     `;
+    
+    // 第三列重置为占位提示。
+    resetDetailColumn();
 }
 
 // 加载数据库详情。
@@ -669,9 +698,6 @@ async function loadDatabaseDetail(dbId) {
         const data = await response.json();
 
         if (data.success) {
-            document.getElementById('welcomeView').style.display = 'none';
-            document.getElementById('colTableList').style.display = 'flex';
-            
             const typeNames = {
                 mysql: 'MySQL',
                 mariadb: 'MariaDB',
@@ -709,8 +735,7 @@ async function loadDatabaseDetail(dbId) {
             window._currentDbInfo = data.database;
             
             renderTablesList(data.database.tables || []);
-            document.getElementById('colTableDetail').style.display = 'none';
-            currentPreviewTable = null;
+            resetDetailColumn();
         } else {
             // 数据库未连接时展示错误状态。
             const listEl = document.getElementById('tablesList');
@@ -853,8 +878,7 @@ async function previewTable(tableName, keepEditMode = false) {
         isTableEditMode = false;
     }
 
-    // 显示第三列（数据表详情）。
-    document.getElementById('colTableDetail').style.display = 'flex';
+    // 加载数据表详情到第三列。
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
         <div style="text-align:center;padding:60px;color:#718096;">
@@ -878,8 +902,6 @@ async function previewTable(tableName, keepEditMode = false) {
         const data = await dataResponse.json();
 
         if (data.success) {
-            document.getElementById('colTableDetail').style.display = 'flex';
-            
             // 更新预览头部按钮。
             updatePreviewHeader();
             

@@ -165,9 +165,9 @@ async function dropTable() {
 
 // 关闭表格预览。
 function closePreview() {
-    document.getElementById('colTableDetail').style.display = 'none';
     currentPreviewTable = null;
     isTableEditMode = false;
+    resetDetailColumn();
     // 清除表列表高亮
     document.querySelectorAll('.tables-list-col .table-item').forEach(el => {
         el.classList.remove('active');
@@ -436,9 +436,7 @@ async function handleDeleteDatabase() {
         if (data.success) {
             currentDb = null;
             currentPreviewTable = null;
-            document.getElementById('welcomeView').style.display = 'flex';
-            document.getElementById('colTableList').style.display = 'none';
-            document.getElementById('colTableDetail').style.display = 'none';
+            resetDbColumns();
             loadDatabases();
         } else {
             showToast(data.message || '删除失败', 'error');

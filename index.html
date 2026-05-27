@@ -132,7 +132,7 @@
                 </div>
 
                 <!-- 第二列：数据表列表 -->
-                <div id="colTableList" class="db-col db-col-tables" style="display:none;">
+                <div id="colTableList" class="db-col db-col-tables">
                     <div class="col-tables-header">
                         <h3 id="colTablesDbName">数据表列表</h3>
                         <div class="col-tables-actions">
@@ -149,14 +149,17 @@
                         <input type="text" id="tableFilterInput" placeholder="搜索表名..." oninput="filterTables(this.value)">
                     </div>
                     <div id="tablesList" class="tables-list-col">
-                        <!-- 表列表将动态生成 -->
+                        <div class="col-tables-placeholder">
+                            <div class="placeholder-icon">📂</div>
+                            <p>← 请先选择数据库</p>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 第三列：数据表详情 -->
-                <div id="colTableDetail" class="db-col db-col-detail" style="display:none;">
+                <div id="colTableDetail" class="db-col db-col-detail">
                     <div class="detail-header">
-                        <h2 id="previewTableName">表名</h2>
+                        <h2 id="previewTableName">← 请先选择数据表</h2>
                         <div class="detail-actions">
                             <!-- 索引与预览下拉菜单 -->
                             <div style="position:relative;display:inline-block;">
@@ -174,15 +177,11 @@
                         </div>
                     </div>
                     <div id="previewContent" class="preview-content">
-                        <!-- 表数据将动态生成 -->
+                        <div id="detailPlaceholder" class="col-detail-placeholder">
+                            <div class="placeholder-icon">📋</div>
+                            <p>请先选择数据表查看详情</p>
+                        </div>
                     </div>
-                </div>
-
-                <!-- 欢迎页（无数据库选中时显示） -->
-                <div id="welcomeView" class="welcome-view">
-                    <div class="welcome-icon">📦</div>
-                    <h2>欢迎使用数据库管理</h2>
-                    <p>请在左侧添加或选择一个数据库开始使用</p>
                 </div>
             </div>
         </div>
