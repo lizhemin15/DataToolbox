@@ -643,8 +643,8 @@
 
 /* 第二列：数据表列表 */
 .db-col-tables {
-    width: 300px;
-    min-width: 240px;
+    width: 260px;
+    min-width: 200px;
     flex-shrink: 0;
     background: white;
     display: flex;
@@ -655,14 +655,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
+    padding: 10px 14px;
     border-bottom: 2px solid #e2e8f0;
     flex-shrink: 0;
 }
 
 .col-tables-header h3 {
     margin: 0;
-    font-size: 15px;
+    font-size: 14px;
     color: #2d3748;
     white-space: nowrap;
     overflow: hidden;
@@ -671,12 +671,12 @@
 
 .col-tables-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
 }
 
 .col-tables-info {
-    padding: 10px 20px;
+    padding: 6px 14px;
     font-size: 12px;
     color: #718096;
     border-bottom: 1px solid #e2e8f0;
@@ -684,17 +684,17 @@
 }
 
 .col-tables-search {
-    padding: 10px 16px;
+    padding: 6px 10px;
     border-bottom: 1px solid #e2e8f0;
     flex-shrink: 0;
 }
 
 .col-tables-search input {
     width: 100%;
-    padding: 8px 12px;
+    padding: 5px 8px;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 13px;
+    border-radius: 4px;
+    font-size: 12px;
     outline: none;
     background: #f7fafc;
     color: #2d3748;
@@ -717,7 +717,7 @@
 .tables-list-col .table-item {
     display: flex;
     align-items: center;
-    padding: 10px 20px;
+    padding: 6px 14px;
     cursor: pointer;
     border-bottom: 1px solid #f0f0f0;
     transition: all 0.2s;
