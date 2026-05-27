@@ -609,7 +609,8 @@
 /* ===== 三列布局：数据库列表 | 数据表列表 | 数据表详情 ===== */
 .db-three-col {
     display: flex;
-    height: calc(100vh - 60px);
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
 }
 

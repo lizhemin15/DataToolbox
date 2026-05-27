@@ -594,7 +594,8 @@ body {
 .tab-content-wrap > .mcp-container,
 .tab-content-wrap > .ai-assistant-container,
 .tab-content-wrap > .models-container,
-.tab-content-wrap > .skills-container {
+.tab-content-wrap > .skills-container,
+.tab-content-wrap > .db-three-col {
     flex: 1;
     min-height: 0;
 }
