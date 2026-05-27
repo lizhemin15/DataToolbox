@@ -3208,6 +3208,10 @@ function formatToolContent(rawContent, isResult) {
         return `<div class="cluster-tool-summary"><span class="tool-detail">${escapeHtml(String(parsed))}</span></div>`;
     } else {
         // === tool_call 格式化 ===
+        // 空对象 {} 表示无参数调用
+        if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
+            return '<div class="cluster-tool-summary"><span class="tool-status-empty">无参数</span></div>';
+        }
         // 提取工具名和参数摘要
         const toolName = parsed.name || parsed.tool || parsed.function?.name || tool || '';
         const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || parsed.params || parsed.input || null;
