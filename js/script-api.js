@@ -652,7 +652,7 @@ function renderDatabaseList() {
         const safeInfo = escapeHtml(info);
         return `
             <div class="db-item ${isActive ? 'active' : ''}" onclick="selectDatabase('${safeDbId}')">
-                <div class="db-item-name">${typeIcon} ${safeName}</div>
+                <div class="db-item-name">${safeName}</div>
                 <div class="db-item-info">${safeInfo}</div>
             </div>
         `;
