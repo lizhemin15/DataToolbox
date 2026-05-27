@@ -119,8 +119,9 @@
 
         <!-- 数据库管理标签页 -->
         <div id="databaseTab" class="tab-content active">
-            <div class="container">
-                <div class="sidebar">
+            <div class="db-three-col">
+                <!-- 第一列：数据库列表 -->
+                <div class="db-col db-col-list">
                     <div class="sidebar-header">
                         <h3>数据库列表</h3>
                         <button id="addDbBtn" class="btn btn-sm btn-primary">+ 添加</button>
@@ -130,77 +131,57 @@
                     </div>
                 </div>
 
-                <div class="main-content">
-                    <div id="welcomeView" class="welcome-view">
-                        <div class="welcome-icon">📦</div>
-                        <h2>欢迎使用数据库管理</h2>
-                        <p>请在左侧添加或选择一个数据库开始使用</p>
-                    </div>
-
-                    <div id="dbDetailView" class="db-detail-view" style="display:none;">
-                        <div class="detail-header">
-                            <h2 id="dbName">数据库名称</h2>
-                            <div class="detail-actions">
-                                <!-- 索引与预览下拉菜单 -->
-                                <div style="position:relative;display:inline-block;">
-                                    <button id="indexPreviewBtn" class="btn btn-sm" style="padding:4px 12px;">索引与预览 ▼</button>
-                                    <div id="indexPreviewMenu" style="display:none;position:absolute;top:100%;left:0;margin-top:2px;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);min-width:130px;z-index:1000;">
-                                        <button class="dropdown-item" onclick="handleVectorIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔤 向量索引</button>
-                                        <button class="dropdown-item" onclick="handleRelationIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔗 关系索引</button>
-                                        <div style="border-top:1px solid #eee;margin:4px 0;"></div>
-                                        <button class="dropdown-item" onclick="showVectorPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 向量预览</button>
-                                        <button class="dropdown-item" onclick="showRelationPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 关系预览</button>
-                                    </div>
-                                </div>
-                                <button id="editDbBtn" class="btn btn-sm">✏️ 编辑</button>
-                                <button id="refreshDbBtn" class="btn btn-sm">🔄 刷新</button>
-                                <button id="deleteDbBtn" class="btn btn-sm btn-danger">删除</button>
-                            </div>
-                        </div>
-
-                        <div class="db-info">
-                            <div class="info-item">
-                                <span class="info-label">主机:</span>
-                                <span id="dbHost" class="info-value"></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">端口:</span>
-                                <span id="dbPort" class="info-value"></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">数据库:</span>
-                                <span id="dbDatabase" class="info-value"></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">状态:</span>
-                                <span id="dbStatus" class="info-value status"></span>
-                            </div>
-                        </div>
-
-                        <div class="tables-section">
-                            <div class="tables-section-header">
-                                <h3>数据表列表</h3>
-                                <button id="createTableBtn" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">创建表</button>
-                            </div>
-                            <div id="tablesList" class="tables-list">
-                                <!-- 表列表将动态生成 -->
-                            </div>
-                        </div>
-
-                        <div id="tablePreview" class="table-preview" style="display:none;">
-                            <div class="preview-header">
-                                <h3 id="previewTableName">表名</h3>
-                                <div class="preview-actions">
-                                    <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
-                                    <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
-                                    <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
-                                </div>
-                            </div>
-                            <div id="previewContent" class="preview-content">
-                                <!-- 表数据将动态生成 -->
-                            </div>
+                <!-- 第二列：数据表列表 -->
+                <div id="colTableList" class="db-col db-col-tables" style="display:none;">
+                    <div class="col-tables-header">
+                        <h3 id="colTablesDbName">数据表列表</h3>
+                        <div class="col-tables-actions">
+                            <button id="editDbBtn2" class="btn btn-sm" onclick="showEditDbModal()">✏️ 编辑</button>
+                            <button id="refreshDbBtn2" class="btn btn-sm" onclick="refreshCurrentDb()">🔄</button>
+                            <button id="createTableBtn2" class="btn btn-sm btn-primary" onclick="showCreateTableModal()">+ 创建表</button>
                         </div>
                     </div>
+                    <div class="col-tables-info" id="colTablesDbInfo">
+                        <!-- 简要数据库信息 -->
+                    </div>
+                    <div class="col-tables-search">
+                        <input type="text" id="tableFilterInput" placeholder="搜索表名..." oninput="filterTables(this.value)">
+                    </div>
+                    <div id="tablesList" class="tables-list-col">
+                        <!-- 表列表将动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 第三列：数据表详情 -->
+                <div id="colTableDetail" class="db-col db-col-detail" style="display:none;">
+                    <div class="detail-header">
+                        <h2 id="previewTableName">表名</h2>
+                        <div class="detail-actions">
+                            <!-- 索引与预览下拉菜单 -->
+                            <div style="position:relative;display:inline-block;">
+                                <button id="indexPreviewBtn" class="btn btn-sm" style="padding:4px 12px;">索引与预览 ▼</button>
+                                <div id="indexPreviewMenu" style="display:none;position:absolute;top:100%;left:0;margin-top:2px;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);min-width:130px;z-index:1000;">
+                                    <button class="dropdown-item" onclick="handleVectorIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔤 向量索引</button>
+                                    <button class="dropdown-item" onclick="handleRelationIndex();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">🔗 关系索引</button>
+                                    <div style="border-top:1px solid #eee;margin:4px 0;"></div>
+                                    <button class="dropdown-item" onclick="showVectorPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 向量预览</button>
+                                    <button class="dropdown-item" onclick="showRelationPreview();closeIndexPreviewMenu();" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;">👁️ 关系预览</button>
+                                </div>
+                            </div>
+                            <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">✏️ 编辑数据</button>
+                            <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
+                        </div>
+                    </div>
+                    <div id="previewContent" class="preview-content">
+                        <!-- 表数据将动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 欢迎页（无数据库选中时显示） -->
+                <div id="welcomeView" class="welcome-view">
+                    <div class="welcome-icon">📦</div>
+                    <h2>欢迎使用数据库管理</h2>
+                    <p>请在左侧添加或选择一个数据库开始使用</p>
                 </div>
             </div>
         </div>

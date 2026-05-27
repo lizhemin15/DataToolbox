@@ -374,8 +374,8 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 	tableName := strings.Trim(in.TableName, "\"`'") // 去掉可能的引号
 	switch dbInfo.Data.Type {
 	case "dm", "DM", "达梦":
-		// 达梦数据库使用 USER_TAB_COLUMNS
-		sql = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", tableName)
+		// 达梦数据库使用 USER_TAB_COLUMNS，需要大写表名
+		sql = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tableName))
 	case "mysql", "MySQL":
 		sql = "DESCRIBE `" + tableName + "`"
 	case "postgres", "postgresql", "PostgreSQL":

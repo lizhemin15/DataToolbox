@@ -225,7 +225,8 @@ func handleDatabaseOntologyScan(w http.ResponseWriter, r *http.Request) {
 		case "oracle":
 			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
 		case "dm":
-			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", tableName)
+			// 达梦 USER_TAB_COLUMNS 要求大写表名
+			fieldQuery = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s'", strings.ToUpper(tableName))
 		default:
 			continue
 		}

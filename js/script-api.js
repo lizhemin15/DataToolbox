@@ -581,8 +581,9 @@ async function loadDatabases() {
                     currentDb = updatedDb;
                 } else {
                     currentDb = null;
-                    document.getElementById('welcomeView').style.display = 'block';
-                    document.getElementById('dbDetailView').style.display = 'none';
+                    document.getElementById('welcomeView').style.display = 'flex';
+                    document.getElementById('colTableList').style.display = 'none';
+                    document.getElementById('colTableDetail').style.display = 'none';
                 }
             }
         }
@@ -644,12 +645,12 @@ function selectDatabase(dbId) {
 function showDatabaseLoading() {
     closeUserMgmtPanel(true);
     document.getElementById('welcomeView').style.display = 'none';
-    document.getElementById('dbDetailView').style.display = 'block';
+    document.getElementById('colTableList').style.display = 'flex';
+    document.getElementById('colTableDetail').style.display = 'none';
     
     // 先显示占位信息。
-    document.getElementById('dbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
-    document.getElementById('dbStatus').textContent = '加载中...';
-    document.getElementById('dbStatus').className = 'info-value status';
+    document.getElementById('colTablesDbName').innerHTML = '<span style="color:#718096;">加载中...</span>';
+    document.getElementById('colTablesDbInfo').textContent = '';
     
     const listEl = document.getElementById('tablesList');
     listEl.innerHTML = `
@@ -658,8 +659,6 @@ function showDatabaseLoading() {
             <div style="margin-top:12px;">正在加载数据库详情...</div>
         </div>
     `;
-    
-    document.getElementById('tablePreview').style.display = 'none';
 }
 
 // 加载数据库详情。
@@ -671,7 +670,7 @@ async function loadDatabaseDetail(dbId) {
 
         if (data.success) {
             document.getElementById('welcomeView').style.display = 'none';
-            document.getElementById('dbDetailView').style.display = 'block';
+            document.getElementById('colTableList').style.display = 'flex';
             
             const typeNames = {
                 mysql: 'MySQL',
@@ -697,22 +696,21 @@ async function loadDatabaseDetail(dbId) {
             };
             
             const isFileDb = dbTypeDefaults[data.database.type]?.isFile;
-            document.getElementById('dbName').textContent = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
-            document.getElementById('dbHost').textContent = isFileDb ? data.database.path : data.database.host;
-            document.getElementById('dbPort').textContent = isFileDb ? '-' : data.database.port;
-            document.getElementById('dbDatabase').textContent = data.database.database || '-';
+            const dbLabel = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
+            document.getElementById('colTablesDbName').textContent = dbLabel;
             
-            const statusEl = document.getElementById('dbStatus');
-            if (data.database.connected) {
-                statusEl.textContent = '已连接';
-                statusEl.className = 'info-value status connected';
-            } else {
-                statusEl.textContent = '未连接';
-                statusEl.className = 'info-value status disconnected';
-            }
-
+            // 第二列简要信息
+            const host = isFileDb ? data.database.path : data.database.host;
+            const port = isFileDb ? '-' : data.database.port;
+            const status = data.database.connected ? '✅ 已连接' : '❌ 未连接';
+            document.getElementById('colTablesDbInfo').innerHTML = `${host}${port !== '-' ? ':' + port : ''} · ${status}`;
+            
+            // 保存db信息供其他函数使用（兼容旧代码引用）
+            window._currentDbInfo = data.database;
+            
             renderTablesList(data.database.tables || []);
-            document.getElementById('tablePreview').style.display = 'none';
+            document.getElementById('colTableDetail').style.display = 'none';
+            currentPreviewTable = null;
         } else {
             // 数据库未连接时展示错误状态。
             const listEl = document.getElementById('tablesList');
@@ -801,15 +799,40 @@ function renderTablesList(tables) {
         const tableComment = typeof table === 'object' ? (table.comment || '') : '';
         const isActive = currentPreviewTable === tableName;
         const activeClass = isActive ? ' active' : '';
-        const displayText = tableComment ? `${tableName} (${tableComment})` : tableName;
+        const displayText = tableComment ? escapeHtml(tableComment) : escapeHtml(tableName);
+        const nameText = tableComment ? escapeHtml(tableName) : '';
         return `
-            <div class="table-item-compact${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableComment || tableName)}">
-                ${escapeHtml(displayText)}
+            <div class="table-item${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableName)}">
+                <span class="table-name">${nameText ? nameText + '<br><span style=\"color:#999;font-size:11px\">' + displayText + '</span>' : displayText}</span>
             </div>
         `;
     }).join('');
     
     listEl.innerHTML = tablesHtml;
+}
+
+// 搜索过滤表列表。
+function filterTables(keyword) {
+    const items = document.querySelectorAll('.tables-list-col .table-item');
+    const kw = keyword.toLowerCase().trim();
+    items.forEach(item => {
+        const name = item.getAttribute('title') || item.textContent || '';
+        item.style.display = (!kw || name.toLowerCase().includes(kw)) ? '' : 'none';
+    });
+}
+
+// 刷新当前数据库。
+function refreshCurrentDb() {
+    if (currentDb) {
+        selectDatabase(currentDb.id);
+    }
+}
+
+// 编辑数据库弹窗（复用现有modal）。
+function showEditDbModal() {
+    // 触发原有的编辑数据库弹窗
+    const editBtn = document.getElementById('editDbBtn');
+    if (editBtn) editBtn.click();
 }
 
 // 当前预览的表。
@@ -830,8 +853,8 @@ async function previewTable(tableName, keepEditMode = false) {
         isTableEditMode = false;
     }
 
-    // 显示表格预览区域。
-    document.getElementById('tablePreview').style.display = 'block';
+    // 显示第三列（数据表详情）。
+    document.getElementById('colTableDetail').style.display = 'flex';
     const previewContent = document.getElementById('previewContent');
     previewContent.innerHTML = `
         <div style="text-align:center;padding:60px;color:#718096;">
@@ -839,6 +862,11 @@ async function previewTable(tableName, keepEditMode = false) {
             <div style="margin-top:16px;">正在加载表结构...</div>
         </div>
     `;
+
+    // 高亮当前选中的表
+    document.querySelectorAll('.tables-list-col .table-item').forEach(el => {
+        el.classList.toggle('active', el.getAttribute('onclick')?.includes(`'${tableName}'`));
+    });
 
     try {
         // 先加载字段结构。
@@ -850,7 +878,7 @@ async function previewTable(tableName, keepEditMode = false) {
         const data = await dataResponse.json();
 
         if (data.success) {
-            document.getElementById('tablePreview').style.display = 'block';
+            document.getElementById('colTableDetail').style.display = 'flex';
             
             // 更新预览头部按钮。
             updatePreviewHeader();
@@ -1019,7 +1047,7 @@ async function loadStructureAndRenderTable(addOneRow) {
 
 // 更新预览头部按钮与表名。
 function updatePreviewHeader() {
-    const actionsContainer = document.querySelector('#tablePreview .preview-actions');
+    const actionsContainer = document.querySelector('#colTableDetail .detail-actions');
     const tableNameEl = document.getElementById('previewTableName');
     
     if (!actionsContainer || !tableNameEl) {
@@ -1040,7 +1068,6 @@ function updatePreviewHeader() {
         <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">编辑结构</button>
         <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">重命名</button>
         <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除</button>
-        <button id="closePreviewBtn" class="btn btn-sm" onclick="closePreview()">关闭</button>
     `;
     
     actionsContainer.innerHTML = actionsHtml;

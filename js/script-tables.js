@@ -104,14 +104,17 @@ async function switchTab(tabName) {
     if (tabName !== 'database') {
         closeUserMgmtPanel();
         const wv = document.getElementById('welcomeView');
-        const dv = document.getElementById('dbDetailView');
-        if (wv && dv) {
+        const tl = document.getElementById('colTableList');
+        const td = document.getElementById('colTableDetail');
+        if (wv && tl) {
             if (currentDb) {
                 wv.style.display = 'none';
-                dv.style.display = 'block';
+                tl.style.display = 'flex';
+                if (currentPreviewTable && td) td.style.display = 'flex';
             } else {
-                wv.style.display = 'block';
-                dv.style.display = 'none';
+                wv.style.display = 'flex';
+                tl.style.display = 'none';
+                if (td) td.style.display = 'none';
             }
         }
     }

@@ -19,9 +19,21 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // handleDatabaseDetailV1 数据库详情（V1）
 func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
-	// 提取 ID
+	// 提取 ID 后的子路径
 	path := r.URL.Path
-	id := strings.TrimPrefix(path, "/api/v1/databases/")
+	suffix := strings.TrimPrefix(path, "/api/v1/databases/")
+	
+	// 检查是否包含 /tables/ 子路径（表数据/结构请求）
+	if strings.Contains(suffix, "/tables") {
+		// 重写路径为 handleTableData 期望的格式
+		// /api/v1/databases/{id}/tables/... → /api/databases/{id}/tables/...
+		r.URL.Path = "/api/databases/" + suffix
+		handleTableData(w, r)
+		return
+	}
+	
+	// 数据库详情请求
+	id := suffix
 	if id == "" {
 		http.Error(w, "缺少数据库 ID", http.StatusBadRequest)
 		return

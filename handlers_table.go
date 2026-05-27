@@ -1523,12 +1523,14 @@ func handleTableStructure(w http.ResponseWriter, r *http.Request, config *Databa
 			ORDER BY ORDINAL_POSITION
 		`, tableName)
 	case "dm":
+		// 达梦 USER_TAB_COLUMNS 要求大写表名
+		dmTableName := strings.ToUpper(tableName)
 		query = fmt.Sprintf(`
 			SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
 			FROM USER_TAB_COLUMNS
 			WHERE TABLE_NAME = '%s'
 			ORDER BY COLUMN_ID
-		`, tableName)
+		`, dmTableName)
 	case "oracle":
 		// Oracle DATA_DEFAULT 是 LONG 类型，go-ora 无法 Scan，只查 3 列
 		// owner.table 时只用表名部分查 USER_TAB_COLUMNS（避免需要 ALL_TAB_COLUMNS 权限）
