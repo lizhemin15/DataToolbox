@@ -2503,7 +2503,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const pBody = ensureProcessWrapper();
             const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
             const body = toolBlock.querySelector('.cluster-block-body');
-            if (content) body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-detail">${escapeHtml(content.substring(0, 500))}</div>`);
+            if (content) body.insertAdjacentHTML('beforeend', formatToolContent(content, false));
             pBody.appendChild(toolBlock);
             processWrapperRef.count++;
             currentBlock = toolBlock;
@@ -2515,12 +2515,12 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const pBody = ensureProcessWrapper();
             if (currentBlock && currentBlock.classList.contains('cluster-block-tool')) {
                 const body = currentBlock.querySelector('.cluster-block-body');
-                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
+                body.insertAdjacentHTML('beforeend', formatToolContent(content, true));
                 currentBlock.classList.add('closed');
             } else {
                 const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
                 const body = resultBlock.querySelector('.cluster-block-body');
-                body.insertAdjacentHTML('beforeend', `<div class="cluster-tool-result">${escapeHtml(content.substring(0, 300))}</div>`);
+                body.insertAdjacentHTML('beforeend', formatToolContent(content, true));
                 pBody.appendChild(resultBlock);
                 resultBlock.classList.add('closed');
                 processWrapperRef.count++;
@@ -3094,6 +3094,146 @@ function createClusterBlock(title, className) {
         </div>
         <div class="cluster-block-body"></div>`;
     return block;
+}
+
+// 将工具调用/返回内容格式化为用户友好的显示
+function formatToolContent(rawContent, isResult) {
+    if (!rawContent || rawContent.trim() === '' || rawContent.trim() === 'null' || rawContent.trim() === 'None') {
+        return isResult ? '<div class="cluster-tool-summary"><span class="tool-status-empty">无返回数据</span></div>' : '<div class="cluster-tool-summary"><span class="tool-status-empty">空调用</span></div>';
+    }
+    
+    // 尝试解析JSON
+    let parsed = null;
+    try {
+        // 去掉可能的markdown代码块包裹
+        let cleanContent = rawContent.trim();
+        if (cleanContent.startsWith('```')) {
+            cleanContent = cleanContent.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+        }
+        parsed = JSON.parse(cleanContent);
+    } catch(e) {
+        // 不是JSON，检查是否是SQL
+        const trimmed = rawContent.trim();
+        if (/^(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH)\s/i.test(trimmed)) {
+            return `<div class="cluster-tool-summary"><span class="tool-label">SQL</span><pre class="cluster-tool-sql">${escapeHtml(trimmed)}</pre></div>`;
+        }
+        // 普通文本，截取显示
+        const display = trimmed.length > 200 ? trimmed.substring(0, 200) + '...' : trimmed;
+        return `<div class="cluster-tool-summary">${escapeHtml(display)}</div>`;
+    }
+
+    // JSON解析成功
+    if (isResult) {
+        // === tool_result 格式化 ===
+        // 数组：显示条数 + 摘要表
+        if (Array.isArray(parsed)) {
+            if (parsed.length === 0) {
+                return '<div class="cluster-tool-summary"><span class="tool-status-empty">返回空数组</span></div>';
+            }
+            // 提取前3条做摘要表
+            const columns = Object.keys(parsed[0] || {});
+            const sampleRows = parsed.slice(0, 3);
+            let tableHtml = '<div class="cluster-tool-summary">';
+            tableHtml += `<span class="tool-label">结果</span><span class="tool-count">${parsed.length} 条记录</span>`;
+            tableHtml += '<table class="md-table"><thead><tr>';
+            const maxCols = Math.min(columns.length, 5);
+            for (let i = 0; i < maxCols; i++) {
+                tableHtml += `<th>${escapeHtml(columns[i])}</th>`;
+            }
+            if (columns.length > 5) tableHtml += '<th>...</th>';
+            tableHtml += '</tr></thead><tbody>';
+            for (const row of sampleRows) {
+                tableHtml += '<tr>';
+                for (let i = 0; i < maxCols; i++) {
+                    const val = row[columns[i]];
+                    const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+                    tableHtml += `<td>${escapeHtml(displayVal.length > 30 ? displayVal.substring(0,30)+'...' : displayVal)}</td>`;
+                }
+                if (columns.length > 5) tableHtml += '<td>...</td>';
+                tableHtml += '</tr>';
+            }
+            tableHtml += '</tbody></table>';
+            if (parsed.length > 3) tableHtml += `<span class="tool-more">及 ${parsed.length - 3} 条更多...</span>`;
+            tableHtml += '</div>';
+            return tableHtml;
+        }
+        
+        // 对象：提取关键字段
+        if (typeof parsed === 'object') {
+            const keys = Object.keys(parsed);
+            // 如果只有success/error/message等通用字段
+            if (parsed.success !== undefined) {
+                const status = parsed.success ? '<span class="tool-status-ok">✓ 成功</span>' : '<span class="tool-status-err">✗ 失败</span>';
+                let html = `<div class="cluster-tool-summary">${status}`;
+                if (parsed.message) html += ` <span class="tool-detail">${escapeHtml(String(parsed.message).substring(0, 100))}</span>`;
+                html += '</div>';
+                return html;
+            }
+            // 一般对象：显示为简洁键值表
+            let html = '<div class="cluster-tool-summary"><table class="md-table kv-table"><tbody>';
+            const maxKeys = Math.min(keys.length, 8);
+            for (let i = 0; i < maxKeys; i++) {
+                const val = parsed[keys[i]];
+                const displayVal = typeof val === 'object' ? (Array.isArray(val) ? `${val.length}项` : '...') : String(val ?? '');
+                html += `<tr><th>${escapeHtml(keys[i])}</th><td>${escapeHtml(displayVal.length > 50 ? displayVal.substring(0,50)+'...' : displayVal)}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            if (keys.length > 8) html += `<span class="tool-more">及 ${keys.length - 8} 个字段...</span>`;
+            html += '</div>';
+            return html;
+        }
+        
+        // 简单值
+        return `<div class="cluster-tool-summary"><span class="tool-detail">${escapeHtml(String(parsed))}</span></div>`;
+    } else {
+        // === tool_call 格式化 ===
+        // 提取工具名和参数摘要
+        const toolName = parsed.name || parsed.tool || parsed.function?.name || tool || '';
+        const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || parsed.params || parsed.input || null;
+        
+        let html = '<div class="cluster-tool-summary">';
+        if (toolName) html += `<span class="tool-label">调用</span><span class="tool-name">${escapeHtml(toolName)}</span>`;
+        
+        if (args) {
+            if (typeof args === 'string') {
+                try { args = JSON.parse(args); } catch(e) {}
+            }
+            if (typeof args === 'object' && args !== null) {
+                const argKeys = Object.keys(args);
+                const maxArgs = Math.min(argKeys.length, 6);
+                html += '<div class="tool-args">';
+                for (let i = 0; i < maxArgs; i++) {
+                    const val = args[argKeys[i]];
+                    const displayVal = typeof val === 'object' ? (Array.isArray(val) ? `[${val.length}项]` : '{...}') : String(val ?? '');
+                    html += `<span class="tool-arg"><b>${escapeHtml(argKeys[i])}</b>: ${escapeHtml(displayVal.length > 40 ? displayVal.substring(0,40)+'...' : displayVal)}</span>`;
+                }
+                html += '</div>';
+                if (argKeys.length > 6) html += `<span class="tool-more">及 ${argKeys.length - 6} 个参数...</span>`;
+            } else if (typeof args === 'string') {
+                // SQL等长字符串参数
+                if (/^(SELECT|INSERT|UPDATE|DELETE|WITH)\s/i.test(args)) {
+                    html += `<pre class="cluster-tool-sql">${escapeHtml(args)}</pre>`;
+                } else {
+                    html += `<span class="tool-detail">${escapeHtml(args.substring(0, 100))}</span>`;
+                }
+            }
+        } else {
+            // 没有明确的args字段，显示对象的几个关键字
+            const keys = Object.keys(parsed).filter(k => k !== 'name' && k !== 'tool' && k !== 'function');
+            if (keys.length > 0) {
+                html += '<div class="tool-args">';
+                const maxK = Math.min(keys.length, 4);
+                for (let i = 0; i < maxK; i++) {
+                    const val = parsed[keys[i]];
+                    const displayVal = typeof val === 'object' ? '...' : String(val ?? '');
+                    html += `<span class="tool-arg"><b>${escapeHtml(keys[i])}</b>: ${escapeHtml(displayVal.length > 40 ? displayVal.substring(0,40)+'...' : displayVal)}</span>`;
+                }
+                html += '</div>';
+            }
+        }
+        html += '</div>';
+        return html;
+    }
 }
 
 // 切换折叠块展开/收起
