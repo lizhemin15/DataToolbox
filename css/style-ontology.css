@@ -27,7 +27,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: linear-gradient(180deg, #f5f5f5 0%, #f7fafc 100%);
+    background: linear-gradient(180deg, #f0f4ff 0%, #f7fafc 100%);
     overflow: hidden;
 }
 .lineage-toolbar {
@@ -36,7 +36,7 @@
     gap: 12px;
     padding: 8px 20px;
     background: linear-gradient(90deg, #ffffff 0%, #f8fafc 100%);
-    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+    border-bottom: 1px solid rgba(74, 108, 247, 0.12);
     flex-shrink: 0;
     box-shadow: 0 1px 0 rgba(34, 211, 238, 0.06);
 }
@@ -52,7 +52,7 @@
 .lineage-toolbar-sep {
     width: 1px;
     height: 22px;
-    background: linear-gradient(180deg, transparent, rgba(99, 102, 241, 0.25), transparent);
+    background: linear-gradient(180deg, transparent, rgba(74, 108, 247, 0.25), transparent);
 }
 .lineage-db-picker { position: relative; }
 .lineage-db-btn {
@@ -60,7 +60,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    border: 1px solid rgba(74, 108, 247, 0.2);
     border-radius: 8px;
     background: #fff;
     cursor: pointer;
@@ -72,7 +72,7 @@
     border-color: rgba(34, 211, 238, 0.45);
     box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.08);
 }
-.lineage-db-btn.active { border-color: #444; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
+.lineage-db-btn.active { border-color: #4a6cf7; box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.2); }
 .lineage-db-btn-text.placeholder { color: #a0aec0; }
 .lineage-db-dropdown {
     display: none;
@@ -115,7 +115,7 @@
     background:
         radial-gradient(ellipse 90% 70% at 15% 25%, rgba(34, 211, 238, 0.14) 0%, transparent 52%),
         
-        radial-gradient(ellipse 50% 45% at 50% 100%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
+        radial-gradient(ellipse 50% 45% at 50% 100%, rgba(74, 108, 247, 0.08) 0%, transparent 45%),
         linear-gradient(155deg, #070b14 0%, #0c1224 38%, #120a1f 72%, #0a1628 100%);
     overflow: hidden;
 }
@@ -145,7 +145,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #aaa;
+    color: #94a3b8;
     font-size: 14px;
     pointer-events: none;
     text-align: center;
@@ -230,7 +230,7 @@
 }
 
 .lineage-svg .lineage-particle {
-    fill: #e8e8e8;
+    fill: #e0f2fe;
     filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.9));
     opacity: 0.95;
     transition: opacity 0.25s ease;
@@ -247,10 +247,10 @@
     transition: filter 0.35s ease;
 }
 .lineage-svg .lineage-node:hover .lineage-node-inner {
-    filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(0, 0, 0, 0.15));
+    filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(74, 108, 247, 0.25));
 }
 .lineage-svg .lineage-node:active .lineage-node-inner {
-    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 22px rgba(0, 0, 0, 0.1));
+    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 22px rgba(74, 108, 247, 0.2));
 }
 
 .lineage-svg .lineage-node-shape {
@@ -583,11 +583,11 @@
 }
 
 .model-status.enabled {
-    color: #666;
+    color: #38a169;
 }
 
 .model-status.disabled {
-    color: #555;
+    color: #c0392b;
 }
 
 .model-actions {
@@ -703,7 +703,7 @@
 }
 
 .col-tables-search input:focus {
-    border-color: #333;
+    border-color: #4a6cf7;
     background: #fff;
 }
 
@@ -730,7 +730,7 @@
 }
 
 .tables-list-col .table-item.active {
-    background: rgba(0, 0, 0, 0.04);
+    background: rgba(74, 108, 247, 0.06);
     font-weight: 600;
     border-color: #e2e8f0;
 }

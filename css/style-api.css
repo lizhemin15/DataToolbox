@@ -51,8 +51,8 @@
 }
 
 .param-type.required {
-    background: #f0f0f0;
-    color: #666;
+    background: #fed7d7;
+    color: #a93226;
 }
 
 .param-type.optional {
@@ -382,7 +382,7 @@
     text-align: left;
     font-weight: 600;
     color: #2d3748;
-    border-bottom: 2px solid #d0d0d0;
+    border-bottom: 2px solid #cbd5e0;
     white-space: nowrap;
 }
 
@@ -422,7 +422,7 @@
 }
 
 .value-undefined {
-    color: #d0d0d0;
+    color: #cbd5e0;
     font-style: italic;
 }
 
@@ -437,7 +437,7 @@
 }
 
 .value-string {
-    color: #444;
+    color: #38a169;
 }
 
 .value-array {

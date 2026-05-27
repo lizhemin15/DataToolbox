@@ -103,15 +103,15 @@
 .backup-message.success {
     display: block;
     background: #f0fff4;
-    color: #333;
+    color: #276749;
     border: 1px solid #c6f6d5;
 }
 
 .backup-message.error {
     display: block;
-    background: #f5f5f5;
-    color: #666;
-    border: 1px solid #f0f0f0;
+    background: #fff5f5;
+    color: #a93226;
+    border: 1px solid #fed7d7;
 }
 
 .backup-message.info {
@@ -199,8 +199,8 @@
 
 .gov-api-example-note {
     padding: 12px 16px;
-    background: #f9f9f0;
-    border-top: 1px solid #ddd;
+    background: #fffbeb;
+    border-top: 1px solid #fcd34d;
     border-radius: 0 0 8px 8px;
     font-size: 13px;
     color: #92400e;
@@ -216,7 +216,7 @@
 }
 
 .gov-api-example-note code {
-    background: #f9f9f0;
+    background: #fef3c7;
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 12px;
@@ -260,7 +260,7 @@
 }
 
 .gov-open-mode-item input:disabled + .gov-open-mode-box {
-    border-color: #aaa;
+    border-color: #94a3b8;
     background: #f1f5f9;
     cursor: default;
 }
@@ -270,7 +270,7 @@
 }
 
 .gov-open-mode-item input:disabled:hover + .gov-open-mode-box {
-    border-color: #aaa;
+    border-color: #94a3b8;
 }
 
 .gov-open-mode-icon {
@@ -330,7 +330,7 @@
 }
 
 .text-muted {
-    color: #aaa;
+    color: #94a3b8;
 }
 
 /* ==================== 治理任务详情 - 代码折叠块 ==================== */

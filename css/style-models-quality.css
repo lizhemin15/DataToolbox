@@ -63,7 +63,7 @@
 .qa-form textarea#qaSql { white-space: pre-wrap; }
 .qa-tabs { display: flex; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
 .qa-tab { padding: 8px 12px; cursor: pointer; border: none; background: none; color: #4a5568; }
-.qa-tab.active { color: #333; border-bottom: 2px solid #333; font-weight: 600; }
+.qa-tab.active { color: #4a6cf7; border-bottom: 2px solid #4a6cf7; font-weight: 600; }
 .qa-fill-header {
     margin-bottom: 8px;
     padding: 6px 0;
@@ -208,7 +208,7 @@
     flex-shrink: 0;
     margin-top: 2px;
     padding: 4px 8px;
-    background: #f5f5f5;
+    background: #fee2e2;
     color: #dc2626;
     border: none;
     border-radius: 4px;
@@ -217,7 +217,7 @@
     line-height: 1;
 }
 .qa-fill-rm:hover {
-    background: #e8e8e8;
+    background: #fecaca;
 }
 .qa-fill-add { margin-top: 8px; }
 .qa-fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -235,8 +235,8 @@
 }
 .qa-msg { margin: 8px 0; padding: 8px; border-radius: 6px; font-size: 13px; display: none; }
 .qa-msg.show { display: block; }
-.qa-msg.err { background: #f5f5f5; color: #666; }
-.qa-msg.ok { background: #f0fff4; color: #333; }
+.qa-msg.err { background: #fff5f5; color: #a93226; }
+.qa-msg.ok { background: #f0fff4; color: #276749; }
 
 .qa-audit-result {
     margin-top: 12px;
@@ -279,7 +279,7 @@
     font-weight: 600;
 }
 .qa-badge-pass { background: #c6f6d5; color: #22543d; }
-.qa-badge-fail { background: #f0f0f0; color: #822727; }
+.qa-badge-fail { background: #fed7d7; color: #822727; }
 .qa-badge-skip { background: #e2e8f0; color: #4a5568; }
 .qa-detail-sample { margin-top: 8px; overflow-x: auto; }
 .qa-sample-table {
@@ -290,7 +290,7 @@
 }
 .qa-sample-table th,
 .qa-sample-table td {
-    border: 1px solid #d0d0d0;
+    border: 1px solid #cbd5e0;
     padding: 4px 6px;
 }
 .qa-sample-table th { background: #edf2f7; }
@@ -310,14 +310,14 @@
 .qa-tpl-open-btn {
     border-radius: 8px;
     font-weight: 600;
-    background: #333;
+    background: #4a6cf7;
     color: #fff !important;
     border: none;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 14px rgba(74, 108, 247, 0.35);
 }
 .qa-tpl-open-btn:hover {
     filter: brightness(1.06);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 6px 18px rgba(74, 108, 247, 0.42);
 }
 
 .qa-tpl-modal {
@@ -376,7 +376,7 @@
     gap: 12px;
     padding: 16px 20px 12px;
     border-bottom: 1px solid rgba(226, 232, 240, 0.9);
-    background: linear-gradient(90deg, rgba(0, 0, 0, 0.05), transparent);
+    background: linear-gradient(90deg, rgba(74, 108, 247, 0.08), transparent);
     flex-shrink: 0;
 }
 .qa-tpl-head-badge {
@@ -386,7 +386,7 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: #5b67ea;
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(74, 108, 247, 0.15);
     padding: 2px 8px;
     border-radius: 6px;
     margin-bottom: 6px;
@@ -529,7 +529,7 @@
 }
 .qa-tpl-switch input {
     width: auto;
-    accent-color: #333;
+    accent-color: #4a6cf7;
 }
 .qa-tpl-preview-wrap {
     flex: 1 1 60%;
@@ -618,12 +618,12 @@
 
 /* Toast 类型样式 */
 #toastContainer > div.toast-success {
-    background: linear-gradient(135deg, #444 0%, #444 100%);
+    background: #38a169;
     color: white;
 }
 
 #toastContainer > div.toast-error {
-    background: #555;
+    background: #c0392b;
     color: white;
 }
 
@@ -671,7 +671,7 @@ body.embed-mode .main-content {
     height: 36px;
     border-radius: 50%;
     border: none;
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(74, 108, 247, 0.9);
     color: white;
     font-size: 18px;
     cursor: pointer;
@@ -682,7 +682,7 @@ body.embed-mode .main-content {
 }
 
 .embed-settings-btn:hover {
-    background: #333;
+    background: rgba(74, 108, 247, 1);
     transform: scale(1.1);
 }
 
@@ -765,11 +765,11 @@ body.embed-mode .embed-settings-btn {
 }
 
 .capability-hint.supported {
-    color: #444;
+    color: #38a169;
 }
 
 .capability-hint.not-supported {
-    color: #555;
+    color: #c0392b;
 }
 
 #detectCapabilitiesBtn {

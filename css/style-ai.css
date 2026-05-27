@@ -40,8 +40,8 @@
 }
 
 .ai-sidebar-toggle:hover {
-    color: #333;
-    background: linear-gradient(180deg, #eef2ff 0%, #f0f0f0 100%);
+    color: #4a6cf7;
+    background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
 }
 
 .ai-session-sidebar.collapsed .sidebar-toggle-icon {
@@ -72,9 +72,9 @@
 .ai-new-session-btn {
     flex: 1;
     padding: 10px 0;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(74, 108, 247, 0.3);
     border-radius: 10px;
-    background: #333;
+    background: #4a6cf7;
     color: white;
     font-size: 14px;
     font-weight: 500;
@@ -82,22 +82,22 @@
     transition: all 0.2s;
     text-align: center;
     line-height: 1;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 8px rgba(74, 108, 247, 0.25);
 }
 
 .ai-new-session-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px rgba(74, 108, 247, 0.35);
 }
 
 .ai-new-session-btn[data-mode="fast"]:hover {
-    border-color: #333;
-    background: #333;
+    border-color: #4a6cf7;
+    background: #4a6cf7;
 }
 
 .ai-new-session-btn[data-mode="cluster"]:hover {
-    border-color: #888;
-    background: linear-gradient(135deg, #888 0%, #f97316 100%);
+    border-color: #f59e0b;
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
 }
 
 .ai-session-list {
@@ -131,14 +131,14 @@
 }
 
 .ai-session-item:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(74, 108, 247, 0.08);
 }
 
 .ai-session-item.active {
-    background: linear-gradient(135deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.05) 100%);
-    border-left: 3px solid #333;
+    background: linear-gradient(135deg, rgba(74, 108, 247, 0.12) 0%, rgba(74, 108, 247, 0.12) 100%);
+    border-left: 3px solid #4a6cf7;
     padding-left: 11px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 8px rgba(74, 108, 247, 0.1);
 }
 
 .ai-session-item .session-title {
@@ -168,12 +168,12 @@
 }
 
 .ai-session-item .session-mode-badge.mode-fast {
-    background: #333;
+    background: #4a6cf7;
     color: white;
 }
 
 .ai-session-item .session-mode-badge.mode-cluster {
-    background: linear-gradient(135deg, #888 0%, #f97316 100%);
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
     color: white;
 }
 
@@ -185,7 +185,7 @@
     height: 24px;
     border: none;
     background: transparent;
-    color: #aaa;
+    color: #94a3b8;
     font-size: 14px;
     cursor: pointer;
     border-radius: 6px;
@@ -221,11 +221,11 @@
     justify-content: space-between;
     align-items: center;
     padding: 14px 20px;
-    background: #333;
+    background: #4a6cf7;
     color: white;
     border-bottom: none;
     flex-shrink: 0;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 12px rgba(74, 108, 247, 0.25);
 }
 
 .ai-chat-header h3 {
@@ -341,17 +341,17 @@
     width: 64px;
     height: 64px;
     border-radius: 18px;
-    background: linear-gradient(135deg, #444 0%, #555 50%, #888 100%);
+    background: #4a6cf7;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25), 0 2px 8px rgba(139, 92, 246, 0.15);
+    box-shadow: 0 8px 24px rgba(74, 108, 247, 0.25), 0 2px 8px rgba(74, 108, 247, 0.15);
     animation: welcomePulse 3s ease-in-out infinite;
 }
 
 @keyframes welcomePulse {
-    0%, 100% { box-shadow: 0 8px 24px rgba(99, 102, 241, 0.25), 0 2px 8px rgba(139, 92, 246, 0.15); }
-    50% { box-shadow: 0 12px 32px rgba(99, 102, 241, 0.35), 0 4px 12px rgba(139, 92, 246, 0.25); }
+    0%, 100% { box-shadow: 0 8px 24px rgba(74, 108, 247, 0.25), 0 2px 8px rgba(74, 108, 247, 0.15); }
+    50% { box-shadow: 0 12px 32px rgba(74, 108, 247, 0.35), 0 4px 12px rgba(74, 108, 247, 0.25); }
 }
 
 .ai-welcome-logo svg {
@@ -370,7 +370,7 @@
 .ai-welcome-hero p {
     margin: 0;
     font-size: 14px;
-    color: #aaa;
+    color: #94a3b8;
     letter-spacing: 0.04em;
 }
 
@@ -396,9 +396,9 @@
 }
 
 .ai-welcome-card:hover {
-    border-color: #555;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.04) 100%);
-    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.1);
+    border-color: #4a6cf7;
+    background: linear-gradient(135deg, rgba(74, 108, 247, 0.04) 0%, rgba(74, 108, 247, 0.04) 100%);
+    box-shadow: 0 2px 12px rgba(74, 108, 247, 0.1);
     transform: translateY(-1px);
 }
 
@@ -417,13 +417,13 @@
 
 .ai-welcome-card-desc {
     font-size: 12px;
-    color: #aaa;
+    color: #94a3b8;
     line-height: 1.4;
 }
 
 .ai-welcome-hint {
     font-size: 12px;
-    color: #aaa;
+    color: #94a3b8;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -438,7 +438,7 @@
     border-radius: 4px;
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 11px;
-    color: #444;
+    color: #4a6cf7;
 }
 
 .ai-message {
@@ -484,12 +484,12 @@
 }
 
 .ai-message.user .ai-message-avatar {
-    background: #333;
+    background: #4a6cf7;
 }
 
 .ai-message.assistant .ai-message-avatar {
-    background: linear-gradient(135deg, #444 0%, #555 100%);
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    background: #4a6cf7;
+    box-shadow: 0 2px 8px rgba(74, 108, 247, 0.3);
 }
 
 .ai-message-content {
@@ -548,11 +548,11 @@
 }
 
 .ai-message.user .ai-message-bubble {
-    background: #333;
+    background: #4a6cf7;
     color: white;
     border-bottom-right-radius: 6px;
     white-space: pre-wrap;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 2px 12px rgba(74, 108, 247, 0.2);
 }
 
 .ai-message.assistant .ai-message-bubble {
@@ -566,7 +566,7 @@
 /* Cluster mode: assistant card style (PicoClaw-inspired) */
 .ai-chat-messages.cluster-mode .ai-message.assistant .ai-message-bubble {
     border-radius: 16px;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(74, 108, 247, 0.1);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
     background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
 }
@@ -605,9 +605,9 @@
 
 /* 在助手消息中的数据库引用样式 */
 .ai-message.assistant .ai-db-reference {
-    background: rgba(0, 0, 0, 0.05);
-    color: #333;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    background: rgba(74, 108, 247, 0.1);
+    color: #4a6cf7;
+    border: 1px solid rgba(74, 108, 247, 0.2);
     text-shadow: none;
 }
 
@@ -621,7 +621,7 @@
     line-height: 1.45;
     margin: 4px 0;
     overflow-x: auto;
-    border-left: 3px solid #333;
+    border-left: 3px solid #4a6cf7;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     max-width: 100%;
     white-space: pre-wrap;
@@ -651,7 +651,7 @@
     text-align: left;
     font-weight: 600;
     color: #2d3748;
-    border-bottom: 2px solid #d0d0d0;
+    border-bottom: 2px solid #cbd5e0;
     white-space: nowrap;
 }
 
@@ -714,7 +714,7 @@
     margin: -24px 20px 16px;
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(74, 108, 247, 0.15);
     border-radius: 20px;
     padding: 12px 16px;
     background: white;
@@ -723,8 +723,8 @@
 }
 
 .ai-input-float-wrap:focus-within {
-    border-color: #333;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    border-color: #4a6cf7;
+    box-shadow: 0 4px 20px rgba(74, 108, 247, 0.2);
 }
 
 .ai-db-suggestions {
@@ -806,7 +806,7 @@
 }
 
 .ai-context-tag-module {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(141, 162, 251, 0.35);
     color: #f5f3ff;
 }
 
@@ -842,7 +842,7 @@
     height: 36px;
     min-width: 36px;
     border-radius: 50%;
-    background: #555;
+    background: #4a6cf7;
     border: none;
     color: white;
     display: flex;
@@ -870,8 +870,8 @@
 }
 
 .ai-error {
-    background: #f0f0f0;
-    color: #c53030;
+    background: #fed7d7;
+    color: #a93226;
     padding: 6px 10px;
     border-radius: 6px;
     margin: 4px 0;
@@ -950,14 +950,14 @@
 /* AI创建接口样式 */
 .ai-api-config-preview {
     margin-top: 12px;
-    border: 2px solid #333;
+    border: 2px solid #4a6cf7;
     border-radius: 12px;
     overflow: hidden;
     background: white;
 }
 
 .ai-api-config-header {
-    background: #333;
+    background: #4a6cf7;
     color: white;
     padding: 12px 16px;
     display: flex;
@@ -1017,7 +1017,7 @@
 }
 
 .ai-api-config-actions .btn-primary {
-    background: #333;
+    background: #4a6cf7;
     border: none;
     color: white;
 }
