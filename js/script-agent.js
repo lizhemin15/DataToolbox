@@ -2156,12 +2156,23 @@ async function resumeAgentRun(runId, startSeq) {
     let runStatus = 'running';
     let hitlPending = false;
     let pollInterval = null;
+    let pollCount = 0;
+    const MAX_POLLS = 600; // 500ms * 600 = 5分钟安全阀
 
     const pollEvents = async () => {
         if (hitlPending) return;
+        pollCount++;
         try {
             const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`);
-            if (!resp.ok) return;
+            if (!resp.ok) {
+                // 认证失败时停止轮询，避免无限循环
+                if (resp.status === 401) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    finishClusterResponse();
+                }
+                return;
+            }
             const data = await resp.json();
             if (!data.success || !data.data) return;
 
@@ -2187,7 +2198,7 @@ async function resumeAgentRun(runId, startSeq) {
                 lastSeq = evt.seq;
             }
 
-            if (runStatus === 'completed' || runStatus === 'error') {
+            if (runStatus === 'completed' || runStatus === 'error' || pollCount >= MAX_POLLS) {
                 clearInterval(pollInterval);
                 pollInterval = null;
                 finishClusterResponse();
@@ -2295,66 +2306,76 @@ async function sendClusterQuery(message, databases, modules) {
         let runStatus = 'running';
         let pollInterval = null;
         let hitlPending = false; // HITL 等待中，暂停轮询直到用户响应
+        let pollCount = 0;
+        const MAX_POLLS = 600; // 500ms * 600 = 5分钟安全阀
 
         const pollEvents = async () => {
-            if (hitlPending) return; // HITL 等待中不轮询
-
-            try {
-                const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`);
-                if (!resp.ok) return;
-                const data = await resp.json();
-                if (!data.success || !data.data) return;
-
-                const events = data.data.events || [];
-                runStatus = data.data.run_status || runStatus;
-
-                for (const evt of events) {
-                    // 解析 event_data JSON
-                    let evtData;
-                    try {
-                        evtData = JSON.parse(evt.event_data);
-                    } catch (e) {
-                        evtData = { type: evt.event_type, message: evt.event_data };
-                    }
-
-                    // 设置事件类型
-                    if (!evtData.type) evtData.type = evt.event_type;
-
-                    // 处理 text 事件的 fullText
-                    const content = evtData.content || evtData.text || evtData.message || '';
-                    if (evtData.type === 'text' && evtData.partial === false && content) {
-                        fullText = content;
-                    } else if (evtData.type === 'text' && content) {
-                        fullText += content;
-                    }
-
-                    // 复用现有渲染逻辑
-                    currentBlock = handleClusterEventV2(evtData, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
-
-                    // HITL: 暂停轮询，等用户响应
-                    if (evt.event_type === 'hitl_interaction') {
-                        hitlPending = true;
-                        // 在 HITL 卡片上绑定恢复轮询的回调
-                        const hitlCard = blocksEl.querySelector(`.hitl-card[data-hitl-id="${evtData.hitl_id}"]`);
-                        if (hitlCard) {
-                            hitlCard.dataset.runId = runId;
-                            hitlCard.dataset.resumePoll = 'true';
-                        }
-                    }
-
-                    lastSeq = evt.seq;
-                }
-
-                // 运行结束
-                if (runStatus === 'completed' || runStatus === 'error') {
+        if (hitlPending) return; // HITL 等待中不轮询
+        pollCount++;
+        try {
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/runs/${runId}/events?after_seq=${lastSeq}`);
+            if (!resp.ok) {
+                // 认证失败时停止轮询，避免无限循环
+                if (resp.status === 401) {
                     clearInterval(pollInterval);
                     pollInterval = null;
                     finishClusterResponse();
                 }
-            } catch (e) {
-                console.error('Poll events error:', e);
+                return;
             }
-        };
+            const data = await resp.json();
+            if (!data.success || !data.data) return;
+
+            const events = data.data.events || [];
+            runStatus = data.data.run_status || runStatus;
+
+            for (const evt of events) {
+                // 解析 event_data JSON
+                let evtData;
+                try {
+                    evtData = JSON.parse(evt.event_data);
+                } catch (e) {
+                    evtData = { type: evt.event_type, message: evt.event_data };
+                }
+
+                // 设置事件类型
+                if (!evtData.type) evtData.type = evt.event_type;
+
+                // 处理 text 事件的 fullText
+                const content = evtData.content || evtData.text || evtData.message || '';
+                if (evtData.type === 'text' && evtData.partial === false && content) {
+                    fullText = content;
+                } else if (evtData.type === 'text' && content) {
+                    fullText += content;
+                }
+
+                // 复用现有渲染逻辑
+                currentBlock = handleClusterEventV2(evtData, blocksEl, textEl, typingEl, currentBlock, processWrapperRef);
+
+                // HITL: 暂停轮询，等用户响应
+                if (evt.event_type === 'hitl_interaction') {
+                    hitlPending = true;
+                    // 在 HITL 卡片上绑定恢复轮询的回调
+                    const hitlCard = blocksEl.querySelector(`.hitl-card[data-hitl-id="${evtData.hitl_id}"]`);
+                    if (hitlCard) {
+                        hitlCard.dataset.runId = runId;
+                        hitlCard.dataset.resumePoll = 'true';
+                    }
+                }
+
+                lastSeq = evt.seq;
+            }
+
+            // 运行结束
+            if (runStatus === 'completed' || runStatus === 'error' || pollCount >= MAX_POLLS) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                finishClusterResponse();
+            }
+        } catch (e) {
+            console.error('Poll events error:', e);
+        }
+    };
 
         // 完成处理（渲染最终文本、折叠中间过程、保存会话）
         let finished = false;
