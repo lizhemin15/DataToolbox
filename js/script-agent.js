@@ -2524,7 +2524,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const pBody = ensureProcessWrapper();
             const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
             const body = toolBlock.querySelector('.cluster-block-body');
-            if (content) body.insertAdjacentHTML('beforeend', formatToolContent(content, false));
+            if (content) body.insertAdjacentHTML('beforeend', formatToolContent(content, false, tool));
             pBody.appendChild(toolBlock);
             processWrapperRef.count++;
             currentBlock = toolBlock;
@@ -2536,12 +2536,12 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const pBody = ensureProcessWrapper();
             if (currentBlock && currentBlock.classList.contains('cluster-block-tool')) {
                 const body = currentBlock.querySelector('.cluster-block-body');
-                body.insertAdjacentHTML('beforeend', formatToolContent(content, true));
+                body.insertAdjacentHTML('beforeend', formatToolContent(content, true, tool));
                 currentBlock.classList.add('closed');
             } else {
                 const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
                 const body = resultBlock.querySelector('.cluster-block-body');
-                body.insertAdjacentHTML('beforeend', formatToolContent(content, true));
+                body.insertAdjacentHTML('beforeend', formatToolContent(content, true, tool));
                 pBody.appendChild(resultBlock);
                 resultBlock.classList.add('closed');
                 processWrapperRef.count++;
@@ -3118,7 +3118,7 @@ function createClusterBlock(title, className) {
 }
 
 // 将工具调用/返回内容格式化为用户友好的显示
-function formatToolContent(rawContent, isResult) {
+function formatToolContent(rawContent, isResult, toolNameFallback) {
     if (!rawContent || rawContent.trim() === '' || rawContent.trim() === 'null' || rawContent.trim() === 'None') {
         return isResult ? '<div class="cluster-tool-summary"><span class="tool-status-empty">无返回数据</span></div>' : '<div class="cluster-tool-summary"><span class="tool-status-empty">无参数</span></div>';
     }
@@ -3213,7 +3213,7 @@ function formatToolContent(rawContent, isResult) {
             return '<div class="cluster-tool-summary"><span class="tool-status-empty">无参数</span></div>';
         }
         // 提取工具名和参数摘要
-        const toolName = parsed.name || parsed.tool || parsed.function?.name || tool || '';
+        const toolName = parsed.name || parsed.tool || parsed.function?.name || toolNameFallback || '';
         const args = parsed.arguments || parsed.args || parsed.function?.arguments || parsed.parameters || parsed.params || parsed.input || null;
         
         let html = '<div class="cluster-tool-summary">';
