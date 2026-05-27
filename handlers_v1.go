@@ -19,26 +19,115 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // handleDatabaseDetailV1 数据库详情（V1）
 func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
-	// 提取 ID 后的子路径
+	w.Header().Set("Content-Type", "application/json")
+
 	path := r.URL.Path
 	suffix := strings.TrimPrefix(path, "/api/v1/databases/")
-	
-	// 检查是否包含 /tables/ 子路径（表数据/结构请求）
+
+	// 检查是否包含 /tables 子路径（表数据/结构请求）
 	if strings.Contains(suffix, "/tables") {
-		// 重写路径为 handleTableData 期望的格式
-		// /api/v1/databases/{id}/tables/... → /api/databases/{id}/tables/...
-		r.URL.Path = "/api/databases/" + suffix
-		handleTableData(w, r)
-		return
+		username, authOK := getDataOntologyUserFromRequest(r)
+		if !authOK {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "未授权",
+			})
+			return
+		}
+
+		// 从 suffix 提取 dbID: "{uuid}/tables/..."
+		parts := strings.SplitN(suffix, "/", 3)
+		dbID := parts[0]
+
+		dataOntologyMu.RLock()
+		config, exists := dataOntologyDatabases[dbID]
+		dataOntologyMu.RUnlock()
+
+		if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+
+		// /tables 结尾 → 表列表
+		if strings.HasSuffix(suffix, "/tables") {
+			if r.Method == http.MethodGet {
+				handleDatabaseTablesList(w, r, config)
+				return
+			} else if r.Method == http.MethodPost {
+				handleTableCreate(w, r, config)
+				return
+			}
+		}
+
+		// /tables/{tableName}...
+		if len(parts) < 3 {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的请求路径",
+			})
+			return
+		}
+
+		tableSuffix := parts[2] // "USERS", "USERS/structure", "USERS/data", etc.
+		tableParts := strings.SplitN(tableSuffix, "/", 2)
+		tableName := tableParts[0]
+
+		if !isValidIdentifierWithSchema(tableName) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "无效的表名",
+			})
+			return
+		}
+
+		// 分发到具体 handler
+		if strings.HasSuffix(suffix, "/structure") {
+			handleTableStructure(w, r, config, tableName)
+			return
+		}
+		if strings.HasSuffix(suffix, "/rename") && (r.Method == http.MethodPut || r.Method == http.MethodPost) {
+			handleTableRename(w, r, config, tableName)
+			return
+		}
+		if strings.HasSuffix(suffix, "/data") {
+			if r.Method == http.MethodPost {
+				handleTableDataSave(w, r, config, tableName)
+			} else {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"message": "不支持的请求方法",
+				})
+			}
+			return
+		}
+
+		// 默认：GET 查数据 / DELETE 删表
+		switch r.Method {
+		case http.MethodGet:
+			handleTableDataQuery(w, r, config, tableName)
+			return
+		case http.MethodDelete:
+			handleTableDrop(w, r, config, tableName)
+			return
+		default:
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "不支持的请求方法",
+			})
+			return
+		}
 	}
-	
-	// 数据库详情请求
+
+	// 数据库详情请求（无 /tables 子路径）
 	id := suffix
 	if id == "" {
 		http.Error(w, "缺少数据库 ID", http.StatusBadRequest)
 		return
 	}
-	
+
 	// 调用原有 handler（复用逻辑）
 	r.URL.Path = "/api/v1/databases/" + id
 	handleDatabaseDetail(w, r)
