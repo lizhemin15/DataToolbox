@@ -103,7 +103,7 @@
 .backup-message.success {
     display: block;
     background: #f0fff4;
-    color: #276749;
+    color: #333;
     border: 1px solid #c6f6d5;
 }
 

@@ -18,7 +18,7 @@
 
 .preview-actions .btn {
     background: rgba(255, 255, 255, 0.95);
-    color: #667eea;
+    color: #333;
     border: 2px solid rgba(255, 255, 255, 0.3);
     font-weight: 600;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -30,7 +30,7 @@
 }
 
 .preview-actions .btn-primary {
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    background: linear-gradient(135deg, #444 0%, #444 100%);
     color: white;
     border: none;
     position: relative;
@@ -56,7 +56,7 @@
 }
 
 .preview-actions .btn-primary:hover {
-    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+    background: linear-gradient(135deg, #444 0%, #555 100%);
     box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
 }
 
@@ -74,13 +74,13 @@
 }
 
 .preview-actions .btn-danger {
-    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+    background: linear-gradient(135deg, #f56565 0%, #555 100%);
     color: white;
     border: none;
 }
 
 .preview-actions .btn-danger:hover {
-    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+    background: linear-gradient(135deg, #555 0%, #c53030 100%);
     box-shadow: 0 4px 8px rgba(229, 62, 62, 0.3);
 }
 
@@ -124,7 +124,7 @@
 }
 
 .preview-table th {
-    background: linear-gradient(180deg, #667eea 0%, #5568d3 100%);
+    background: linear-gradient(180deg, #333 0%, #5568d3 100%);
     color: white;
     font-weight: 600;
     text-transform: uppercase;
@@ -162,7 +162,7 @@
 .preview-table tbody tr:not(.empty-row):not(.row-deleted):hover {
     background: #f8f9ff;
     transform: scale(1.01);
-    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .action-column {
@@ -206,9 +206,9 @@
 
 .editable-cell.editing:focus {
     outline: none;
-    border: 2px solid #667eea !important;
+    border: 2px solid #333 !important;
     background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%) !important;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .null-value {
@@ -232,7 +232,7 @@
         #fdd 20px
     ) !important;
     position: relative;
-    border: 2px solid #e53e3e !important;
+    border: 2px solid #555 !important;
     animation: deletedRowPulse 1.5s ease-in-out infinite;
 }
 
@@ -251,7 +251,7 @@
     left: -90px;
     top: 50%;
     transform: translateY(-50%);
-    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+    background: linear-gradient(135deg, #555 0%, #c53030 100%);
     color: white;
     padding: 4px 10px;
     border-radius: 6px;
@@ -274,12 +274,12 @@
 }
 
 .row-deleted .btn-icon-delete {
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    background: linear-gradient(135deg, #444 0%, #444 100%);
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.3);
 }
 
 .row-deleted .btn-icon-delete:hover {
-    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+    background: linear-gradient(135deg, #444 0%, #555 100%);
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.5);
 }
 
@@ -309,8 +309,8 @@
 }
 
 .table-column-item:hover {
-    border-color: #667eea;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    border-color: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
     transform: translateX(4px);
 }
 
@@ -328,8 +328,8 @@
 .column-type-select:focus,
 .column-size-input:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: #333;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .table-column-item label {
@@ -389,8 +389,8 @@
 }
 
 .structure-column-item:hover {
-    border-color: #667eea;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    border-color: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .structure-column-header {
@@ -406,7 +406,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
     color: white;
     border-radius: 6px;
     font-weight: 600;
@@ -423,9 +423,9 @@
 }
 
 .structure-column-header input:focus {
-    border-color: #667eea;
+    border-color: #333;
     outline: none;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .structure-column-fields {
@@ -571,7 +571,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%) scale(0.8);
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    background: linear-gradient(135deg, #444 0%, #444 100%);
     color: white;
     padding: 24px 36px;
     border-radius: 16px;
@@ -678,7 +678,7 @@
     border-radius: 6px;
     margin-bottom: 6px;
     color: #c53030;
-    border-left: 3px solid #e53e3e;
+    border-left: 3px solid #555;
 }
 
 .fix-after {
@@ -686,7 +686,7 @@
     padding: 8px 12px;
     border-radius: 6px;
     color: #22543d;
-    border-left: 3px solid #48bb78;
+    border-left: 3px solid #444;
 }
 
 /* 响应式优化 */

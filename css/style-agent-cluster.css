@@ -236,7 +236,7 @@ img.emoji {
 
 /* Switch block */
 .cluster-block-switch .cluster-block-header {
-    color: #6366f1;
+    color: #444;
 }
 .cluster-block-switch .cluster-block-body {
     border-left: 3px solid #a5b4fc;
@@ -378,7 +378,7 @@ img.emoji {
 .cluster-typing-indicator span {
     width: 6px;
     height: 6px;
-    background: #a78bfa;
+    background: #888;
     border-radius: 50%;
     animation: clusterTypingBounce 1.4s infinite ease-in-out;
 }
@@ -414,7 +414,7 @@ img.emoji {
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
     color: white;
 }
 
@@ -466,8 +466,8 @@ img.emoji {
 }
 
 .agent-config-tab.active {
-    color: #6366f1;
-    border-bottom-color: #6366f1;
+    color: #444;
+    border-bottom-color: #444;
 }
 
 .agent-config-body {
@@ -607,7 +607,7 @@ img.emoji {
 }
 
 .agent-toggle input:checked + .agent-toggle-track {
-    background: #6366f1;
+    background: #444;
 }
 
 .agent-toggle-thumb {
@@ -677,7 +677,7 @@ img.emoji {
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
     color: white;
     border-radius: 12px;
     font-size: 11px;

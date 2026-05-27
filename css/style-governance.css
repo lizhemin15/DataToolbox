@@ -33,7 +33,7 @@
 }
 
 .gov-filter-btn.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
     color: #fff;
     border-color: transparent;
 }
@@ -92,7 +92,7 @@
 
 .gov-task-item.active {
     background: #ebf4ff;
-    border-right: 3px solid #667eea;
+    border-right: 3px solid #333;
 }
 
 .gov-task-item.dragging {
@@ -101,7 +101,7 @@
 }
 
 .gov-task-item.drag-over {
-    border-top: 2px solid #667eea;
+    border-top: 2px solid #333;
 }
 
 .gov-task-item-icon {
@@ -155,8 +155,8 @@
 
 .gov-example-btn:hover {
     background: #edf2f7;
-    border-color: #667eea;
-    color: #667eea;
+    border-color: #333;
+    color: #333;
 }
 
 .gov-task-badge {
@@ -205,7 +205,7 @@
 }
 
 .gov-status-icon.success {
-    color: #48bb78;
+    color: #444;
 }
 
 .gov-status-icon.error {
@@ -246,7 +246,7 @@
 
 .gov-upload-zone:hover,
 .gov-upload-zone.drag-over {
-    border-color: #667eea;
+    border-color: #333;
     background: #ebf4ff;
 }
 
@@ -262,7 +262,7 @@
 }
 
 .gov-upload-link {
-    color: #667eea;
+    color: #333;
     cursor: pointer;
     text-decoration: underline;
 }
@@ -301,8 +301,8 @@
 
 .gov-text-input textarea:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+    border-color: #333;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .gov-output-area {
@@ -487,7 +487,7 @@
 }
 
 .gov-switch input:checked + .gov-slider {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
 }
 
 .gov-switch input:checked + .gov-slider::before {
@@ -521,8 +521,8 @@
 
 #govCodeInput:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+    border-color: #333;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 #govCodeInput::placeholder {
@@ -697,14 +697,14 @@
 }
 
 .onto-db-btn:hover {
-    border-color: #667eea;
+    border-color: #333;
     color: #2d3748;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 
 .onto-db-btn.active {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.12);
+    border-color: #333;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06);
 }
 
 .onto-db-btn-icon { font-size: 14px; flex-shrink: 0; }
@@ -797,7 +797,7 @@
 
 .onto-db-option-check {
     margin-left: auto;
-    color: #667eea;
+    color: #333;
     font-size: 14px;
     flex-shrink: 0;
 }
@@ -831,7 +831,7 @@
 }
 
 .onto-btn-ai {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
     border-color: transparent;
     color: white;
     font-weight: 600;
@@ -839,20 +839,20 @@
 
 .onto-btn-ai:hover {
     background: linear-gradient(135deg, #5a6fd6 0%, #6a3f91 100%);
-    box-shadow: 0 4px 12px rgba(102,126,234,0.35);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     color: white;
 }
 
 .onto-btn-demo {
     background: #f7fafc;
     border-color: #cbd5e0;
-    color: #667eea;
+    color: #333;
     font-weight: 500;
 }
 
 .onto-btn-demo:hover {
     background: #eef2ff;
-    border-color: #667eea;
+    border-color: #333;
     color: #5558a3;
 }
 
@@ -883,13 +883,13 @@
 .onto-stat-val {
     font-size: 18px;
     font-weight: 700;
-    color: #667eea;
+    color: #333;
     line-height: 1.2;
     transition: all 0.3s;
 }
 
 .onto-risk-val {
-    color: #e53e3e;
+    color: #555;
 }
 
 .onto-stat-lbl {
@@ -930,7 +930,7 @@
     display: none;
     overflow: hidden;
     pointer-events: auto;
-    background: radial-gradient(ellipse 120% 100% at 50% 20%, rgba(102, 126, 234, 0.08) 0%, transparent 55%),
+    background: radial-gradient(ellipse 120% 100% at 50% 20%, rgba(0, 0, 0, 0.05) 0%, transparent 55%),
         linear-gradient(160deg, #1a1f35 0%, #0f1525 60%, #0d1020 100%);
 }
 
@@ -966,7 +966,7 @@
 }
 
 .onto-view-btn.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: #333 !important;
     color: #fff !important;
 }
 
@@ -1001,14 +1001,14 @@
 
 .onto-orb-a {
     width: 380px; height: 380px;
-    background: #764ba2;
+    background: #555;
     top: -80px; left: -80px;
     animation-delay: 0s;
 }
 
 .onto-orb-b {
     width: 320px; height: 320px;
-    background: #667eea;
+    background: #333;
     bottom: -60px; right: -60px;
     animation-delay: -3s;
 }
@@ -1040,8 +1040,8 @@
 }
 
 @keyframes onto-brain-pulse {
-    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 16px rgba(102,126,234,0.5)); }
-    50% { transform: scale(1.07); filter: drop-shadow(0 0 28px rgba(118,75,162,0.7)); }
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 16px rgba(0, 0, 0, 0.15)); }
+    50% { transform: scale(1.07); filter: drop-shadow(0 0 28px rgba(0, 0, 0, 0.1)); }
 }
 
 .onto-welcome-title {
@@ -1075,7 +1075,7 @@
 
 .onto-feature-card:hover {
     background: rgba(255,255,255,0.08);
-    border-color: rgba(102,126,234,0.4);
+    border-color: rgba(0, 0, 0, 0.15);
 }
 
 .onto-feature-icon { font-size: 26px; margin-bottom: 7px; }
@@ -1111,7 +1111,7 @@
     position: absolute;
     width: 100px; height: 100px;
     border-radius: 50%;
-    border: 2px solid rgba(102,126,234,0.5);
+    border: 2px solid rgba(0, 0, 0, 0.2);
     animation: onto-ring-expand 2s ease-out infinite;
 }
 
@@ -1149,7 +1149,7 @@
 .onto-ai-progress-bar {
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
+    background: #333;
     border-radius: 2px;
     transition: width 0.5s ease;
 }
@@ -1257,9 +1257,9 @@
 
 .onto-insight-card:hover { background: #edf2f7; }
 
-.onto-insight-card.high { border-color: #e53e3e; }
+.onto-insight-card.high { border-color: #555; }
 .onto-insight-card.medium { border-color: #d69e2e; }
-.onto-insight-card.low { border-color: #38a169; }
+.onto-insight-card.low { border-color: #444; }
 .onto-insight-card.info { border-color: #3182ce; }
 
 .onto-insight-title {
@@ -1282,7 +1282,7 @@
 
 .onto-insight-badge.high { background: #fff5f5; color: #c53030; }
 .onto-insight-badge.medium { background: #fffff0; color: #b7791f; }
-.onto-insight-badge.low { background: #f0fff4; color: #276749; }
+.onto-insight-badge.low { background: #f0fff4; color: #333; }
 .onto-insight-badge.info { background: #ebf8ff; color: #2b6cb0; }
 
 .onto-insight-desc {
@@ -1478,8 +1478,8 @@
 }
 
 .onto-query-input:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+    border-color: #333;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
     background: white;
 }
 

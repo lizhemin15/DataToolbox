@@ -62,7 +62,7 @@
     left: 0;
     width: 4px;
     height: 100%;
-    background: linear-gradient(180deg, #6366f1, #8b5cf6, #a78bfa);
+    background: #333;
     opacity: 0;
     transition: opacity 0.3s;
     border-radius: 4px 0 0 4px;
@@ -343,7 +343,7 @@
 }
 
 .ac-toggle input:checked + .ac-toggle-track {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: #444;
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
@@ -375,7 +375,7 @@
     background: transparent;
     border: 2px dashed rgba(99, 102, 241, 0.3);
     border-radius: 14px;
-    color: #6366f1;
+    color: #444;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -394,7 +394,7 @@
 }
 
 .ac-add-btn:hover {
-    border-color: #6366f1;
+    border-color: #444;
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08));
     box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
     transform: translateY(-1px);
@@ -587,7 +587,7 @@
     margin: 10px 0;
 }
 .cluster-tip {
-    background: rgba(74, 144, 217, 0.1);
+    background: rgba(0, 0, 0, 0.05);
     border-left: 3px solid #4a90d9;
     padding: 6px 10px;
     border-radius: 0 6px 6px 0;
@@ -606,7 +606,7 @@
     border-left: 3px solid #7c3aed;
     padding: 6px 10px;
     border-radius: 0 6px 6px 0;
-    color: #a78bfa;
+    color: #888;
     margin-top: 6px;
 }
 
@@ -679,7 +679,7 @@
 
 .ac-input:focus {
     outline: none;
-    border-color: #6366f1;
+    border-color: #444;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
@@ -701,7 +701,7 @@
 
 .ac-select:focus {
     outline: none;
-    border-color: #6366f1;
+    border-color: #444;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
@@ -722,7 +722,7 @@
 }
 
 .ac-btn-primary {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: #444;
     color: white;
     border: none;
     padding: 10px 20px;
@@ -820,7 +820,7 @@
 
 .skill-file-actions button:hover {
     background: rgba(99, 102, 241, 0.1);
-    color: #6366f1;
+    color: #444;
 }
 
 .skill-file-actions button.danger:hover {
@@ -905,7 +905,7 @@
 
 .skill-file-editor-header h3 code {
     font-size: 13px;
-    color: #6366f1;
+    color: #444;
     background: rgba(99, 102, 241, 0.1);
     padding: 2px 8px;
     border-radius: 4px;
@@ -934,7 +934,7 @@
 }
 
 .skill-file-editor-body textarea:focus {
-    border-color: #6366f1;
+    border-color: #444;
 }
 
 .skill-file-editor-footer {
@@ -976,8 +976,8 @@
 }
 
 .skill-files-toolbar button.primary {
-    background: #6366f1;
-    border-color: #6366f1;
+    background: #444;
+    border-color: #444;
     color: white;
 }
 

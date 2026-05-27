@@ -265,7 +265,7 @@
 }
 
 .switch-wrap input:checked + .switch-slider {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #333;
 }
 
 .switch-wrap input:checked + .switch-slider::before {
@@ -404,7 +404,7 @@
 }
 
 .mcp-input:focus {
-    border-color: #667eea;
+    border-color: #333;
     background: #fff;
 }
 
