@@ -1169,7 +1169,7 @@ body {
 }
 
 .table-item::before {
-    content: "📋";
+    content: "";
     font-size: 22px;
     filter: grayscale(0.3);
     transition: all 0.3s ease;
@@ -1177,7 +1177,6 @@ body {
 
 .table-item:hover::before {
     filter: grayscale(0);
-    transform: rotate(-10deg) scale(1.1);
 }
 
 .table-preview {
