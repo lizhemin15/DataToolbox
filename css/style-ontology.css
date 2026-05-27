@@ -114,7 +114,7 @@
     min-width: 0;
     background:
         radial-gradient(ellipse 90% 70% at 15% 25%, rgba(34, 211, 238, 0.14) 0%, transparent 52%),
-        radial-gradient(ellipse 80% 60% at 88% 75%, rgba(167, 139, 250, 0.12) 0%, transparent 48%),
+        
         radial-gradient(ellipse 50% 45% at 50% 100%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
         linear-gradient(155deg, #070b14 0%, #0c1224 38%, #120a1f 72%, #0a1628 100%);
     overflow: hidden;
@@ -247,10 +247,10 @@
     transition: filter 0.35s ease;
 }
 .lineage-svg .lineage-node:hover .lineage-node-inner {
-    filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(167, 139, 250, 0.45));
+    filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.65)) drop-shadow(0 0 28px rgba(74, 108, 247, 0.25));
 }
 .lineage-svg .lineage-node:active .lineage-node-inner {
-    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 22px rgba(167, 139, 250, 0.38));
+    filter: drop-shadow(0 0 12px rgba(34, 211, 238, 0.55)) drop-shadow(0 0 22px rgba(74, 108, 247, 0.2));
 }
 
 .lineage-svg .lineage-node-shape {
@@ -703,7 +703,7 @@
 }
 
 .col-tables-search input:focus {
-    border-color: #667eea;
+    border-color: #4a6cf7;
     background: #fff;
 }
 
@@ -730,7 +730,7 @@
 }
 
 .tables-list-col .table-item.active {
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+    background: rgba(74, 108, 247, 0.06);
     font-weight: 600;
     border-color: #e2e8f0;
 }
