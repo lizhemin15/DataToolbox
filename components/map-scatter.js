@@ -1,5 +1,6 @@
-/* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, center_lat, center_lng, zoom, marker_color, heatmap, height } */
+/* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, map_type, center_lat, center_lng, zoom, marker_color, heatmap, height } */
 /* 依赖: ECharts (必须本地化到 /lib/echarts.min.js) */
+/* map_type: "world"(默认) 或 "china" */
 function renderMapScatter(config, containerId) {
     var container = document.getElementById(containerId);
     if (!container) return;
@@ -10,19 +11,24 @@ function renderMapScatter(config, containerId) {
     }
 
     var markerColor = config.marker_color || '#4F46E5';
+    var mapType = (config.map_type || 'world').toLowerCase();
+    var mapName = mapType; // ECharts registerMap 用的名字
+    var geoFile = mapType === 'china' ? '/assets/china.json' : '/assets/world.json';
+    var defaultCenter = mapType === 'china' ? [104.19, 35.86] : [10, 30];
+    var defaultZoom = mapType === 'china' ? 1.2 : 1.5;
 
-    // 注册中国地图 GeoJSON 后渲染
+    // 注册地图 GeoJSON 后渲染
     function ensureMapThenRender(renderFn) {
-        if (echarts.getMap('china')) {
+        if (echarts.getMap(mapName)) {
             renderFn();
             return;
         }
         var baseUrl = '';
         try { baseUrl = window._appBaseURL || ''; } catch(e) {}
-        fetch(baseUrl + '/assets/china.json')
+        fetch(baseUrl + geoFile)
             .then(function(r) { return r.json(); })
             .then(function(geo) {
-                echarts.registerMap('china', geo);
+                echarts.registerMap(mapName, geo);
                 renderFn();
             })
             .catch(function(err) {
@@ -66,10 +72,10 @@ function renderMapScatter(config, containerId) {
                 }
             },
             geo: {
-                map: 'china',
+                map: mapName,
                 roam: true,
-                zoom: config.zoom || 1.2,
-                center: [config.center_lng || 104.19, config.center_lat || 35.86],
+                zoom: config.zoom || defaultZoom,
+                center: [config.center_lng || defaultCenter[0], config.center_lat || defaultCenter[1]],
                 label: { show: false },
                 itemStyle: {
                     areaColor: '#f3f4f6',
@@ -153,14 +159,30 @@ function renderMapScatter(config, containerId) {
     }
 
     // 演示数据回退
-    var demoMarkers = [
-        { lat: 39.9, lng: 116.4, name: '北京', population: '2189万' },
-        { lat: 31.2, lng: 121.5, name: '上海', population: '2487万' },
-        { lat: 23.1, lng: 113.3, name: '广州', population: '1868万' },
-        { lat: 22.5, lng: 114.1, name: '深圳', population: '1756万' },
-        { lat: 30.6, lng: 104.1, name: '成都', population: '2094万' }
-    ];
+    var demoMarkers;
+    if (mapType === 'china') {
+        demoMarkers = [
+            { lat: 39.9, lng: 116.4, name: '北京', population: '2189万' },
+            { lat: 31.2, lng: 121.5, name: '上海', population: '2487万' },
+            { lat: 23.1, lng: 113.3, name: '广州', population: '1868万' },
+            { lat: 22.5, lng: 114.1, name: '深圳', population: '1756万' },
+            { lat: 30.6, lng: 104.1, name: '成都', population: '2094万' }
+        ];
+    } else {
+        demoMarkers = [
+            { lat: 39.9, lng: 116.4, name: '北京' },
+            { lat: 40.7, lng: -74.0, name: '纽约' },
+            { lat: 51.5, lng: -0.1, name: '伦敦' },
+            { lat: 35.7, lng: 139.7, name: '东京' },
+            { lat: -33.9, lng: 151.2, name: '悉尼' },
+            { lat: 48.9, lng: 2.3, name: '巴黎' },
+            { lat: 55.8, lng: 37.6, name: '莫斯科' },
+            { lat: -22.9, lng: -43.2, name: '里约' },
+            { lat: 28.6, lng: 77.2, name: '新德里' },
+            { lat: 1.3, lng: 103.8, name: '新加坡' }
+        ];
+    }
     ensureMapThenRender(function() {
-        buildChart(rowsToScatter(demoMarkers, 'lat', 'lng', 'name', ['population']));
+        buildChart(rowsToScatter(demoMarkers, 'lat', 'lng', 'name', []));
     });
 }

@@ -3,8 +3,8 @@
   "name": "地图标注",
   "category": "map",
   "icon": "🗺️",
-  "description": "地图上的散点标注/热力图，支持交互弹窗",
-  "version": "1.0.0",
+  "description": "地图上的散点标注/热力图，支持交互弹窗，可选世界地图或中国地图",
+  "version": "1.1.0",
   "dependencies": ["echarts"],
   "config_schema": {
     "title": {
@@ -12,6 +12,13 @@
       "label": "地图标题",
       "default": "地理分布",
       "required": false
+    },
+    "map_type": {
+      "type": "string",
+      "label": "地图类型",
+      "default": "world",
+      "required": false,
+      "description": "世界地图(world)或中国地图(china)"
     },
     "data_source": {
       "type": "api_url",
@@ -46,19 +53,19 @@
     "center_lat": {
       "type": "number",
       "label": "中心纬度",
-      "default": 35.86,
+      "default": 30,
       "required": false
     },
     "center_lng": {
       "type": "number",
       "label": "中心经度",
-      "default": 104.19,
+      "default": 10,
       "required": false
     },
     "zoom": {
       "type": "number",
       "label": "缩放级别",
-      "default": 4,
+      "default": 1.5,
       "min": 1,
       "max": 18
     },
