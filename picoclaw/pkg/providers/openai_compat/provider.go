@@ -616,7 +616,7 @@ func parseStreamResponse(
 		finishReason = "stop"
 	}
 
-	return &LLMResponse{
+	result := &LLMResponse{
 		Content:          textContent.String(),
 		ReasoningContent: reasoningContent.String(),
 		Reasoning:        reasoning.String(),
@@ -624,7 +624,9 @@ func parseStreamResponse(
 		ToolCalls:        toolCalls,
 		FinishReason:     finishReason,
 		Usage:            usage,
-	}, nil
+	}
+	common.ExtractThinkTags(result)
+	return result, nil
 }
 
 func normalizeModel(model, apiBase string) string {

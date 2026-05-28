@@ -518,8 +518,32 @@ func (p *Pipeline) CallLLM(
 	// No-tool-call path: steering check and direct response
 	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
 		responseContent := exec.response.Content
-		if responseContent == "" && exec.response.ReasoningContent != "" && ts.channel != "pico" {
-			responseContent = exec.response.ReasoningContent
+		hasReasoning := strings.TrimSpace(exec.response.ReasoningContent) != "" || strings.TrimSpace(exec.response.Reasoning) != ""
+
+		// If Content is empty after ExtractThinkTags but reasoning exists,
+		// the model only produced thinking (e.g.  tag content) without a final answer.
+		// Don't treat reasoning as the final answer — add it to history and continue
+		// the loop so the model can produce a real answer or tool calls next iteration.
+		if responseContent == "" && hasReasoning && ts.channel != "pico" {
+			reasoningText := exec.response.ReasoningContent
+			if reasoningText == "" {
+				reasoningText = exec.response.Reasoning
+			}
+			// Add the reasoning as an assistant message so the model sees its own thinking
+			// in the next iteration, then continue the loop.
+			reasoningMsg := providers.Message{
+				Role:             "assistant",
+				Content:          "",
+				ReasoningContent: reasoningText,
+			}
+			ts.agent.Sessions.AddFullMessage(ts.sessionKey, reasoningMsg)
+			logger.InfoCF("agent", "LLM produced only reasoning without content; continuing turn",
+				map[string]any{
+					"agent_id":        ts.agent.ID,
+					"iteration":       iteration,
+					"reasoning_chars": len(reasoningText),
+				})
+			return ControlContinue, nil
 		}
 		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
 			logger.InfoCF("agent", "Steering arrived after direct LLM response; continuing turn",

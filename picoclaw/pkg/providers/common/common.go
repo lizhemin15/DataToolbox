@@ -315,7 +315,7 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		toolCalls = append(toolCalls, toolCall)
 	}
 
-	return &LLMResponse{
+	result := &LLMResponse{
 		Content:          choice.Message.Content,
 		ReasoningContent: choice.Message.ReasoningContent,
 		Reasoning:        choice.Message.Reasoning,
@@ -323,7 +323,9 @@ func ParseResponse(body io.Reader) (*LLMResponse, error) {
 		ToolCalls:        toolCalls,
 		FinishReason:     normalizeFinishReason(choice.FinishReason),
 		Usage:            apiResponse.Usage,
-	}, nil
+	}
+	ExtractThinkTags(result)
+	return result, nil
 }
 
 // normalizeFinishReason normalizes finish_reason values across providers.
@@ -631,6 +633,52 @@ func WrapHTMLResponseError(statusCode int, body []byte, contentType, apiBase str
 		statusCode,
 		respPreview,
 	)
+}
+
+// ExtractThinkTags moves <think>...</think> content from Content to ReasoningContent.
+// Some reasoning models (e.g. DeepSeek, QwQ) embed thinking in Content with <think> tags
+// instead of using the standard reasoning_content field. Without this extraction,
+// the thinking text is displayed as the final answer and tool calls are skipped.
+func ExtractThinkTags(resp *LLMResponse) {
+	if resp == nil {
+		return
+	}
+	content := resp.Content
+	if !strings.Contains(content, "<think>") {
+		return
+	}
+
+	// Extract <think>...</think> content
+	thinkingContent := ""
+	remaining := content
+	for {
+		startIdx := strings.Index(remaining, "<think>")
+		if startIdx == -1 {
+			break
+		}
+		endIdx := strings.Index(remaining[startIdx+7:], "</think>")
+		if endIdx == -1 {
+			// Unclosed <think> tag — treat rest as thinking content
+			thinkingContent += strings.TrimSpace(remaining[startIdx+7:])
+			remaining = ""
+			break
+		}
+		endIdx += startIdx + 7
+		thinkingContent += strings.TrimSpace(remaining[startIdx+7 : endIdx])
+		remaining = remaining[:startIdx] + remaining[endIdx+8:]
+	}
+
+	remaining = strings.TrimSpace(remaining)
+
+	// Move thinking content to ReasoningContent
+	if thinkingContent != "" {
+		if resp.ReasoningContent != "" {
+			resp.ReasoningContent = resp.ReasoningContent + "\n" + thinkingContent
+		} else {
+			resp.ReasoningContent = thinkingContent
+		}
+	}
+	resp.Content = remaining
 }
 
 // ResponsePreview returns a truncated preview of response body for error messages.
