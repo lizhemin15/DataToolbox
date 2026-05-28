@@ -137,7 +137,13 @@ function renderMapScatter(config, containerId) {
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     var rows = data.rows || data.data || [];
-                    buildChart(rowsToScatter(rows, config.lat_field, config.lng_field, config.name_field, config.popup_fields));
+                    // 兼容多种字段名: lat_field/latitude_field, lng_field/longitude_field
+                    var latF = config.lat_field || config.latitude_field || 'lat';
+                    var lngF = config.lng_field || config.longitude_field || 'lng';
+                    var nameF = config.name_field || 'name';
+                    var popupF = config.popup_fields || config.tooltip_fields || config.description_field || [];
+                    if (typeof popupF === 'string') popupF = [popupF];
+                    buildChart(rowsToScatter(rows, latF, lngF, nameF, popupF));
                 })
                 .catch(function(err) {
                     container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
