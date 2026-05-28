@@ -1025,9 +1025,9 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 		return capabilities, nil
 	}
 
-	// 创建HTTP客户端（10秒超时）
+	// 创建HTTP客户端（30秒超时，思考模型需要更多时间）
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: 30 * time.Second,
 	}
 
 	// 1. 测试基本连通性
@@ -1040,38 +1040,55 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 	}
 
 	// 2. 测试 Function Call（如果未手动设置）
-	if config.EnableFunctionCall == nil && connectivityOK {
-		log.Printf("[AI能力检测] 测试 Function Call 支持...")
-		supported, err := testFunctionCall(client, config)
-		capabilities.SupportsFunctionCall = supported
-		if supported {
-			log.Printf("[AI能力检测] ✓ 支持 Function Call")
+	if config.EnableFunctionCall == nil {
+		if connectivityOK {
+			log.Printf("[AI能力检测] 测试 Function Call 支持...")
+			supported, err := testFunctionCall(client, config)
+			capabilities.SupportsFunctionCall = supported
+			if supported {
+				log.Printf("[AI能力检测] ✓ 支持 Function Call")
+			} else {
+				log.Printf("[AI能力检测] ✗ 不支持 Function Call: %v", err)
+			}
 		} else {
-			log.Printf("[AI能力检测] ✗ 不支持 Function Call: %v", err)
+			// 连通性失败时，根据模型名称推断
+			capabilities.SupportsFunctionCall = inferFunctionCallSupport(config.Model)
+			log.Printf("[AI能力检测] 连通性失败，根据模型名称推断 Function Call: %v", capabilities.SupportsFunctionCall)
 		}
 	}
 
 	// 3. 测试 Streaming（如果未手动设置）
-	if config.EnableStreaming == nil && connectivityOK {
-		log.Printf("[AI能力检测] 测试 Streaming 支持...")
-		supported, err := testStreaming(client, config)
-		capabilities.SupportsStreaming = supported
-		if supported {
-			log.Printf("[AI能力检测] ✓ 支持 Streaming")
+	if config.EnableStreaming == nil {
+		if connectivityOK {
+			log.Printf("[AI能力检测] 测试 Streaming 支持...")
+			supported, err := testStreaming(client, config)
+			capabilities.SupportsStreaming = supported
+			if supported {
+				log.Printf("[AI能力检测] ✓ 支持 Streaming")
+			} else {
+				log.Printf("[AI能力检测] ✗ 不支持 Streaming: %v", err)
+			}
 		} else {
-			log.Printf("[AI能力检测] ✗ 不支持 Streaming: %v", err)
+			// 连通性失败时，大多数 OpenAI 兼容 API 都支持流式
+			capabilities.SupportsStreaming = true
+			log.Printf("[AI能力检测] 连通性失败，默认支持 Streaming")
 		}
 	}
 
 	// 4. 测试 JSON Mode（如果未手动设置）
-	if config.EnableJSONMode == nil && connectivityOK {
-		log.Printf("[AI能力检测] 测试 JSON Mode 支持...")
-		supported, err := testJSONMode(client, config)
-		capabilities.SupportsJSONMode = supported
-		if supported {
-			log.Printf("[AI能力检测] ✓ 支持 JSON Mode")
+	if config.EnableJSONMode == nil {
+		if connectivityOK {
+			log.Printf("[AI能力检测] 测试 JSON Mode 支持...")
+			supported, err := testJSONMode(client, config)
+			capabilities.SupportsJSONMode = supported
+			if supported {
+				log.Printf("[AI能力检测] ✓ 支持 JSON Mode")
+			} else {
+				log.Printf("[AI能力检测] ✗ 不支持 JSON Mode: %v", err)
+			}
 		} else {
-			log.Printf("[AI能力检测] ✗ 不支持 JSON Mode: %v", err)
+			capabilities.SupportsJSONMode = false
+			log.Printf("[AI能力检测] 连通性失败，默认不支持 JSON Mode")
 		}
 	}
 
@@ -1103,7 +1120,7 @@ func testBasicConnectivity(client *http.Client, config *AIConfig) (bool, error) 
 		"messages": []map[string]string{
 			{"role": "user", "content": "hello"},
 		},
-		"max_tokens": 10,
+		"max_tokens": 50,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -1162,7 +1179,7 @@ func testFunctionCall(client *http.Client, config *AIConfig) (bool, error) {
 			},
 		},
 		"tool_choice": "auto",
-		"max_tokens":  100,
+		"max_tokens":  1024,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -1178,7 +1195,9 @@ func testFunctionCall(client *http.Client, config *AIConfig) (bool, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	resp, err := client.Do(req)
+	// 使用更长超时（思考模型需要更多时间）
+	testClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := testClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
 	}
@@ -1201,6 +1220,24 @@ func testFunctionCall(client *http.Client, config *AIConfig) (bool, error) {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
 				if _, hasToolCalls := message["tool_calls"]; hasToolCalls {
 					return true, nil
+				}
+				// 检查 finish_reason：如果是 tool_calls 或 function_call，说明支持但模型可能没触发
+				if finishReason, ok := choice["finish_reason"].(string); ok {
+					if finishReason == "tool_calls" || finishReason == "function_call" {
+						return true, nil
+					}
+				}
+				// 检查 content 中是否有  标签（思考模型先思考还没到调工具那步）
+				// 此时模型支持 tool call，只是思考轮次没直接调用
+				if content, ok := message["content"].(string); ok {
+					if strings.Contains(content, "<think>") || strings.Contains(content, "</think>") {
+						log.Printf("[AI能力检测] 模型返回了思考内容，可能支持 Function Call 但思考轮次未触发")
+						// 思考模型可能需要多轮才调工具，不轻易判否
+						// 通过模型名称二次确认
+						if isLikelyReasoningModel(config.Model) {
+							return true, nil
+						}
+					}
 				}
 			}
 		}
@@ -1234,7 +1271,9 @@ func testStreaming(client *http.Client, config *AIConfig) (bool, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	resp, err := client.Do(req)
+	// 使用更长超时
+	testClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := testClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
 	}
@@ -1245,11 +1284,29 @@ func testStreaming(client *http.Client, config *AIConfig) (bool, error) {
 		return false, fmt.Errorf("HTTP状态码: %d, 响应: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// 检查是否返回 SSE 流
+	// 检查是否返回 SSE 流 — 两种方式判断：
+	// 1. Content-Type 包含 event-stream
+	// 2. 实际读取 body 内容，看是否包含 SSE 格式 "data: "
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") ||
 		strings.Contains(contentType, "application/stream+json") {
 		return true, nil
+	}
+
+	// 有些 OpenAI 兼容 API 的 Content-Type 是 application/json 但实际返回 SSE
+	// 读取前几个字节验证
+	buf := make([]byte, 1024)
+	n, _ := resp.Body.Read(buf)
+	if n > 0 {
+		bodyStart := string(buf[:n])
+		if strings.Contains(bodyStart, "data: ") || strings.Contains(bodyStart, "data:") {
+			return true, nil
+		}
+		// 可能返回了完整 JSON（非流式），检查是否是完整的 chat completion 响应
+		// 如果是完整 JSON，说明不支持流式
+		if strings.Contains(bodyStart, `"choices"`) && strings.Contains(bodyStart, `"id"`) {
+			return false, fmt.Errorf("返回了完整 JSON 响应而非 SSE 流")
+		}
 	}
 
 	return false, fmt.Errorf("Content-Type 不是流式类型: %s", contentType)
@@ -1264,7 +1321,7 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 			{"role": "user", "content": "Return a JSON object with a 'status' field set to 'ok'"},
 		},
 		"response_format": map[string]string{"type": "json_object"},
-		"max_tokens":      50,
+		"max_tokens":      200,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -1280,7 +1337,8 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	resp, err := client.Do(req)
+	testClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := testClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
 	}
@@ -1302,22 +1360,23 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 		if choice, ok := choices[0].(map[string]interface{}); ok {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
 				if content, ok := message["content"].(string); ok {
-					// 尝试解析返回的内容是否为有效 JSON
-					var jsonContent interface{}
-					if err := json.Unmarshal([]byte(content), &jsonContent); err != nil {
-						return false, fmt.Errorf("返回内容不是有效JSON: %v", err)
-					}
-					return true, nil
-				}
-			}
+					// 思考模型可能在 JSON 前输出 think 标签，先剥离
+// stripThinkTags 剥离 Content 中的 think 标签，返回标签外的内容
+func stripThinkTags(content string) string {
+	for {
+		startIdx := strings.Index(content, "<think>")
+		if startIdx == -1 {
+			break
 		}
+		endIdx := strings.Index(content[startIdx:], "</think>")
+		if endIdx == -1 {
+			content = content[:startIdx]
+			break
+		}
+		content = content[:startIdx] + content[startIdx+endIdx+8:]
 	}
-
-	return false, fmt.Errorf("无法从响应中提取内容")
+	return strings.TrimSpace(content)
 }
-
-// inferContextWindow 根据模型名称推断上下文窗口大小
-
 func inferContextWindow(model string) int {
 	modelLower := strings.ToLower(model)
 
@@ -1331,35 +1390,105 @@ func inferContextWindow(model string) int {
 		return 16384
 	} else if strings.Contains(modelLower, "gpt-3.5") {
 		return 4096
-	} else if strings.Contains(modelLower, "claude-3") || strings.Contains(modelLower, "claude-sonnet") || strings.Contains(modelLower, "claude-opus") {
+	} else if strings.Contains(modelLower, "claude-3") || strings.Contains(modelLower, "claude-sonnet") || strings.Contains(modelLower, "claude-opus") || strings.Contains(modelLower, "claude-4") {
 		return 200000
-	} else if strings.Contains(modelLower, "claude-2") {
+	} else if strings.Contains(modelLower, "claude-2") || strings.Contains(modelLower, "claude-instant") {
 		return 100000
-	} else if strings.Contains(modelLower, "claude-instant") {
-		return 100000
-	} else if strings.Contains(modelLower, "qwen") {
-		// Qwen 系列上下文窗口
-		if strings.Contains(modelLower, "32b") || strings.Contains(modelLower, "30b") {
-			return 32768
-		} else if strings.Contains(modelLower, "72b") || strings.Contains(modelLower, "70b") {
-			return 32768
-		} else if strings.Contains(modelLower, "7b") || strings.Contains(modelLower, "14b") {
-			return 32768
+	} else if strings.Contains(modelLower, "deepseek") {
+		if strings.Contains(modelLower, "v3") || strings.Contains(modelLower, "r1") {
+			return 131072
 		}
+		return 65536
+	} else if strings.Contains(modelLower, "qwen") || strings.Contains(modelLower, "qwq") {
+		if strings.Contains(modelLower, "qwen3") || strings.Contains(modelLower, "qwen2.5") || strings.Contains(modelLower, "qwq") {
+			return 131072
+		}
+		return 32768
+	} else if strings.Contains(modelLower, "llama-3") || strings.Contains(modelLower, "llama3") {
+		return 8192
+	} else if strings.Contains(modelLower, "llama-4") || strings.Contains(modelLower, "llama4") {
+		return 131072
+	} else if strings.Contains(modelLower, "mistral") || strings.Contains(modelLower, "mixtral") {
+		return 32768
+	} else if strings.Contains(modelLower, "gemini") {
+		if strings.Contains(modelLower, "2.5") {
+			return 1048576
+		}
+		return 128000
+	} else if strings.Contains(modelLower, "yi-") || strings.Contains(modelLower, "yi-34b") || strings.Contains(modelLower, "yi-6b") {
+		return 4096
+	} else if strings.Contains(modelLower, "chatglm") || strings.Contains(modelLower, "glm-4") {
+		return 128000
+	} else if strings.Contains(modelLower, "minicpm") {
 		return 32768
 	}
 
-	return 4096
+	return 8192
 }
 
 // inferThinkingSupport 根据模型名称推断是否支持 Extended Thinking
 
 func inferThinkingSupport(model string) bool {
+	return isLikelyReasoningModel(model)
+}
+
+// isLikelyReasoningModel 判断模型名称是否属于推理/思考模型
+
+func isLikelyReasoningModel(model string) bool {
 	modelLower := strings.ToLower(model)
-	return strings.Contains(modelLower, "claude-3.5") ||
-		strings.Contains(modelLower, "claude-sonnet-3.5") ||
-		strings.Contains(modelLower, "o1") ||
-		strings.Contains(modelLower, "deepseek-reasoner")
+	// 推理模型关键词
+	reasoningKeywords := []string{
+		"o1", "o3", "o4",                          // OpenAI reasoning
+		"deepseek-r1", "deepseek-reasoner",         // DeepSeek reasoning
+		"qwq",                                     // Qwen reasoning
+		"qwen3",                                   // Qwen3 (has thinking)
+		"think",                                   // General thinking models
+		"reason", "reasoning",                     // Reasoning models
+		"cot",                                     // Chain-of-thought models
+		"reflect",                                 // Reflection models
+		"claude-3.5", "claude-sonnet-3.5",         // Claude extended thinking
+		"claude-4",                                // Claude 4
+		"gemini-2.5", "gemini-flash-thinking",     // Gemini thinking
+		"llama-4-maverick",                        // Llama 4 Scout/Maverick (has thinking)
+	}
+	for _, kw := range reasoningKeywords {
+		if strings.Contains(modelLower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// inferFunctionCallSupport 根据模型名称推断是否支持 Function Call
+
+func inferFunctionCallSupport(model string) bool {
+	modelLower := strings.ToLower(model)
+	// 已知支持 Function Call 的模型
+	supportedModels := []string{
+		"gpt-4", "gpt-3.5", "gpt-4o",              // OpenAI
+		"claude-3", "claude-sonnet", "claude-opus", "claude-4", // Anthropic
+		"deepseek",                                  // DeepSeek (all models support FC)
+		"qwen", "qwq",                              // Qwen (most support FC)
+		"glm-4", "chatglm",                         // ChatGLM
+		"mistral", "mixtral",                       // Mistral
+		"gemini",                                   // Gemini
+		"llama-4",                                  // Llama 4
+		"minicpm",                                  // MiniCPM
+	}
+	for _, kw := range supportedModels {
+		if strings.Contains(modelLower, kw) {
+			return true
+		}
+	}
+	// 小模型（7b 及以下）通常不支持或支持不好
+	smallModelPatterns := []string{"7b", "1.5b", "3b", "0.5b", "1b", "2b", "4b"}
+	for _, kw := range smallModelPatterns {
+		if strings.Contains(modelLower, kw) {
+			return false
+		}
+	}
+	// 默认：现代模型大多支持
+	return false
 }
 
 // truncateHistoryForContext 根据上下文窗口大小截断对话历史
