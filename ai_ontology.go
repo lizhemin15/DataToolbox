@@ -1087,8 +1087,9 @@ func detectAICapabilities(config *AIConfig) (*AICapabilities, error) {
 				log.Printf("[AI能力检测] ✗ 不支持 JSON Mode: %v", err)
 			}
 		} else {
-			capabilities.SupportsJSONMode = false
-			log.Printf("[AI能力检测] 连通性失败，默认不支持 JSON Mode")
+			// 连通性失败时，根据模型名称推断 JSON Mode 支持
+			capabilities.SupportsJSONMode = inferJSONModeSupport(config.Model)
+			log.Printf("[AI能力检测] 连通性失败，根据模型名称推断 JSON Mode: %v", capabilities.SupportsJSONMode)
 		}
 	}
 
@@ -1227,8 +1228,15 @@ func testFunctionCall(client *http.Client, config *AIConfig) (bool, error) {
 						return true, nil
 					}
 				}
-				// 检查 content 中是否有  标签（思考模型先思考还没到调工具那步）
+				// 检查是否有 reasoning_content 字段（DeepSeek-R1 等思考模型）
+				// 或者 content 中有 think 标签（某些 API 用标签包裹思考内容）
 				// 此时模型支持 tool call，只是思考轮次没直接调用
+				if _, hasReasoning := message["reasoning_content"]; hasReasoning {
+					log.Printf("[AI能力检测] 模型返回了 reasoning_content，是思考模型，可能支持 Function Call")
+					if isLikelyReasoningModel(config.Model) {
+						return true, nil
+					}
+				}
 				if content, ok := message["content"].(string); ok {
 					if strings.Contains(content, "<think>") || strings.Contains(content, "</think>") {
 						log.Printf("[AI能力检测] 模型返回了思考内容，可能支持 Function Call 但思考轮次未触发")
@@ -1271,8 +1279,8 @@ func testStreaming(client *http.Client, config *AIConfig) (bool, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	// 使用更长超时
-	testClient := &http.Client{Timeout: 15 * time.Second}
+	// 使用更长超时（思考模型需要更多时间）
+	testClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := testClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
@@ -1321,7 +1329,7 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 			{"role": "user", "content": "Return a JSON object with a 'status' field set to 'ok'"},
 		},
 		"response_format": map[string]string{"type": "json_object"},
-		"max_tokens":      200,
+		"max_tokens":      500,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -1337,7 +1345,7 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.APIKey)
 
-	testClient := &http.Client{Timeout: 15 * time.Second}
+	testClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := testClient.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("请求失败: %v", err)
@@ -1424,25 +1432,34 @@ func inferContextWindow(model string) int {
 		}
 		return 32768
 	} else if strings.Contains(modelLower, "llama-3") || strings.Contains(modelLower, "llama3") {
+		if strings.Contains(modelLower, "70b") || strings.Contains(modelLower, "405b") {
+			return 131072
+		}
 		return 8192
 	} else if strings.Contains(modelLower, "llama-4") || strings.Contains(modelLower, "llama4") {
 		return 131072
 	} else if strings.Contains(modelLower, "mistral") || strings.Contains(modelLower, "mixtral") {
+		if strings.Contains(modelLower, "large") || strings.Contains(modelLower, "medium") {
+			return 131072
+		}
 		return 32768
 	} else if strings.Contains(modelLower, "gemini") {
 		if strings.Contains(modelLower, "2.5") {
 			return 1048576
 		}
 		return 128000
-	} else if strings.Contains(modelLower, "yi-") || strings.Contains(modelLower, "yi-34b") || strings.Contains(modelLower, "yi-6b") {
-		return 4096
+	} else if strings.Contains(modelLower, "yi-") {
+		if strings.Contains(modelLower, "yi-lightning") || strings.Contains(modelLower, "yi-large") {
+			return 200000
+		}
+		return 32768
 	} else if strings.Contains(modelLower, "chatglm") || strings.Contains(modelLower, "glm-4") {
 		return 128000
 	} else if strings.Contains(modelLower, "minicpm") {
 		return 32768
 	}
 
-	return 8192
+	return 32768
 }
 
 // inferThinkingSupport 根据模型名称推断是否支持 Extended Thinking
@@ -1469,6 +1486,11 @@ func isLikelyReasoningModel(model string) bool {
 		"claude-4",                                // Claude 4
 		"gemini-2.5", "gemini-flash-thinking",     // Gemini thinking
 		"llama-4-maverick",                        // Llama 4 Scout/Maverick (has thinking)
+		"skywork-o1",                              // SkyWork reasoning
+		"hunyuan-t1",                              // 腾讯混元 T1
+		"step-2",                                  // 阶跃星辰 Step-2
+		"internlm3",                               // 书生 InternLM3 (thinking)
+		"minimax-01",                              // MiniMax-01 (has thinking)
 	}
 	for _, kw := range reasoningKeywords {
 		if strings.Contains(modelLower, kw) {
@@ -1507,6 +1529,28 @@ func inferFunctionCallSupport(model string) bool {
 		}
 	}
 	// 默认：现代模型大多支持
+	return false
+}
+
+// inferJSONModeSupport 根据模型名称推断是否支持 JSON Mode
+
+func inferJSONModeSupport(model string) bool {
+	modelLower := strings.ToLower(model)
+	// 已知支持 JSON Mode 的模型（response_format: json_object）
+	supportedModels := []string{
+		"gpt-4", "gpt-3.5-turbo", "gpt-4o",        // OpenAI (JSON mode supported)
+		"claude-3", "claude-sonnet", "claude-opus", "claude-4", // Anthropic
+		"deepseek",                                  // DeepSeek (supports JSON mode)
+		"qwen", "qwq",                              // Qwen (supports JSON mode)
+		"glm-4",                                     // ChatGLM-4
+		"mistral", "mixtral",                       // Mistral (supports JSON mode)
+		"gemini",                                   // Gemini
+	}
+	for _, kw := range supportedModels {
+		if strings.Contains(modelLower, kw) {
+			return true
+		}
+	}
 	return false
 }
 
