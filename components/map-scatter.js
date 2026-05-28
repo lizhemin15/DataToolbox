@@ -1,118 +1,160 @@
 /* config: { title, data_source, lat_field, lng_field, name_field, popup_fields, markers, center_lat, center_lng, zoom, marker_color, heatmap, height } */
-/* 依赖: Leaflet (必须本地化到 /lib/leaflet.min.js) */
+/* 依赖: ECharts (必须本地化到 /lib/echarts.min.js) */
 function renderMapScatter(config, containerId) {
-    const container = document.getElementById(containerId);
+    var container = document.getElementById(containerId);
     if (!container) return;
 
-    if (typeof L === 'undefined') {
-        container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">Leaflet 未加载，请确保 /lib/leaflet.min.js 存在</div>';
+    if (typeof echarts === 'undefined') {
+        container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">ECharts 未加载，请确保 /lib/echarts.min.js 存在</div>';
         return;
     }
 
-    const map = L.map(containerId, {
-        center: [config.center_lat || 35.86, config.center_lng || 104.19],
-        zoom: config.zoom || 4
-    });
+    var markerColor = config.marker_color || '#4F46E5';
 
-    // 离线瓦片（唯一底图，不回退 OSM — 云服务器 IP 被 OSM 封禁 403）
-    var _base = (window._appBaseURL && window._appBaseURL !== 'null') ? window._appBaseURL : (window.location.origin && window.location.origin !== 'null' ? window.location.origin : '');
-    L.tileLayer(_base + '/lib/leaflet-images/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap',
-        maxZoom: 5,
-        maxNativeZoom: 5
-    }).addTo(map);
-
-    // zoom > 5 时用纯色 Canvas 瓦片替代（无离线瓦片，也不请求 OSM）
-    L.tileLayer.canvas = undefined; // safety
-    var CanvasTile = L.TileLayer.extend({
-        createTile: function(coords) {
-            var tile = document.createElement('canvas');
-            tile.width = 256; tile.height = 256;
-            var ctx = tile.getContext('2d');
-            ctx.fillStyle = '#e8e8e8';
-            ctx.fillRect(0, 0, 256, 256);
-            ctx.strokeStyle = '#d0d0d0';
-            ctx.strokeRect(0, 0, 256, 256);
-            ctx.fillStyle = '#bbb';
-            ctx.font = '12px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('z' + coords.z, 128, 128);
-            return tile;
+    // 注册中国地图 GeoJSON 后渲染
+    function ensureMapThenRender(renderFn) {
+        if (echarts.getMap('china')) {
+            renderFn();
+            return;
         }
-    });
-    var canvasLayer = new CanvasTile('', { minZoom: 6, maxZoom: 18 });
-    map.on('zoomend', function() {
-        if (map.getZoom() > 5 && !map._canvasAdded) {
-            map._canvasAdded = true;
-            canvasLayer.addTo(map);
-        } else if (map.getZoom() <= 5 && map._canvasAdded) {
-            map._canvasAdded = false;
-            map.removeLayer(canvasLayer);
-        }
-    });
-
-    const markerColor = config.marker_color || '#4F46E5';
-
-    function addMarkers(rows, latField, lngField, nameField, popupFields) {
-        const markers = [];
-        rows.forEach(r => {
-            const lat = parseFloat(r[latField || 'lat']);
-            const lng = parseFloat(r[lngField || 'lng']);
-            if (isNaN(lat) || isNaN(lng)) return;
-
-            const icon = L.divIcon({
-                className: '',
-                html: '<div style="width:12px;height:12px;background:' + markerColor + ';border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>',
-                iconSize: [12, 12],
-                iconAnchor: [6, 6]
+        var baseUrl = '';
+        try { baseUrl = window._appBaseURL || ''; } catch(e) {}
+        fetch(baseUrl + '/assets/china.json')
+            .then(function(r) { return r.json(); })
+            .then(function(geo) {
+                echarts.registerMap('china', geo);
+                renderFn();
+            })
+            .catch(function(err) {
+                container.innerHTML = '<div style="padding:20px;color:#EF4444;">地图数据加载失败: ' + err.message + '</div>';
             });
+    }
 
-            const marker = L.marker([lat, lng], { icon: icon }).addTo(map);
-            const name = r[nameField || 'name'] || '';
-            const pFields = popupFields || [];
-            if (name || pFields.length > 0) {
-                let popupHtml = name ? '<strong>' + name + '</strong>' : '';
-                pFields.forEach(f => {
-                    if (r[f] !== undefined) popupHtml += '<br><span style="color:#666">' + f + ':</span> ' + r[f];
-                });
-                marker.bindPopup(popupHtml);
-            }
-            markers.push(marker);
+    // 经纬度 → 散点数据
+    function rowsToScatter(rows, latField, lngField, nameField, popupFields) {
+        var result = [];
+        rows.forEach(function(r) {
+            var lat = parseFloat(r[latField || 'lat']);
+            var lng = parseFloat(r[lngField || 'lng']);
+            if (isNaN(lat) || isNaN(lng)) return;
+            var name = r[nameField || 'name'] || '';
+            var popup = [];
+            (popupFields || []).forEach(function(f) {
+                if (r[f] !== undefined) popup.push(f + ': ' + r[f]);
+            });
+            result.push({
+                name: name,
+                value: [lng, lat],
+                _popup: popup.join('<br>')
+            });
         });
+        return result;
+    }
 
-        if (markers.length > 0) {
-            const group = L.featureGroup(markers);
-            map.fitBounds(group.getBounds().pad(0.1));
+    function buildChart(scatterData) {
+        var chart = echarts.init(container);
+        var option = {
+            tooltip: {
+                trigger: 'item',
+                formatter: function(p) {
+                    if (p.data && p.data._popup) {
+                        var html = p.name ? '<strong>' + p.name + '</strong><br>' : '';
+                        html += p.data._popup;
+                        return html || (p.name || '');
+                    }
+                    return p.name || '';
+                }
+            },
+            geo: {
+                map: 'china',
+                roam: true,
+                zoom: config.zoom || 1.2,
+                center: [config.center_lng || 104.19, config.center_lat || 35.86],
+                label: { show: false },
+                itemStyle: {
+                    areaColor: '#f3f4f6',
+                    borderColor: '#d1d5db',
+                    borderWidth: 0.8
+                },
+                emphasis: {
+                    itemStyle: { areaColor: '#e5e7eb' },
+                    label: { show: true, fontSize: 10, color: '#374151' }
+                }
+            },
+            series: [{
+                type: 'scatter',
+                coordinateSystem: 'geo',
+                data: scatterData,
+                symbolSize: function(val, params) {
+                    return 10;
+                },
+                itemStyle: {
+                    color: markerColor,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                },
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 10,
+                        shadowColor: 'rgba(0,0,0,0.3)'
+                    }
+                },
+                zlevel: 10
+            }]
+        };
+
+        // 如果配置了热力图效果，用 effectScatter
+        if (config.heatmap) {
+            option.series.push({
+                type: 'effectScatter',
+                coordinateSystem: 'geo',
+                data: scatterData.slice(0, 20),
+                symbolSize: 8,
+                showEffectOn: 'render',
+                rippleEffect: { brushType: 'stroke', scale: 3, period: 4 },
+                itemStyle: { color: markerColor, shadowBlur: 10, shadowColor: markerColor },
+                zlevel: 11
+            });
         }
+
+        chart.setOption(option);
+        window.addEventListener('resize', function() { chart.resize(); });
+        return chart;
     }
 
     // 直接数据模式: config.markers = [{lat, lng, name, ...}]
     if (config.markers && config.markers.length > 0) {
-        addMarkers(config.markers, 'lat', 'lng', 'name', config.popup_fields);
+        ensureMapThenRender(function() {
+            buildChart(rowsToScatter(config.markers, 'lat', 'lng', 'name', config.popup_fields));
+        });
         return;
     }
 
     // API 模式
     if (config.data_source) {
-        fetchWithAuth(config.data_source)
-            .then(r => r.json())
-            .then(data => {
-                const rows = data.rows || data.data || [];
-                addMarkers(rows, config.lat_field, config.lng_field, config.name_field, config.popup_fields);
-            })
-            .catch(err => {
-                container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
-            });
+        ensureMapThenRender(function() {
+            fetchWithAuth(config.data_source)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var rows = data.rows || data.data || [];
+                    buildChart(rowsToScatter(rows, config.lat_field, config.lng_field, config.name_field, config.popup_fields));
+                })
+                .catch(function(err) {
+                    container.innerHTML = '<div style="padding:20px;color:#EF4444;">数据加载失败: ' + err.message + '</div>';
+                });
+        });
         return;
     }
 
     // 演示数据回退
-    const demoMarkers = [
+    var demoMarkers = [
         { lat: 39.9, lng: 116.4, name: '北京', population: '2189万' },
         { lat: 31.2, lng: 121.5, name: '上海', population: '2487万' },
         { lat: 23.1, lng: 113.3, name: '广州', population: '1868万' },
         { lat: 22.5, lng: 114.1, name: '深圳', population: '1756万' },
         { lat: 30.6, lng: 104.1, name: '成都', population: '2094万' }
     ];
-    addMarkers(demoMarkers, 'lat', 'lng', 'name', ['population']);
+    ensureMapThenRender(function() {
+        buildChart(rowsToScatter(demoMarkers, 'lat', 'lng', 'name', ['population']));
+    });
 }

@@ -5,7 +5,7 @@
   "icon": "🗺️",
   "description": "地图上的散点标注/热力图，支持交互弹窗",
   "version": "1.0.0",
-  "dependencies": ["leaflet"],
+  "dependencies": ["echarts"],
   "config_schema": {
     "title": {
       "type": "string",
