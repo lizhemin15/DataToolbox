@@ -1361,6 +1361,22 @@ func testJSONMode(client *http.Client, config *AIConfig) (bool, error) {
 			if message, ok := choice["message"].(map[string]interface{}); ok {
 				if content, ok := message["content"].(string); ok {
 					// 思考模型可能在 JSON 前输出 think 标签，先剥离
+					jsonStr := stripThinkTags(content)
+					jsonStr = strings.TrimSpace(jsonStr)
+					// 尝试解析返回的内容是否为有效 JSON
+					var parsed interface{}
+					if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+						return false, fmt.Errorf("返回内容不是有效JSON: %v", err)
+					}
+					return true, nil
+				}
+			}
+		}
+	}
+
+	return false, fmt.Errorf("无法从响应中提取内容")
+}
+
 // stripThinkTags 剥离 Content 中的 think 标签，返回标签外的内容
 func stripThinkTags(content string) string {
 	for {
@@ -1377,6 +1393,9 @@ func stripThinkTags(content string) string {
 	}
 	return strings.TrimSpace(content)
 }
+
+// inferContextWindow 根据模型名称推断上下文窗口大小
+
 func inferContextWindow(model string) int {
 	modelLower := strings.ToLower(model)
 
