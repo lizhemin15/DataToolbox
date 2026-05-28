@@ -479,7 +479,18 @@ func handleAppPublic(w http.ResponseWriter, r *http.Request) {
 func renderAppPage(app *App) string {
 	htmlContent := app.HTML
 	if htmlContent == "" {
-		htmlContent = `<div class="app-container"><h1>` + app.Title + `</h1><p>` + app.Description + `</p></div>`
+		// 如果 config 中有 blueprint 且有 components，重新渲染
+		if blueprint := extractBlueprintFromConfig(app.Config); blueprint != nil && len(blueprint.Components) > 0 {
+			primaryColor := extractPrimaryColorFromConfig(app.Config)
+			htmlContent = components.AssembleAppPage(*blueprint, primaryColor)
+			// 更新缓存
+			app.HTML = htmlContent
+			go func() {
+				_ = updateAppHTML(app.ID, htmlContent)
+			}()
+		} else {
+			htmlContent = `<div class="app-container"><h1>` + app.Title + `</h1><p>` + app.Description + `</p></div>`
+		}
 	}
 
 	// 组件化应用：HTML 是完整文档（由 AssembleAppPage 生成），直接输出
@@ -710,4 +721,64 @@ func clamp(v, min, max int) int {
 		return max
 	}
 	return v
+}
+
+// extractBlueprintFromConfig 从 config JSON 中提取蓝图并解析为 AppBlueprint
+func extractBlueprintFromConfig(configJSON string) *components.AppBlueprint {
+	if configJSON == "" || configJSON == "{}" {
+		return nil
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return nil
+	}
+
+	bpRaw, ok := config["blueprint"]
+	if !ok {
+		return nil
+	}
+
+	bpJSON, err := json.Marshal(bpRaw)
+	if err != nil {
+		return nil
+	}
+
+	var blueprint components.AppBlueprint
+	if err := json.Unmarshal(bpJSON, &blueprint); err != nil {
+		return nil
+	}
+
+	return &blueprint
+}
+
+// extractPrimaryColorFromConfig 从 config JSON 中提取主色调
+func extractPrimaryColorFromConfig(configJSON string) string {
+	if configJSON == "" || configJSON == "{}" {
+		return ""
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return ""
+	}
+
+	blueprint, ok := config["blueprint"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	if color, ok := blueprint["primary_color"].(string); ok && color != "" {
+		return color
+	}
+
+	return ""
+}
+
+// updateAppHTML 轻量更新 app 的 HTML 缓存
+func updateAppHTML(appID string, html string) error {
+	storeDBMu.Lock()
+	defer storeDBMu.Unlock()
+	_, err := storeDB.Exec("UPDATE apps SET html=? WHERE id=?", html, appID)
+	return err
 }
