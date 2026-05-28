@@ -105,7 +105,7 @@ func (t *DataToolboxAPITool) resolveDatabaseID(ctx context.Context, nameOrID str
 		return "", fmt.Errorf("database name or id required")
 	}
 	// 先尝试直接用 ID 查
-	result, err := t.httpGet(ctx, "/api/databases/"+nameOrID)
+	result, err := t.httpGet(ctx, "/api/v1/databases/"+nameOrID)
 	if err == nil {
 		if m, ok := result.(map[string]any); ok {
 			if success, _ := m["success"].(bool); success {
@@ -114,7 +114,7 @@ func (t *DataToolboxAPITool) resolveDatabaseID(ctx context.Context, nameOrID str
 		}
 	}
 	// ID 查不到，通过 list_databases 匹配 name
-	listResult, listErr := t.httpGet(ctx, "/api/databases")
+	listResult, listErr := t.httpGet(ctx, "/api/v1/databases")
 	if listErr != nil {
 		return "", fmt.Errorf("database %q not found (list failed: %v)", nameOrID, listErr)
 	}
@@ -257,7 +257,7 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, params map[string]any) (interface{}, error) {
 	switch endpoint {
 	case "list_databases":
-		return t.httpGet(ctx, "/api/databases")
+		return t.httpGet(ctx, "/api/v1/databases")
 	case "get_database":
 		nameOrID, ok := params["name"].(string)
 		if !ok || nameOrID == "" {
@@ -270,9 +270,9 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, "/api/databases/"+dbID)
+		return t.httpGet(ctx, "/api/v1/databases/"+dbID)
 	case "execute_sql":
-		return t.httpPost(ctx, "/api/governance/execute-sql", params)
+		return t.httpPost(ctx, "/api/v1/gov/execute-sql", params)
 	case "list_tables":
 		db, ok := params["database"].(string)
 		if !ok || db == "" {
@@ -282,7 +282,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/databases/%s/tables", dbID))
+		return t.httpGet(ctx, fmt.Sprintf("/api/v1/databases/%s/tables", dbID))
 	case "get_table_schema":
 		db, _ := params["database"].(string)
 		tbl, _ := params["table"].(string)
@@ -293,7 +293,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if err != nil {
 			return nil, err
 		}
-		return t.httpGet(ctx, fmt.Sprintf("/api/databases/%s/tables/%s/schema", dbID, tbl))
+		return t.httpGet(ctx, fmt.Sprintf("/api/v1/databases/%s/tables/%s/schema", dbID, tbl))
 	case "get_db_schema":
 		db, ok := params["database"].(string)
 		if !ok || db == "" {
@@ -304,7 +304,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 			return nil, err
 		}
 		// 获取数据库详情（包含所有表和字段）
-		dbDetail, err := t.httpGet(ctx, "/api/databases/"+dbID)
+		dbDetail, err := t.httpGet(ctx, "/api/v1/databases/"+dbID)
 		if err != nil {
 			return nil, err
 		}
@@ -329,7 +329,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 			return nil, err
 		}
 		// 获取数据库类型
-		dbDetail, err := t.httpGet(ctx, "/api/databases/"+dbID)
+		dbDetail, err := t.httpGet(ctx, "/api/v1/databases/"+dbID)
 		if err != nil {
 			return nil, err
 		}
@@ -351,9 +351,9 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		}
 		return hints, nil
 	case "search_tables":
-		return t.httpPost(ctx, "/api/table-retrieval/search", params)
+		return t.httpPost(ctx, "/api/v1/retrieval/search", params)
 	case "list_apis":
-		return t.httpGet(ctx, "/api/apis")
+		return t.httpGet(ctx, "/api/v1/openapis")
 	case "create_api":
 		// 参数预处理：database → database_id 转换，字段名映射
 		apiParams := make(map[string]interface{})
@@ -385,7 +385,7 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		if _, ok := apiParams["type"]; !ok {
 			apiParams["type"] = "query"
 		}
-		return t.httpPost(ctx, "/api/apis", apiParams)
+		return t.httpPost(ctx, "/api/v1/openapis", apiParams)
 	case "execute_api":
 		// 调用已创建的动态接口
 		path, _ := params["path"].(string)
@@ -408,9 +408,9 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		}
 		return t.httpGet(ctx, path)
 	case "governance_tasks":
-		return t.httpGet(ctx, "/api/governance/tasks")
+		return t.httpGet(ctx, "/api/v1/gov/tasks")
 	case "ontology_query":
-		return t.httpPost(ctx, "/api/ontology/query", params)
+		return t.httpPost(ctx, "/api/v1/ontology/query", params)
 	default:
 		return nil, fmt.Errorf("unknown endpoint: %s", endpoint)
 	}
