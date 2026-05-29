@@ -1725,13 +1725,6 @@ func mcpCreateDashboard(ctx context.Context, req *mcp.CallToolRequest, in create
 
 	// 首次调用（confirmed=false）：生成预览
 	if !in.Confirmed {
-		primaryColor := "#4F46E5"
-		if designDirection == "dark" {
-			primaryColor = "#818CF8"
-		} else if designDirection == "nature" {
-			primaryColor = "#059669"
-		}
-
 		// 生成配置字段
 		configFields := []map[string]interface{}{}
 		for _, c := range comps {
