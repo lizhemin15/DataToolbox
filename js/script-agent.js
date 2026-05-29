@@ -2493,6 +2493,8 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             if (content) {
                 typingEl.style.display = 'none';
                 if (evt.partial === false) {
+                    // 完整文本：直接渲染并清除累加状态
+                    textEl._rawText = '';
                     textEl.innerHTML = formatClusterMarkdown(content);
                 } else {
                     // 流式增量文本：拼接后重新渲染

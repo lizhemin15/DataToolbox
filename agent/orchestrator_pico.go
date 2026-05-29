@@ -181,16 +181,8 @@ func (o *Orchestrator) Run(ctx context.Context, userID, sessionID, message strin
 			case res := <-resultCh:
 				if res.err != nil {
 					eventCh <- NewErrorEvent(fmt.Sprintf("agent error: %v", res.err))
-				} else if res.response != "" {
-					// 最终文本（如果 runtime events 没有覆盖到最终文本）
-					eventCh <- Event{
-						Type: EventTypeText,
-						Data: map[string]interface{}{
-							"content": res.response,
-							"agent":   "orchestrator",
-						},
-					}
 				}
+				// 不再重复发送 text 事件，KindAgentTurnEnd 已发送完整文本
 				done = true
 
 			case <-ctx.Done():
