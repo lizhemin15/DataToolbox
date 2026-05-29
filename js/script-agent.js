@@ -2699,9 +2699,12 @@ function renderHITLCard(evt) {
             </div>`;
         }
     } else if (interactionType === 'single_select') {
-        html += '<div class="hitl-options hitl-options-vertical">';
+        html += '<div class="hitl-single-select-group">';
         for (const opt of options) {
-            html += `<button class="hitl-option-btn hitl-option-default" onclick="hitlSubmitConfirm('${hitlId}', '${escapeHtml(opt.id)}')">${escapeHtml(opt.label)}</button>`;
+            html += `<label class="hitl-radio-label" data-hitl-id="${escapeHtml(hitlId)}" data-option-id="${escapeHtml(opt.id)}" onclick="hitlRadioSelect(this, '${hitlId}', '${escapeHtml(opt.id)}')">
+                <span class="hitl-radio-circle"><span class="hitl-radio-dot"></span></span>
+                <span class="hitl-radio-text">${escapeHtml(opt.label)}</span>
+            </label>`;
         }
         html += '</div>';
     } else if (interactionType === 'multi_select') {
@@ -2868,6 +2871,15 @@ function renderHITLCard(evt) {
 }
 
 // HITL submit helpers
+function hitlRadioSelect(labelEl, hitlId, optionId) {
+    const group = labelEl.closest('.hitl-single-select-group');
+    if (group) {
+        group.querySelectorAll('.hitl-radio-label').forEach(l => l.classList.remove('selected'));
+    }
+    labelEl.classList.add('selected');
+    hitlSubmit(hitlId, 'submit', { confirm: optionId });
+}
+
 function hitlSubmitConfirm(hitlId, optionId) {
     hitlSubmit(hitlId, 'submit', { confirm: optionId });
 }
