@@ -2762,7 +2762,7 @@ function renderHITLCard(evt) {
                         } else if (field.type === 'number') {
                             html += `<input class="hitl-field-input" type="number" data-field-id="${escapeHtml(fieldId)}" value="${escapeHtml(String(field.default_value || ''))}" min="${field.min ?? ''}" max="${field.max ?? ''}" oninput="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
                         } else if (field.type === 'boolean') {
-                            html += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input class="hitl-field-input" type="checkbox" data-field-id="${escapeHtml(fieldId)}" ${field.default_value ? 'checked' : ''} onchange="hitlUpdatePreview('${hitlId}')"> ${escapeHtml(field.label)}</label>`;
+                            html += `<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;width:fit-content;"><input class="hitl-field-input" type="checkbox" data-field-id="${escapeHtml(fieldId)}" ${field.default_value ? 'checked' : ''} onchange="hitlUpdatePreview('${hitlId}')"> ${escapeHtml(field.label)}</label>`;
                         } else if (field.type === 'textarea') {
                             html += `<textarea class="hitl-field-textarea" data-field-id="${escapeHtml(fieldId)}" placeholder="${escapeHtml(field.placeholder || '')}" oninput="hitlUpdatePreview('${hitlId}')" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">${escapeHtml(String(field.default_value || ''))}</textarea>`;
                         } else {
@@ -3060,7 +3060,7 @@ function updateHITLConfigFields(card, configFields) {
             } else if (f.type === 'number') {
                 input = `<input type="number" class="hitl-field-input" data-field-id="${fieldId}" value="${f.default ?? ''}" min="${f.min ?? ''}" max="${f.max ?? ''}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">`;
             } else if (f.type === 'boolean') {
-                input = `<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" class="hitl-field-input" data-field-id="${fieldId}" ${f.default ? 'checked' : ''}> ${f.label}</label>`;
+                input = `<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;width:fit-content;"><input type="checkbox" class="hitl-field-input" data-field-id="${fieldId}" ${f.default ? 'checked' : ''}> ${f.label}</label>`;
             } else {
                 input = `<input type="text" class="hitl-field-input" data-field-id="${fieldId}" value="${f.default ?? ''}" style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;" placeholder="${f.label}">`;
             }
