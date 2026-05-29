@@ -2211,7 +2211,7 @@ async function resumeAgentRun(runId, startSeq) {
         if (finished) return;
         finished = true;
         typingEl.style.display = 'none';
-        if (fullText) textEl.innerHTML = formatClusterMarkdown(fullText);
+        // 文本已由 handleClusterEventV2 渲染，此处不再重复设置 textEl.innerHTML
         const pw = processWrapperRef.wrapper;
         if (pw) {
             pw.classList.add('collapsed');
@@ -2341,7 +2341,8 @@ async function sendClusterQuery(message, databases, modules) {
                 // 设置事件类型
                 if (!evtData.type) evtData.type = evt.event_type;
 
-                // 处理 text 事件的 fullText
+                // 处理 text 事件 — 只记录到 fullText 供 saveCurrentSessionMessage 使用
+                // 实际渲染由 handleClusterEventV2 负责，此处不再操作 textEl
                 const content = evtData.content || evtData.text || evtData.message || '';
                 if (evtData.type === 'text' && evtData.partial === false && content) {
                     fullText = content;
