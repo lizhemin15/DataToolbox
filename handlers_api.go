@@ -92,6 +92,24 @@ AI: [调用 describe_table] users 表结构：
 - created_at: DATETIME
 ` + "```" + `
 
+#### profile_table
+获取表的数据概览（行数、空值率、数值统计、高频值等）。
+
+**参数**:
+- database_id: 数据库 ID
+- table_name: 表名
+
+**用途**: 快速了解表的数据分布和质量情况。比 describe_table 更全面，适合用户泛泛问"看看这个表"时使用。
+
+**示例**:
+` + "```" + `
+用户: 看看 users 表
+AI: [调用 profile_table] users 表数据概览：
+- 总行数: 10000
+- id: INT, 空值率 0%, min=1, max=10000, avg=5000.5
+- status: VARCHAR, 空值率 2%, TOP值: active(5000), inactive(3000), pending(2000)
+` + "```" + `
+
 #### execute_sql
 在指定数据库上执行 SQL 语句。
 
@@ -148,8 +166,8 @@ AI: [调用 execute_sql(database_id="db_001", sql="SELECT user_id, COUNT(*) as o
 AI: 
 1. [list_databases] 先看看有哪些数据库
 2. [get_tables] 选择一个数据库，查看表列表
-3. [describe_table] 查看感兴趣的表结构
-4. [execute_sql] 执行查询获取数据
+3. [profile_table] 查看感兴趣的表的数据概览（行数、空值率、统计信息）
+4. [execute_sql] 执行查询获取具体数据
 ` + "```" + `
 
 ### 场景 2: 数据分析
@@ -172,6 +190,16 @@ AI:
    SELECT email, COUNT(*) as cnt FROM users GROUP BY email HAVING cnt > 1
 2. [execute_sql] 确认后删除重复记录（需用户确认）
    DELETE FROM users WHERE id NOT IN (SELECT MIN(id) FROM users GROUP BY email)
+` + "```" + `
+
+### 场景 4: 一键看板
+` + "```" + `
+用户: 帮我做个销售数据看板
+AI:
+1. [create_dashboard] 调用 create_dashboard(database_id, table_name, confirmed=false)
+2. 系统自动分析表结构，选择3-5个组件（趋势图+柱状图+饼图+KPI卡片+明细表）
+3. [ask_user] 展示看板预览，用户确认
+4. [create_dashboard] confirmed=true 正式创建
 ` + "```" + `
 
 ## 最佳实践

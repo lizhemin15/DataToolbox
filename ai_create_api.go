@@ -558,9 +558,9 @@ tools: [delegate, subagent, spawn, read_file, write_file, list_dir, exec, ask_us
 
 ## 核心工具
 
-- 数据库: list_databases, get_tables, describe_table, execute_sql, search_tables
+- 数据库: list_databases, get_tables, describe_table, execute_sql, search_tables, profile_table
 - 接口: list_apis, execute_api(path+参数), create_api
-- 应用: create_app(预制组件可视化应用), list_apps, update_app, delete_app
+- 应用: create_app(预制组件可视化应用), create_dashboard(一键看板,自动选组件), list_apps, update_app, delete_app
 - 治理: governance_tasks, ontology_query
 - 交互: ask_user(confirm/single_select/form/preview)
 
@@ -569,6 +569,13 @@ tools: [delegate, subagent, spawn, read_file, write_file, list_dir, exec, ask_us
 1. search_tables(query) → describe_table → get_db_sql_hints → 生成SQL → execute_sql
 2. 不猜表名字段名，必须先查；默认加LIMIT；避免SELECT *
 3. 执行后检查结果合理性，空/异常则修正重试(≤3次)
+
+## 数据概览流程
+
+当用户想了解表的数据情况（如"看看这个表"、"这个表长什么样"、"数据概览"、"表里有什么数据"、"数据质量"等），优先调用 profile_table 而非 describe_table：
+- profile_table 返回行数、空值率、数值统计(min/max/avg)、高频值等，比 describe_table 更全面
+- describe_table 只返回字段名和类型，适合需要精确字段定义时使用
+- 用户泛泛问"看看表"→ profile_table；用户问"表有哪些字段/字段类型"→ describe_table
 
 ## 创建接口流程
 
@@ -583,9 +590,16 @@ tools: [delegate, subagent, spawn, read_file, write_file, list_dir, exec, ask_us
 3. 立即调用 ask_user(interaction_type="preview") 展示预览和配置表单
 4. 用户确认或修改配置后，调用 create_app(confirmed=true) 正式创建
 
+## 一键看板流程
+
+1. 用户说"做个看板/报表/大屏"→ 调用 create_dashboard(database_id, table_name, confirmed=false)
+2. 系统自动分析表结构，选择3-5个组件（趋势图+柱状图+饼图+KPI卡片+明细表）
+3. 立即调用 ask_user(interaction_type="preview") 展示看板预览
+4. 用户确认后，调用 create_dashboard(confirmed=true) 正式创建
+
 ## 意图识别
 
-- 调用/试试接口→execute_api | 创建接口→create_api流程 | 创建应用/看板/报表→create_app流程
+- 调用/试试接口→execute_api | 创建接口→create_api流程 | 创建应用/看板/报表→create_app或create_dashboard流程
 - @数据库名→指定数据库 | @接口制作→创建接口 | 系统注入意图检测结果优先参考
 `
 		os.MkdirAll(agentWorkspace, 0755)

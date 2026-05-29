@@ -3129,6 +3129,71 @@ function createClusterBlock(title, className) {
     return block;
 }
 
+// 渲染 profile_table 数据概览卡片
+function renderProfileCard(data, toolNameFallback) {
+    const tableName = data.table_name || '';
+    const rowCount = data.row_count != null ? Number(data.row_count).toLocaleString() : '?';
+
+    let html = '<div class="profile-card">';
+    // 顶部：表名 + 行数
+    html += '<div class="profile-card-header">';
+    html += '<span class="profile-card-title">' + escapeHtml(tableName || '数据概览') + '</span>';
+    html += '<span class="profile-card-rows">' + rowCount + ' 行</span>';
+    html += '</div>';
+
+    // 字段列表
+    if (Array.isArray(data.columns) && data.columns.length > 0) {
+        html += '<div class="profile-card-columns">';
+        for (const col of data.columns) {
+            html += '<div class="profile-card-col">';
+            // 左侧：字段名 + 类型
+            html += '<div class="profile-col-left">';
+            html += '<span class="profile-col-name">' + escapeHtml(col.name || '') + '</span>';
+            html += '<span class="profile-col-type">' + escapeHtml(col.type || '') + '</span>';
+            html += '</div>';
+            // 右侧：统计信息
+            html += '<div class="profile-col-right">';
+            // 空值率
+            const nullRate = col.null_rate != null ? col.null_rate : 0;
+            const nullPct = (nullRate * 100).toFixed(nullRate < 0.01 ? 2 : 1);
+            const barColor = nullRate === 0 ? '#2d3748' : nullRate < 0.05 ? '#718096' : nullRate < 0.2 ? '#a0aec0' : '#e53e3e';
+            html += '<div class="profile-null-row">';
+            html += '<div class="profile-null-bar"><div class="profile-null-fill" style="width:' + Math.max(nullRate * 100, 0.5) + '%;background:' + barColor + '"></div></div>';
+            html += '<span class="profile-null-text">' + nullPct + '% null</span>';
+            html += '</div>';
+            // 数值字段：min/max/avg
+            if (col.min !== undefined || col.max !== undefined || col.avg !== undefined) {
+                const parts = [];
+                if (col.min !== undefined) parts.push('min=' + col.min);
+                if (col.max !== undefined) parts.push('max=' + col.max);
+                if (col.avg !== undefined) parts.push('avg=' + (typeof col.avg === 'number' ? col.avg.toFixed(2) : col.avg));
+                html += '<div class="profile-numeric-stats">' + escapeHtml(parts.join(' / ')) + '</div>';
+            }
+            // 字符串字段：TOP3 高频值
+            if (Array.isArray(col.top_values) && col.top_values.length > 0) {
+                html += '<div class="profile-top-values">';
+                const topN = col.top_values.slice(0, 3);
+                for (const tv of topN) {
+                    const val = tv.value != null ? String(tv.value) : '(null)';
+                    const cnt = tv.count != null ? Number(tv.count).toLocaleString() : '?';
+                    html += '<span class="profile-top-item"><b>' + escapeHtml(val) + '</b> ' + cnt + '</span>';
+                }
+                html += '</div>';
+            }
+            // 错误信息
+            if (col.error) {
+                html += '<div class="profile-col-error">' + escapeHtml(col.error) + '</div>';
+            }
+            html += '</div>'; // profile-col-right
+            html += '</div>'; // profile-card-col
+        }
+        html += '</div>'; // profile-card-columns
+    }
+
+    html += '</div>'; // profile-card
+    return html;
+}
+
 // 将工具调用/返回内容格式化为用户友好的显示
 function formatToolContent(rawContent, isResult, toolNameFallback) {
     if (!rawContent || rawContent.trim() === '' || rawContent.trim() === 'null' || rawContent.trim() === 'None') {
@@ -3158,6 +3223,12 @@ function formatToolContent(rawContent, isResult, toolNameFallback) {
     // JSON解析成功
     if (isResult) {
         // === tool_result 格式化 ===
+
+        // profile_table 数据概览卡片
+        if (typeof parsed === 'object' && parsed !== null && parsed.row_count !== undefined && parsed.columns !== undefined) {
+            return renderProfileCard(parsed, toolNameFallback);
+        }
+
         // 数组：显示条数 + 摘要表
         if (Array.isArray(parsed)) {
             if (parsed.length === 0) {
@@ -4846,3 +4917,40 @@ function toggleAppSettings() {
     const panel = document.getElementById('codepenSettingsPanel');
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
+
+// === 快捷提示模板逻辑 ===
+(function initQuickPrompts() {
+    // 点击气泡 → 填入输入框 → 自动发送
+    document.addEventListener('click', (e) => {
+        const bubble = e.target.closest('.ai-quick-prompt');
+        if (!bubble) return;
+
+        const prompt = bubble.dataset.prompt;
+        if (!prompt) return;
+
+        const input = document.getElementById('aiInput');
+        if (input) {
+            input.value = prompt;
+            input.focus();
+            input.style.height = 'auto';
+            input.style.height = input.scrollHeight + 'px';
+        }
+
+        // 触发发送
+        if (typeof handleSendAiMessage === 'function') {
+            handleSendAiMessage();
+        }
+    });
+
+    // 隐藏快捷提示
+    window.hideQuickPrompts = function() {
+        const qp = document.getElementById('aiQuickPrompts');
+        if (qp) qp.classList.add('hidden');
+    };
+
+    // 显示快捷提示
+    window.showQuickPrompts = function() {
+        const qp = document.getElementById('aiQuickPrompts');
+        if (qp) qp.classList.remove('hidden');
+    };
+})();

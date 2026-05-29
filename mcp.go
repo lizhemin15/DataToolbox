@@ -221,6 +221,11 @@ type describeTableIn struct {
 	TableName  string `json:"table_name" jsonschema:"表名"`
 }
 
+type profileTableIn struct {
+	DatabaseID string `json:"database_id" jsonschema:"数据库 ID"`
+	TableName  string `json:"table_name" jsonschema:"表名"`
+}
+
 type executeSQLIn struct {
 	DatabaseID string        `json:"database_id" jsonschema:"数据库 ID"`
 	SQL        string        `json:"sql" jsonschema:"要执行的 SQL 语句"`
@@ -292,6 +297,14 @@ type createAppFromBlueprintIn struct {
 	IsPublic        bool                     `json:"is_public,omitempty" jsonschema:"是否公开"`
 	Confirmed       bool                     `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建应用；未确认时调用只生成预览"`
 	Components      []components.ComponentInstance `json:"components" jsonschema:"required,组件实例列表，每个含 component_id 和 config。可用组件ID：chart-bar(柱状图)、chart-line(折线图)、chart-pie(饼图)、chart-area(面积图)、chart-gauge(仪表盘)、data-table(数据表格)、filter-bar(筛选栏)、kpi-card(KPI卡片)、map-scatter(地图散点)、timeline(时间线)"`
+}
+
+type createDashboardIn struct {
+	DatabaseID      string `json:"database_id" jsonschema:"required,数据库 ID"`
+	TableName       string `json:"table_name" jsonschema:"required,表名"`
+	DashboardName   string `json:"dashboard_name,omitempty" jsonschema:"看板名称（可选，默认用表名+看板）"`
+	DesignDirection string `json:"design_direction,omitempty" jsonschema:"设计方向：minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist，默认 minimal"`
+	Confirmed       bool   `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建看板；未确认时调用只生成预览"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
@@ -394,6 +407,381 @@ func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describe
 		return nil, nil, err
 	}
 	return mcpTextResult(string(data)), nil, nil
+}
+
+// ─── profile_table：数据概览 ──────────────────────────────────────────────
+
+// isNumericType 判断数据库字段类型是否为数值类型
+func isNumericType(dbType, dataType string) bool {
+	t := strings.ToUpper(dataType)
+	// 通用数值类型关键词
+	numericKeywords := []string{"INT", "BIGINT", "SMALLINT", "TINYINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "NUMBER", "REAL", "MONEY"}
+	for _, kw := range numericKeywords {
+		if strings.Contains(t, kw) {
+			return true
+		}
+	}
+	// 达梦/Oracle 的 NUMBER 类型
+	if strings.ToLower(dbType) == "dm" && t == "NUMBER" {
+		return true
+	}
+	return false
+}
+
+// isDateType 判断数据库字段类型是否为日期类型
+func isDateType(dataType string) bool {
+	t := strings.ToUpper(dataType)
+	dateKeywords := []string{"DATE", "TIME", "TIMESTAMP", "DATETIME"}
+	for _, kw := range dateKeywords {
+		if strings.Contains(t, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStringType 判断数据库字段类型是否为字符串类型
+func isStringType(dataType string) bool {
+	t := strings.ToUpper(dataType)
+	stringKeywords := []string{"CHAR", "TEXT", "CLOB", "VARCHAR", "NVARCHAR", "NCHAR", "NCLOB", "STRING", "ENUM"}
+	for _, kw := range stringKeywords {
+		if strings.Contains(t, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// quoteIdentifier 根据数据库类型引用标识符
+func quoteIdentifier(dbType, name string) string {
+	switch strings.ToLower(dbType) {
+	case "mysql":
+		return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+	case "dm", "oracle":
+		return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
+	case "postgresql", "postgres", "sqlite":
+		return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
+	case "sqlserver":
+		return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
+	default:
+		return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+	}
+}
+
+// topValuesSQL 根据数据库类型生成 TOP N 高频值查询 SQL
+func topValuesSQL(dbType, quotedCol, quotedTable string, n int) string {
+	switch strings.ToLower(dbType) {
+	case "oracle":
+		// Oracle 不支持 LIMIT，使用 ROWNUM
+		return fmt.Sprintf(
+			"SELECT %s, COUNT(*) AS cnt FROM %s WHERE %s IS NOT NULL GROUP BY %s ORDER BY cnt DESC",
+			quotedCol, quotedTable, quotedCol, quotedCol,
+		) // Oracle 调用方需自行加 ROWNUM 过滤
+	case "sqlserver":
+		return fmt.Sprintf(
+			"SELECT TOP %d %s, COUNT(*) AS cnt FROM %s WHERE %s IS NOT NULL GROUP BY %s ORDER BY cnt DESC",
+			n, quotedCol, quotedTable, quotedCol, quotedCol,
+		)
+	default:
+		// MySQL, PostgreSQL, 达梦, SQLite 等支持 LIMIT
+		return fmt.Sprintf(
+			"SELECT %s, COUNT(*) AS cnt FROM %s WHERE %s IS NOT NULL GROUP BY %s ORDER BY cnt DESC LIMIT %d",
+			quotedCol, quotedTable, quotedCol, quotedCol, n,
+		)
+	}
+}
+
+func mcpProfileTable(ctx context.Context, req *mcp.CallToolRequest, in profileTableIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 1. 获取数据库类型
+	dbData, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取数据库信息失败: %w", err)
+	}
+	var dbInfo struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(dbData, &dbInfo); err != nil {
+		return nil, nil, fmt.Errorf("解析数据库信息失败: %w", err)
+	}
+	dbType := dbInfo.Data.Type
+
+	tableName := strings.Trim(in.TableName, "\"`'")
+	quotedTable := quoteIdentifier(dbType, tableName)
+
+	// 2. 获取行数
+	countSQL := fmt.Sprintf("SELECT COUNT(*) AS row_count FROM %s", quotedTable)
+	countBody, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         countSQL,
+	})
+	countData, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", countBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取行数失败: %w", err)
+	}
+	var countResp struct {
+		Rows []map[string]interface{} `json:"rows"`
+	}
+	if err := json.Unmarshal(countData, &countResp); err != nil {
+		return nil, nil, fmt.Errorf("解析行数结果失败: %w", err)
+	}
+	var rowCount float64
+	if len(countResp.Rows) > 0 {
+		if v, ok := countResp.Rows[0]["row_count"]; ok {
+			rowCount, _ = v.(float64)
+		} else if v, ok := countResp.Rows[0]["ROW_COUNT"]; ok {
+			rowCount, _ = v.(float64)
+		}
+	}
+
+	// 3. 获取表结构（列名和类型）
+	var descSQL string
+	switch strings.ToLower(dbType) {
+	case "dm":
+		descSQL = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tableName))
+	case "mysql":
+		descSQL = "DESCRIBE `" + tableName + "`"
+	case "postgres", "postgresql":
+		descSQL = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+	default:
+		descSQL = "DESCRIBE `" + tableName + "`"
+	}
+	descBody, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         descSQL,
+	})
+	descData, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", descBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取表结构失败: %w", err)
+	}
+	var descResp struct {
+		Rows []map[string]interface{} `json:"rows"`
+	}
+	if err := json.Unmarshal(descData, &descResp); err != nil {
+		return nil, nil, fmt.Errorf("解析表结构失败: %w", err)
+	}
+
+	// 4. 对每个字段执行统计查询
+	type columnProfile struct {
+		Name      string                   `json:"name"`
+		Type      string                   `json:"type"`
+		NullRate  float64                  `json:"null_rate"`
+		Min       interface{}              `json:"min,omitempty"`
+		Max       interface{}              `json:"max,omitempty"`
+		Avg       interface{}              `json:"avg,omitempty"`
+		TopValues []map[string]interface{} `json:"top_values,omitempty"`
+		Error     string                   `json:"error,omitempty"`
+	}
+
+	columns := []columnProfile{}
+	for _, row := range descResp.Rows {
+		// 提取列名和类型（兼容不同数据库返回格式）
+		colName := ""
+		colType := ""
+		for _, key := range []string{"COLUMN_NAME", "column_name", "Field", "COLUMN_NAME "} {
+			if v, ok := row[key]; ok && v != nil {
+				colName = fmt.Sprintf("%v", v)
+				break
+			}
+		}
+		for _, key := range []string{"DATA_TYPE", "data_type", "Type", "DATA_TYPE "} {
+			if v, ok := row[key]; ok && v != nil {
+				colType = fmt.Sprintf("%v", v)
+				break
+			}
+		}
+		if colName == "" {
+			continue
+		}
+
+		quotedCol := quoteIdentifier(dbType, colName)
+		prof := columnProfile{
+			Name: colName,
+			Type: colType,
+		}
+
+		// 空值率查询
+		nullSQL := fmt.Sprintf("SELECT COUNT(*) - COUNT(%s) AS null_count FROM %s", quotedCol, quotedTable)
+		nullBody, _ := json.Marshal(map[string]interface{}{
+			"database_id": in.DatabaseID,
+			"sql":         nullSQL,
+		})
+		nullData, nullErr := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", nullBody)
+		if nullErr != nil {
+			prof.Error = fmt.Sprintf("空值率查询失败: %v", nullErr)
+			columns = append(columns, prof)
+			continue
+		}
+		var nullResp struct {
+			Rows []map[string]interface{} `json:"rows"`
+		}
+		if err := json.Unmarshal(nullData, &nullResp); err == nil && len(nullResp.Rows) > 0 {
+			var nullCount float64
+			for _, key := range []string{"null_count", "NULL_COUNT"} {
+				if v, ok := nullResp.Rows[0][key]; ok && v != nil {
+					nullCount, _ = v.(float64)
+					break
+				}
+			}
+			if rowCount > 0 {
+				prof.NullRate = nullCount / rowCount
+			}
+		}
+
+		// 根据类型执行不同的统计查询
+		if isNumericType(dbType, colType) {
+			// 数值字段：min, max, avg
+			statSQL := fmt.Sprintf(
+				"SELECT MIN(%s) AS min_val, MAX(%s) AS max_val, AVG(%s) AS avg_val FROM %s",
+				quotedCol, quotedCol, quotedCol, quotedTable,
+			)
+			statBody, _ := json.Marshal(map[string]interface{}{
+				"database_id": in.DatabaseID,
+				"sql":         statSQL,
+			})
+			statData, statErr := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", statBody)
+			if statErr != nil {
+				if prof.Error != "" {
+					prof.Error += "; "
+				}
+				prof.Error += fmt.Sprintf("数值统计查询失败: %v", statErr)
+			} else {
+				var statResp struct {
+					Rows []map[string]interface{} `json:"rows"`
+				}
+				if err := json.Unmarshal(statData, &statResp); err == nil && len(statResp.Rows) > 0 {
+					for _, key := range []string{"min_val", "MIN_VAL"} {
+						if v, ok := statResp.Rows[0][key]; ok && v != nil {
+							prof.Min = v
+							break
+						}
+					}
+					for _, key := range []string{"max_val", "MAX_VAL"} {
+						if v, ok := statResp.Rows[0][key]; ok && v != nil {
+							prof.Max = v
+							break
+						}
+					}
+					for _, key := range []string{"avg_val", "AVG_VAL"} {
+						if v, ok := statResp.Rows[0][key]; ok && v != nil {
+							prof.Avg = v
+							break
+						}
+					}
+				}
+			}
+		} else if isDateType(colType) {
+			// 日期字段：min, max
+			statSQL := fmt.Sprintf(
+				"SELECT MIN(%s) AS min_val, MAX(%s) AS max_val FROM %s",
+				quotedCol, quotedCol, quotedTable,
+			)
+			statBody, _ := json.Marshal(map[string]interface{}{
+				"database_id": in.DatabaseID,
+				"sql":         statSQL,
+			})
+			statData, statErr := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", statBody)
+			if statErr != nil {
+				if prof.Error != "" {
+					prof.Error += "; "
+				}
+				prof.Error += fmt.Sprintf("日期统计查询失败: %v", statErr)
+			} else {
+				var statResp struct {
+					Rows []map[string]interface{} `json:"rows"`
+				}
+				if err := json.Unmarshal(statData, &statResp); err == nil && len(statResp.Rows) > 0 {
+					for _, key := range []string{"min_val", "MIN_VAL"} {
+						if v, ok := statResp.Rows[0][key]; ok && v != nil {
+							prof.Min = v
+							break
+						}
+					}
+					for _, key := range []string{"max_val", "MAX_VAL"} {
+						if v, ok := statResp.Rows[0][key]; ok && v != nil {
+							prof.Max = v
+							break
+						}
+					}
+				}
+			}
+		} else if isStringType(colType) {
+			// 字符串字段：TOP5 高频值
+			topSQL := topValuesSQL(dbType, quotedCol, quotedTable, 5)
+			topBody, _ := json.Marshal(map[string]interface{}{
+				"database_id": in.DatabaseID,
+				"sql":         topSQL,
+			})
+			topData, topErr := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", topBody)
+			if topErr != nil {
+				if prof.Error != "" {
+					prof.Error += "; "
+				}
+				prof.Error += fmt.Sprintf("高频值查询失败: %v", topErr)
+			} else {
+				var topResp struct {
+					Rows []map[string]interface{} `json:"rows"`
+				}
+				if err := json.Unmarshal(topData, &topResp); err == nil {
+					topVals := []map[string]interface{}{}
+					limit := 5
+					for i, r := range topResp.Rows {
+						if i >= limit {
+							break
+						}
+						val := ""
+						cnt := float64(0)
+						for _, key := range []string{colName, strings.ToUpper(colName), strings.ToLower(colName), quotedCol} {
+							if v, ok := r[key]; ok && v != nil {
+								val = fmt.Sprintf("%v", v)
+								break
+							}
+						}
+						// 如果列名没匹配到，尝试取第一个非 cnt 字段
+						if val == "" {
+							for k, v := range r {
+								if strings.ToUpper(k) != "CNT" && strings.ToLower(k) != "cnt" && v != nil {
+									val = fmt.Sprintf("%v", v)
+									break
+								}
+							}
+						}
+						for _, key := range []string{"cnt", "CNT", "count", "COUNT"} {
+							if v, ok := r[key]; ok && v != nil {
+								cnt, _ = v.(float64)
+								break
+							}
+						}
+						if val != "" {
+							topVals = append(topVals, map[string]interface{}{
+								"value": val,
+								"count": int(cnt),
+							})
+						}
+					}
+					prof.TopValues = topVals
+				}
+			}
+		}
+
+		columns = append(columns, prof)
+	}
+
+	// 5. 组装返回 JSON
+	result := map[string]interface{}{
+		"table_name": tableName,
+		"row_count":  int(rowCount),
+		"columns":    columns,
+	}
+	resultData, _ := json.Marshal(result)
+	return mcpTextResult(string(resultData)), nil, nil
 }
 
 func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLIn) (*mcp.CallToolResult, any, error) {
@@ -934,6 +1322,514 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 	return mcpTextResult(fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /app/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
 }
 
+// ─── create_dashboard：一键生成数据看板 ────────────────────────────────────
+
+// fieldSemantic 根据字段名推断语义类型：numeric/date/category/geo/text
+func fieldSemantic(colName, colType string) string {
+	lower := strings.ToLower(colName)
+
+	// 地理坐标字段
+	geoHints := []string{"lat", "lng", "lon", "latitude", "longitude", "geo", "coords", "coord"}
+	for _, h := range geoHints {
+		if strings.Contains(lower, h) {
+			return "geo"
+		}
+	}
+
+	// 日期/时间字段（按名称推断）
+	dateNameHints := []string{"date", "time", "created_at", "updated_at", "timestamp", "datetime", "_at", "_date", "_time", "year", "month", "week"}
+	for _, h := range dateNameHints {
+		if strings.Contains(lower, h) {
+			return "date"
+		}
+	}
+	// 按类型推断
+	if isDateType(colType) {
+		return "date"
+	}
+
+	// 数值字段（按名称推断）
+	numNameHints := []string{"amount", "price", "total", "cost", "revenue", "sales", "profit", "quantity", "qty", "count", "sum", "avg", "rate", "score", "salary", "budget", "fee", "value", "num", "income", "expense", "discount", "margin", "weight", "age"}
+	for _, h := range numNameHints {
+		if strings.Contains(lower, h) {
+			return "numeric"
+		}
+	}
+	// 按类型推断
+	if isNumericType("", colType) {
+		return "numeric"
+	}
+
+	// 分类字段（按名称推断）
+	catNameHints := []string{"name", "category", "type", "status", "region", "country", "city", "province", "state", "department", "group", "level", "grade", "class", "label", "tag", "brand", "source", "channel", "priority"}
+	for _, h := range catNameHints {
+		if strings.Contains(lower, h) {
+			return "category"
+		}
+	}
+	// 字符串类型默认视为分类
+	if isStringType(colType) {
+		return "category"
+	}
+
+	return "text"
+}
+
+// selectComponents 根据表字段语义自动选择 3-5 个组件，返回组件实例列表
+func selectComponents(tableName string, columns []map[string]interface{}) []components.ComponentInstance {
+	// 分类字段
+	var numericFields []string
+	var dateFields []string
+	var categoryFields []string
+	var geoFields []string
+	var allFields []string
+
+	for _, col := range columns {
+		name, _ := col["name"].(string)
+		colType, _ := col["type"].(string)
+		if name == "" {
+			continue
+		}
+		allFields = append(allFields, name)
+		sem := fieldSemantic(name, colType)
+		switch sem {
+		case "numeric":
+			numericFields = append(numericFields, name)
+		case "date":
+			dateFields = append(dateFields, name)
+		case "category":
+			categoryFields = append(categoryFields, name)
+		case "geo":
+			geoFields = append(geoFields, name)
+		}
+	}
+
+	// 构建 API URL
+	apiURL := fmt.Sprintf("/api/v1/gov/execute-sql?database_id={{database_id}}&sql=SELECT+*+FROM+%s+LIMIT+1000", tableName)
+
+	var comps []components.ComponentInstance
+
+	// 1. 有数值字段 + 时间字段 → chart-line（趋势图）
+	if len(numericFields) > 0 && len(dateFields) > 0 {
+		yFields := numericFields
+		if len(yFields) > 3 {
+			yFields = yFields[:3]
+		}
+		yFieldsStr := strings.Join(yFields, ",")
+		comps = append(comps, components.ComponentInstance{
+			ComponentID: "chart-line",
+			Config: map[string]interface{}{
+				"title":       "趋势分析",
+				"data_source": apiURL,
+				"x_field":     dateFields[0],
+				"y_fields":    yFieldsStr,
+				"smooth":      true,
+				"height":      350,
+			},
+		})
+	}
+
+	// 2. 有数值字段 + 分类字段 → chart-bar（柱状图）
+	if len(numericFields) > 0 && len(categoryFields) > 0 {
+		yFields := numericFields
+		if len(yFields) > 3 {
+			yFields = yFields[:3]
+		}
+		yFieldsStr := strings.Join(yFields, ",")
+		comps = append(comps, components.ComponentInstance{
+			ComponentID: "chart-bar",
+			Config: map[string]interface{}{
+				"title":       "分类统计",
+				"data_source": apiURL,
+				"x_field":     categoryFields[0],
+				"y_fields":    yFieldsStr,
+				"mode":        "grouped",
+				"height":      350,
+			},
+		})
+
+		// 2b. 如果有分类字段，且分类值 ≤ 10，加一个饼图
+		if len(categoryFields) > 0 && len(numericFields) > 0 {
+			comps = append(comps, components.ComponentInstance{
+				ComponentID: "chart-pie",
+				Config: map[string]interface{}{
+					"title":       "占比分析",
+					"data_source": apiURL,
+					"name_field":  categoryFields[0],
+					"value_field": numericFields[0],
+					"ring":        true,
+					"height":      350,
+				},
+			})
+		}
+	}
+
+	// 3. 有数值字段 → kpi-card（KPI 卡片）
+	if len(numericFields) > 0 {
+		metrics := []map[string]interface{}{}
+		displayFields := numericFields
+		if len(displayFields) > 4 {
+			displayFields = displayFields[:4]
+		}
+		colors := []string{"#4F46E5", "#10B981", "#F59E0B", "#EF4444"}
+		for i, f := range displayFields {
+			metric := map[string]interface{}{
+				"label": f,
+				"field": f,
+				"color": colors[i%len(colors)],
+			}
+			// 推断后缀
+			lower := strings.ToLower(f)
+			if strings.Contains(lower, "price") || strings.Contains(lower, "cost") || strings.Contains(lower, "revenue") || strings.Contains(lower, "amount") {
+				metric["prefix"] = "¥"
+			}
+			if strings.Contains(lower, "rate") || strings.Contains(lower, "percent") || strings.Contains(lower, "ratio") {
+				metric["suffix"] = "%"
+			}
+			metrics = append(metrics, metric)
+		}
+		comps = append(comps, components.ComponentInstance{
+			ComponentID: "kpi-card",
+			Config: map[string]interface{}{
+				"title":       "关键指标",
+				"data_source": apiURL,
+				"metrics":     metrics,
+				"columns":     fmt.Sprintf("%d", len(displayFields)),
+			},
+		})
+	}
+
+	// 4. 总是有 → data-table（明细表）
+	tableColumns := []map[string]interface{}{}
+	displayAll := allFields
+	if len(displayAll) > 10 {
+		displayAll = displayAll[:10]
+	}
+	for _, f := range displayAll {
+		col := map[string]interface{}{
+			"field": f,
+			"label": f,
+			"width": "auto",
+		}
+		// 数值列右对齐 + 可排序
+		for _, nf := range numericFields {
+			if nf == f {
+				col["align"] = "right"
+				col["sortable"] = true
+				col["render"] = "number"
+				break
+			}
+		}
+		tableColumns = append(tableColumns, col)
+	}
+	comps = append(comps, components.ComponentInstance{
+		ComponentID: "data-table",
+		Config: map[string]interface{}{
+			"title":       "数据明细",
+			"data_source": apiURL,
+			"columns":     tableColumns,
+			"page_size":   20,
+			"show_search": true,
+			"stripe":      true,
+		},
+	})
+
+	// 5. 有地理坐标字段 → map-scatter
+	if len(geoFields) > 0 {
+		latField := ""
+		lngField := ""
+		for _, g := range geoFields {
+			lower := strings.ToLower(g)
+			if strings.Contains(lower, "lat") && latField == "" {
+				latField = g
+			}
+			if (strings.Contains(lower, "lng") || strings.Contains(lower, "lon")) && lngField == "" {
+				lngField = g
+			}
+		}
+		if latField != "" && lngField != "" {
+			comps = append(comps, components.ComponentInstance{
+				ComponentID: "map-scatter",
+				Config: map[string]interface{}{
+					"title":       "地理分布",
+					"data_source": apiURL,
+					"lat_field":   latField,
+					"lng_field":   lngField,
+					"height":      400,
+				},
+			})
+		}
+	}
+
+	// 限制最多 5 个组件
+	if len(comps) > 5 {
+		comps = comps[:5]
+	}
+
+	return comps
+}
+
+func mcpCreateDashboard(ctx context.Context, req *mcp.CallToolRequest, in createDashboardIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 1. 调用 profile_table 获取表结构
+	tableName := strings.Trim(in.TableName, "\"`'")
+
+	// 获取数据库类型
+	dbData, err := cli.do(http.MethodGet, "/api/v1/databases/"+in.DatabaseID, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取数据库信息失败: %w", err)
+	}
+	var dbInfo struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(dbData, &dbInfo); err != nil {
+		return nil, nil, fmt.Errorf("解析数据库信息失败: %w", err)
+	}
+	dbType := dbInfo.Data.Type
+
+	// 获取行数
+	quotedTable := quoteIdentifier(dbType, tableName)
+	countSQL := fmt.Sprintf("SELECT COUNT(*) AS row_count FROM %s", quotedTable)
+	countBody, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         countSQL,
+	})
+	countData, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", countBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取行数失败: %w", err)
+	}
+	var countResp struct {
+		Rows []map[string]interface{} `json:"rows"`
+	}
+	if err := json.Unmarshal(countData, &countResp); err != nil {
+		return nil, nil, fmt.Errorf("解析行数结果失败: %w", err)
+	}
+	var rowCount float64
+	if len(countResp.Rows) > 0 {
+		for _, key := range []string{"row_count", "ROW_COUNT"} {
+			if v, ok := countResp.Rows[0][key]; ok && v != nil {
+				rowCount, _ = v.(float64)
+				break
+			}
+		}
+	}
+
+	// 获取表结构（列名和类型）
+	var descSQL string
+	switch strings.ToLower(dbType) {
+	case "dm":
+		descSQL = fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM USER_TAB_COLUMNS WHERE TABLE_NAME = '%s' ORDER BY COLUMN_ID", strings.ToUpper(tableName))
+	case "mysql":
+		descSQL = "DESCRIBE `" + tableName + "`"
+	case "postgres", "postgresql":
+		descSQL = fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '%s' ORDER BY ordinal_position", tableName)
+	default:
+		descSQL = "DESCRIBE `" + tableName + "`"
+	}
+	descBody, _ := json.Marshal(map[string]interface{}{
+		"database_id": in.DatabaseID,
+		"sql":         descSQL,
+	})
+	descData, err := cli.do(http.MethodPost, "/api/v1/gov/execute-sql", descBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("获取表结构失败: %w", err)
+	}
+	var descResp struct {
+		Rows []map[string]interface{} `json:"rows"`
+	}
+	if err := json.Unmarshal(descData, &descResp); err != nil {
+		return nil, nil, fmt.Errorf("解析表结构失败: %w", err)
+	}
+
+	// 提取列信息
+	columns := []map[string]interface{}{}
+	for _, row := range descResp.Rows {
+		colName := ""
+		colType := ""
+		for _, key := range []string{"COLUMN_NAME", "column_name", "Field", "COLUMN_NAME "} {
+			if v, ok := row[key]; ok && v != nil {
+				colName = fmt.Sprintf("%v", v)
+				break
+			}
+		}
+		for _, key := range []string{"DATA_TYPE", "data_type", "Type", "DATA_TYPE "} {
+			if v, ok := row[key]; ok && v != nil {
+				colType = fmt.Sprintf("%v", v)
+				break
+			}
+		}
+		if colName == "" {
+			continue
+		}
+		columns = append(columns, map[string]interface{}{
+			"name": colName,
+			"type": colType,
+		})
+	}
+
+	if len(columns) == 0 {
+		return nil, nil, fmt.Errorf("表 %s 无可用字段", tableName)
+	}
+
+	// 2. 根据字段自动选择组件
+	comps := selectComponents(tableName, columns)
+
+	if len(comps) == 0 {
+		return nil, nil, fmt.Errorf("无法为表 %s 自动选择组件", tableName)
+	}
+
+	// 3. 确定看板名称和 slug
+	dashboardName := in.DashboardName
+	if dashboardName == "" {
+		dashboardName = tableName + " 看板"
+	}
+	// 生成 slug：只保留字母数字中划线
+	slug := strings.ToLower(tableName)
+	slug = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		if r == '_' || r == ' ' {
+			return '-'
+		}
+		return -1
+	}, slug)
+	slug = slug + "-dashboard"
+	// 去除连续的 -
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	slug = strings.Trim(slug, "-")
+
+	designDirection := in.DesignDirection
+	if designDirection == "" {
+		designDirection = "minimal"
+	}
+
+	// 4. 组装蓝图
+	blueprint := components.AppBlueprint{
+		Title:           dashboardName,
+		Slug:            slug,
+		Description:     fmt.Sprintf("自动生成的 %s 数据看板，共 %d 行数据，%d 个组件", tableName, int(rowCount), len(comps)),
+		Icon:            "📊",
+		DesignDirection: designDirection,
+		Components:      comps,
+	}
+
+	// 首次调用（confirmed=false）：生成预览
+	if !in.Confirmed {
+		primaryColor := "#4F46E5"
+		if designDirection == "dark" {
+			primaryColor = "#818CF8"
+		} else if designDirection == "nature" {
+			primaryColor = "#059669"
+		}
+
+		// 生成配置字段
+		configFields := []map[string]interface{}{}
+		for _, c := range comps {
+			def, _ := components.GetComponentDef(c.ComponentID)
+			if def == nil {
+				continue
+			}
+			fields, _ := components.GenerateConfigFormJSON(c.ComponentID, c.Config)
+			componentName := def.Name
+			componentIcon := def.Icon
+			configFields = append(configFields, map[string]interface{}{
+				"component_id":   c.ComponentID,
+				"component_name": fmt.Sprintf("%s %s", componentIcon, componentName),
+				"fields":         fields,
+			})
+		}
+
+		// 列出选中的组件摘要
+		componentSummary := []map[string]interface{}{}
+		for _, c := range comps {
+			def, _ := components.GetComponentDef(c.ComponentID)
+			name := c.ComponentID
+			icon := "📦"
+			if def != nil {
+				name = def.Name
+				icon = def.Icon
+			}
+			componentSummary = append(componentSummary, map[string]interface{}{
+				"component_id":   c.ComponentID,
+				"component_name": name,
+				"icon":           icon,
+			})
+		}
+
+		result := map[string]interface{}{
+			"action": "preview",
+			"dashboard_info": map[string]interface{}{
+				"table_name":      tableName,
+				"row_count":       int(rowCount),
+				"column_count":    len(columns),
+				"columns":         columns,
+				"component_count": len(comps),
+				"components":      componentSummary,
+			},
+			"config_fields": configFields,
+			"blueprint":     blueprint,
+			"message":       fmt.Sprintf("📊 看板预览已生成！表 %s 共 %d 行 %d 列，自动选择 %d 个组件。请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。用户确认后再次调用 create_dashboard(confirmed=true) 即可正式创建。", tableName, int(rowCount), len(columns), len(comps)),
+		}
+		data, _ := json.Marshal(result)
+		return mcpTextResult(string(data)), nil, nil
+	}
+
+	// HITL 已确认：正式创建看板应用
+	primaryColor := "#4F46E5"
+	if designDirection == "dark" {
+		primaryColor = "#818CF8"
+	} else if designDirection == "nature" {
+		primaryColor = "#059669"
+	}
+	html := components.AssembleAppPage(blueprint, primaryColor)
+
+	reqBody := map[string]interface{}{
+		"name":        dashboardName,
+		"title":       dashboardName,
+		"slug":        slug,
+		"description": blueprint.Description,
+		"icon":        "📊",
+		"html":        html,
+		"is_public":   true,
+		"config": map[string]interface{}{
+			"blueprint": map[string]interface{}{
+				"design_direction": designDirection,
+				"primary_color":    primaryColor,
+				"components":       comps,
+			},
+		},
+	}
+
+	body, _ := json.Marshal(reqBody)
+	apiURL := fmt.Sprintf("%s/api/v1/apps", mcpLoopbackAddr)
+	httpReq, _ := http.NewRequest("POST", apiURL, bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+cli.apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("创建看板应用请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return nil, nil, fmt.Errorf("创建看板应用失败 (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return mcpTextResult(fmt.Sprintf("✅ 看板 %q 已创建！访问地址: /app/%s\n组件: %d 个 | 数据行数: %d | 设计: %s", dashboardName, slug, len(comps), int(rowCount), designDirection)), nil, nil
+}
+
 func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, any, error) {
 	if in.Direction != "" {
 		// 返回指定设计方向的详细信息
@@ -1201,10 +2097,11 @@ func initMCPHTTPHandler() {
 			Version: mcpServerVersion,
 		}, nil)
 
-		// 注册所有 16 个工具
+		// 注册所有 18 个工具
 		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
 		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取表的列结构（字段名、类型、键信息）"}, mcpDescribeTable)
+		mcp.AddTool(server, &mcp.Tool{Name: "profile_table", Description: "获取表的数据概览：行数、空值率、数值统计、高频值等"}, mcpProfileTable)
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "执行SQL。SELECT返回结果；写操作返回影响行数，谨慎使用"}, mcpExecuteSQL)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出已配置的接口"}, mcpListApis)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取接口详情（SQL、参数、描述）"}, mcpGetApiDetail)
@@ -1217,6 +2114,7 @@ func initMCPHTTPHandler() {
 
 		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_dashboard", Description: `一键生成数据看板：自动根据表结构选择组件，组合成完整看板页面。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateDashboard)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
@@ -1292,10 +2190,11 @@ func runMCPServer() {
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: mcpServerName, Version: mcpServerVersion}, nil)
-	// Stdio 模式注册所有 16 个工具（与 HTTP 模式一致）
+	// Stdio 模式注册所有 18 个工具（与 HTTP 模式一致）
 	mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出已配置的数据库"}, mcpListDatabases)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表"}, mcpGetTables)
 	mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取表的列结构"}, mcpDescribeTable)
+	mcp.AddTool(server, &mcp.Tool{Name: "profile_table", Description: "获取表的数据概览：行数、空值率、数值统计、高频值等"}, mcpProfileTable)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_sql", Description: "执行SQL语句"}, mcpExecuteSQL)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apis", Description: "列出已配置的接口"}, mcpListApis)
 	mcp.AddTool(server, &mcp.Tool{Name: "get_api_detail", Description: "获取接口详情"}, mcpGetApiDetail)
@@ -1308,6 +2207,7 @@ func runMCPServer() {
 
 	// 应用管理工具
 	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
+	mcp.AddTool(server, &mcp.Tool{Name: "create_dashboard", Description: `一键生成数据看板：自动根据表结构选择组件，组合成完整看板页面。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateDashboard)
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)

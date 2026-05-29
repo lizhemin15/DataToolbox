@@ -1481,6 +1481,9 @@ async function handleSendAiMessage() {
     input.style.height = 'auto';
     document.getElementById('aiSendBtn').disabled = true;
 
+    // 隐藏快捷提示气泡
+    if (typeof hideQuickPrompts === 'function') hideQuickPrompts();
+
     // 统一走集群模式
     await sendClusterQuery(message, dbRefs.map(d => d.id), aiSessionContext.modules.map(m => m.id));
 

@@ -176,6 +176,8 @@ async function switchToSession(sessionId) {
     if (messagesEl) {
         messagesEl.innerHTML = '';
         if (session.messages && session.messages.length > 0) {
+            // 有消息的会话，隐藏快捷提示
+            if (typeof hideQuickPrompts === 'function') hideQuickPrompts();
             session.messages.forEach(msg => {
                 if (msg.mode === 'cluster' && msg.blocks && msg.blocks.length > 0) {
                     appendClusterMessageToChat(msg.content, msg.blocks);
@@ -364,6 +366,8 @@ function showSessionWelcome() {
                 自然语言描述任务即可
             </div>
         </div>`;
+    // 新会话/空会话，显示快捷提示气泡
+    if (typeof showQuickPrompts === 'function') showQuickPrompts();
 }
 
 function fillPrompt(text) {
