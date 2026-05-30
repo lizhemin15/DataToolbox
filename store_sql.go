@@ -1800,15 +1800,27 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 	// 合并分享任务记录
 	if moduleSelected("share_runs") {
 		governanceShareRunsMu.Lock()
-		rows, err := otherDB.Query("SELECT id, share_token, task_id, task_name, status, result, created_at, updated_at FROM share_runs")
+		rows, err := otherDB.Query("SELECT share_token, run_id, run_data FROM share_runs")
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
-				var sr GovernanceShareRun
-				var updatedAt sql.NullString
-				rows.Scan(&sr.ID, &sr.ShareToken, &sr.TaskID, &sr.TaskName, &sr.Status, &sr.Result, &sr.CreatedAt, &updatedAt)
-				if _, exists := governanceShareRuns[sr.ID]; !exists {
-					governanceShareRuns[sr.ID] = &sr
+				var shareToken, runID, runDataJSON string
+				if err := rows.Scan(&shareToken, &runID, &runDataJSON); err != nil {
+					continue
+				}
+				key := shareToken + "/" + runID
+				if _, exists := governanceShareRuns[key]; !exists {
+					var sr GovernanceShareRun
+					if runDataJSON != "" && runDataJSON != "{}" {
+						json.Unmarshal([]byte(runDataJSON), &sr)
+					}
+					if sr.ShareToken == "" {
+						sr.ShareToken = shareToken
+					}
+					if sr.ID == "" {
+						sr.ID = runID
+					}
+					governanceShareRuns[key] = &sr
 					stats["share_runs_added"] = stats["share_runs_added"].(int) + 1
 				}
 			}
