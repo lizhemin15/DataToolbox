@@ -39,7 +39,19 @@ let embeddingConfig = null;
 // 显示表检索配置弹窗
 
 // 加载表检索配置
-async function loadTableRetrievalConfig() {
+async // 预设模型快速填充
+function applyModelPreset(value) {
+    if (!value) return;
+    const [model, url] = value.split('|');
+    const urlInput = document.getElementById('aiUrlInput');
+    const modelInput = document.getElementById('aiModelInput');
+    if (url && urlInput) urlInput.value = url;
+    if (model && modelInput) modelInput.value = model;
+    // 重置select避免重复触发
+    document.getElementById('aiModelPreset').value = '';
+}
+
+function loadTableRetrievalConfig() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/table-retrieval-config`);
         const data = await response.json();
