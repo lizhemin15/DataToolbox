@@ -374,51 +374,44 @@
     letter-spacing: 0.04em;
 }
 
-.ai-welcome-cards {
+.ai-welcome-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     width: 100%;
-    max-width: 520px;
+    max-width: 420px;
 }
 
-.ai-welcome-card {
+.ai-welcome-btn {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
     padding: 14px 16px;
     background: white;
     border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    border-radius: 10px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     text-align: left;
+    font-family: inherit;
 }
 
-.ai-welcome-card:hover {
-    border-color: #4a6cf7;
-    background: linear-gradient(135deg, rgba(74, 108, 247, 0.04) 0%, rgba(74, 108, 247, 0.04) 100%);
-    box-shadow: 0 2px 12px rgba(74, 108, 247, 0.1);
+.ai-welcome-btn:hover {
+    border-color: #334155;
+    background: #f8fafc;
     transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-.ai-welcome-card-icon {
-    font-size: 22px;
+.ai-welcome-btn-icon {
+    font-size: 20px;
     flex-shrink: 0;
-    margin-top: 1px;
 }
 
-.ai-welcome-card-title {
+.ai-welcome-btn-text {
     font-size: 13px;
     font-weight: 600;
     color: #1e293b;
-    margin-bottom: 2px;
-}
-
-.ai-welcome-card-desc {
-    font-size: 12px;
-    color: #94a3b8;
-    line-height: 1.4;
 }
 
 .ai-welcome-hint {

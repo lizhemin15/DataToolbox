@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/css/style-core.css?v=2026052991">
 <link rel="stylesheet" href="/css/style-agent.css?v=2026052991">
 <link rel="stylesheet" href="/css/style-api.css?v=2026052991">
-<link rel="stylesheet" href="/css/style-ai.css?v=2026052991">
+<link rel="stylesheet" href="/css/style-ai.css?v=2026053092">
 <link rel="stylesheet" href="/css/style-tables.css?v=2026052991">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026052991">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026052991">
@@ -915,36 +915,27 @@
                         <div class="ai-chat-messages-inner">
                             <div class="ai-welcome-message">
                                 <div class="ai-welcome-icon">🤖</div>
-                                <h3>欢迎使用智能助手</h3>
-                                <p>使用 <strong>@数据库名</strong> 来引用数据库，AI将根据您的问题生成SQL查询并返回结果</p>
-                                <div class="ai-tip">
-                                    <div style="font-weight: 600; margin-bottom: 8px;">💡 智能上下文：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • 首次提问需要使用 <strong>@数据库名</strong><br>
-                                        • 后续对话会记住数据库，无需重复 @<br>
-                                        • 使用新的 @ 会切换到新数据库<br>
-                                        • 点击右上角 ✕ 可清除上下文
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">📝 查询示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 有哪些表？"<br>
-                                        • "users表有哪些字段？" <span style="color: #718096; font-size: 12px;">← 继续使用之前的数据库</span><br>
-                                        • "查看products表的前10条数据"<br>
-                                        • "查询价格大于100的产品"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔌 创建接口示例：</div>
-                                    <div style="text-align: left; padding-left: 20px; margin-bottom: 12px;">
-                                        • "<strong>@数据库</strong> 帮我创建一个查询用户的接口"<br>
-                                        • "生成一个获取产品列表的API，按价格排序"<br>
-                                        • "创建接口：根据ID查询订单详情"
-                                    </div>
-                                    <div style="font-weight: 600; margin-bottom: 8px;">🔧 数据治理任务示例：</div>
-                                    <div style="text-align: left; padding-left: 20px;">
-                                        • "<strong>@数据治理</strong> <strong>@数据库</strong> 创建一个定时任务每天凌晨 2 点导入数据"<br>
-                                        • "生成一个交互任务：上传 Excel 后写入指定表"<br>
-                                        • 生成/修改后需在界面确认才会真正创建或更新任务
-                                    </div>
+                                <h3>智能助手</h3>
+                                <p style="color: #718096; margin-bottom: 20px;">提问、查数据、做看板、建接口</p>
+                                <div class="ai-welcome-actions">
+                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('看看我有哪些数据')">
+                                        <span class="ai-welcome-btn-icon">📊</span>
+                                        <span class="ai-welcome-btn-text">看看数据</span>
+                                    </button>
+                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('这个表长什么样')">
+                                        <span class="ai-welcome-btn-icon">🔍</span>
+                                        <span class="ai-welcome-btn-text">查看表结构</span>
+                                    </button>
+                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('做个数据看板')">
+                                        <span class="ai-welcome-btn-icon">📈</span>
+                                        <span class="ai-welcome-btn-text">生成看板</span>
+                                    </button>
+                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('帮我创建一个接口')">
+                                        <span class="ai-welcome-btn-icon">🔌</span>
+                                        <span class="ai-welcome-btn-text">创建接口</span>
+                                    </button>
                                 </div>
+                                <p style="color: #a0aec0; font-size: 12px; margin-top: 16px;">用 <strong>@数据库名</strong> 指定数据库</p>
                             </div>
                         </div>
                     </div>

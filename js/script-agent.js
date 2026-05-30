@@ -4956,4 +4956,18 @@ function toggleAppSettings() {
         const qp = document.getElementById('aiQuickPrompts');
         if (qp) qp.classList.remove('hidden');
     };
+
+    // 欢迎页快速开始按钮
+    window.sendQuickPrompt = function(prompt) {
+        const input = document.getElementById('aiInput');
+        if (input) {
+            input.value = prompt;
+            input.focus();
+            input.style.height = 'auto';
+            input.style.height = input.scrollHeight + 'px';
+        }
+        if (typeof handleSendAiMessage === 'function') {
+            handleSendAiMessage();
+        }
+    };
 })();
