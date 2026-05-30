@@ -104,10 +104,10 @@
 
 .ai-new-session-btn {
     width: 100%;
-    padding: 10px 0;
-    border: 1px dashed rgba(0,0,0,0.15);
+    padding: 9px 0;
+    border: 1px solid rgba(0,0,0,0.08);
     border-radius: var(--ai-radius);
-    background: transparent;
+    background: var(--ai-surface);
     color: var(--ai-text-secondary);
     font-size: 13px;
     font-weight: 500;
@@ -119,9 +119,10 @@
 }
 
 .ai-new-session-btn:hover {
-    border-color: rgba(0,0,0,0.25);
+    border-color: rgba(0,0,0,0.15);
     color: var(--ai-text-primary);
-    background: rgba(0,0,0,0.02);
+    background: var(--ai-surface-raised);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
 /* --- 会话列表 --- */
