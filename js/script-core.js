@@ -70,6 +70,9 @@ const aiModules = [
     { id: 'quality-audit', name: '质量审计', icon: '✅', description: '数据质量检查、校验规则', aliases: ['质量', '审计', '校验', '检查'] },
     { id: 'ontology', name: '本体查询', icon: '🧠', description: '概念关系、语义分析', aliases: ['本体论', '本体', '语义', '概念'] },
     { id: 'small-model', name: '小模型', icon: '🤖', description: '小模型相关、本地模型、离线推理', aliases: ['小模型', '本地模型', '离线'] },
+    { id: 'apps', name: '应用广场', icon: '📱', description: '浏览和管理应用', aliases: ['应用', '广场', 'app', 'apps'] },
+    { id: 'mcp', name: 'Agent服务', icon: '🤝', description: 'MCP服务、智能体编排', aliases: ['agent', 'MCP', '智能体', '代理'] },
+    { id: 'lineage', name: '数据血缘', icon: '🔗', description: '数据溯源、血缘关系追踪', aliases: ['血缘', '溯源', '追踪', 'lineage'] },
 ];
 
 let aiSessionContext = {

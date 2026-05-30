@@ -1283,7 +1283,10 @@ const AI_MODULE_TAB_MAP = {
     'data-governance': 'governance',
     'quality-audit': 'quality',
     'ontology': 'ontology',
-    'small-model': 'models'
+    'small-model': 'models',
+    'apps': 'apps',
+    'mcp': 'mcp',
+    'lineage': 'lineage'
 };
 
 // 显示 @ 联想建议。
