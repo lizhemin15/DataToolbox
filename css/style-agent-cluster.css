@@ -80,8 +80,8 @@ img.emoji {
 }
 
 /* Cluster mode — PicoClaw-style collapsible blocks */
-.cluster-response-card {
-    padding: 0 !important;
+.ai-message-bubble.cluster-response-card {
+    padding: 0;
     overflow: visible;
 }
 

@@ -267,9 +267,9 @@
     text-decoration: underline;
 }
 
-.gov-upload-hint {
-    font-size: 12px !important;
-    color: #a0aec0 !important;
+.gov-upload-zone p.gov-upload-hint {
+    font-size: 12px;
+    color: #a0aec0;
 }
 
 .gov-selected-file {
@@ -948,26 +948,26 @@
     flex-shrink: 0;
 }
 
-.onto-view-btn {
-    border-radius: 0 !important;
-    border: none !important;
-    margin: 0 !important;
-    box-shadow: none !important;
-    padding: 6px 12px !important;
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    color: #718096 !important;
-    background: #f7fafc !important;
+.onto-view-toggle .onto-view-btn {
+    border-radius: 0;
+    border: none;
+    margin: 0;
+    box-shadow: none;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #718096;
+    background: #f7fafc;
 }
 
-.onto-view-btn:hover {
-    background: #edf2f7 !important;
-    color: #2d3748 !important;
+.onto-view-toggle .onto-view-btn:hover {
+    background: #edf2f7;
+    color: #2d3748;
 }
 
-.onto-view-btn.active {
-    background: #4a6cf7 !important;
-    color: #fff !important;
+.onto-view-toggle .onto-view-btn.active {
+    background: #4a6cf7;
+    color: #fff;
 }
 
 .onto-view-toggle-sep {

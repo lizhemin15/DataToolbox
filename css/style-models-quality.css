@@ -307,11 +307,11 @@
     margin-bottom: 10px;
     flex-shrink: 0;
 }
-.qa-tpl-open-btn {
+.qa-tpl-open-btn.btn {
     border-radius: 8px;
     font-weight: 600;
     background: #4a6cf7;
-    color: #fff !important;
+    color: #fff;
     border: none;
     box-shadow: 0 4px 14px rgba(74, 108, 247, 0.35);
 }
@@ -651,15 +651,15 @@
 
 /* 嵌入模式样式 */
 body.embed-mode .header-left h1 {
-    display: none !important;
+    display: none;
 }
 
 body.embed-mode .header-right {
-    display: none !important;
+    display: none;
 }
 
 body.embed-mode .main-content {
-    padding-top: 10px !important;
+    padding-top: 10px;
 }
 
 /* 嵌入模式浮动设置按钮 */

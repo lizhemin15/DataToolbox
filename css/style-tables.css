@@ -199,15 +199,15 @@
 }
 
 .editable-cell.editing {
-    background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%) !important;
-    border: 2px solid #fbbf24 !important;
+    background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%);
+    border: 2px solid #fbbf24;
     box-shadow: inset 0 2px 4px rgba(251, 191, 36, 0.1);
 }
 
 .editable-cell.editing:focus {
     outline: none;
-    border: 2px solid #4a6cf7 !important;
-    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%) !important;
+    border: 2px solid #4a6cf7;
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%);
     box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
 }
 
@@ -230,9 +230,9 @@
         #fee 10px,
         #fdd 10px,
         #fdd 20px
-    ) !important;
+    );
     position: relative;
-    border: 2px solid #c0392b !important;
+    border: 2px solid #c0392b;
     animation: deletedRowPulse 1.5s ease-in-out infinite;
 }
 

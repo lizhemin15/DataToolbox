@@ -943,10 +943,10 @@ body {
 
 /* 折叠状态 */
 .collapsible-column.collapsed {
-    width: 60px !important;
-    flex: 0 0 60px !important;
-    min-width: 60px !important;
-    padding: 12px 8px !important;
+    width: 60px;
+    flex: 0 0 60px;
+    min-width: 60px;
+    padding: 12px 8px;
     overflow: hidden;
 }
 
