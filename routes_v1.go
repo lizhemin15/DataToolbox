@@ -28,6 +28,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/system/backup", handleDataOntologyBackup)
 	mux.HandleFunc("/api/v1/system/restore", handleDataOntologyRestore)
 	mux.HandleFunc("/api/v1/system/restore-upload", handleDataOntologyRestoreUpload)
+	mux.HandleFunc("/api/v1/system/restore-preview", handleDataOntologyRestorePreview)
 	
 	// 版本号
 	mux.HandleFunc("/api/v1/system/version", func(w http.ResponseWriter, r *http.Request) {

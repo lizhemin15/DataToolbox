@@ -272,6 +272,65 @@ func saveDataOntologyStoreNoLock() error {
 
 // ====== 数据备份与恢复 API ======
 
+// BackupManifest 导出包的清单文件
+type BackupManifest struct {
+	Version     string                       `json:"version"`
+	ExportTime  string                       `json:"export_time"`
+	Modules     map[string]*BackupModuleInfo `json:"modules"`
+	HasDB       bool                         `json:"has_db"`
+	HasQualityDB bool                        `json:"has_quality_db"`
+}
+
+// BackupModuleInfo 模块信息
+type BackupModuleInfo struct {
+	Count int    `json:"count"`
+	Label string `json:"label"`
+}
+
+// buildBackupManifest 构建备份清单
+func buildBackupManifest() *BackupManifest {
+	manifest := &BackupManifest{
+		Version:    Version,
+		ExportTime: time.Now().Format(time.RFC3339),
+		Modules:    make(map[string]*BackupModuleInfo),
+	}
+
+	dataOntologyMu.RLock()
+	manifest.Modules["users"] = &BackupModuleInfo{Count: len(dataOntologyUsers), Label: "用户数据"}
+	manifest.Modules["databases"] = &BackupModuleInfo{Count: len(dataOntologyDatabases), Label: "数据库配置"}
+	manifest.Modules["apis"] = &BackupModuleInfo{Count: len(dataOntologyApis), Label: "接口分发"}
+	manifest.Modules["governance_tasks"] = &BackupModuleInfo{Count: len(governanceTasks), Label: "治理任务"}
+	manifest.Modules["governance_task_logs"] = &BackupModuleInfo{Count: len(governanceTaskLogs), Label: "治理任务日志"}
+	manifest.Modules["ai_config"] = &BackupModuleInfo{Count: 1, Label: "AI配置"}
+	manifest.Modules["ai_capabilities"] = &BackupModuleInfo{Count: 1, Label: "AI能力检测"}
+	if dataOntologyMCPEnabled != nil {
+		manifest.Modules["mcp_config"] = &BackupModuleInfo{Count: 1, Label: "MCP配置"}
+	}
+	manifest.Modules["llm_models"] = &BackupModuleInfo{Count: len(llmModels), Label: "大模型配置"}
+	manifest.Modules["small_models"] = &BackupModuleInfo{Count: len(smallModels), Label: "小模型配置"}
+	governanceShareRunsMu.RLock()
+	manifest.Modules["share_runs"] = &BackupModuleInfo{Count: len(governanceShareRuns), Label: "分享任务记录"}
+	governanceShareRunsMu.RUnlock()
+	dataOntologyMu.RUnlock()
+
+	// 质量审计
+	if storeDB != nil {
+		var qaCount int
+		storeDB.QueryRow("SELECT COUNT(*) FROM rules").Scan(&qaCount)
+		if qaCount > 0 {
+			manifest.Modules["quality_audit"] = &BackupModuleInfo{Count: qaCount, Label: "质量审计规则"}
+		}
+	}
+
+	manifest.HasDB = storeDB != nil
+	qaDBPath := getQualityAuditDBPath()
+	if _, err := os.Stat(qaDBPath); err == nil {
+		manifest.HasQualityDB = true
+	}
+
+	return manifest
+}
+
 // handleDataOntologyBackup 导出备份（ZIP 格式，包含所有持久化数据）
 // SQLite 模式：直接导出 data-store.db 文件 + 文件目录
 func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +362,16 @@ func handleDataOntologyBackup(w http.ResponseWriter, r *http.Request) {
 
 	zipWriter := zip.NewWriter(w)
 	defer zipWriter.Close()
+
+	// 0. 写入 manifest.json
+	manifest := buildBackupManifest()
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err == nil {
+		mf, err := zipWriter.Create(filepath.Join(baseDir, "manifest.json"))
+		if err == nil {
+			mf.Write(manifestData)
+		}
+	}
 
 	// 1. SQLite 模式：导出 data-store.db
 	if storeDB != nil {
@@ -460,6 +529,125 @@ func handleDataOntologyRestore(w http.ResponseWriter, r *http.Request) {
 	jsonError(w, "新的恢复接口需要通过 multipart/form-data 上传 ZIP 文件", ErrCodeBadRequest)
 }
 
+// handleDataOntologyRestorePreview 预览备份包内容（解析 manifest）
+func handleDataOntologyRestorePreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "未授权")
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		apiMethodNotAllowed(w, "只支持POST请求")
+		return
+	}
+
+	if username != "admin" {
+		apiForbidden(w, "仅管理员可执行预览")
+		return
+	}
+
+	// 解析 multipart 表单
+	maxSize := int64(100 << 20) // 100MB for preview
+	if err := r.ParseMultipartForm(maxSize); err != nil {
+		jsonError(w, "解析表单失败: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("backup")
+	if err != nil {
+		jsonError(w, "获取上传文件失败: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 只支持 ZIP 格式
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		jsonError(w, "仅支持 .zip 格式", ErrCodeInvalidInput)
+		return
+	}
+
+	// 创建临时目录
+	tmpDir, err := ioutil.TempDir("", "datatoolbox-preview-")
+	if err != nil {
+		jsonError(w, "创建临时目录失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 保存文件
+	tmpFile := filepath.Join(tmpDir, header.Filename)
+	dst, err := os.Create(tmpFile)
+	if err != nil {
+		jsonError(w, "创建临时文件失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	if _, err := io.Copy(dst, file); err != nil {
+		dst.Close()
+		jsonError(w, "保存文件失败: "+err.Error(), ErrCodeInternalError)
+		return
+	}
+	dst.Close()
+
+	// 打开 ZIP 读取 manifest
+	rz, err := zip.OpenReader(tmpFile)
+	if err != nil {
+		jsonError(w, "打开ZIP失败: "+err.Error(), ErrCodeBadRequest)
+		return
+	}
+	defer rz.Close()
+
+	var manifest *BackupManifest
+	for _, f := range rz.File {
+		if strings.HasSuffix(f.Name, "manifest.json") {
+			rc, err := f.Open()
+			if err != nil {
+				break
+			}
+			data, err := ioutil.ReadAll(rc)
+			rc.Close()
+			if err == nil {
+				json.Unmarshal(data, &manifest)
+			}
+			break
+		}
+	}
+
+	if manifest == nil {
+		// 旧版本备份没有 manifest，构建一个默认的
+		manifest = &BackupManifest{
+			Version:    "unknown",
+			ExportTime: "unknown",
+			Modules: map[string]*BackupModuleInfo{
+				"all": {Count: -1, Label: "全部数据（旧版本备份）"},
+			},
+		}
+		// 检查 ZIP 内容
+		for _, f := range rz.File {
+			if strings.HasSuffix(f.Name, "data-store.db") {
+				manifest.HasDB = true
+			}
+			if strings.HasSuffix(f.Name, "quality-audit.db") {
+				manifest.HasQualityDB = true
+			}
+		}
+	}
+
+	// 版本兼容性警告
+	var warnings []string
+	if manifest.Version != "unknown" && manifest.Version != Version {
+		warnings = append(warnings, fmt.Sprintf("备份版本 %s 与当前版本 %s 可能存在差异", manifest.Version, Version))
+	}
+
+	jsonSuccess(w, map[string]interface{}{
+		"manifest": manifest,
+		"warnings": warnings,
+		"filename": header.Filename,
+	})
+}
+
 // handleDataOntologyRestoreUpload 处理 ZIP 文件上传恢复
 
 func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
@@ -498,6 +686,19 @@ func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 解析模块过滤参数
+	modulesParam := r.FormValue("modules")
+	var selectedModules map[string]bool
+	if modulesParam != "" {
+		selectedModules = make(map[string]bool)
+		for _, m := range strings.Split(modulesParam, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				selectedModules[m] = true
+			}
+		}
+	}
+
 	// 获取上传的文件
 	file, header, err := r.FormFile("backup")
 	if err != nil {
@@ -532,7 +733,7 @@ func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
 	var stats map[string]interface{}
 	if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 		// ZIP 格式
-		stats, err = restoreFromZIP(tmpFile, mode)
+		stats, err = restoreFromZIP(tmpFile, mode, selectedModules)
 	} else if strings.HasSuffix(strings.ToLower(header.Filename), ".json") {
 		// JSON 格式（向后兼容）
 		stats, err = restoreFromJSON(tmpFile, mode)
@@ -551,8 +752,11 @@ func handleDataOntologyRestoreUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // restoreFromZIP 从 ZIP 文件恢复
-func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
+func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[string]interface{}, error) {
 	dataDir := filepath.Dir(getStoreDBPath())
+
+	// 如果没有指定模块，默认导入全部
+	importAll := len(selectedModules) == 0
 
 	// 打开 ZIP 文件
 	r, err := zip.OpenReader(zipPath)
@@ -573,6 +777,10 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 
 		if dbFile != nil {
 			if mode == "overwrite" {
+				// overwrite 模式：如果指定了模块过滤，给出警告
+				if !importAll {
+					log.Printf("[恢复] overwrite 模式下模块过滤无效，将完整覆盖数据库")
+				}
 				// SQLite 覆盖模式：直接替换 data-store.db 文件
 				dbPath := getStoreDBPath()
 
@@ -657,7 +865,7 @@ func restoreFromZIP(zipPath, mode string) (map[string]interface{}, error) {
 				os.Remove(tmpDB)
 				return nil, fmt.Errorf("打开临时数据库失败: %v", err)
 			}
-			mergeStats, err := mergeFromDB(mergeDB)
+			mergeStats, err := mergeFromDBWithModules(mergeDB, selectedModules, importAll)
 			mergeDB.Close()
 			os.Remove(tmpDB)
 			if err != nil {

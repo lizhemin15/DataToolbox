@@ -1547,6 +1547,253 @@ func mergeFromDB(otherDB *sql.DB) (map[string]interface{}, error) {
 	return stats, nil
 }
 
+// mergeFromDBWithModules 从另一个 SQLite 数据库读取数据合并到当前内存（支持模块过滤）
+func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, importAll bool) (map[string]interface{}, error) {
+	stats := map[string]interface{}{
+		"users_added":     0,
+		"databases_added": 0,
+		"apis_added":      0,
+		"tasks_added":     0,
+		"llm_models_added": 0,
+		"small_models_added": 0,
+		"share_runs_added": 0,
+		"skipped_modules": []string{},
+	}
+
+	// 辅助函数：判断模块是否被选中
+	moduleSelected := func(module string) bool {
+		return importAll || selectedModules[module]
+	}
+
+	dataOntologyMu.Lock()
+	defer dataOntologyMu.Unlock()
+
+	// 合并用户
+	if moduleSelected("users") {
+		rows, err := otherDB.Query("SELECT username, password, token, tokens, token_entries, api_key, settings FROM users")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var u User
+				var token, tokensJSON, tokenEntriesJSON, apiKey, settingsJSON sql.NullString
+				rows.Scan(&u.Username, &u.Password, &token, &tokensJSON, &tokenEntriesJSON, &apiKey, &settingsJSON)
+				u.Token = token.String
+				if tokensJSON.Valid && tokensJSON.String != "" {
+					json.Unmarshal([]byte(tokensJSON.String), &u.Tokens)
+				}
+				if tokenEntriesJSON.Valid && tokenEntriesJSON.String != "" {
+					json.Unmarshal([]byte(tokenEntriesJSON.String), &u.TokenEntries)
+				}
+				u.ApiKey = apiKey.String
+				if settingsJSON.Valid && settingsJSON.String != "" {
+					json.Unmarshal([]byte(settingsJSON.String), &u.Settings)
+				}
+				if _, exists := dataOntologyUsers[u.Username]; !exists {
+					if u.Password != "" && !isBcryptHash(u.Password) {
+						u.Password = hashPassword(u.Password)
+					}
+					dataOntologyUsers[u.Username] = &u
+					stats["users_added"] = stats["users_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并数据库配置
+	if moduleSelected("databases") {
+		rows, err := otherDB.Query("SELECT id, owner, type, name, host, port, user, password, database, path, options, relations FROM databases")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var db DatabaseConfig
+				var owner, optionsJSON, relationsJSON sql.NullString
+				rows.Scan(&db.ID, &owner, &db.Type, &db.Name, &db.Host, &db.Port, &db.User, &db.Password, &db.Database, &db.Path, &optionsJSON, &relationsJSON)
+				db.Owner = owner.String
+				if relationsJSON.Valid && relationsJSON.String != "" {
+					json.Unmarshal([]byte(relationsJSON.String), &db.Relations)
+				}
+				if _, exists := dataOntologyDatabases[db.ID]; !exists {
+					dataOntologyDatabases[db.ID] = &db
+					stats["databases_added"] = stats["databases_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并接口
+	if moduleSelected("apis") {
+		rows, err := otherDB.Query("SELECT id, name, database_id, config FROM apis")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id, name, dbID string
+				var configJSON sql.NullString
+				rows.Scan(&id, &name, &dbID, &configJSON)
+				if _, exists := dataOntologyApis[id]; !exists {
+					api := &ApiConfig{ID: id, Name: name, DatabaseID: dbID}
+					if configJSON.Valid && configJSON.String != "" {
+						json.Unmarshal([]byte(configJSON.String), api)
+					}
+					api.ID = id
+					api.Name = name
+					api.DatabaseID = dbID
+					dataOntologyApis[id] = api
+					stats["apis_added"] = stats["apis_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并治理任务
+	if moduleSelected("governance_tasks") {
+		rows, err := otherDB.Query("SELECT id, name, config FROM governance_tasks")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id, name string
+				var configJSON sql.NullString
+				rows.Scan(&id, &name, &configJSON)
+				if _, exists := governanceTasks[id]; !exists {
+					task := &GovernanceTask{ID: id, Name: name}
+					if configJSON.Valid && configJSON.String != "" {
+						json.Unmarshal([]byte(configJSON.String), task)
+					}
+					task.ID = id
+					task.Name = name
+					governanceTasks[id] = task
+					stats["tasks_added"] = stats["tasks_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并 AI 配置
+	if moduleSelected("ai_config") {
+		var baseURL, apiKey, model sql.NullString
+		var timeout, enableFC, enableThinking, enableStreaming, enableJSON, ctxWindow int
+		var tableRetrieval, embeddingJSON sql.NullString
+		row := otherDB.QueryRow("SELECT base_url, api_key, model, timeout, enable_function_call, enable_thinking, enable_streaming, enable_json_mode, context_window_override, table_retrieval, embedding FROM ai_config WHERE id = 1")
+		if err := row.Scan(&baseURL, &apiKey, &model, &timeout, &enableFC, &enableThinking, &enableStreaming, &enableJSON, &ctxWindow, &tableRetrieval, &embeddingJSON); err == nil {
+			if baseURL.String != "" || apiKey.String != "" || model.String != "" {
+				dataOntologyAIConfig = &AIConfig{
+					BaseURL: baseURL.String, ApiKey: apiKey.String, Model: model.String,
+					Timeout: timeout, EnableFunctionCall: enableFC != 0, EnableThinking: enableThinking != 0,
+					EnableStreaming: enableStreaming != 0, EnableJSONMode: enableJSON != 0,
+					ContextWindowOverride: ctxWindow,
+				}
+				if tableRetrieval.Valid && tableRetrieval.String != "" {
+					json.Unmarshal([]byte(tableRetrieval.String), &dataOntologyAIConfig.TableRetrieval)
+				}
+				if embeddingJSON.Valid && embeddingJSON.String != "" {
+					json.Unmarshal([]byte(embeddingJSON.String), &dataOntologyAIConfig.Embedding)
+				}
+			}
+		}
+	}
+
+	// 合并 AI 能力
+	if moduleSelected("ai_capabilities") {
+		var capJSON sql.NullString
+		row := otherDB.QueryRow("SELECT capabilities FROM ai_capabilities WHERE id = 1")
+		if err := row.Scan(&capJSON); err == nil && capJSON.Valid && capJSON.String != "" {
+			var cap AICapabilities
+			if json.Unmarshal([]byte(capJSON.String), &cap) == nil {
+				dataOntologyAICapabilities = &cap
+			}
+		}
+	}
+
+	// 合并 MCP 配置
+	if moduleSelected("mcp_config") {
+		var enabledInt int
+		var safeConfigJSON sql.NullString
+		row := otherDB.QueryRow("SELECT enabled, safe_config FROM mcp_config WHERE id = 1")
+		if err := row.Scan(&enabledInt, &safeConfigJSON); err == nil {
+			enabled := enabledInt != 0
+			dataOntologyMCPEnabled = &enabled
+			if safeConfigJSON.Valid && safeConfigJSON.String != "" {
+				var cfg MCPSafeConfig
+				if json.Unmarshal([]byte(safeConfigJSON.String), &cfg) == nil {
+					dataOntologyMCPSafeConfig = &cfg
+					dataOntologyMCPPort = cfg.Port
+				}
+			}
+		}
+	}
+
+	// 合并大模型配置
+	if moduleSelected("llm_models") {
+		rows, err := otherDB.Query("SELECT id, name, type, provider, url, api_key, model, description, enabled, created_at, updated_at FROM llm_models")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var m LLMModelConfig
+				var createdAt, updatedAt sql.NullString
+				rows.Scan(&m.ID, &m.Name, &m.Type, &m.Provider, &m.URL, &m.ApiKey, &m.Model, &m.Description, &m.Enabled, &createdAt, &updatedAt)
+				if _, exists := llmModels[m.ID]; !exists {
+					m.CreatedAt = createdAt.String
+					m.UpdatedAt = updatedAt.String
+					llmModels[m.ID] = &m
+					stats["llm_models_added"] = stats["llm_models_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并小模型配置
+	if moduleSelected("small_models") {
+		rows, err := otherDB.Query("SELECT id, name, type, provider, url, api_key, model, description, enabled, created_at, updated_at FROM small_models")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var m SmallModelConfig
+				var createdAt, updatedAt sql.NullString
+				rows.Scan(&m.ID, &m.Name, &m.Type, &m.Provider, &m.URL, &m.ApiKey, &m.Model, &m.Description, &m.Enabled, &createdAt, &updatedAt)
+				if _, exists := smallModels[m.ID]; !exists {
+					m.CreatedAt = createdAt.String
+					m.UpdatedAt = updatedAt.String
+					smallModels[m.ID] = &m
+					stats["small_models_added"] = stats["small_models_added"].(int) + 1
+				}
+			}
+		}
+	}
+
+	// 合并分享任务记录
+	if moduleSelected("share_runs") {
+		governanceShareRunsMu.Lock()
+		rows, err := otherDB.Query("SELECT id, share_token, task_id, task_name, status, result, created_at, updated_at FROM share_runs")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var sr GovernanceShareRun
+				var updatedAt sql.NullString
+				rows.Scan(&sr.ID, &sr.ShareToken, &sr.TaskID, &sr.TaskName, &sr.Status, &sr.Result, &sr.CreatedAt, &updatedAt)
+				if _, exists := governanceShareRuns[sr.ID]; !exists {
+					governanceShareRuns[sr.ID] = &sr
+					stats["share_runs_added"] = stats["share_runs_added"].(int) + 1
+				}
+			}
+		}
+		governanceShareRunsMu.Unlock()
+	}
+
+	// 记录跳过的模块
+	if !importAll {
+		skipped := []string{}
+		allModules := []string{"users", "databases", "apis", "governance_tasks", "ai_config", "ai_capabilities", "mcp_config", "llm_models", "small_models", "share_runs"}
+		for _, m := range allModules {
+			if !selectedModules[m] {
+				skipped = append(skipped, m)
+			}
+		}
+		stats["skipped_modules"] = skipped
+	}
+
+	log.Printf("[存储] 选择性合并完成: %+v", stats)
+	return stats, nil
+}
+
 // ============================================================
 // AI Sessions CRUD（账号持久化会话）
 // ============================================================

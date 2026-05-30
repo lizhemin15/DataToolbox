@@ -813,23 +813,173 @@ async function exportSystemData() {
     }
 }
 
-// 导入系统数据（管理员）
+// 导入系统数据（管理员）- 第一步：预览
 async function importSystemData(input) {
     const file = input.files && input.files[0];
     if (!file) return;
 
-    const mode = document.getElementById('importModeSelect').value;
+    const statusEl = document.getElementById('dataManagementStatus');
+
+    try {
+        statusEl.textContent = '正在解析备份包...';
+        statusEl.style.color = '#a0aec0';
+
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('backup', file);
+
+        // 调用预览 API
+        const resp = await fetch('/api/v1/system/restore-preview', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+
+        const result = await resp.json();
+        if (!resp.ok || result.error) {
+            throw new Error(result.error || result.message || '解析失败');
+        }
+
+        const data = result.data || result;
+        const manifest = data.manifest;
+        const warnings = data.warnings || [];
+
+        // 显示模块选择界面
+        showImportModuleSelector(file, manifest, warnings, statusEl);
+    } catch (e) {
+        statusEl.textContent = '❌ ' + e.message;
+        statusEl.style.color = '#fc8181';
+        showToast('解析失败: ' + e.message, 'error');
+        input.value = '';
+    }
+}
+
+// 显示模块选择界面
+function showImportModuleSelector(file, manifest, warnings, statusEl) {
+    // 创建或获取选择器弹窗
+    let modal = document.getElementById('importModuleModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'importModuleModal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:500px;">
+                <div class="modal-header">
+                    <h2>选择导入内容</h2>
+                    <button class="modal-close" onclick="closeImportModuleModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="importWarnings" style="margin-bottom:12px;padding:10px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;display:none;"></div>
+                    <div style="margin-bottom:12px;font-size:13px;color:#888;">
+                        备份版本: <span id="importBackupVersion">-</span> &nbsp;|&nbsp;
+                        导出时间: <span id="importExportTime">-</span>
+                    </div>
+                    <div style="margin-bottom:8px;font-weight:500;">选择要导入的模块:</div>
+                    <div id="importModuleList" style="max-height:300px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:6px;padding:8px;"></div>
+                    <div style="margin-top:12px;">
+                        <label style="font-size:13px;">
+                            导入模式:
+                            <select id="importModeSelectInner" style="margin-left:8px;padding:4px 8px;border-radius:4px;border:1px solid #444;background:#2a2a2a;color:#eee;font-size:13px;">
+                                <option value="merge">合并模式（保留现有数据）</option>
+                                <option value="overwrite">覆盖模式（替换所有数据）</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn" onclick="closeImportModuleModal()">取消</button>
+                    <button type="button" class="btn btn-primary" id="confirmImportBtn" onclick="confirmImportData()">确认导入</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // 填充数据
+    document.getElementById('importBackupVersion').textContent = manifest.version || 'unknown';
+    document.getElementById('importExportTime').textContent = manifest.export_time || 'unknown';
+
+    // 警告信息
+    const warningsEl = document.getElementById('importWarnings');
+    if (warnings.length > 0) {
+        warningsEl.innerHTML = warnings.map(w => `<div>⚠️ ${w}</div>`).join('');
+        warningsEl.style.display = 'block';
+    } else {
+        warningsEl.style.display = 'none';
+    }
+
+    // 模块列表
+    const listEl = document.getElementById('importModuleList');
+    const modules = manifest.modules || {};
+    
+    // 模块中文名映射
+    const moduleLabels = {
+        'users': '用户数据',
+        'databases': '数据库配置',
+        'apis': '接口分发',
+        'governance_tasks': '治理任务',
+        'governance_task_logs': '治理任务日志',
+        'ai_config': 'AI配置',
+        'ai_capabilities': 'AI能力检测',
+        'mcp_config': 'MCP配置',
+        'llm_models': '大模型配置',
+        'small_models': '小模型配置',
+        'share_runs': '分享任务记录',
+        'quality_audit': '质量审计规则',
+        'all': '全部数据'
+    };
+
+    let html = '';
+    for (const [key, info] of Object.entries(modules)) {
+        const label = moduleLabels[key] || (info && info.label) || key;
+        const count = info && info.count !== undefined ? info.count : '-';
+        const countText = count >= 0 ? ` (${count}条)` : '';
+        const checked = key === 'all' ? 'checked' : '';
+        const disabled = key === 'all' && Object.keys(modules).length === 1 ? 'disabled' : '';
+        
+        html += `
+            <label style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">
+                <input type="checkbox" class="import-module-cb" value="${key}" ${checked} ${disabled} style="margin-right:8px;">
+                <span>${label}${countText}</span>
+            </label>
+        `;
+    }
+    listEl.innerHTML = html;
+
+    // 存储文件引用
+    modal.dataset.fileName = file.name;
+    modal.fileData = file;
+
+    modal.style.display = 'flex';
+}
+
+function closeImportModuleModal() {
+    const modal = document.getElementById('importModuleModal');
+    if (modal) modal.style.display = 'none';
+    document.getElementById('importDataFile').value = '';
+}
+
+// 确认导入
+async function confirmImportData() {
+    const modal = document.getElementById('importModuleModal');
+    const file = modal.fileData;
+    if (!file) return;
+
+    const mode = document.getElementById('importModeSelectInner').value;
+    const checkboxes = document.querySelectorAll('.import-module-cb:checked');
+    const selectedModules = Array.from(checkboxes).map(cb => cb.value).filter(v => v !== 'all');
+
     const statusEl = document.getElementById('dataManagementStatus');
 
     // 覆盖模式二次确认
     if (mode === 'overwrite') {
         if (!confirm('覆盖模式将替换所有现有数据，确定继续吗？')) {
-            input.value = '';
             return;
         }
     }
 
     try {
+        modal.style.display = 'none';
         statusEl.textContent = '正在导入数据...';
         statusEl.style.color = '#a0aec0';
 
@@ -837,6 +987,9 @@ async function importSystemData(input) {
         const formData = new FormData();
         formData.append('backup', file);
         formData.append('mode', mode);
+        if (selectedModules.length > 0) {
+            formData.append('modules', selectedModules.join(','));
+        }
 
         const resp = await fetch('/api/v1/system/restore-upload', {
             method: 'POST',
@@ -852,8 +1005,13 @@ async function importSystemData(input) {
         const data = result.data || result;
         let msg = '✅ 导入成功';
         if (data.db_bytes) msg += ` (数据库 ${Math.round(data.db_bytes/1024)}KB)`;
-        if (data.users_count !== undefined) msg += ` — ${data.users_count} 用户, ${data.databases_count} 数据库, ${data.apis_count} 接口`;
-        if (data.files_restored) msg += `, ${data.files_restored} 文件`;
+        if (data.users_added !== undefined) {
+            msg += ` — 新增: ${data.users_added}用户, ${data.databases_added}数据库, ${data.apis_added}接口, ${data.tasks_added}任务`;
+        }
+        if (data.skipped_modules && data.skipped_modules.length > 0) {
+            msg += ` (跳过: ${data.skipped_modules.length}个模块)`;
+        }
+        if (data.files_restored) msg += `, ${data.files_restored}文件`;
 
         statusEl.textContent = msg;
         statusEl.style.color = '#48bb78';
@@ -866,7 +1024,7 @@ async function importSystemData(input) {
         statusEl.style.color = '#fc8181';
         showToast('导入失败: ' + e.message, 'error');
     } finally {
-        input.value = '';
+        document.getElementById('importDataFile').value = '';
     }
 }
 
