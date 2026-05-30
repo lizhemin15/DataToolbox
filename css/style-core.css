@@ -1278,6 +1278,7 @@ body {
 .menu-item-btn { display: block; width: 100%; padding: 8px 12px; text-align: left; border: none; background: none; cursor: pointer; font-size: 13px; }
 .menu-item-btn-bordered { display: block; width: 100%; padding: 8px 12px; text-align: left; border: none; background: none; cursor: pointer; font-size: 13px; color: #333; border-top: 1px solid #eee; }
 .hidden-panel { display: none; margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; }
+.hidden-panel .label-inline-flex { display: inline-flex !important; align-items: center; gap: 8px; width: auto; }
 .flex-col-gap-sm { display: flex; flex-direction: column; gap: 8px; }
 .flex-col-gap { display: flex; flex-direction: column; gap: 12px; }
 .input-full { width: 100%; padding: 6px; }

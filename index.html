@@ -1617,7 +1617,7 @@
                     <div id="embeddingConfigPanel" class="hidden-panel">
                         <small class="text-desc">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
                         <div class="flex-col-gap-sm">
-                            <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;">
+                            <label class="label-inline-flex">
                                 <input type="checkbox" id="aiEmbEnabled" class="icon-sm"> 启用 Embedding 向量化
                             </label>
                             <div class="flex-center-gap">
@@ -1714,9 +1714,9 @@
                 <div class="form-group">
                     <label style="font-size:14px;font-weight:600;">同步范围</label>
                     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                        <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;"><input type="checkbox" id="syncTables" checked class="icon-sm"> 表数据 (FTS5)</label>
-                        <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;"><input type="checkbox" id="syncVectors" checked class="icon-sm"> 向量索引</label>
-                        <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;"><input type="checkbox" id="syncRelations" checked class="icon-sm"> 关系数据</label>
+                        <label class="label-inline-flex"><input type="checkbox" id="syncTables" checked class="icon-sm"> 表数据 (FTS5)</label>
+                        <label class="label-inline-flex"><input type="checkbox" id="syncVectors" checked class="icon-sm"> 向量索引</label>
+                        <label class="label-inline-flex"><input type="checkbox" id="syncRelations" checked class="icon-sm"> 关系数据</label>
                     </div>
                     <small style="color:#666;">增量同步：只处理新增/删除的表</small>
                 </div>
@@ -1730,7 +1730,7 @@
                     <div id="embeddingConfigPanel" class="hidden-panel">
                         <small class="text-desc">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
                         <div class="flex-col-gap-sm">
-                            <label style="display:inline-flex !important;align-items:center;gap:8px;width:auto;">
+                            <label class="label-inline-flex">
                                 <input type="checkbox" id="syncEmbEnabled" class="icon-sm"> 启用 Embedding 向量化
                             </label>
                             <div class="flex-center-gap">
