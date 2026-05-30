@@ -914,28 +914,30 @@
                     <div id="aiChatMessages" class="ai-chat-messages">
                         <div class="ai-chat-messages-inner">
                             <div class="ai-welcome-message">
-                                <div class="ai-welcome-icon">🤖</div>
-                                <h3>智能助手</h3>
-                                <p style="color: #718096; margin-bottom: 20px;">提问、查数据、做看板、建接口</p>
-                                <div class="ai-welcome-actions">
-                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('看看我有哪些数据')">
-                                        <span class="ai-welcome-btn-icon">📊</span>
-                                        <span class="ai-welcome-btn-text">看看数据</span>
-                                    </button>
-                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('这个表长什么样')">
-                                        <span class="ai-welcome-btn-icon">🔍</span>
-                                        <span class="ai-welcome-btn-text">查看表结构</span>
-                                    </button>
-                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('做个数据看板')">
-                                        <span class="ai-welcome-btn-icon">📈</span>
-                                        <span class="ai-welcome-btn-text">生成看板</span>
-                                    </button>
-                                    <button class="ai-welcome-btn" onclick="sendQuickPrompt('帮我创建一个接口')">
-                                        <span class="ai-welcome-btn-icon">🔌</span>
-                                        <span class="ai-welcome-btn-text">创建接口</span>
-                                    </button>
+                                <div class="ai-welcome-hero">
+                                    <div class="ai-welcome-icon">AI</div>
+                                    <h3>智能助手</h3>
+                                    <p>描述你的任务，我来帮你完成</p>
                                 </div>
-                                <p style="color: #a0aec0; font-size: 12px; margin-top: 16px;">用 <strong>@数据库名</strong> 指定数据库</p>
+                                <div class="ai-welcome-prompts">
+                                    <div class="ai-welcome-prompt" onclick="fillPrompt('帮我梳理数据库里的所有表，生成数据字典')">
+                                        梳理表结构，生成数据字典
+                                    </div>
+                                    <div class="ai-welcome-prompt" onclick="fillPrompt('@数据库名 分析这个数据库的数据质量，检查缺失值和异常')">
+                                        分析数据质量，检查异常值
+                                    </div>
+                                    <div class="ai-welcome-prompt" onclick="fillPrompt('帮我创建一个数据治理任务，扫描敏感数据并标记')">
+                                        敏感数据扫描与标记
+                                    </div>
+                                    <div class="ai-welcome-prompt" onclick="fillPrompt('帮我创建一个应用，可视化展示数据库的表关系图')">
+                                        可视化表关系与数据展示
+                                    </div>
+                                </div>
+                                <div class="ai-welcome-hint">
+                                    <span class="ai-welcome-hint-key">@数据库名</span> 引用数据库
+                                    <span class="ai-welcome-hint-sep">·</span>
+                                    <span class="ai-welcome-hint-key">@模块名</span> 引用模块
+                                </div>
                             </div>
                         </div>
                     </div>
