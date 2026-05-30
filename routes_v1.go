@@ -75,7 +75,6 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/share/", handleGovernanceShareV1)
 	
 	// ==================== AI Agent API ====================
-	mux.HandleFunc("/api/v1/agent/query", handleAgentClusterQuery)
 	mux.HandleFunc("/api/v1/agent/cluster/query", handleAgentClusterQuery)
 	mux.HandleFunc("/api/v1/agent/mcp", handleAgentMCP)
 	mux.HandleFunc("/api/v1/agent/skill", handleAgentSkill)
