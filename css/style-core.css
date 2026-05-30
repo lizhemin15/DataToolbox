@@ -359,35 +359,7 @@ body {
     font-weight: 500;
 }
 
-.user-mgmt-header-btn {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #fff;
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-    flex-shrink: 0;
-    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-}
-
-.user-mgmt-header-btn:hover {
-    border-color: #4a6cf7;
-    background: #edf2f7;
-}
-
-.user-mgmt-header-btn.active {
-    border-color: #4a6cf7;
-    background: #ebf4ff;
-    box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.2);
-}
-
-.settings-header-btn {
+.header-icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -404,9 +376,15 @@ body {
     transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 
-.settings-header-btn:hover {
+.header-icon-btn:hover {
     border-color: #4a6cf7;
     background: #edf2f7;
+}
+
+.header-icon-btn.active {
+    border-color: #4a6cf7;
+    background: #ebf4ff;
+    box-shadow: 0 0 0 2px rgba(74, 108, 247, 0.2);
 }
 
 /* 设置弹窗样式 */

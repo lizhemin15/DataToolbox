@@ -330,6 +330,16 @@ function initEventListeners() {
     document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
     document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
     
+    // 修改密码按钮——所有登录用户可见
+    const changePwdBtn = document.getElementById('changePwdBtn');
+    if (changePwdBtn) {
+        changePwdBtn.addEventListener('click', function () {
+            if (typeof openUserPasswordModal === 'function' && currentUser) {
+                openUserPasswordModal(currentUser);
+            }
+        });
+    }
+    
     // AI 设置入口的事件绑定。
 
     const userMgmtHeaderBtn = document.getElementById('userMgmtHeaderBtn');
