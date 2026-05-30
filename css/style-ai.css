@@ -444,7 +444,7 @@
 }
 
 .ai-message.user .ai-message-avatar {
-    background: var(--ai-accent);
+    background: rgba(0,0,0,0.08);
 }
 
 .ai-message.assistant .ai-message-avatar {
@@ -507,10 +507,11 @@
 }
 
 .ai-message.user .ai-message-bubble {
-    background: var(--ai-accent);
-    color: #fff;
+    background: rgba(0,0,0,0.05);
+    color: var(--ai-text-primary);
     border-bottom-right-radius: 4px;
     white-space: pre-wrap;
+    border: none;
 }
 
 .ai-message.assistant .ai-message-bubble {
