@@ -33,7 +33,7 @@ async function handleLogin(e) {
                         location.replace(ret);
                     }
                 }
-            } catch (e) {}
+            } catch (e) { /* redirect failed, stay on page */ }
         } else {
             errorEl.textContent = data.message || '请求失败';
             errorEl.classList.add('show');
@@ -47,11 +47,11 @@ async function handleLogin(e) {
 // 数据库类型切换相关。
 function handleLogout() {
     closeUserMgmtPanel(true);
-    try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(RETURN_URL_KEY); } catch (e) { /* storage unavailable */ }
     try {
         window._qualityAuditDataLoaded = false;
         window._qualityAuditRulesLoaded = false;
-    } catch (e) {}
+    } catch (e) { /* reset flags */ }
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -85,7 +85,7 @@ function showMainPage() {
         if (location.hash === '#quality') {
             switchTab('quality');
         }
-    } catch (e) {}
+    } catch (e) { /* hash tab switch failed */ }
 }
 
 function updateUserMgmtNavVisibility() {

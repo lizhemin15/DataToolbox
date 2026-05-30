@@ -927,7 +927,7 @@ function startOntologyExtract() {
                     if (line.startsWith('data:')) evData = line.slice(5).trim();
                 }
                 if (!evType || !evData) continue;
-                try { const d = JSON.parse(evData); ontoHandleSSE(evType, d); } catch {}
+                try { const d = JSON.parse(evData); ontoHandleSSE(evType, d); } catch { /* non-JSON SSE event, skip */ }
             }
         }
         hideOntologyLoading();

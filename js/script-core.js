@@ -167,6 +167,7 @@ async function switchToSession(sessionId) {
         }
     } catch(e) {
         console.error('加载会话详情失败:', e);
+        showToast('加载会话详情失败', 'error');
     }
     
     // 恢复会话上下文
@@ -477,11 +478,11 @@ async function ensureQualityAuditScriptLoaded() {
 
 function handleUnauthorizedFromApi() {
     if (!localStorage.getItem('dataOntologyToken')) return;
-    try { closeUserMgmtPanel(true); } catch (e) {}
+    try { closeUserMgmtPanel(true); } catch (e) { console.warn('[logout] closeUserMgmtPanel:', e); }
     try {
         window._qualityAuditDataLoaded = false;
         window._qualityAuditRulesLoaded = false;
-    } catch (e) {}
+    } catch (e) { console.warn('[logout] qualityAudit reset:', e); }
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -521,7 +522,7 @@ async function fetchWithAuth(input, init, timeoutMs = 60000) {
                 if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
                     handleUnauthorizedFromApi();
                 }
-            } catch (e) {}
+            } catch (e) { /* non-JSON response, ignore */ }
         }
         return response;
     } catch (e) {

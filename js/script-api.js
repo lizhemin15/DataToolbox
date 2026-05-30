@@ -147,7 +147,7 @@ function renderUserMgmtList(users) {
                     copyBtn.textContent = '已复制';
                     setTimeout(() => { copyBtn.textContent = label; }, 1000);
                 } catch (e) {
-                    console.error(e);
+                    console.error(e); showToast('操作失败', 'error');
                 }
                 return;
             }
@@ -1003,7 +1003,7 @@ async function previewTable(tableName, keepEditMode = false) {
             }
         }
     } catch (error) {
-        console.error('预览表格失败', error);
+        console.error('预览表格失败', error); showToast('预览表格失败', 'error');
         const previewContent = document.getElementById('previewContent');
         previewContent.innerHTML = '<div style="text-align:center;color:#e53e3e;padding:20px;">加载失败：' + escapeHtml(error.message) + '</div>';
     }

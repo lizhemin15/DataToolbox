@@ -56,7 +56,7 @@ async function loadTableRetrievalConfig() {
             }
         }
     } catch (error) {
-        console.error('加载表检索配置失败:', error);
+        console.error('加载表检索配置失败:', error); showToast('加载表检索配置失败', 'error');
     }
 }
 
@@ -158,7 +158,7 @@ async function showSyncIndexModal() {
             document.getElementById('syncEmbDimension').value = data.config.dimension || 1024;
         }
     } catch (error) {
-        console.error('加载 Embedding 配置失败:', error);
+        console.error('加载 Embedding 配置失败:', error); showToast('加载 Embedding配置失败', 'error');
     }
     
     // 隐藏状态区域
@@ -2636,7 +2636,7 @@ function renderHITLCard(evt) {
     if (interactionType === 'preview' && evt.blueprint) {
         try {
             card.dataset.blueprint = JSON.stringify(evt.blueprint);
-        } catch(e) {}
+        } catch(e) { /* blueprint too large for dataset, skip */ }
     }
 
     // Header
@@ -3307,7 +3307,7 @@ function formatToolContent(rawContent, isResult, toolNameFallback) {
         
         if (args) {
             if (typeof args === 'string') {
-                try { args = JSON.parse(args); } catch(e) {}
+                try { args = JSON.parse(args); } catch(e) { /* args not JSON, use as-is */ }
             }
             if (typeof args === 'object' && args !== null) {
                 const argKeys = Object.keys(args);
@@ -4610,7 +4610,7 @@ async function loadAppsMarketplace() {
         container.innerHTML = apps.map(app => {
             // 从 config 中提取蓝图信息
             let blueprint = null;
-            try { blueprint = (typeof app.config === 'string' ? JSON.parse(app.config) : app.config)?.blueprint; } catch(e) {}
+            try { blueprint = (typeof app.config === 'string' ? JSON.parse(app.config) : app.config)?.blueprint; } catch(e) { /* config parse failed, no blueprint */ }
             const designLabel = blueprint?.design_direction ? {minimal:'极简',corporate:'商务',vibrant:'活力',elegant:'优雅',playful:'趣味',dark:'暗色',nature:'自然',brutalist:'粗野'}[blueprint.design_direction] || blueprint.design_direction : '';
             const primaryColor = blueprint?.primary_color || '';
             const styleTag = blueprint?.style || '';
@@ -4633,7 +4633,7 @@ async function loadAppsMarketplace() {
             </div>
         `;}).join('');
     } catch (e) {
-        console.error('加载应用列表失败:', e);
+        console.error('加载应用列表失败:', e); showToast('加载应用列表失败', 'error');
         container.innerHTML = `<div class="apps-empty-state"><div class="empty-icon">❌</div><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
     }
 }

@@ -88,7 +88,7 @@ async function deleteGovTask() {
         const data = await response.json();
         if (data.success) {
             currentGovTask = null;
-            try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
+            try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) { /* storage unavailable */ }
             document.getElementById('govTaskDetailView').style.display = 'none';
             document.getElementById('govWelcomeView').style.display = '';
             loadGovernanceTasks();
@@ -166,7 +166,7 @@ async function refreshGovTaskStatus() {
             }
         }
     } catch (error) {
-        console.error('刷新治理任务状态失败', error);
+        console.error('刷新治理任务状态失败', error); showToast('刷新治理任务状态失败', 'error');
     }
 }
 
@@ -1039,7 +1039,7 @@ function createGovHelper(logLines, uploadedFiles) {
                     body: formData
                 }, 60000);
                 if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
+                    const errData = await resp.json().catch(() => ({}));  // non-JSON response fallback
                     throw new Error(errData.message || '.doc/.wps 格式转换失败');
                 }
                 const blob = await resp.blob();
@@ -1219,7 +1219,7 @@ function createGovHelper(logLines, uploadedFiles) {
                     body: formData
                 }, 60000);
                 if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
+                    const errData = await resp.json().catch(() => ({}));  // non-JSON response fallback
                     throw new Error(errData.message || '.doc/.wps 格式转换失败');
                 }
                 const blob = await resp.blob();
@@ -1779,7 +1779,7 @@ async function executeGovTaskInBrowserOnce(code, file, inputText, allFilesOverri
                 body: JSON.stringify({ status, output, error: errorMsg, input: inputDesc })
             });
         } catch (e) {
-            console.error('保存治理日志失败', e);
+            console.error('保存治理日志失败', e); showToast('保存治理日志失败', 'error');
         }
     }
 

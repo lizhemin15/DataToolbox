@@ -561,7 +561,7 @@ async function loadMcpInfo() {
             mcpConfigEnabled = data.enabled !== false;
             mcpConfigPort = data.port || 0;
         }
-    } catch (e) { mcpConfigEnabled = true; mcpConfigPort = 0; }
+    } catch (e) { console.warn('[mcpConfig] load failed, using defaults:', e); mcpConfigEnabled = true; mcpConfigPort = 0; }
     const mcpCb = document.getElementById('mcpEnabledCheck');
     if (mcpCb) mcpCb.checked = mcpConfigEnabled;
     const mcpPortInput = document.getElementById('mcpPortInput');
@@ -585,7 +585,7 @@ async function loadMcpToolsList() {
             ).join('');
         }
     } catch (e) {
-        console.error('加载 MCP 工具列表失败:', e);
+        console.error('加载 MCP 工具列表失败:', e); showToast('加载MCP工具列表失败', 'error');
     }
 }
 
@@ -631,7 +631,7 @@ async function loadMcpSafeConfig() {
             }
         }
     } catch (e) {
-        console.error('加载 MCP 安全配置失败:', e);
+        console.error('加载 MCP 安全配置失败:', e); showToast('加载MCP安全配置失败', 'error');
     }
 }
 

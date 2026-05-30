@@ -400,6 +400,7 @@ async function loadAiConfig() {
         await loadAiCapabilities();
     } catch (error) {
         console.error('加载 AI 配置失败', error);
+        showToast('加载 AI 配置失败', 'error');
     }
 }
 
@@ -505,7 +506,7 @@ async function loadAiCapabilities() {
             return aiCapabilities;
         }
     } catch (error) {
-        console.error('加载AI能力失败:', error);
+        console.error('加载AI能力失败:', error); showToast('加载AI能力失败', 'error');
     }
     return null;
 }
@@ -1065,7 +1066,7 @@ async function saveUserSettings(settings) {
         const data = await resp.json();
         return data.success;
     } catch (e) {
-        console.error('保存用户设置失败', e);
+        console.error('保存用户设置失败', e); showToast('保存设置失败', 'error');
         return false;
     }
 }
@@ -2448,7 +2449,7 @@ async function loadGovernanceTasks() {
                     }
                 } else {
                     currentGovTask = null;
-                    try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) {}
+                    try { sessionStorage.removeItem('govLastSelectedTaskId'); } catch (e) { /* storage unavailable */ }
                     document.getElementById('govTaskDetailView').style.display = 'none';
                     document.getElementById('govWelcomeView').style.display = '';
                 }
@@ -2599,7 +2600,7 @@ async function handleGovTaskDrop(e) {
 async function selectGovTask(taskId) {
     const task = govTasks.find(t => t.id === taskId);
     if (!task) return;
-    try { sessionStorage.setItem('govLastSelectedTaskId', taskId); } catch (e) {}
+    try { sessionStorage.setItem('govLastSelectedTaskId', taskId); } catch (e) { /* storage unavailable */ }
     currentGovTask = task;
     renderGovTaskList();
     showGovTaskDetail(task);
