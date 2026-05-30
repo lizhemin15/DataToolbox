@@ -761,6 +761,10 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 				storeDB.Close()
 				storeDB = nil
 
+				// 删除旧的 WAL 和 SHM 文件（避免残留导致新 DB 损坏）
+				os.Remove(dbPath + "-wal")
+				os.Remove(dbPath + "-shm")
+
 				// 备份当前 db 文件
 				backupPath := dbPath + ".restore-backup"
 				os.Rename(dbPath, backupPath)
@@ -789,6 +793,10 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 				// 删除备份
 				os.Remove(backupPath)
 
+				// 确保新 DB 没有 WAL/SHM 残留
+				os.Remove(dbPath + "-wal")
+				os.Remove(dbPath + "-shm")
+
 				// 直接打开恢复的数据库（不建表，文件已有完整 schema）
 				storeDBMu.Lock()
 				newDB, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL")
@@ -801,6 +809,35 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 					return nil, fmt.Errorf("从恢复的数据库加载数据失败: %v", err)
 				}
 
+				// 恢复 quality-audit.db（如果 ZIP 中存在）
+				for _, f := range r.File {
+					if strings.HasSuffix(f.Name, "quality-audit.db") {
+						qaDBPath := getQualityAuditDBPath()
+						if qualityAuditDB != nil {
+							qualityAuditDB.Close()
+							qualityAuditDB = nil
+						}
+						os.Remove(qaDBPath + "-wal")
+						os.Remove(qaDBPath + "-shm")
+						os.Remove(qaDBPath)
+
+						qrc, qerr := f.Open()
+						if qerr == nil {
+							qdst, qerr2 := os.Create(qaDBPath)
+							if qerr2 == nil {
+								io.Copy(qdst, qrc)
+								qdst.Close()
+							}
+							qrc.Close()
+							os.Remove(qaDBPath + "-wal")
+							os.Remove(qaDBPath + "-shm")
+							qualityAuditDB, _ = sql.Open("sqlite", qaDBPath+"?_journal_mode=WAL")
+							log.Printf("[恢复] 已恢复 quality-audit.db")
+						}
+						break
+					}
+				}
+
 				// 恢复文件目录
 				fileCount := restoreFilesFromZip(r, dataDir, mode)
 
@@ -810,7 +847,7 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 					"files_restored": fileCount,
 				}
 				return stats, nil
-			}
+			} // end overwrite mode
 
 			// merge 模式 + SQLite：从备份 db 读取数据合并到当前内存
 			// 将备份 db 解压到临时文件，打开读取，合并到内存
@@ -848,6 +885,37 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 			// 保存合并后的数据
 			if err := saveDataOntologyStore(); err != nil {
 				return nil, fmt.Errorf("保存合并数据失败: %v", err)
+			}
+
+			// 恢复 quality-audit.db（如果 ZIP 中存在）
+			for _, f := range r.File {
+				if strings.HasSuffix(f.Name, "quality-audit.db") {
+					qaDBPath := getQualityAuditDBPath()
+					// 关闭旧连接
+					if qualityAuditDB != nil {
+						qualityAuditDB.Close()
+						qualityAuditDB = nil
+					}
+					os.Remove(qaDBPath + "-wal")
+					os.Remove(qaDBPath + "-shm")
+					os.Remove(qaDBPath)
+
+					qrc, qerr := f.Open()
+					if qerr == nil {
+						qdst, qerr2 := os.Create(qaDBPath)
+						if qerr2 == nil {
+							io.Copy(qdst, qrc)
+							qdst.Close()
+						}
+						qrc.Close()
+						os.Remove(qaDBPath + "-wal")
+						os.Remove(qaDBPath + "-shm")
+						// 重新打开 quality-audit DB
+						qualityAuditDB, _ = sql.Open("sqlite", qaDBPath+"?_journal_mode=WAL")
+						log.Printf("[恢复] 已恢复 quality-audit.db")
+					}
+					break
+				}
 			}
 
 			// 恢复文件目录
