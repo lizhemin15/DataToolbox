@@ -369,7 +369,7 @@ function showSessionWelcome() {
     // 新会话/空会话，显示快捷提示气泡
     if (typeof showQuickPrompts === 'function') showQuickPrompts();
     // 重新解析 emoji，确保动态插入的欢迎内容也使用 twemoji SVG
-    if (typeof twemoji !== 'undefined') twemoji.parse(messagesEl);
+    if (typeof parseEmoji === 'function') parseEmoji(messagesEl);
 }
 
 function fillPrompt(text) {
