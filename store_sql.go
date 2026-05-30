@@ -1797,6 +1797,34 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 		}
 	}
 
+	// 合并治理任务日志
+	if moduleSelected("governance_task_logs") {
+		rows, err := otherDB.Query("SELECT task_id, run_id, log_data FROM governance_task_logs")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var taskID, runID, logDataJSON string
+				if err := rows.Scan(&taskID, &runID, &logDataJSON); err != nil {
+					continue
+				}
+				if governanceTaskLogs[taskID] == nil {
+					governanceTaskLogs[taskID] = []*GovernanceTaskLog{}
+				}
+				var logEntry GovernanceTaskLog
+				if logDataJSON != "" && logDataJSON != "{}" {
+					json.Unmarshal([]byte(logDataJSON), &logEntry)
+				}
+				if logEntry.ID == "" {
+					logEntry.ID = runID
+				}
+				if logEntry.RunID == "" {
+					logEntry.RunID = runID
+				}
+				governanceTaskLogs[taskID] = append(governanceTaskLogs[taskID], &logEntry)
+			}
+		}
+	}
+
 	// 合并分享任务记录
 	if moduleSelected("share_runs") {
 		governanceShareRunsMu.Lock()
@@ -1831,7 +1859,7 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 	// 记录跳过的模块
 	if !importAll {
 		skipped := []string{}
-		allModules := []string{"users", "databases", "apis", "governance_tasks", "ai_config", "ai_capabilities", "mcp_config", "llm_models", "small_models", "share_runs"}
+		allModules := []string{"users", "databases", "apis", "governance_tasks", "governance_task_logs", "ai_config", "ai_capabilities", "mcp_config", "llm_models", "small_models", "share_runs", "quality_audit"}
 		for _, m := range allModules {
 			if !selectedModules[m] {
 				skipped = append(skipped, m)
