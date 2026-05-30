@@ -1439,6 +1439,20 @@ func closeStore() {
 	}
 }
 
+// parseBoolString 解析字符串为 bool 指针（兼容 "true"/"1"/"false"/"0" 等格式）
+func parseBoolString(s string) *bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "true" || s == "1" {
+		b := true
+		return &b
+	}
+	if s == "false" || s == "0" {
+		b := false
+		return &b
+	}
+	return nil
+}
+
 // mergeFromDB 从另一个 SQLite 数据库读取数据合并到当前内存
 // 用于 merge 模式的恢复操作
 func mergeFromDB(otherDB *sql.DB) (map[string]interface{}, error) {
@@ -1669,31 +1683,40 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 
 	// 合并 AI 配置
 	if moduleSelected("ai_config") {
-		var url, apiKey, model sql.NullString
+		var baseURL, apiKey, model sql.NullString
 		var timeout int
-		var enableFC, enableThinking, enableStreaming, enableJSON sql.NullBool
+		var enableFC, enableThinking, enableStreaming, enableJSON sql.NullString
 		var ctxWindow int
 		var tableRetrieval, embeddingJSON sql.NullString
-		row := otherDB.QueryRow("SELECT url, api_key, model, timeout, enable_function_call, enable_thinking, enable_streaming, enable_json_mode, context_window_override, table_retrieval, embedding FROM ai_config WHERE id = 1")
-		if err := row.Scan(&url, &apiKey, &model, &timeout, &enableFC, &enableThinking, &enableStreaming, &enableJSON, &ctxWindow, &tableRetrieval, &embeddingJSON); err == nil {
-			if url.String != "" || apiKey.String != "" || model.String != "" {
+		row := otherDB.QueryRow("SELECT base_url, api_key, model, timeout, enable_function_call, enable_thinking, enable_streaming, enable_json_mode, context_window_override, table_retrieval, embedding FROM ai_config WHERE id = 1")
+		if err := row.Scan(&baseURL, &apiKey, &model, &timeout, &enableFC, &enableThinking, &enableStreaming, &enableJSON, &ctxWindow, &tableRetrieval, &embeddingJSON); err == nil {
+			if baseURL.String != "" || apiKey.String != "" || model.String != "" {
 				dataOntologyAIConfig = &AIConfig{
-					URL:    url.String,
-					APIKey: apiKey.String,
-					Model:  model.String,
+					URL:     baseURL.String,
+					APIKey:  apiKey.String,
+					Model:   model.String,
 					Timeout: timeout,
 				}
-				if enableFC.Valid {
-					dataOntologyAIConfig.EnableFunctionCall = &enableFC.Bool
+				// 解析 TEXT 字段为 bool 指针
+				if enableFC.Valid && enableFC.String != "" {
+					if b := parseBoolString(enableFC.String); b != nil {
+						dataOntologyAIConfig.EnableFunctionCall = b
+					}
 				}
-				if enableThinking.Valid {
-					dataOntologyAIConfig.EnableThinking = &enableThinking.Bool
+				if enableThinking.Valid && enableThinking.String != "" {
+					if b := parseBoolString(enableThinking.String); b != nil {
+						dataOntologyAIConfig.EnableThinking = b
+					}
 				}
-				if enableStreaming.Valid {
-					dataOntologyAIConfig.EnableStreaming = &enableStreaming.Bool
+				if enableStreaming.Valid && enableStreaming.String != "" {
+					if b := parseBoolString(enableStreaming.String); b != nil {
+						dataOntologyAIConfig.EnableStreaming = b
+					}
 				}
-				if enableJSON.Valid {
-					dataOntologyAIConfig.EnableJSONMode = &enableJSON.Bool
+				if enableJSON.Valid && enableJSON.String != "" {
+					if b := parseBoolString(enableJSON.String); b != nil {
+						dataOntologyAIConfig.EnableJSONMode = b
+					}
 				}
 				dataOntologyAIConfig.ContextWindowOverride = ctxWindow
 				if tableRetrieval.Valid && tableRetrieval.String != "" {
@@ -1744,7 +1767,7 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 			for rows.Next() {
 				var m LLMModelConfig
 				var createdAt, updatedAt sql.NullString
-				rows.Scan(&m.ID, &m.Name, &m.Type, &m.Provider, &m.URL, &m.ApiKey, &m.Model, &m.Description, &m.Enabled, &createdAt, &updatedAt)
+				rows.Scan(&m.ID, &m.Name, &m.Type, &m.Provider, &m.URL, &m.APIKey, &m.Model, &m.Description, &m.Enabled, &createdAt, &updatedAt)
 				if _, exists := llmModels[m.ID]; !exists {
 					m.CreatedAt = createdAt.String
 					m.UpdatedAt = updatedAt.String
@@ -1757,13 +1780,13 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 
 	// 合并小模型配置
 	if moduleSelected("small_models") {
-		rows, err := otherDB.Query("SELECT id, name, type, provider, url, api_key, model, description, enabled, created_at, updated_at FROM small_models")
+		rows, err := otherDB.Query("SELECT id, name, description, js_code, database_id, input_type, accept_exts, output_type, enabled, created_at, updated_at FROM small_models")
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
 				var m SmallModelConfig
 				var createdAt, updatedAt sql.NullString
-				rows.Scan(&m.ID, &m.Name, &m.Type, &m.Provider, &m.URL, &m.ApiKey, &m.Model, &m.Description, &m.Enabled, &createdAt, &updatedAt)
+				rows.Scan(&m.ID, &m.Name, &m.Description, &m.JsCode, &m.DatabaseID, &m.InputType, &m.AcceptExts, &m.OutputType, &m.Enabled, &createdAt, &updatedAt)
 				if _, exists := smallModels[m.ID]; !exists {
 					m.CreatedAt = createdAt.String
 					m.UpdatedAt = updatedAt.String
