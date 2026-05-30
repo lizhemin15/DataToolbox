@@ -1669,18 +1669,33 @@ func mergeFromDBWithModules(otherDB *sql.DB, selectedModules map[string]bool, im
 
 	// 合并 AI 配置
 	if moduleSelected("ai_config") {
-		var baseURL, apiKey, model sql.NullString
-		var timeout, enableFC, enableThinking, enableStreaming, enableJSON, ctxWindow int
+		var url, apiKey, model sql.NullString
+		var timeout int
+		var enableFC, enableThinking, enableStreaming, enableJSON sql.NullBool
+		var ctxWindow int
 		var tableRetrieval, embeddingJSON sql.NullString
-		row := otherDB.QueryRow("SELECT base_url, api_key, model, timeout, enable_function_call, enable_thinking, enable_streaming, enable_json_mode, context_window_override, table_retrieval, embedding FROM ai_config WHERE id = 1")
-		if err := row.Scan(&baseURL, &apiKey, &model, &timeout, &enableFC, &enableThinking, &enableStreaming, &enableJSON, &ctxWindow, &tableRetrieval, &embeddingJSON); err == nil {
-			if baseURL.String != "" || apiKey.String != "" || model.String != "" {
+		row := otherDB.QueryRow("SELECT url, api_key, model, timeout, enable_function_call, enable_thinking, enable_streaming, enable_json_mode, context_window_override, table_retrieval, embedding FROM ai_config WHERE id = 1")
+		if err := row.Scan(&url, &apiKey, &model, &timeout, &enableFC, &enableThinking, &enableStreaming, &enableJSON, &ctxWindow, &tableRetrieval, &embeddingJSON); err == nil {
+			if url.String != "" || apiKey.String != "" || model.String != "" {
 				dataOntologyAIConfig = &AIConfig{
-					BaseURL: baseURL.String, ApiKey: apiKey.String, Model: model.String,
-					Timeout: timeout, EnableFunctionCall: enableFC != 0, EnableThinking: enableThinking != 0,
-					EnableStreaming: enableStreaming != 0, EnableJSONMode: enableJSON != 0,
-					ContextWindowOverride: ctxWindow,
+					URL:    url.String,
+					APIKey: apiKey.String,
+					Model:  model.String,
+					Timeout: timeout,
 				}
+				if enableFC.Valid {
+					dataOntologyAIConfig.EnableFunctionCall = &enableFC.Bool
+				}
+				if enableThinking.Valid {
+					dataOntologyAIConfig.EnableThinking = &enableThinking.Bool
+				}
+				if enableStreaming.Valid {
+					dataOntologyAIConfig.EnableStreaming = &enableStreaming.Bool
+				}
+				if enableJSON.Valid {
+					dataOntologyAIConfig.EnableJSONMode = &enableJSON.Bool
+				}
+				dataOntologyAIConfig.ContextWindowOverride = ctxWindow
 				if tableRetrieval.Valid && tableRetrieval.String != "" {
 					json.Unmarshal([]byte(tableRetrieval.String), &dataOntologyAIConfig.TableRetrieval)
 				}
