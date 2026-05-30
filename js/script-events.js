@@ -254,18 +254,27 @@ function initEventListeners() {
     });
     
     // AI 相关按钮。
-    document.getElementById('aiSettingsBtn').addEventListener('click', showAiSettingsModal);
-    document.getElementById('closeAiSettingsModal').addEventListener('click', hideAiSettingsModal);
-    document.getElementById('aiSettingsModal').addEventListener('click', function(e) {
+    const aiSettingsBtn = document.getElementById('aiSettingsBtn');
+    if (aiSettingsBtn) aiSettingsBtn.addEventListener('click', showAiSettingsModal);
+    const closeAiSettingsModal = document.getElementById('closeAiSettingsModal');
+    if (closeAiSettingsModal) closeAiSettingsModal.addEventListener('click', hideAiSettingsModal);
+    const aiSettingsModal = document.getElementById('aiSettingsModal');
+    if (aiSettingsModal) aiSettingsModal.addEventListener('click', function(e) {
         if (e.target === this) {
             hideAiSettingsModal();
         }
     });
-    document.getElementById('aiSettingsForm').addEventListener('submit', handleSaveAiSettings);
-    document.getElementById('detectCapabilitiesBtn').addEventListener('click', detectAiCapabilities);
-    document.getElementById('aiSendBtn').addEventListener('click', handleSendAiMessage);
-    document.getElementById('aiInput').addEventListener('keydown', handleAiInputKeydown);
-    document.getElementById('aiInput').addEventListener('input', handleAiInputChange);
+    const aiSettingsForm = document.getElementById('aiSettingsForm');
+    if (aiSettingsForm) aiSettingsForm.addEventListener('submit', handleSaveAiSettings);
+    const detectCapabilitiesBtn = document.getElementById('detectCapabilitiesBtn');
+    if (detectCapabilitiesBtn) detectCapabilitiesBtn.addEventListener('click', detectAiCapabilities);
+    const aiSendBtn = document.getElementById('aiSendBtn');
+    if (aiSendBtn) aiSendBtn.addEventListener('click', handleSendAiMessage);
+    const aiInput = document.getElementById('aiInput');
+    if (aiInput) {
+        aiInput.addEventListener('keydown', handleAiInputKeydown);
+        aiInput.addEventListener('input', handleAiInputChange);
+    }
 
     // 同步索引弹窗
     document.getElementById('closeSyncIndexModal').addEventListener('click', hideSyncIndexModal);
