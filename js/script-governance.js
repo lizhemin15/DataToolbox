@@ -1787,14 +1787,14 @@ function updateAiContextDisplay() {
         `;
 
         if (input) {
-            input.placeholder = '输入消息...（可用 @ 引用上下文）';
+            input.placeholder = '输入消息…';
         }
     } else {
         if (contextEl) {
             contextEl.remove();
         }
         if (input) {
-            input.placeholder = '输入消息...（输入 @ 选择上下文）';
+            input.placeholder = '输入消息…';
         }
     }
 }
