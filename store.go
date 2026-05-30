@@ -287,39 +287,12 @@ type BackupModuleInfo struct {
 	Label string `json:"label"`
 }
 
-// buildBackupManifest 构建备份清单
+// buildBackupManifest 构建备份清单（从注册表自动生成）
 func buildBackupManifest() *BackupManifest {
 	manifest := &BackupManifest{
 		Version:    Version,
 		ExportTime: time.Now().Format(time.RFC3339),
-		Modules:    make(map[string]*BackupModuleInfo),
-	}
-
-	dataOntologyMu.RLock()
-	manifest.Modules["users"] = &BackupModuleInfo{Count: len(dataOntologyUsers), Label: "用户数据"}
-	manifest.Modules["databases"] = &BackupModuleInfo{Count: len(dataOntologyDatabases), Label: "数据库配置"}
-	manifest.Modules["apis"] = &BackupModuleInfo{Count: len(dataOntologyApis), Label: "接口分发"}
-	manifest.Modules["governance_tasks"] = &BackupModuleInfo{Count: len(governanceTasks), Label: "治理任务"}
-	manifest.Modules["governance_task_logs"] = &BackupModuleInfo{Count: len(governanceTaskLogs), Label: "治理任务日志"}
-	manifest.Modules["ai_config"] = &BackupModuleInfo{Count: 1, Label: "AI配置"}
-	manifest.Modules["ai_capabilities"] = &BackupModuleInfo{Count: 1, Label: "AI能力检测"}
-	if dataOntologyMCPEnabled != nil {
-		manifest.Modules["mcp_config"] = &BackupModuleInfo{Count: 1, Label: "MCP配置"}
-	}
-	manifest.Modules["llm_models"] = &BackupModuleInfo{Count: len(llmModels), Label: "大模型配置"}
-	manifest.Modules["small_models"] = &BackupModuleInfo{Count: len(smallModels), Label: "小模型配置"}
-	governanceShareRunsMu.RLock()
-	manifest.Modules["share_runs"] = &BackupModuleInfo{Count: len(governanceShareRuns), Label: "分享任务记录"}
-	governanceShareRunsMu.RUnlock()
-	dataOntologyMu.RUnlock()
-
-	// 质量审计
-	if storeDB != nil {
-		var qaCount int
-		storeDB.QueryRow("SELECT COUNT(*) FROM rules").Scan(&qaCount)
-		if qaCount > 0 {
-			manifest.Modules["quality_audit"] = &BackupModuleInfo{Count: qaCount, Label: "质量审计规则"}
-		}
+		Modules:    BuildManifestFromRegistry(),
 	}
 
 	manifest.HasDB = storeDB != nil
@@ -865,7 +838,7 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 				os.Remove(tmpDB)
 				return nil, fmt.Errorf("打开临时数据库失败: %v", err)
 			}
-			mergeStats, err := mergeFromDBWithModules(mergeDB, selectedModules, importAll)
+			mergeStats, err := MergeFromDBByRegistry(mergeDB, selectedModules, importAll)
 			mergeDB.Close()
 			os.Remove(tmpDB)
 			if err != nil {
@@ -933,155 +906,18 @@ func restoreFromZIP(zipPath, mode string, selectedModules map[string]bool) (map[
 		return nil, fmt.Errorf("解析备份数据失败: %v", err)
 	}
 
-	// 应用数据恢复
+	// 应用数据恢复（使用注册表）
 	dataOntologyMu.Lock()
 	defer dataOntologyMu.Unlock()
 
 	var stats map[string]interface{}
 
 	if mode == "overwrite" {
-		// 覆盖模式：完全替换
-		// 安全处理：确保密码是 bcrypt hash 格式
-		if newStore.Users != nil {
-			for _, v := range newStore.Users {
-				if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
-					v.Password = hashPassword(v.Password)
-				}
-			}
-		}
-		dataOntologyUsers = newStore.Users
-		dataOntologyDatabases = newStore.Databases
-		dataOntologyApis = newStore.Apis
-		dataOntologyAIConfig = newStore.AIConfig
-		dataOntologyAICapabilities = newStore.AICapabilities
-		governanceTasks = newStore.Tasks
-		governanceTaskLogs = newStore.TaskLogs
-		dataOntologyMCPEnabled = newStore.MCPEnabled
-		dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
-		llmModels = newStore.LLMModels
-		smallModels = newStore.SmallModels
-
-		governanceShareRunsMu.Lock()
-		governanceShareRuns = make(map[string]*GovernanceShareRun)
-		if newStore.ShareRuns != nil {
-			for _, runs := range newStore.ShareRuns {
-				for runID, run := range runs {
-					governanceShareRuns[runID] = run
-				}
-			}
-		}
-		governanceShareRunsMu.Unlock()
-
-		stats = map[string]interface{}{
-			"users_count":        len(dataOntologyUsers),
-			"databases_count":    len(dataOntologyDatabases),
-			"apis_count":         len(dataOntologyApis),
-			"tasks_count":        len(governanceTasks),
-			"llm_models_count":   len(llmModels),
-			"small_models_count": len(smallModels),
-		}
+		// 覆盖模式：使用注册表遍历
+		stats = OverwriteFromJSONByRegistry(&newStore, selectedModules, importAll)
 	} else {
-		// 合并模式
-		mergedStats := map[string]int{"users_added": 0, "databases_added": 0, "apis_added": 0, "tasks_added": 0}
-
-		if newStore.Users != nil {
-			for k, v := range newStore.Users {
-				if _, exists := dataOntologyUsers[k]; !exists {
-					// 安全处理：确保密码是 bcrypt hash 格式
-					if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
-						v.Password = hashPassword(v.Password)
-					}
-					dataOntologyUsers[k] = v
-					mergedStats["users_added"]++
-				}
-			}
-		}
-		if newStore.Databases != nil {
-			for k, v := range newStore.Databases {
-				if _, exists := dataOntologyDatabases[k]; !exists {
-					dataOntologyDatabases[k] = v
-					mergedStats["databases_added"]++
-				}
-			}
-		}
-		if newStore.Apis != nil {
-			for k, v := range newStore.Apis {
-				if _, exists := dataOntologyApis[k]; !exists {
-					dataOntologyApis[k] = v
-					mergedStats["apis_added"]++
-				}
-			}
-		}
-		if newStore.Tasks != nil {
-			for k, v := range newStore.Tasks {
-				if _, exists := governanceTasks[k]; !exists {
-					governanceTasks[k] = v
-					mergedStats["tasks_added"]++
-				}
-			}
-		}
-		if newStore.AIConfig != nil && dataOntologyAIConfig == nil {
-			dataOntologyAIConfig = newStore.AIConfig
-		}
-		if newStore.AICapabilities != nil && dataOntologyAICapabilities == nil {
-			dataOntologyAICapabilities = newStore.AICapabilities
-		}
-		if newStore.TaskLogs != nil {
-			if governanceTaskLogs == nil {
-				governanceTaskLogs = newStore.TaskLogs
-			} else {
-				for k, v := range newStore.TaskLogs {
-					if _, exists := governanceTaskLogs[k]; !exists {
-						governanceTaskLogs[k] = v
-					}
-				}
-			}
-		}
-		if newStore.MCPEnabled != nil && dataOntologyMCPEnabled == nil {
-			dataOntologyMCPEnabled = newStore.MCPEnabled
-		}
-		if newStore.MCPSafeConfig != nil && dataOntologyMCPSafeConfig == nil {
-			dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
-			dataOntologyMCPPort = newStore.MCPSafeConfig.Port
-		}
-		if newStore.LLMModels != nil {
-			for k, v := range newStore.LLMModels {
-				if _, exists := llmModels[k]; !exists {
-					llmModels[k] = v
-				}
-			}
-		}
-		if newStore.SmallModels != nil {
-			for k, v := range newStore.SmallModels {
-				if _, exists := smallModels[k]; !exists {
-					smallModels[k] = v
-				}
-			}
-		}
-		if newStore.ShareRuns != nil {
-			governanceShareRunsMu.Lock()
-			for _, runs := range newStore.ShareRuns {
-				for runID, run := range runs {
-					if _, exists := governanceShareRuns[runID]; !exists {
-						governanceShareRuns[runID] = run
-					}
-				}
-			}
-			governanceShareRunsMu.Unlock()
-		}
-
-		stats = map[string]interface{}{
-			"users_added":        mergedStats["users_added"],
-			"databases_added":    mergedStats["databases_added"],
-			"apis_added":         mergedStats["apis_added"],
-			"tasks_added":        mergedStats["tasks_added"],
-			"total_users":        len(dataOntologyUsers),
-			"total_databases":    len(dataOntologyDatabases),
-			"total_apis":         len(dataOntologyApis),
-			"total_tasks":        len(governanceTasks),
-			"total_llm_models":   len(llmModels),
-			"total_small_models": len(smallModels),
-		}
+		// 合并模式：使用注册表遍历
+		stats = MergeFromJSONByRegistry(&newStore, selectedModules, importAll)
 	}
 
 	// 保存数据（已持有 dataOntologyMu.Lock，使用无锁版本避免死锁）
@@ -1205,146 +1041,11 @@ func restoreFromJSON(jsonPath, mode string) (map[string]interface{}, error) {
 	var stats map[string]interface{}
 
 	if mode == "overwrite" {
-		// 安全处理：确保密码是 bcrypt hash 格式
-		if newStore.Users != nil {
-			for _, v := range newStore.Users {
-				if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
-					v.Password = hashPassword(v.Password)
-				}
-			}
-		}
-		dataOntologyUsers = newStore.Users
-		dataOntologyDatabases = newStore.Databases
-		dataOntologyApis = newStore.Apis
-		dataOntologyAIConfig = newStore.AIConfig
-		dataOntologyAICapabilities = newStore.AICapabilities
-		governanceTasks = newStore.Tasks
-		governanceTaskLogs = newStore.TaskLogs
-		dataOntologyMCPEnabled = newStore.MCPEnabled
-		dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
-		llmModels = newStore.LLMModels
-		smallModels = newStore.SmallModels
-
-		governanceShareRunsMu.Lock()
-		governanceShareRuns = make(map[string]*GovernanceShareRun)
-		if newStore.ShareRuns != nil {
-			for _, runs := range newStore.ShareRuns {
-				for runID, run := range runs {
-					governanceShareRuns[runID] = run
-				}
-			}
-		}
-		governanceShareRunsMu.Unlock()
-
-		stats = map[string]interface{}{
-			"users_count":        len(dataOntologyUsers),
-			"databases_count":    len(dataOntologyDatabases),
-			"apis_count":         len(dataOntologyApis),
-			"tasks_count":        len(governanceTasks),
-			"llm_models_count":   len(llmModels),
-			"small_models_count": len(smallModels),
-		}
+		// 覆盖模式：使用注册表遍历（全量覆盖）
+		stats = OverwriteFromJSONByRegistry(&newStore, nil, true)
 	} else {
-		mergedStats := map[string]int{"users_added": 0, "databases_added": 0, "apis_added": 0, "tasks_added": 0}
-
-		if newStore.Users != nil {
-			for k, v := range newStore.Users {
-				if _, exists := dataOntologyUsers[k]; !exists {
-					// 安全处理：确保密码是 bcrypt hash 格式
-					if v != nil && v.Password != "" && !isBcryptHash(v.Password) {
-						v.Password = hashPassword(v.Password)
-					}
-					dataOntologyUsers[k] = v
-					mergedStats["users_added"]++
-				}
-			}
-		}
-		if newStore.Databases != nil {
-			for k, v := range newStore.Databases {
-				if _, exists := dataOntologyDatabases[k]; !exists {
-					dataOntologyDatabases[k] = v
-					mergedStats["databases_added"]++
-				}
-			}
-		}
-		if newStore.Apis != nil {
-			for k, v := range newStore.Apis {
-				if _, exists := dataOntologyApis[k]; !exists {
-					dataOntologyApis[k] = v
-					mergedStats["apis_added"]++
-				}
-			}
-		}
-		if newStore.Tasks != nil {
-			for k, v := range newStore.Tasks {
-				if _, exists := governanceTasks[k]; !exists {
-					governanceTasks[k] = v
-					mergedStats["tasks_added"]++
-				}
-			}
-		}
-		if newStore.AIConfig != nil && dataOntologyAIConfig == nil {
-			dataOntologyAIConfig = newStore.AIConfig
-		}
-		if newStore.AICapabilities != nil && dataOntologyAICapabilities == nil {
-			dataOntologyAICapabilities = newStore.AICapabilities
-		}
-		if newStore.TaskLogs != nil {
-			if governanceTaskLogs == nil {
-				governanceTaskLogs = newStore.TaskLogs
-			} else {
-				for k, v := range newStore.TaskLogs {
-					if _, exists := governanceTaskLogs[k]; !exists {
-						governanceTaskLogs[k] = v
-					}
-				}
-			}
-		}
-		if newStore.MCPEnabled != nil && dataOntologyMCPEnabled == nil {
-			dataOntologyMCPEnabled = newStore.MCPEnabled
-		}
-		if newStore.MCPSafeConfig != nil && dataOntologyMCPSafeConfig == nil {
-			dataOntologyMCPSafeConfig = newStore.MCPSafeConfig
-			dataOntologyMCPPort = newStore.MCPSafeConfig.Port
-		}
-		if newStore.LLMModels != nil {
-			for k, v := range newStore.LLMModels {
-				if _, exists := llmModels[k]; !exists {
-					llmModels[k] = v
-				}
-			}
-		}
-		if newStore.SmallModels != nil {
-			for k, v := range newStore.SmallModels {
-				if _, exists := smallModels[k]; !exists {
-					smallModels[k] = v
-				}
-			}
-		}
-		if newStore.ShareRuns != nil {
-			governanceShareRunsMu.Lock()
-			for _, runs := range newStore.ShareRuns {
-				for runID, run := range runs {
-					if _, exists := governanceShareRuns[runID]; !exists {
-						governanceShareRuns[runID] = run
-					}
-				}
-			}
-			governanceShareRunsMu.Unlock()
-		}
-
-		stats = map[string]interface{}{
-			"users_added":        mergedStats["users_added"],
-			"databases_added":    mergedStats["databases_added"],
-			"apis_added":         mergedStats["apis_added"],
-			"tasks_added":        mergedStats["tasks_added"],
-			"total_users":        len(dataOntologyUsers),
-			"total_databases":    len(dataOntologyDatabases),
-			"total_apis":         len(dataOntologyApis),
-			"total_tasks":        len(governanceTasks),
-			"total_llm_models":   len(llmModels),
-			"total_small_models": len(smallModels),
-		}
+		// 合并模式：使用注册表遍历（全量合并）
+		stats = MergeFromJSONByRegistry(&newStore, nil, true)
 	}
 
 	// 保存数据（已持有 dataOntologyMu.Lock，使用无锁版本避免死锁）
