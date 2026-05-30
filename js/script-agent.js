@@ -4951,10 +4951,9 @@ function toggleAppSettings() {
         if (qp) qp.classList.add('hidden');
     };
 
-    // 显示快捷提示
+    // 显示快捷提示（已禁用——欢迎区已精简，不再需要重复提示）
     window.showQuickPrompts = function() {
-        const qp = document.getElementById('aiQuickPrompts');
-        if (qp) qp.classList.remove('hidden');
+        // intentionally empty - quick prompts removed for minimalism
     };
 
     // 欢迎页快速开始按钮

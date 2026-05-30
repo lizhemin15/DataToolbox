@@ -303,32 +303,8 @@ function showSessionWelcome() {
     if (!messagesEl) return;
     messagesEl.innerHTML = `
         <div class="ai-welcome-message">
-            <div class="ai-welcome-hero">
-                <div class="ai-welcome-icon">AI</div>
-                <h3>智能助手</h3>
-                <p>描述你的任务，我来帮你完成</p>
-            </div>
-            <div class="ai-welcome-prompts">
-                <div class="ai-welcome-prompt" onclick="fillPrompt('帮我梳理数据库里的所有表，生成数据字典')">
-                    梳理表结构，生成数据字典
-                </div>
-                <div class="ai-welcome-prompt" onclick="fillPrompt('@数据库名 分析这个数据库的数据质量，检查缺失值和异常')">
-                    分析数据质量，检查异常值
-                </div>
-                <div class="ai-welcome-prompt" onclick="fillPrompt('帮我创建一个数据治理任务，扫描敏感数据并标记')">
-                    敏感数据扫描与标记
-                </div>
-                <div class="ai-welcome-prompt" onclick="fillPrompt('帮我创建一个应用，可视化展示数据库的表关系图')">
-                    可视化表关系与数据展示
-                </div>
-            </div>
-            <div class="ai-welcome-hint">
-                <span class="ai-welcome-hint-key">@数据库名</span> 引用数据库
-                <span class="ai-welcome-hint-sep">·</span>
-                <span class="ai-welcome-hint-key">@模块名</span> 引用模块
-            </div>
+            <p class="ai-welcome-subtitle">输入 @ 引用数据库或模块，直接描述任务</p>
         </div>`;
-    // 新会话/空会话，显示快捷提示气泡
     if (typeof showQuickPrompts === 'function') showQuickPrompts();
 }
 
