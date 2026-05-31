@@ -27,6 +27,7 @@ func handleExportQuery(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		DatabaseID string `json:"database_id"`
+		Database   string `json:"database"` // 支持名称，自动解析为ID
 		SQL        string `json:"sql"`
 		Format     string `json:"format"` // csv (default)
 	}
@@ -34,9 +35,26 @@ func handleExportQuery(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请求格式错误"})
 		return
 	}
-	if req.DatabaseID == "" || req.SQL == "" {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database_id 和 sql 不能为空"})
+	if (req.DatabaseID == "" && req.Database == "") || req.SQL == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "database/database_id 和 sql 不能为空"})
 		return
+	}
+
+	// 如果传的是名称，解析为ID
+	dbID := req.DatabaseID
+	if dbID == "" && req.Database != "" {
+		dataOntologyMu.RLock()
+		for _, db := range dataOntologyDatabases {
+			if strings.EqualFold(db.Name, req.Database) {
+				dbID = db.ID
+				break
+			}
+		}
+		dataOntologyMu.RUnlock()
+		if dbID == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库 " + req.Database + " 不存在"})
+			return
+		}
 	}
 
 	// 验证只允许SELECT查询
@@ -48,7 +66,7 @@ func handleExportQuery(w http.ResponseWriter, r *http.Request) {
 
 	// 获取数据库配置
 	dataOntologyMu.RLock()
-	dbConfig, exists := dataOntologyDatabases[req.DatabaseID]
+	dbConfig, exists := dataOntologyDatabases[dbID]
 	dataOntologyMu.RUnlock()
 	if !exists || !dataOntologyResourceVisible(dbConfig.Owner, username) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "数据库不存在"})

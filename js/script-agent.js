@@ -3237,7 +3237,7 @@ async function exportQueryResult(btn) {
         const resp = await fetch(`${API_BASE}/api/v1/agent/export-query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify({ database_id: dbId, sql: sql, format: 'csv' })
+            body: JSON.stringify({ database: dbId, sql: sql, format: 'csv' })
         });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({ message: '导出失败' }));
