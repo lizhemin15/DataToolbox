@@ -1640,23 +1640,25 @@
                         <span id="embeddingConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="embeddingConfigPanel" class="hidden-panel">
-                        <small class="text-desc">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
-                        <div class="flex-col-gap-sm">
-                            <label class="label-inline-flex">
-                                <input type="checkbox" id="aiEmbEnabled" class="icon-sm"> 启用 Embedding 向量化
+                        <div class="ai-capability-row">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="aiEmbEnabled">
+                                <span>启用 Embedding 向量化</span>
                             </label>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">API URL</label>
-                                <input type="text" id="aiEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" class="input-flex">
-                            </div>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">API Key</label>
-                                <input type="password" id="aiEmbApiKey" placeholder="sk-...（留空则使用上方 AI API Key）" class="input-flex">
-                            </div>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">模型名称</label>
-                                <input type="text" id="aiEmbModel" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
-                            </div>
+                            <small class="capability-hint">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">API URL</label>
+                            <input type="text" id="aiEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" class="input-flex">
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">API Key</label>
+                            <input type="password" id="aiEmbApiKey" placeholder="sk-...（留空则使用上方 AI API Key）" class="input-flex">
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">模型名称</label>
+                            <input type="text" id="aiEmbModel" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
+                        </div>
                             <div class="flex-center-gap">
                                 <label class="label-sm">向量维度</label>
                                 <input type="number" id="aiEmbDimension" min="64" max="4096" value="1024" class="input-flex">
@@ -1753,21 +1755,23 @@
                         <span id="embeddingConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="embeddingConfigPanel" class="hidden-panel">
-                        <small class="text-desc">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
-                        <div class="flex-col-gap-sm">
-                            <label class="label-inline-flex">
-                                <input type="checkbox" id="syncEmbEnabled" class="icon-sm"> 启用 Embedding 向量化
+                        <div class="ai-capability-row">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="syncEmbEnabled">
+                                <span>启用 Embedding 向量化</span>
                             </label>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">API URL</label>
-                                <input type="text" id="syncEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" class="input-flex">
-                            </div>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">API Key</label>
-                                <input type="password" id="syncEmbApiKey" placeholder="sk-..." class="input-flex">
-                            </div>
-                            <div class="flex-center-gap">
-                                <label class="label-sm">模型名称</label>
+                            <small class="capability-hint">向量检索需要 Embedding API 生成表名/注释的向量表示</small>
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">API URL</label>
+                            <input type="text" id="syncEmbUrl" placeholder="https://api.siliconflow.cn/v1/embeddings" class="input-flex">
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">API Key</label>
+                            <input type="password" id="syncEmbApiKey" placeholder="sk-..." class="input-flex">
+                        </div>
+                        <div class="flex-center-gap">
+                            <label class="label-sm">模型名称</label>
                                 <input type="text" id="syncEmbModel" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
                             </div>
                             <div class="flex-center-gap">
