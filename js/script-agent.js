@@ -318,7 +318,6 @@ async function handleSyncIndex() {
 
 // 建立向量索引
 async function handleVectorIndex() {
-    console.log('handleVectorIndex called, currentDb:', currentDb);
     if (!currentDb) {
         showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
@@ -586,7 +585,6 @@ function confirmRelationScanRules() {
 
 // 扫描关系候选并确认
 async function handleRelationIndex() {
-    console.log('handleRelationIndex called, currentDb:', currentDb);
     if (!currentDb) {
         showToast('请先在左侧列表中选择一个数据库', 'warning');
         return;
@@ -4604,9 +4602,7 @@ async function loadAppsMarketplace() {
         const response = await fetchWithAuth('/api/v1/apps');
         if (!response.ok) throw new Error('加载失败: ' + response.status);
         const data = await response.json();
-        console.log('[loadAppsMarketplace] API response:', JSON.stringify(data).substring(0, 500));
         const apps = data.data?.apps || data.apps || [];
-        console.log('[loadAppsMarketplace] parsed apps count:', apps.length);
         
         if (apps.length === 0) {
             container.innerHTML = `

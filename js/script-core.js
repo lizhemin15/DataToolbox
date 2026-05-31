@@ -90,10 +90,8 @@ async function loadSessions() {
     try {
         const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions`);
         const data = await res.json();
-        console.log('[loadSessions] API response:', JSON.stringify(data).substring(0, 500));
         if (data.success) {
             aiSessions = data.data || data.sessions || [];
-            console.log('[loadSessions] loaded sessions:', aiSessions.length);
             // 如果有会话但没有当前会话，选择第一个
             if (aiSessions.length > 0 && !currentSessionId) {
                 currentSessionId = aiSessions[0].id;

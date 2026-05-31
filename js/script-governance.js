@@ -502,7 +502,6 @@ async function loadAiCapabilities() {
         const data = await response.json();
         if (data.success && data.capabilities) {
             aiCapabilities = data.capabilities;
-            console.log('AI模型能力:', aiCapabilities);
             return aiCapabilities;
         }
     } catch (error) {
@@ -523,7 +522,6 @@ AI模型能力检测结果:
 - JSON模式支持: ${aiCapabilities.supports_json_mode ? '✓' : '✗'}
 - 上下文窗口: ${aiCapabilities.context_window} tokens
     `;
-    console.log(capInfo);
 }
 
 // 更新能力提示信息
@@ -584,9 +582,6 @@ async function detectAiCapabilities() {
         
         const data = await response.json();
         
-        console.log('[AI能力检测] 返回数据:', data);
-        console.log('[AI能力检测] capabilities:', data.capabilities);
-        console.log('[AI能力检测] context_window:', data.capabilities?.context_window);
         
         if (data.success && data.capabilities) {
             aiCapabilities = data.capabilities;
@@ -598,7 +593,6 @@ async function detectAiCapabilities() {
             document.getElementById('aiEnableStreaming').checked = aiCapabilities.supports_streaming;
             document.getElementById('aiEnableJSONMode').checked = aiCapabilities.supports_json_mode;
             document.getElementById('aiContextWindow').value = aiCapabilities.context_window || 0;
-            console.log('[AI能力检测] 设置输入框值为:', aiCapabilities.context_window || 0);
             
             btn.textContent = '检测完成';
             setTimeout(() => {
@@ -1388,7 +1382,6 @@ async function handleSaveAiSettings(e) {
             // 保存能力检测结果
             if (aiData.capabilities) {
                 aiCapabilities = aiData.capabilities;
-                console.log('AI模型能力检测完成:', aiCapabilities);
             }
             successEl.textContent = '设置已保存';
             successEl.classList.add('show');
@@ -2434,7 +2427,6 @@ async function loadGovernanceTasks() {
                     currentGovTask = fresh;
                     showGovTaskDetail(currentGovTask);
                     loadGovTaskLogs();
-                    console.log('[loadGovernanceTasks] 更新任务:', fresh.name, 'status:', fresh.status);
                     if (currentGovTask.status === 'running') {
                         console.log('[loadGovernanceTasks] 任务状态为 running, 启动轮询');
                         setTimeout(refreshGovTaskStatus, 3000);
@@ -2453,9 +2445,7 @@ async function loadGovernanceTasks() {
                         currentGovTask = t;
                         showGovTaskDetail(currentGovTask);
                         loadGovTaskLogs();
-                        console.log('[loadGovernanceTasks] 恢复任务:', t.name, 'status:', t.status);
                         if (currentGovTask.status === 'running') {
-                            console.log('[loadGovernanceTasks] 任务状态为 running, 启动轮询');
                             setTimeout(refreshGovTaskStatus, 3000);
                         }
                     }
