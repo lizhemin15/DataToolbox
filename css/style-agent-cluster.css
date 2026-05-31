@@ -872,3 +872,21 @@ img.emoji {
 }
 
 /* === Agent Cluster Mode Styles End === */
+
+/* Tool summary & export */
+.cluster-tool-summary { padding: 4px 0; font-size: 12px; }
+.cluster-tool-summary .tool-label { font-weight: 600; color: #2d3748; margin-right: 6px; }
+.cluster-tool-summary .tool-count { color: #718096; margin-right: 8px; }
+.cluster-tool-summary .tool-more { display: block; color: #a0aec0; font-size: 11px; margin-top: 2px; }
+.cluster-tool-summary .md-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 11px; }
+.cluster-tool-summary .md-table th, .cluster-tool-summary .md-table td { border: 1px solid #e2e8f0; padding: 3px 6px; text-align: left; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.cluster-tool-summary .md-table th { background: #f7fafc; font-weight: 600; color: #4a5568; }
+.tool-status-empty { color: #a0aec0; font-style: italic; }
+.tool-export-btn {
+    display: inline-block; padding: 1px 8px; font-size: 11px; line-height: 18px;
+    background: #fff; border: 1px solid #cbd5e0; border-radius: 3px; color: #4a5568;
+    cursor: pointer; vertical-align: middle; margin-left: 4px;
+}
+.tool-export-btn:hover { background: #edf2f7; border-color: #a0aec0; }
+.tool-export-btn:disabled { opacity: 0.5; cursor: wait; }
+.cluster-tool-sql { background: #1a202c; color: #a0e9c0; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 4px 0; white-space: pre-wrap; }

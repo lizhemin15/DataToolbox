@@ -2538,6 +2538,13 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
             const body = toolBlock.querySelector('.cluster-block-body');
             if (content) body.insertAdjacentHTML('beforeend', formatToolContent(content, false, tool));
+            // 提取SQL查询参数用于导出
+            try {
+                let parsed = typeof content === 'string' ? JSON.parse(content.replace(/^```\w*\n?/, '').replace(/\n?```$/, '')) : content;
+                if (parsed && parsed.params && parsed.params.sql) {
+                    _lastSqlQuery = { sql: parsed.params.sql, database_id: parsed.params.database || '' };
+                }
+            } catch(e) {}
             pBody.appendChild(toolBlock);
             processWrapperRef.count++;
             currentBlock = toolBlock;
@@ -3208,6 +3215,54 @@ function renderProfileCard(data, toolNameFallback) {
 }
 
 // 将工具调用/返回内容格式化为用户友好的显示
+// 追踪最近一次SQL查询参数，用于导出
+let _lastSqlQuery = null; // { database_id, sql }
+
+// HTML属性转义
+function escapeAttr(str) {
+    if (str == null) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 导出查询结果为CSV
+async function exportQueryResult(btn) {
+    const sql = btn.getAttribute('data-sql');
+    const dbId = btn.getAttribute('data-db');
+    if (!sql || !dbId) { showToast('缺少查询参数', 'error'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '导出中...';
+    try {
+        const token = localStorage.getItem('token') || '';
+        const resp = await fetch(`${API_BASE}/api/v1/agent/export-query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ database_id: dbId, sql: sql, format: 'csv' })
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ message: '导出失败' }));
+            throw new Error(err.message || '导出失败');
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?(.+?)"?$/);
+        a.download = match ? match[1] : 'query_result.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        btn.textContent = '⬇ 导出';
+        btn.disabled = false;
+    } catch(e) {
+        showToast(e.message || '导出失败', 'error');
+        btn.textContent = '⬇ 导出';
+        btn.disabled = false;
+    }
+}
+
 function formatToolContent(rawContent, isResult, toolNameFallback) {
     if (!rawContent || rawContent.trim() === '' || rawContent.trim() === 'null' || rawContent.trim() === 'None') {
         return isResult ? '<div class="cluster-tool-summary"><span class="tool-status-empty">无返回数据</span></div>' : '<div class="cluster-tool-summary"><span class="tool-status-empty">无参数</span></div>';
@@ -3242,7 +3297,7 @@ function formatToolContent(rawContent, isResult, toolNameFallback) {
             return renderProfileCard(parsed, toolNameFallback);
         }
 
-        // 数组：显示条数 + 摘要表
+        // 数组：显示条数 + 摘要表 + 导出按钮
         if (Array.isArray(parsed)) {
             if (parsed.length === 0) {
                 return '<div class="cluster-tool-summary"><span class="tool-status-empty">返回空数组</span></div>';
@@ -3252,6 +3307,11 @@ function formatToolContent(rawContent, isResult, toolNameFallback) {
             const sampleRows = parsed.slice(0, 3);
             let tableHtml = '<div class="cluster-tool-summary">';
             tableHtml += `<span class="tool-label">结果</span><span class="tool-count">${parsed.length} 条记录</span>`;
+            // 导出按钮（如果有SQL查询参数）
+            if (_lastSqlQuery && _lastSqlQuery.sql) {
+                const exportId = 'export-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+                tableHtml += `<button class="tool-export-btn" id="${exportId}" onclick="exportQueryResult(this)" data-sql="${escapeAttr(_lastSqlQuery.sql)}" data-db="${escapeAttr(_lastSqlQuery.database_id)}" title="下载完整查询结果">⬇ 导出</button>`;
+            }
             tableHtml += '<table class="md-table"><thead><tr>';
             const maxCols = Math.min(columns.length, 5);
             for (let i = 0; i < maxCols; i++) {

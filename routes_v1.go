@@ -94,6 +94,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent/capabilities", handleAICapabilities)
 	mux.HandleFunc("/api/v1/agent/ai-query", handleAIQuery)
 	mux.HandleFunc("/api/v1/agent/confirm-execute", handleAIConfirmExecute)
+	mux.HandleFunc("/api/v1/agent/export-query", handleExportQuery)
 	mux.HandleFunc("/api/v1/agent/codegen", handleAICodegen)
 	mux.HandleFunc("/api/v1/agent/completion", handleAICompletion)
 	
