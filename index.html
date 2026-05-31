@@ -1739,10 +1739,14 @@
                 <!-- 同步范围 -->
                 <div class="form-group">
                     <label style="font-size:14px;font-weight:600;">同步范围</label>
-                    <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-                        <label class="label-inline-flex"><input type="checkbox" id="syncTables" checked class="icon-sm"> 表数据 (FTS5)</label>
-                        <label class="label-inline-flex"><input type="checkbox" id="syncVectors" checked class="icon-sm"> 向量索引</label>
-                        <label class="label-inline-flex"><input type="checkbox" id="syncRelations" checked class="icon-sm"> 关系数据</label>
+                    <div class="ai-capability-row">
+                        <label class="checkbox-label"><input type="checkbox" id="syncTables" checked> 表数据 (FTS5)</label>
+                    </div>
+                    <div class="ai-capability-row">
+                        <label class="checkbox-label"><input type="checkbox" id="syncVectors" checked> 向量索引</label>
+                    </div>
+                    <div class="ai-capability-row">
+                        <label class="checkbox-label"><input type="checkbox" id="syncRelations" checked> 关系数据</label>
                     </div>
                     <small style="color:#666;">增量同步：只处理新增/删除的表</small>
                 </div>
