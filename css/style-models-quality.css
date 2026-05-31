@@ -662,32 +662,35 @@ body.embed-mode .main-content {
     padding-top: 10px;
 }
 
-/* 嵌入模式浮动设置按钮 */
+/* 嵌入模式设置按钮 — 与header-icon-btn样式一致 */
 .embed-settings-btn {
     position: fixed;
     top: 10px;
     right: 10px;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(74, 108, 247, 0.9);
-    color: white;
-    font-size: 18px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    color: #333;
+    font-size: 16px;
+    line-height: 1;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     z-index: 1000;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
     display: none;
 }
 
 .embed-settings-btn:hover {
-    background: rgba(74, 108, 247, 1);
-    transform: scale(1.1);
+    border-color: #4a6cf7;
+    background: #edf2f7;
 }
 
 body.embed-mode .embed-settings-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 /* 治理任务结果表格 */
