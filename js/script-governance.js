@@ -1031,13 +1031,10 @@ async function confirmImportData() {
 
 // 发送AI消息?
 function applyEmbedMode(enabled) {
-    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
     if (enabled) {
         document.body.classList.add('embed-mode');
-        if (embedSettingsBtn) embedSettingsBtn.style.display = 'block';
     } else {
         document.body.classList.remove('embed-mode');
-        if (embedSettingsBtn) embedSettingsBtn.style.display = 'none';
     }
 }
 
@@ -1100,11 +1097,6 @@ async function initEmbedMode() {
     
     applyTabVisibilityWithSettings(currentTabVisibility, currentTabOrder, currentTabNames);
     
-    // 绑定嵌入模式设置按钮
-    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
-    if (embedSettingsBtn) {
-        embedSettingsBtn.addEventListener('click', showSettingsModal);
-    }
 }
 
 // 应用标签页可见性

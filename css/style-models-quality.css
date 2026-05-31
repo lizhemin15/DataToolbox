@@ -654,43 +654,15 @@ body.embed-mode .header-left h1 {
     display: none;
 }
 
-body.embed-mode .header-right {
+body.embed-mode .user-info > span,
+body.embed-mode .user-info > #changePwdBtn,
+body.embed-mode .user-info > #logoutBtn,
+body.embed-mode .user-info > #userMgmtHeaderBtn {
     display: none;
 }
 
 body.embed-mode .main-content {
     padding-top: 10px;
-}
-
-/* 嵌入模式设置按钮 — 与header-icon-btn样式一致，位置与header内容区右边对齐 */
-.embed-settings-btn {
-    position: fixed;
-    top: 20px;
-    right: max(30px, calc((100vw - 1400px) / 2 + 30px));
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #fff;
-    color: #333;
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    z-index: 1000;
-    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
-    display: none;
-}
-
-.embed-settings-btn:hover {
-    border-color: #4a6cf7;
-    background: #edf2f7;
-}
-
-body.embed-mode .embed-settings-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 /* 治理任务结果表格 */
