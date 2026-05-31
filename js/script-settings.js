@@ -854,6 +854,14 @@ async function loadApis() {
 }
 
 // 过滤 API 列表。
+let apiTypeFilter = 'all';
+function setApiTypeFilter(type) {
+    apiTypeFilter = type;
+    document.querySelectorAll('.api-filter-tag').forEach(tag => {
+        tag.classList.toggle('active', tag.dataset.type === type);
+    });
+    renderApiList();
+}
 function filterApiList() {
     renderApiList();
 }
@@ -864,12 +872,15 @@ function renderApiList() {
     const searchInput = document.getElementById('apiSearchInput');
     const keyword = (searchInput ? searchInput.value : '').trim().toLowerCase();
     
-    const filtered = keyword
-        ? apis.filter(api => 
-            api.name.toLowerCase().includes(keyword) || 
-            api.path.toLowerCase().includes(keyword) ||
-            api.method.toLowerCase().includes(keyword))
-        : apis;
+    const filtered = apis.filter(api => {
+        if (apiTypeFilter !== 'all' && (api.type || 'query') !== apiTypeFilter) return false;
+        if (keyword) {
+            return api.name.toLowerCase().includes(keyword) || 
+                api.path.toLowerCase().includes(keyword) ||
+                api.method.toLowerCase().includes(keyword);
+        }
+        return true;
+    });
 
     if (filtered.length === 0) {
         listEl.innerHTML = `<div style="text-align:center;color:#718096;padding:20px;">${keyword ? '未找到匹配 API' : '暂无 API'}</div>`;
@@ -887,10 +898,12 @@ function renderApiList() {
         const safeApiId = escapeHtml(api.id);
         const safeApiName = escapeHtml(api.name);
         const safeApiPath = escapeHtml(api.path);
+        const apiType = api.type || 'query';
+        const typeLabel = apiType === 'forward' ? '<span class="api-type-badge forward">转发</span>' : '<span class="api-type-badge query">SQL</span>';
         return `
             <div class="db-item api-item ${currentApi && currentApi.id === api.id ? 'active' : ''} ${enabled ? '' : 'api-disabled'}" onclick="selectApi('${safeApiId}')">
                 <div class="db-item-main">
-                    <div class="db-item-name">${safeApiName}</div>
+                    <div class="db-item-name">${typeLabel}${safeApiName}</div>
                     <div class="db-item-info">
                         <span style="color:${methodColor};font-weight:600;">${api.method}</span> ${safeApiPath}
                     </div>

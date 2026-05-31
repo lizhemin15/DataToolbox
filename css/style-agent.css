@@ -299,6 +299,50 @@
     color: #718096;
 }
 
+/* API类型筛选标签 */
+.api-type-filter {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+}
+.api-filter-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    background: #edf2f7;
+    color: #718096;
+    transition: all 0.15s;
+    user-select: none;
+}
+.api-filter-tag:hover {
+    background: #e2e8f0;
+}
+.api-filter-tag.active {
+    background: #2d3748;
+    color: #fff;
+}
+
+/* API类型标识badge */
+.api-type-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 0 5px;
+    border-radius: 3px;
+    margin-right: 4px;
+    font-weight: 600;
+    vertical-align: middle;
+    line-height: 16px;
+}
+.api-type-badge.query {
+    background: #ebf8ff;
+    color: #3182ce;
+}
+.api-type-badge.forward {
+    background: #fefcbf;
+    color: #975a16;
+}
+
 
 .detail-enabled-wrap {
     display: inline-flex;

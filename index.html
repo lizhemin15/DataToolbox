@@ -601,6 +601,11 @@
                     </div>
                     <div class="sidebar-search">
                         <input type="text" id="apiSearchInput" placeholder="搜索接口名称、路径..." oninput="filterApiList()">
+                        <div class="api-type-filter">
+                            <span class="api-filter-tag active" data-type="all" onclick="setApiTypeFilter('all')">全部</span>
+                            <span class="api-filter-tag" data-type="query" onclick="setApiTypeFilter('query')">SQL查询</span>
+                            <span class="api-filter-tag" data-type="forward" onclick="setApiTypeFilter('forward')">HTTP转发</span>
+                        </div>
                     </div>
                     <div id="apiList" class="db-list">
                         <!-- 接口列表将动态生成 -->
