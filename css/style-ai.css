@@ -68,14 +68,6 @@
     display: none;
 }
 
-.ai-sidebar-footer {
-    padding: 8px 12px;
-    border-top: 1px solid var(--ai-border);
-    flex-shrink: 0;
-    display: flex;
-    justify-content: flex-end;
-}
-
 .ai-sidebar-collapse-btn {
     width: 28px;
     height: 28px;
@@ -100,6 +92,9 @@
 .ai-new-session-bar {
     padding: 20px 16px 12px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .ai-new-session-btn {
