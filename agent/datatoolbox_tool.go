@@ -27,17 +27,26 @@ Available endpoints:
 - list_tables: List tables in a database (params: database)
 - get_table_schema: Get table schema details (params: database, table)
 - search_tables: Search tables by keyword with optional database filter (params: query, database?)
-- list_apis: List all existing API endpoints (no params)
-- create_api: Create a new API endpoint (params: name, path, method, sql, description, database, default_params)
-- execute_api: Call an existing dynamic API endpoint to get real data (params: path, plus any query parameters)
+- list_apis: List all existing API endpoints with descriptions, types, and parameters (no params). Each API has a type: "query" (SQL-based) or "forward" (HTTP proxy to external service). Forward APIs have a forward_url and description explaining what they do and what parameters they accept.
+- get_api_detail: Get detailed info about a specific API including full description, parameters, and forward_url (params: name or path)
+- create_api: Create a new API endpoint (params: name, path, method, type, sql, description, database, forward_url, default_params). For forward type, provide forward_url instead of sql/database.
+- execute_api: Call an existing dynamic API endpoint to get real data (params: path, plus any query parameters). Works for both query and forward type APIs — forward APIs will proxy the request to the external service.
 - governance_tasks: List governance tasks (no params)
 - ontology_query: Query data ontology (params: query)
 
-Recommended RAG workflow for SQL generation:
+Recommended workflows:
+For database queries:
 1. search_tables(query="user requirement") → find relevant tables
 2. get_db_schema(database="db") → understand full table/column structure
 3. get_db_sql_hints(database="db") → get dialect-specific SQL tips
 4. execute_sql(database="db", sql="...") → run the generated SQL
+
+For using existing APIs (especially forward/proxy APIs):
+1. list_apis() → see all available APIs with descriptions
+2. get_api_detail(name="API名称") → get full details and parameters
+3. execute_api(path="/api/xxx", param1="value1") → call the API
+
+IMPORTANT: When a user asks something that might be served by an existing API (especially forward type), ALWAYS check list_apis first before trying to write SQL. Forward APIs connect to external services and may provide data not available in local databases.
 
 This tool calls DataToolbox APIs via internal HTTP, sharing the same auth token.`
 
@@ -65,7 +74,7 @@ func (t *DataToolboxAPITool) Parameters() map[string]any {
 			"enum": []string{
 				"list_databases", "get_database", "get_db_schema", "get_db_sql_hints",
 				"execute_sql", "list_tables", "get_table_schema", "search_tables",
-				"list_apis", "create_api", "execute_api", "governance_tasks", "ontology_query",
+				"list_apis", "get_api_detail", "create_api", "execute_api", "governance_tasks", "ontology_query",
 				},
 			},
 			"params": map[string]any{
@@ -238,7 +247,7 @@ func (t *DataToolboxAPITool) Execute(ctx context.Context, args map[string]any) *
 	}
 
 	if endpoint == "" {
-		return tools.ErrorResult("endpoint is required. Available: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, create_api, governance_tasks, ontology_query")
+		return tools.ErrorResult("endpoint is required. Available: list_databases, get_database, get_db_schema, get_db_sql_hints, execute_sql, list_tables, get_table_schema, search_tables, list_apis, get_api_detail, create_api, execute_api, governance_tasks, ontology_query")
 	}
 
 	if params == nil {
@@ -354,6 +363,32 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		return t.httpPost(ctx, "/api/v1/retrieval/search", params)
 	case "list_apis":
 		return t.httpGet(ctx, "/api/v1/openapis")
+	case "get_api_detail":
+		// 获取单个API详情（支持name或path查询）
+		nameOrPath, _ := params["name"].(string)
+		if nameOrPath == "" {
+			nameOrPath, _ = params["path"].(string)
+		}
+		if nameOrPath == "" {
+			return nil, fmt.Errorf("name or path parameter required")
+		}
+		// 先获取列表，再匹配
+		listResult, err := t.httpGet(ctx, "/api/v1/openapis")
+		if err != nil {
+			return nil, err
+		}
+		if m, ok := listResult.(map[string]any); ok {
+			if apis, ok := m["apis"].([]interface{}); ok {
+				for _, api := range apis {
+					if apiMap, ok := api.(map[string]any); ok {
+						if apiMap["name"] == nameOrPath || apiMap["path"] == nameOrPath {
+							return apiMap, nil
+						}
+					}
+				}
+			}
+		}
+		return nil, fmt.Errorf("API not found: %s", nameOrPath)
 	case "create_api":
 		// 参数预处理：database → database_id 转换，字段名映射
 		apiParams := make(map[string]interface{})
@@ -401,6 +436,15 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		for k, v := range params {
 			if k != "path" && k != "endpoint" {
 				queryParams[k] = v
+			}
+		}
+		// 检查API类型：forward且method=POST时用POST，否则用GET
+		apiDetail, _ := t.callAPI(ctx, "get_api_detail", map[string]any{"path": path})
+		if apiMap, ok := apiDetail.(map[string]any); ok {
+			apiMethod, _ := apiMap["method"].(string)
+			apiType, _ := apiMap["type"].(string)
+			if apiType == "forward" && (apiMethod == "POST" || apiMethod == "PUT" || apiMethod == "PATCH") && len(queryParams) > 0 {
+				return t.httpPost(ctx, path, queryParams)
 			}
 		}
 		if len(queryParams) > 0 {

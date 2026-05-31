@@ -629,14 +629,16 @@ func handleApis(w http.ResponseWriter, r *http.Request) {
 				apiType = "query"
 			}
 			apiInfo := &ApiInfo{
-				ID:         api.ID,
-				Name:       api.Name,
-				Path:       api.Path,
-				Method:     api.Method,
-				Type:       apiType,
-				DatabaseID: api.DatabaseID,
-				ForwardURL: api.ForwardURL,
-				Enabled:    enabled,
+				ID:            api.ID,
+				Name:          api.Name,
+				Path:          api.Path,
+				Method:        api.Method,
+				Type:          apiType,
+				DatabaseID:    api.DatabaseID,
+				ForwardURL:    api.ForwardURL,
+				Description:   api.Description,
+				DefaultParams: api.DefaultParams,
+				Enabled:       enabled,
 			}
 			if db, exists := dataOntologyDatabases[api.DatabaseID]; exists {
 				apiInfo.DatabaseName = db.Name
