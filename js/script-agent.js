@@ -39,7 +39,7 @@ let embeddingConfig = null;
 // 显示表检索配置弹窗
 
 // 加载表检索配置
-async // 预设模型快速填充
+// 预设模型快速填充
 function applyModelPreset(value) {
     if (!value) return;
     const [model, url] = value.split('|');
