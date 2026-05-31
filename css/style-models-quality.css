@@ -662,11 +662,11 @@ body.embed-mode .main-content {
     padding-top: 10px;
 }
 
-/* 嵌入模式设置按钮 — 与header-icon-btn样式一致 */
+/* 嵌入模式设置按钮 — 与header-icon-btn样式一致，位置与header内容区右边对齐 */
 .embed-settings-btn {
     position: fixed;
-    top: 10px;
-    right: 10px;
+    top: 20px;
+    right: max(30px, calc((100vw - 1400px) / 2 + 30px));
     width: 32px;
     height: 32px;
     padding: 0;
