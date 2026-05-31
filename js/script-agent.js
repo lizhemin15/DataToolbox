@@ -3215,6 +3215,23 @@ function renderProfileCard(data, toolNameFallback) {
 }
 
 // 将工具调用/返回内容格式化为用户友好的显示
+// 轻量markdown单元格渲染（加粗/斜体/代码，不转义这些语法）
+function renderCellMarkdown(text) {
+    if (!text) return '';
+    let s = String(text);
+    // 先转义HTML（保留markdown符号）
+    s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // bold **text**
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // italic *text*
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // inline code `text`
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // links [text](url)
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    return s;
+}
+
 // 追踪最近一次SQL查询参数，用于导出
 let _lastSqlQuery = null; // { database_id, sql }
 
@@ -3358,6 +3375,36 @@ function formatToolContent(rawContent, isResult, toolNameFallback) {
                 let html = `<div class="cluster-tool-summary">${status}`;
                 if (parsed.message) html += ` <span class="tool-detail">${escapeHtml(String(parsed.message).substring(0, 100))}</span>`;
                 html += '</div>';
+                // 如果data是数组（execute_sql结果），渲染表格+导出
+                if (parsed.success && Array.isArray(parsed.data) && parsed.data.length > 0) {
+                    const rows = parsed.data;
+                    const cols = parsed.columns || Object.keys(rows[0] || {});
+                    html += '<div class="cluster-tool-summary">';
+                    html += `<span class="tool-label">结果</span><span class="tool-count">${rows.length} 条记录</span>`;
+                    if (_lastSqlQuery && _lastSqlQuery.sql) {
+                        const exportId = 'export-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+                        html += `<button class="tool-export-btn" id="${exportId}" onclick="exportQueryResult(this)" data-sql="${escapeAttr(_lastSqlQuery.sql)}" data-db="${escapeAttr(_lastSqlQuery.database_id)}" title="下载完整查询结果">⬇ 导出</button>`;
+                    }
+                    html += '<table class="md-table"><thead><tr>';
+                    const maxCols = Math.min(cols.length, 5);
+                    for (let i = 0; i < maxCols; i++) html += `<th>${escapeHtml(String(cols[i]))}</th>`;
+                    if (cols.length > 5) html += '<th>...</th>';
+                    html += '</tr></thead><tbody>';
+                    const sampleRows = rows.slice(0, 3);
+                    for (const row of sampleRows) {
+                        html += '<tr>';
+                        for (let i = 0; i < maxCols; i++) {
+                            const val = row[cols[i]];
+                            const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+                            html += `<td>${escapeHtml(displayVal.length > 30 ? displayVal.substring(0,30)+'...' : displayVal)}</td>`;
+                        }
+                        if (cols.length > 5) html += '<td>...</td>';
+                        html += '</tr>';
+                    }
+                    html += '</tbody></table>';
+                    if (rows.length > 3) html += `<span class="tool-more">及 ${rows.length - 3} 条更多...</span>`;
+                    html += '</div>';
+                }
                 return html;
             }
             // 一般对象：显示为简洁键值表
@@ -3529,12 +3576,12 @@ function formatClusterMarkdown(text) {
             let tableHtml = '<table class="md-table"><thead><tr>';
             // 第一行作为表头
             const headerCells = rows[0];
-            headerCells.forEach(cell => { tableHtml += `<th>${escapeHtml(cell)}</th>`; });
+            headerCells.forEach(cell => { tableHtml += `<th>${renderCellMarkdown(cell)}</th>`; });
             tableHtml += '</tr></thead><tbody>';
             // 数据行（跳过分隔行）
             for (let i = 2; i < rows.length; i++) {
                 tableHtml += '<tr>';
-                rows[i].forEach(cell => { tableHtml += `<td>${escapeHtml(cell)}</td>`; });
+                rows[i].forEach(cell => { tableHtml += `<td>${renderCellMarkdown(cell)}</td>`; });
                 tableHtml += '</tr>';
             }
             tableHtml += '</tbody></table>';
