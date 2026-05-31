@@ -51,7 +51,7 @@ function applyModelPreset(value) {
     document.getElementById('aiModelPreset').value = '';
 }
 
-function loadTableRetrievalConfig() {
+async function loadTableRetrievalConfig() {
     try {
         const response = await fetchWithAuth(`${API_BASE}/api/v1/agent/table-retrieval-config`);
         const data = await response.json();
