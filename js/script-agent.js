@@ -3224,36 +3224,50 @@ function escapeAttr(str) {
     return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// 导出查询结果为CSV
+// 导出查询结果为Excel（前端用XLSX库生成，复用治理任务的同一套能力）
 async function exportQueryResult(btn) {
     const sql = btn.getAttribute('data-sql');
     const dbId = btn.getAttribute('data-db');
     if (!sql || !dbId) { showToast('缺少查询参数', 'error'); return; }
 
     btn.disabled = true;
-    btn.textContent = '导出中...';
+    btn.textContent = '查询中...';
     try {
         const token = localStorage.getItem('token') || '';
         const resp = await fetch(`${API_BASE}/api/v1/agent/export-query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify({ database: dbId, sql: sql, format: 'csv' })
+            body: JSON.stringify({ database: dbId, sql: sql })
         });
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({ message: '导出失败' }));
             throw new Error(err.message || '导出失败');
         }
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const disposition = resp.headers.get('Content-Disposition') || '';
-        const match = disposition.match(/filename="?(.+?)"?$/);
-        a.download = match ? match[1] : 'query_result.csv';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const result = await resp.json();
+        if (!result.success) {
+            throw new Error(result.message || '导出失败');
+        }
+        btn.textContent = '生成中...';
+
+        // 用XLSX库生成Excel（与gov-runner同一套）
+        const data = result.data || [];
+        if (data.length === 0) { showToast('查询结果为空', 'error'); btn.textContent = '⬇ 导出'; btn.disabled = false; return; }
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '查询结果');
+        // 自动列宽
+        const colWidths = (result.columns || []).map(col => {
+            let max = col.length;
+            data.slice(0, 100).forEach(row => {
+                const val = String(row[col] ?? '');
+                max = Math.max(max, val.length);
+            });
+            return { wch: Math.min(max + 2, 40) };
+        });
+        ws['!cols'] = colWidths;
+        const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+        XLSX.writeFile(wb, `query_result_${ts}.xlsx`);
+
         btn.textContent = '⬇ 导出';
         btn.disabled = false;
     } catch(e) {
