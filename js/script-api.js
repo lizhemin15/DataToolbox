@@ -864,6 +864,44 @@ function showEditDbModal() {
 let currentPreviewTable = null;
 let isTableEditMode = false;
 
+// 格式化单元格值：安全处理 BLOB、超长文本、对象等可能导致卡死的值
+function formatCellValue(value) {
+    if (value === null || value === undefined) {
+        return { html: '<i class="null-value">NULL</i>', cls: '' };
+    }
+    // BLOB 对象（后端返回 {_blob: true, _size, _preview, _type}）
+    if (typeof value === 'object' && value._blob) {
+        const sizeStr = value._size > 1048576
+            ? (value._size / 1048576).toFixed(1) + ' MB'
+            : value._size > 1024
+                ? (value._size / 1024).toFixed(1) + ' KB'
+                : value._size + ' B';
+        const typeLabel = value._type || 'BLOB';
+        return {
+            html: `<span class="blob-badge" title="${typeLabel}, ${sizeStr}">${escapeHtml(typeLabel)} ${escapeHtml(sizeStr)}</span>`,
+            cls: ' cell-blob'
+        };
+    }
+    // 未知对象（兜底，避免 [object Object] 或 JSON.stringify 大对象卡死）
+    if (typeof value === 'object') {
+        try {
+            const json = JSON.stringify(value);
+            if (json.length > 200) {
+                return { html: escapeHtml(json.substring(0, 200)) + '…', cls: ' cell-truncated' };
+            }
+            return { html: escapeHtml(json), cls: '' };
+        } catch (e) {
+            return { html: '<i class="null-value">[Object]</i>', cls: '' };
+        }
+    }
+    // 字符串/数字等标量
+    const str = String(value);
+    if (str.length > 500) {
+        return { html: escapeHtml(str.substring(0, 500)) + '…', cls: ' cell-truncated' };
+    }
+    return { html: escapeHtml(str), cls: '' };
+}
+
 // 预览指定数据表。
 async function previewTable(tableName, keepEditMode = false) {
     if (!currentDb) {
@@ -967,9 +1005,8 @@ async function previewTable(tableName, keepEditMode = false) {
                             return `
                                 <tr data-row-id="${rowId}" data-row-index="${rowIndex}">
                                     ${columns.map(col => {
-                                        const value = row[col];
-                                        const displayValue = value !== null ? escapeHtml(String(value)) : '<i class="null-value">NULL</i>';
-                                        return `<td data-column="${escapeHtml(col)}" class="editable-cell">${displayValue}</td>`;
+                                        const { html: displayValue, cls: cellCls } = formatCellValue(row[col]);
+                                        return `<td data-column="${escapeHtml(col)}" class="editable-cell${cellCls}">${displayValue}</td>`;
                                     }).join('')}
                                     ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button></td>` : ''}
                                 </tr>

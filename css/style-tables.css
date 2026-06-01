@@ -221,6 +221,29 @@
     -ms-user-select: none;
 }
 
+.cell-blob {
+    cursor: default;
+}
+
+.blob-badge {
+    display: inline-block;
+    background: #f0f0f0;
+    color: #666;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: monospace;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.cell-truncated {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .row-deleted {
     opacity: 0.6;
     text-decoration: line-through;

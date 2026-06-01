@@ -336,8 +336,8 @@ type callApiIn struct {
 }
 
 type searchTablesIn struct {
-	Query    string `json:"query" jsonschema:"搜索关键词"`
-	Database string `json:"database,omitempty" jsonschema:"数据库名称（可选，用于限定搜索范围）"`
+	Query      string `json:"query" jsonschema:"搜索关键词"`
+	DatabaseID string `json:"database_id,omitempty" jsonschema:"数据库ID（可选，用于限定搜索范围）"`
 }
 
 type getDbSchemaIn struct {
@@ -942,8 +942,12 @@ func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTab
 	if err != nil {
 		return nil, nil, err
 	}
-	// 后端 retrieval/search 只接受 GET + query 参数
-	data, err := cli.do(http.MethodGet, "/api/v1/retrieval/search?query="+url.QueryEscape(in.Query)+"&database="+url.QueryEscape(in.Database), nil)
+	// 后端 retrieval/search 只接受 GET + query + database_id 参数
+	searchURL := "/api/v1/retrieval/search?query=" + url.QueryEscape(in.Query)
+	if in.DatabaseID != "" {
+		searchURL += "&database_id=" + url.QueryEscape(in.DatabaseID)
+	}
+	data, err := cli.do(http.MethodGet, searchURL, nil)
 	if err != nil {
 		return nil, nil, err
 	}

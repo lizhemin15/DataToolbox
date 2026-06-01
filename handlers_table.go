@@ -1428,6 +1428,37 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 
 		// 读取数据
 		data = make([]map[string]interface{}, 0)
+
+		// 获取列类型信息，用于识别 BLOB/二进制列
+		colTypes, _ := rows.ColumnTypes()
+		blobCols := make(map[string]bool)   // BLOB/二进制列
+		textCols := make(map[string]bool)   // 大文本列
+		for _, ct := range colTypes {
+			dbType := strings.ToUpper(ct.DatabaseTypeName())
+			// BLOB/二进制类型
+			switch {
+			case strings.Contains(dbType, "BLOB"),
+				strings.Contains(dbType, "BINARY"),
+				strings.Contains(dbType, "BYTEA"),
+				strings.Contains(dbType, "RAW"),
+				strings.Contains(dbType, "IMAGE"),
+				strings.Contains(dbType, "VARBINARY"),
+				strings.Contains(dbType, "TINYBLOB"),
+				strings.Contains(dbType, "MEDIUMBLOB"),
+				strings.Contains(dbType, "LONGBLOB"),
+				dbType == "BYTE":
+				blobCols[ct.Name()] = true
+			// 大文本类型
+			case strings.Contains(dbType, "TEXT"),
+				strings.Contains(dbType, "CLOB"),
+				strings.Contains(dbType, "MEMO"),
+				strings.Contains(dbType, "LONGVARCHAR"),
+				strings.Contains(dbType, "NTEXT"),
+				strings.Contains(dbType, "NCLOB"):
+				textCols[ct.Name()] = true
+			}
+		}
+
 		for rows.Next() {
 			values := make([]interface{}, len(columns))
 			valuePtrs := make([]interface{}, len(columns))
@@ -1442,8 +1473,26 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			row := make(map[string]interface{})
 			for i, col := range columns {
 				val := values[i]
-				if b, ok := val.([]byte); ok {
-					row[col] = string(b)
+				if val == nil {
+					row[col] = nil
+				} else if b, ok := val.([]byte); ok {
+					if blobCols[col] {
+						// BLOB 列：只保留大小信息，不返回实际数据
+						row[col] = map[string]interface{}{
+							"_blob":    true,
+							"_size":    len(b),
+							"_preview": fmt.Sprintf("%x", b[:min(len(b), 32)]),
+							"_type":    colTypes[i].DatabaseTypeName(),
+						}
+					} else if len(b) > 1024 {
+						// 非 BLOB 的 []byte 但超长，截断显示
+						row[col] = string(b[:1024]) + "..."
+					} else {
+						row[col] = string(b)
+					}
+				} else if s, ok := val.(string); ok && textCols[col] && len(s) > 1024 {
+					// 大文本截断
+					row[col] = s[:1024] + "..."
 				} else {
 					row[col] = val
 				}
