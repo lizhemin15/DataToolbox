@@ -422,30 +422,30 @@ type createAppFromTemplateIn struct {
 // ─── ask_user HITL 工具输入类型 ─────────────────────────────────────────────────
 
 type askUserOption struct {
-	ID          string `json:"id" jsonschema:"required,选项ID"`
-	Label       string `json:"label" jsonschema:"required,选项显示文本"`
-	Description string `json:"description,omitempty" jsonschema:"选项描述"`
-	Style       string `json:"style,omitempty" jsonschema:"选项样式,enum=default,enum=primary,enum=danger,enum=warning"`
+	ID          string `json:"id" jsonschema:"required,description=Option ID"`
+	Label       string `json:"label" jsonschema:"required,description=Option display text"`
+	Description string `json:"description,omitempty" jsonschema:"description=Option description"`
+	Style       string `json:"style,omitempty" jsonschema:"enum=default,enum=primary,enum=danger,enum=warning,description=Option style"`
 }
 
 type askUserField struct {
-	ID           string           `json:"id" jsonschema:"required,字段ID"`
-	Label        string           `json:"label" jsonschema:"required,字段显示名"`
-	Type         string           `json:"type,omitempty" jsonschema:"字段类型,enum=text,enum=number,enum=select,enum=textarea"`
-	Placeholder  string           `json:"placeholder,omitempty" jsonschema:"占位提示文本"`
-	Required     bool             `json:"required,omitempty" jsonschema:"是否必填"`
-	DefaultValue string           `json:"default_value,omitempty" jsonschema:"默认值"`
-	Options      []askUserOption  `json:"options,omitempty" jsonschema:"select类型的选项列表"`
+	ID           string           `json:"id" jsonschema:"required,description=Field ID"`
+	Label        string           `json:"label" jsonschema:"required,description=Field display name"`
+	Type         string           `json:"type,omitempty" jsonschema:"enum=text,enum=number,enum=select,enum=textarea,description=Field type"`
+	Placeholder  string           `json:"placeholder,omitempty" jsonschema:"description=Placeholder text"`
+	Required     bool             `json:"required,omitempty" jsonschema:"description=Whether the field is required"`
+	DefaultValue string           `json:"default_value,omitempty" jsonschema:"description=Default value"`
+	Options      []askUserOption  `json:"options,omitempty" jsonschema:"description=Options for select type fields"`
 }
 
 type askUserIn struct {
-	InteractionType string          `json:"interaction_type" jsonschema:"required,交互类型,enum=confirm,enum=single_select,enum=multi_select,enum=input,enum=form"`
-	Title           string          `json:"title" jsonschema:"required,交互标题"`
-	Description     string          `json:"description,omitempty" jsonschema:"交互描述"`
-	Options         []askUserOption `json:"options,omitempty" jsonschema:"选项列表,description=用于confirm/single_select/multi_select类型"`
-	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"表单字段列表,description=用于input/form类型"`
-	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"超时秒数,description=默认86400即24小时"`
-	SessionID       string          `json:"session_id,omitempty" jsonschema:"会话ID,description=默认default"`
+	InteractionType string          `json:"interaction_type" jsonschema:"required,enum=confirm,enum=single_select,enum=multi_select,enum=input,enum=form,description=Interaction type"`
+	Title           string          `json:"title" jsonschema:"required,description=Interaction title"`
+	Description     string          `json:"description,omitempty" jsonschema:"description=Interaction description"`
+	Options         []askUserOption `json:"options,omitempty" jsonschema:"description=Options for confirm/single_select/multi_select types"`
+	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"description=Form fields for input/form types"`
+	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"description=Timeout in seconds, default 86400"`
+	SessionID       string          `json:"session_id,omitempty" jsonschema:"description=Session ID, default is default"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
