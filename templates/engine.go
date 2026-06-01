@@ -154,7 +154,7 @@ func Instantiate(templateID string, databaseID string, tableNameMap map[string]s
 
 	// 解析占位符映射
 	placeholderValues := map[string]string{}
-	for key, ph := range tmpl.Placeholders {
+	for key := range tmpl.Placeholders {
 		tableKey := extractTableKey(key) // 从 {{TABLE_API:sales}} 提取 "sales"
 		if actualTable, ok := tableNameMap[tableKey]; ok {
 			placeholderValues[key] = apiBase + "/" + actualTable
