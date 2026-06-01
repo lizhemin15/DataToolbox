@@ -171,6 +171,13 @@ jobs:
             echo "Copied components directory"
           fi
 
+          # 复制 templates 目录（预制应用模板）
+          if [ -d "templates" ]; then
+            mkdir -p package/templates
+            cp templates/*.json package/templates/
+            echo "Copied templates directory"
+          fi
+
           # 复制治理脚本目录（治理任务运行时需要这些脚本）
           if [ -d "scripts" ]; then
             mkdir -p package/scripts
