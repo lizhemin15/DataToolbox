@@ -208,6 +208,98 @@ func mcpTextResult(text string) *mcp.CallToolResult {
 	}
 }
 
+// trimMCPResult 对MCP工具返回结果做上下文安全裁剪，避免大载荷撑爆LLM上下文
+// toolName: 工具名称，用于选择裁剪策略
+// data: 原始JSON字节数组
+func trimMCPResult(toolName string, data []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return data // 解析失败，返回原始数据
+	}
+
+	switch toolName {
+	case "list_databases":
+		// 只返回 id, name, type, connected — 去掉 host/port/password 等敏感信息
+		if dbs, ok := m["databases"].([]any); ok {
+			trimmed := make([]map[string]any, 0, len(dbs))
+			for _, db := range dbs {
+				if dbMap, ok := db.(map[string]any); ok {
+					trimmed = append(trimmed, map[string]any{
+						"id":        dbMap["id"],
+						"name":      dbMap["name"],
+						"type":      dbMap["type"],
+						"connected": dbMap["connected"],
+					})
+				}
+			}
+			m["databases"] = trimmed
+			m["hint"] = "Use get_database(id) for full details"
+		}
+
+	case "get_tables", "get_db_schema":
+		// 只返回表名+注释列表，不返回columns（太大了）
+		if db, ok := m["database"].(map[string]any); ok {
+			if tables, ok := db["tables"].([]any); ok {
+				tableNames := make([]map[string]any, 0, len(tables))
+				for _, tbl := range tables {
+					if tblMap, ok := tbl.(map[string]any); ok {
+						entry := map[string]any{"name": tblMap["name"]}
+						if comment, ok := tblMap["comment"].(string); ok && comment != "" {
+							entry["comment"] = comment
+						}
+						tableNames = append(tableNames, entry)
+					}
+				}
+				m = map[string]any{
+					"database_id":   db["id"],
+					"database_name": db["name"],
+					"database_type": db["type"],
+					"total_tables":  len(tableNames),
+					"tables":        tableNames,
+					"hint":          "Use describe_table(database_id, table_name) for column details",
+				}
+			}
+		}
+
+	case "list_apis":
+		// 只返回 id, name, path, type, method, description — 去掉 sql/forward_url 等大字段
+		if apis, ok := m["apis"].([]any); ok {
+			trimmed := make([]map[string]any, 0, len(apis))
+			for _, api := range apis {
+				if apiMap, ok := api.(map[string]any); ok {
+					trimmed = append(trimmed, map[string]any{
+						"id":          apiMap["id"],
+						"name":        apiMap["name"],
+						"path":        apiMap["path"],
+						"type":        apiMap["type"],
+						"method":      apiMap["method"],
+						"description": apiMap["description"],
+						"enabled":     apiMap["enabled"],
+					})
+				}
+			}
+			m["apis"] = trimmed
+			m["hint"] = "Use get_api_detail(id) for full SQL/params"
+		}
+
+	case "execute_sql":
+		// 截断过大的结果集，保护上下文
+		if data, ok := m["data"].([]any); ok && len(data) > 100 {
+			m["data"] = data[:100]
+			m["truncated"] = true
+			m["total_rows"] = len(data)
+			m["returned_rows"] = 100
+			m["hint"] = "Result truncated. Use LIMIT/FETCH FIRST for specific slices."
+		}
+	}
+
+	result, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return result
+}
+
 // ─── 工具输入类型定义 ─────────────────────────────────────────────────────────
 
 type listDatabasesIn struct{}
@@ -346,7 +438,7 @@ func mcpListDatabases(ctx context.Context, req *mcp.CallToolRequest, _ listDatab
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpTextResult(string(data)), nil, nil
+	return mcpTextResult(string(trimMCPResult("list_databases", data))), nil, nil
 }
 
 func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn) (*mcp.CallToolResult, any, error) {
@@ -358,7 +450,7 @@ func mcpGetTables(ctx context.Context, req *mcp.CallToolRequest, in getTablesIn)
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpTextResult(string(data)), nil, nil
+	return mcpTextResult(string(trimMCPResult("get_tables", data))), nil, nil
 }
 
 func mcpDescribeTable(ctx context.Context, req *mcp.CallToolRequest, in describeTableIn) (*mcp.CallToolResult, any, error) {
@@ -802,7 +894,7 @@ func mcpExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, in executeSQLI
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpTextResult(string(data)), nil, nil
+	return mcpTextResult(string(trimMCPResult("execute_sql", data))), nil, nil
 }
 
 func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*mcp.CallToolResult, any, error) {
@@ -814,7 +906,7 @@ func mcpListApis(ctx context.Context, req *mcp.CallToolRequest, _ listApisIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpTextResult(string(data)), nil, nil
+	return mcpTextResult(string(trimMCPResult("list_apis", data))), nil, nil
 }
 
 func mcpGetApiDetail(ctx context.Context, req *mcp.CallToolRequest, in getApiDetailIn) (*mcp.CallToolResult, any, error) {
@@ -850,11 +942,8 @@ func mcpSearchTables(ctx context.Context, req *mcp.CallToolRequest, in searchTab
 	if err != nil {
 		return nil, nil, err
 	}
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"query":    in.Query,
-		"database": in.Database,
-	})
-	data, err := cli.do(http.MethodPost, "/api/v1/retrieval/search", reqBody)
+	// 后端 retrieval/search 只接受 GET + query 参数
+	data, err := cli.do(http.MethodGet, "/api/v1/retrieval/search?query="+url.QueryEscape(in.Query)+"&database="+url.QueryEscape(in.Database), nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -870,7 +959,7 @@ func mcpGetDbSchema(ctx context.Context, req *mcp.CallToolRequest, in getDbSchem
 	if err != nil {
 		return nil, nil, err
 	}
-	return mcpTextResult(string(data)), nil, nil
+	return mcpTextResult(string(trimMCPResult("get_db_schema", data))), nil, nil
 }
 
 func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQLHintsIn) (*mcp.CallToolResult, any, error) {
