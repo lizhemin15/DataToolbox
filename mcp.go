@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/YOUR_USERNAME/DataToolbox/components"
@@ -416,6 +417,35 @@ type createAppFromTemplateIn struct {
 	PrimaryColor    string            `json:"primary_color,omitempty" jsonschema:"主色调 HEX（可选，默认用模板预设）"`
 	IsPublic        bool              `json:"is_public,omitempty" jsonschema:"是否公开"`
 	Confirmed       bool              `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建应用；未确认时调用只生成预览"`
+}
+
+// ─── ask_user HITL 工具输入类型 ─────────────────────────────────────────────────
+
+type askUserOption struct {
+	ID          string `json:"id" jsonschema:"required,选项ID"`
+	Label       string `json:"label" jsonschema:"required,选项显示文本"`
+	Description string `json:"description,omitempty" jsonschema:"选项描述"`
+	Style       string `json:"style,omitempty" jsonschema:"选项样式：default/primary/danger/warning"`
+}
+
+type askUserField struct {
+	ID           string           `json:"id" jsonschema:"required,字段ID"`
+	Label        string           `json:"label" jsonschema:"required,字段显示名"`
+	Type         string           `json:"type,omitempty" jsonschema:"字段类型：text/number/select/textarea，默认text"`
+	Placeholder  string           `json:"placeholder,omitempty" jsonschema:"占位提示文本"`
+	Required     bool             `json:"required,omitempty" jsonschema:"是否必填"`
+	DefaultValue string           `json:"default_value,omitempty" jsonschema:"默认值"`
+	Options      []askUserOption  `json:"options,omitempty" jsonschema:"select类型的选项列表"`
+}
+
+type askUserIn struct {
+	InteractionType string          `json:"interaction_type" jsonschema:"required,交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)"`
+	Title           string          `json:"title" jsonschema:"required,交互标题"`
+	Description     string          `json:"description,omitempty" jsonschema:"交互描述/补充说明"`
+	Options         []askUserOption `json:"options,omitempty" jsonschema:"选项列表（confirm/single_select/multi_select类型使用）"`
+	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"表单字段列表（input/form类型使用）"`
+	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"超时秒数（默认86400=24小时）"`
+	SessionID       string          `json:"session_id,omitempty" jsonschema:"会话ID（可选，默认default）"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
@@ -2062,6 +2092,147 @@ func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn)
 	return mcpTextResult(string(data)), nil, nil
 }
 
+// ─── ask_user HITL 工具 ─────────────────────────────────────────────────────────
+
+// mcpAskUser 实现 MCP 版本的 ask_user 工具
+// 通过创建虚拟 agent run + HITLManager 注册请求，让前端能通过轮询机制看到 HITL 交互
+// 阻塞等待用户响应后返回结果
+func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*mcp.CallToolResult, any, error) {
+	if globalHITLManager == nil {
+		return nil, nil, fmt.Errorf("HITL 管理器未初始化")
+	}
+
+	sessionID := in.SessionID
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	// 1. 创建虚拟 agent run（让前端轮询能发现）
+	runID := uuid.New().String()
+	run := &AgentRun{
+		ID:        runID,
+		SessionID: sessionID,
+		Username:  "mcp",
+		Status:    "waiting_hitl",
+	}
+	if err := sqlCreateAgentRun(run); err != nil {
+		log.Printf("[mcp-ask_user] 创建虚拟 agent run 失败: %v", err)
+		// 不阻断，继续执行
+	}
+
+	// 2. 转换选项和字段
+	var hitlOptions []agent.HITLOption
+	for _, o := range in.Options {
+		hitlOptions = append(hitlOptions, agent.HITLOption{
+			ID:          o.ID,
+			Label:       o.Label,
+			Description: o.Description,
+			Style:       o.Style,
+		})
+	}
+
+	var hitlFields []agent.HITLField
+	for _, f := range in.Fields {
+		var fieldOpts []agent.HITLOption
+		for _, o := range f.Options {
+			fieldOpts = append(fieldOpts, agent.HITLOption{
+				ID:          o.ID,
+				Label:       o.Label,
+				Description: o.Description,
+				Style:       o.Style,
+			})
+		}
+		hitlFields = append(hitlFields, agent.HITLField{
+			ID:           f.ID,
+			Label:        f.Label,
+			Type:         f.Type,
+			Placeholder:  f.Placeholder,
+			Required:     f.Required,
+			DefaultValue: f.DefaultValue,
+			Options:      fieldOpts,
+		})
+	}
+
+	timeoutSeconds := in.TimeoutSeconds
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 86400 // 默认 24 小时
+	}
+
+	// 3. 注册 HITL 请求
+	hitlID := uuid.New().String()
+	hitlReq := agent.HITLRequest{
+		ID:              hitlID,
+		SessionID:       sessionID,
+		InteractionType: agent.HITLInteractionType(in.InteractionType),
+		Title:           in.Title,
+		Description:     in.Description,
+		Options:         hitlOptions,
+		Fields:          hitlFields,
+		TimeoutSeconds:  timeoutSeconds,
+		CreatedAt:       time.Now(),
+	}
+	respCh := globalHITLManager.RegisterRequest(hitlReq)
+
+	// 4. 写入 hitl_interaction 事件到 DB（前端轮询能看到）
+	evtData := map[string]interface{}{
+		"hitl_id":         hitlID,
+		"session_id":      sessionID,
+		"interaction_type": in.InteractionType,
+		"title":           in.Title,
+		"description":     in.Description,
+		"options":         hitlOptions,
+		"fields":          hitlFields,
+		"timeout_seconds": timeoutSeconds,
+		"request_json":    mustMarshal(hitlReq),
+	}
+	evtDataJSON, _ := json.Marshal(evtData)
+	_ = sqlAppendAgentEvent(runID, 0, "hitl_interaction", string(evtDataJSON))
+
+	log.Printf("[mcp-ask_user] HITL 请求已注册: hitl_id=%s, session=%s, type=%s, run_id=%s", hitlID, sessionID, in.InteractionType, runID)
+
+	// 5. 阻塞等待用户响应
+	select {
+	case resp := <-respCh:
+		log.Printf("[mcp-ask_user] 收到用户响应: hitl_id=%s, action=%s", hitlID, resp.Action)
+
+		// 更新 agent run 状态
+		if resp.Action == "submit" {
+			_ = sqlUpdateAgentRunStatus(runID, "completed", "")
+		} else if resp.Action == "cancel" {
+			_ = sqlUpdateAgentRunStatus(runID, "cancelled", "")
+		} else {
+			_ = sqlUpdateAgentRunStatus(runID, "error", resp.Action)
+		}
+		doneData, _ := json.Marshal(map[string]interface{}{"action": resp.Action})
+		_ = sqlAppendAgentEvent(runID, 1, "done", string(doneData))
+
+		if resp.Action == "cancel" {
+			return mcpTextResult(fmt.Sprintf("User cancelled the request.")), nil, nil
+		}
+		if resp.Action == "timeout" {
+			return mcpTextResult(fmt.Sprintf("Request timed out after %d seconds.", timeoutSeconds)), nil, nil
+		}
+
+		// 正常提交 — 返回用户响应
+		respJSON, _ := json.MarshalIndent(resp, "", "  ")
+		return mcpTextResult(fmt.Sprintf("User responded:\n%s", string(respJSON))), nil, nil
+
+	case <-ctx.Done():
+		log.Printf("[mcp-ask_user] 上下文取消: hitl_id=%s, err=%v", hitlID, ctx.Err())
+		_ = sqlUpdateAgentRunStatus(runID, "error", "context cancelled")
+		return mcpTextResult(fmt.Sprintf("Request cancelled: %v", ctx.Err())), nil, nil
+	}
+}
+
+// mustMarshal 将对象序列化为 JSON 字符串，失败返回空字符串
+func mustMarshal(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // ─── 应用模板工具 ────────────────────────────────────────────────────────────
 
 func mcpListTemplates(ctx context.Context, req *mcp.CallToolRequest, in listTemplatesIn) (*mcp.CallToolResult, any, error) {
@@ -2324,6 +2495,7 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
+		mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`}, mcpAskUser)
 
 		return server
 	}
@@ -2417,6 +2589,7 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
+	mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`}, mcpAskUser)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)
