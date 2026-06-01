@@ -394,7 +394,26 @@ func (t *DataToolboxAPITool) callAPI(ctx context.Context, endpoint string, param
 		}
 		return t.httpGet(ctx, "/api/v1/databases/"+dbID)
 	case "execute_sql":
-		return t.httpPost(ctx, "/api/v1/gov/execute-sql", params)
+		db, _ := params["database"].(string)
+		dbID, _ := params["database_id"].(string)
+		if db != "" && dbID == "" {
+			resolved, err := t.resolveDatabaseID(ctx, db)
+			if err != nil {
+				return nil, err
+			}
+			dbID = resolved
+		}
+		if dbID == "" {
+			return nil, fmt.Errorf("database parameter required for execute_sql")
+		}
+		sql, _ := params["sql"].(string)
+		if sql == "" {
+			return nil, fmt.Errorf("sql parameter required for execute_sql")
+		}
+		return t.httpPost(ctx, "/api/v1/gov/execute-sql", map[string]any{
+			"database_id": dbID,
+			"sql":         sql,
+		})
 	case "list_tables":
 		db, ok := params["database"].(string)
 		if !ok || db == "" {
