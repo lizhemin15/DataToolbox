@@ -1,0 +1,40 @@
+{
+  "id": "single-datatable",
+  "name": "数据表浏览",
+  "description": "专注数据表浏览和筛选，支持搜索、排序、分页",
+  "category": "single",
+  "icon": "📋",
+  "tags": ["数据表", "浏览", "查询", "筛选"],
+  "required_tables": {
+    "data": {
+      "description": "要浏览的数据表",
+      "required_columns": [],
+      "optional_columns": []
+    }
+  },
+  "default_config": {
+    "title": "数据浏览",
+    "design_direction": "minimal",
+    "primary_color": "#6366F1"
+  },
+  "components": [
+    {
+      "component_id": "filter-bar",
+      "config": {
+        "filters": [
+          {"id": "search", "label": "搜索", "type": "text"},
+          {"id": "date_range", "label": "日期范围", "type": "date_range"}
+        ]
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "数据列表",
+        "data_source": "{{TABLE_API:data}}?limit=200",
+        "columns": [],
+        "height": 600
+      }
+    }
+  ]
+}

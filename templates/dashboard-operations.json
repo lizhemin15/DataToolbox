@@ -1,0 +1,76 @@
+{
+  "id": "dashboard-operations",
+  "name": "运营监控看板",
+  "description": "实时监控运营指标，包含关键KPI、趋势对比、异常预警",
+  "category": "dashboard",
+  "icon": "📈",
+  "tags": ["运营", "监控", "实时"],
+  "required_tables": {
+    "metrics": {
+      "description": "运营指标数据表",
+      "required_columns": ["timestamp", "metric_name", "value"],
+      "optional_columns": ["threshold", "status", "unit"]
+    }
+  },
+  "default_config": {
+    "title": "运营监控看板",
+    "design_direction": "dark",
+    "primary_color": "#10B981"
+  },
+  "components": [
+    {
+      "component_id": "filter-bar",
+      "config": {
+        "filters": [
+          {"id": "time_range", "label": "时间范围", "type": "date_range", "default": "last_7d"},
+          {"id": "metric_type", "label": "指标类型", "type": "select", "options": ["all", "traffic", "conversion", "revenue"]}
+        ]
+      }
+    },
+    {
+      "component_id": "kpi-card",
+      "config": {
+        "title": "实时指标",
+        "cards": [
+          {"label": "当前值", "value_field": "current", "format": "number", "icon": "📊", "trend": true},
+          {"label": "同比变化", "value_field": "yoy_change", "format": "percent", "icon": "📈"},
+          {"label": "环比变化", "value_field": "mom_change", "format": "percent", "icon": "📉"},
+          {"label": "异常数", "value_field": "anomaly_count", "format": "number", "icon": "⚠️", "alert": true}
+        ],
+        "data_source": "{{TABLE_API:metrics}}?latest=true"
+      }
+    },
+    {
+      "component_id": "chart-line",
+      "config": {
+        "title": "指标趋势",
+        "data_source": "{{TABLE_API:metrics}}?group_by=timestamp&order_by=timestamp&select=timestamp,avg(value)",
+        "x_field": "timestamp",
+        "y_fields": ["avg_value"],
+        "height": 350,
+        "show_area": true
+      }
+    },
+    {
+      "component_id": "chart-gauge",
+      "config": {
+        "title": "健康度评分",
+        "data_source": "{{TABLE_API:metrics}}?metric_name=health_score&latest=true",
+        "value_field": "value",
+        "min": 0,
+        "max": 100,
+        "thresholds": [60, 80],
+        "height": 250
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "异常记录",
+        "data_source": "{{TABLE_API:metrics}}?status=anomaly&order_by=timestamp:desc&limit=50",
+        "columns": ["timestamp", "metric_name", "value", "threshold", "status"],
+        "height": 300
+      }
+    }
+  ]
+}

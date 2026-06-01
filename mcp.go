@@ -19,6 +19,7 @@ import (
 
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/YOUR_USERNAME/DataToolbox/components"
+	"github.com/YOUR_USERNAME/DataToolbox/templates"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -397,6 +398,24 @@ type createDashboardIn struct {
 	DashboardName   string `json:"dashboard_name,omitempty" jsonschema:"看板名称（可选，默认用表名+看板）"`
 	DesignDirection string `json:"design_direction,omitempty" jsonschema:"设计方向：minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist，默认 minimal"`
 	Confirmed       bool   `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建看板；未确认时调用只生成预览"`
+}
+
+// ─── 应用模板工具输入类型 ─────────────────────────────────────────────────────
+
+type listTemplatesIn struct {
+	Category string `json:"category,omitempty" jsonschema:"按分类筛选：dashboard(看板)/single(单组件)，不传则返回全部"`
+}
+
+type createAppFromTemplateIn struct {
+	TemplateID      string            `json:"template_id" jsonschema:"required,模板ID，如 dashboard-sales/dashboard-operations/dashboard-geographic/dashboard-timeline/dashboard-comparison/single-kpi/single-datatable/single-chart"`
+	DatabaseID      string            `json:"database_id" jsonschema:"required,数据库 ID"`
+	TableNameMap    map[string]string `json:"table_name_map" jsonschema:"required,模板表名→实际表名映射，如 {\"sales\":\"ORDER_DETAILS\",\"data\":\"MY_TABLE\"}。模板ID含required_tables字段说明需要哪些表"`
+	Variant         string            `json:"variant,omitempty" jsonschema:"图表变体（仅 single-chart 模板有效）：bar/line/pie/area"`
+	Title           string            `json:"title,omitempty" jsonschema:"应用标题（可选，默认用模板名称）"`
+	DesignDirection string            `json:"design_direction,omitempty" jsonschema:"设计方向（可选，默认用模板预设）"`
+	PrimaryColor    string            `json:"primary_color,omitempty" jsonschema:"主色调 HEX（可选，默认用模板预设）"`
+	IsPublic        bool              `json:"is_public,omitempty" jsonschema:"是否公开"`
+	Confirmed       bool              `json:"confirmed,omitempty" jsonschema:"用户确认后设为 true 正式创建应用；未确认时调用只生成预览"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
@@ -2043,6 +2062,105 @@ func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn)
 	return mcpTextResult(string(data)), nil, nil
 }
 
+// ─── 应用模板工具 ────────────────────────────────────────────────────────────
+
+func mcpListTemplates(ctx context.Context, req *mcp.CallToolRequest, in listTemplatesIn) (*mcp.CallToolResult, any, error) {
+	list := templates.ListTemplatesFlat()
+
+	// 按分类筛选
+	if in.Category != "" {
+		filtered := make([]*templates.AppTemplate, 0)
+		for _, t := range list {
+			if t.Category == in.Category {
+				filtered = append(filtered, t)
+			}
+		}
+		list = filtered
+	}
+
+	// 构建精简摘要（不返回完整 JSON，避免 token 浪费）
+	type templateSummary struct {
+		ID              string            `json:"id"`
+		Name            string            `json:"name"`
+		Category        string            `json:"category"`
+		Icon            string            `json:"icon"`
+		Description     string            `json:"description"`
+		Tags            []string          `json:"tags"`
+		RequiredTables  map[string]string `json:"required_tables"`
+		Variants        []string          `json:"variants,omitempty"`
+	}
+
+	summaries := make([]templateSummary, 0, len(list))
+	for _, t := range list {
+		s := templateSummary{
+			ID:         t.ID,
+			Name:       t.Name,
+			Category:   t.Category,
+			Icon:       t.Icon,
+			Description: t.Description,
+			Tags:       t.Tags,
+		}
+		// 简化 required_tables：只保留表名和描述
+		s.RequiredTables = make(map[string]string)
+		for k, v := range t.RequiredTables {
+			s.RequiredTables[k] = v.Description + " (需要: " + strings.Join(v.RequiredColumns, ", ") + ")"
+		}
+		// 图表变体
+		if t.ChartVariants != nil {
+			for k := range t.ChartVariants {
+				s.Variants = append(s.Variants, k)
+			}
+		}
+		summaries = append(summaries, s)
+	}
+
+	data, _ := json.Marshal(summaries)
+	return mcpTextResult(string(data)), nil, nil
+}
+
+func mcpCreateAppFromTemplate(ctx context.Context, req *mcp.CallToolRequest, in createAppFromTemplateIn) (*mcp.CallToolResult, any, error) {
+	// 实例化模板
+	blueprint, err := templates.Instantiate(in.TemplateID, in.DatabaseID, in.TableNameMap, in.Variant)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 用户自定义覆盖
+	if in.Title != "" {
+		blueprint.Title = in.Title
+	}
+	if in.DesignDirection != "" {
+		blueprint.DesignDirection = in.DesignDirection
+	}
+	if in.PrimaryColor != "" {
+		blueprint.PrimaryColor = in.PrimaryColor
+	}
+
+	// 转为 createAppFromBlueprintIn 复用已有创建逻辑
+	compInstances := make([]components.ComponentInstance, 0, len(blueprint.Components))
+	for _, c := range blueprint.Components {
+		compInstances = append(compInstances, components.ComponentInstance{
+			ComponentID: c.ComponentID,
+			Config:      c.Config,
+		})
+	}
+
+	appIn := createAppFromBlueprintIn{
+		Title:           blueprint.Title,
+		Slug:            blueprint.Slug,
+		Description:     blueprint.Description,
+		Icon:            blueprint.Icon,
+		DesignDirection: blueprint.DesignDirection,
+		PrimaryColor:    blueprint.PrimaryColor,
+		IsPublic:        in.IsPublic,
+		Confirmed:       in.Confirmed,
+		Components:      compInstances,
+	}
+
+	// 复用 create_app 的完整逻辑（预览 + HITL + 创建）
+	return mcpCreateAppFromBlueprint(ctx, req, appIn)
+}
+
 // ─── MCP 客户端上下文传递 ────────────────────────────────────────────────────
 
 type mcpClientContextKey struct{}
@@ -2201,6 +2319,8 @@ func initMCPHTTPHandler() {
 		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_dashboard", Description: `一键生成数据看板：自动根据表结构选择组件，组合成完整看板页面。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateDashboard)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_templates", Description: `列出预制应用模板。模板是预配置的组件组合，智能助手只需指定模板ID和表名映射即可生成高质量应用，无需逐个配置组件。分类：dashboard(看板)/single(单组件)`}, mcpListTemplates)
+		mcp.AddTool(server, &mcp.Tool{Name: "create_app_from_template", Description: `从预制模板创建应用。只需指定模板ID+数据库ID+表名映射，自动填充组件配置。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。模板ID见list_templates返回`}, mcpCreateAppFromTemplate)
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)

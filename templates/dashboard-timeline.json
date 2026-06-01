@@ -1,0 +1,76 @@
+{
+  "id": "dashboard-timeline",
+  "name": "时间线追踪看板",
+  "description": "按时间线展示事件发展脉络，适合项目追踪、事件分析、历史回顾",
+  "category": "dashboard",
+  "icon": "📅",
+  "tags": ["时间线", "事件", "追踪", "项目"],
+  "required_tables": {
+    "events": {
+      "description": "事件数据表",
+      "required_columns": ["date", "title"],
+      "optional_columns": ["category", "description", "status", "priority"]
+    }
+  },
+  "default_config": {
+    "title": "事件追踪看板",
+    "design_direction": "elegant",
+    "primary_color": "#8B5CF6"
+  },
+  "components": [
+    {
+      "component_id": "filter-bar",
+      "config": {
+        "filters": [
+          {"id": "date_range", "label": "时间范围", "type": "date_range"},
+          {"id": "category", "label": "分类", "type": "select", "options": ["all"]},
+          {"id": "status", "label": "状态", "type": "select", "options": ["all", "进行中", "已完成", "待处理"]}
+        ]
+      }
+    },
+    {
+      "component_id": "kpi-card",
+      "config": {
+        "title": "事件概览",
+        "cards": [
+          {"label": "总事件数", "value_field": "total", "format": "number", "icon": "📋"},
+          {"label": "进行中", "value_field": "in_progress", "format": "number", "icon": "🔄"},
+          {"label": "已完成", "value_field": "completed", "format": "number", "icon": "✅"},
+          {"label": "高优先级", "value_field": "high_priority", "format": "number", "icon": "🔴", "alert": true}
+        ],
+        "data_source": "{{TABLE_API:events}}?stats=true"
+      }
+    },
+    {
+      "component_id": "timeline",
+      "config": {
+        "title": "事件时间线",
+        "data_source": "{{TABLE_API:events}}?order_by=date:desc&limit=50",
+        "date_field": "date",
+        "title_field": "title",
+        "description_field": "description",
+        "category_field": "category",
+        "height": 400
+      }
+    },
+    {
+      "component_id": "chart-bar",
+      "config": {
+        "title": "按分类统计",
+        "data_source": "{{TABLE_API:events}}?group_by=category&select=category,count(*)&order_by=count:desc",
+        "x_field": "category",
+        "y_fields": ["count"],
+        "height": 250
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "事件列表",
+        "data_source": "{{TABLE_API:events}}?order_by=date:desc&limit=100",
+        "columns": ["date", "title", "category", "status", "priority"],
+        "height": 300
+      }
+    }
+  ]
+}

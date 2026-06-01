@@ -1,0 +1,57 @@
+{
+  "id": "single-kpi",
+  "name": "单指标监控",
+  "description": "专注展示单个关键指标，包含当前值、趋势、仪表盘和目标达成",
+  "category": "single",
+  "icon": "🎯",
+  "tags": ["KPI", "单指标", "目标", "仪表盘"],
+  "required_tables": {
+    "metric": {
+      "description": "指标数据表",
+      "required_columns": ["timestamp", "value"],
+      "optional_columns": ["target", "unit"]
+    }
+  },
+  "default_config": {
+    "title": "指标监控",
+    "design_direction": "minimal",
+    "primary_color": "#4F46E5"
+  },
+  "components": [
+    {
+      "component_id": "kpi-card",
+      "config": {
+        "title": "当前指标",
+        "cards": [
+          {"label": "当前值", "value_field": "current", "format": "number", "icon": "📊", "trend": true},
+          {"label": "目标值", "value_field": "target", "format": "number", "icon": "🎯"},
+          {"label": "达成率", "value_field": "achievement_rate", "format": "percent", "icon": "✅"},
+          {"label": "同比", "value_field": "yoy_change", "format": "percent", "icon": "📈"}
+        ],
+        "data_source": "{{TABLE_API:metric}}?latest=true&stats=true"
+      }
+    },
+    {
+      "component_id": "chart-gauge",
+      "config": {
+        "title": "目标达成",
+        "data_source": "{{TABLE_API:metric}}?latest=true",
+        "value_field": "achievement_rate",
+        "min": 0,
+        "max": 100,
+        "thresholds": [60, 80],
+        "height": 250
+      }
+    },
+    {
+      "component_id": "chart-area",
+      "config": {
+        "title": "历史趋势",
+        "data_source": "{{TABLE_API:metric}}?order_by=timestamp&select=timestamp,value&limit=90",
+        "x_field": "timestamp",
+        "y_fields": ["value"],
+        "height": 300
+      }
+    }
+  ]
+}

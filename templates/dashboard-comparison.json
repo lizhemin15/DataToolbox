@@ -1,0 +1,72 @@
+{
+  "id": "dashboard-comparison",
+  "name": "对比分析看板",
+  "description": "多维度数据对比分析，支持分组对比、趋势对比、排名对比",
+  "category": "dashboard",
+  "icon": "⚖️",
+  "tags": ["对比", "分析", "排名", "分组"],
+  "required_tables": {
+    "data": {
+      "description": "对比数据表",
+      "required_columns": ["name", "value"],
+      "optional_columns": ["category", "period", "target", "rank"]
+    }
+  },
+  "default_config": {
+    "title": "对比分析看板",
+    "design_direction": "minimal",
+    "primary_color": "#F59E0B"
+  },
+  "components": [
+    {
+      "component_id": "filter-bar",
+      "config": {
+        "filters": [
+          {"id": "category", "label": "分类", "type": "select", "options": ["all"]},
+          {"id": "period", "label": "时间段", "type": "select", "options": ["本月", "本季", "本年"]}
+        ]
+      }
+    },
+    {
+      "component_id": "chart-combo",
+      "config": {
+        "title": "实际 vs 目标",
+        "data_source": "{{TABLE_API:data}}?group_by=name&select=name,sum(value),sum(target)",
+        "x_field": "name",
+        "bar_fields": ["sum_value"],
+        "line_fields": ["sum_target"],
+        "height": 350
+      }
+    },
+    {
+      "component_id": "chart-bar",
+      "config": {
+        "title": "排名对比",
+        "data_source": "{{TABLE_API:data}}?group_by=name&select=name,sum(value)&order_by=sum_value:desc&limit=15",
+        "x_field": "name",
+        "y_fields": ["sum_value"],
+        "height": 300
+      }
+    },
+    {
+      "component_id": "chart-heatmap",
+      "config": {
+        "title": "分类×时段热力图",
+        "data_source": "{{TABLE_API:data}}?group_by=category,period&select=category,period,sum(value)",
+        "x_field": "period",
+        "y_field": "category",
+        "value_field": "sum_value",
+        "height": 300
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "明细数据",
+        "data_source": "{{TABLE_API:data}}?order_by=value:desc&limit=100",
+        "columns": ["name", "category", "period", "value", "target", "rank"],
+        "height": 300
+      }
+    }
+  ]
+}

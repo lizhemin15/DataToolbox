@@ -1,0 +1,62 @@
+{
+  "id": "dashboard-geographic",
+  "name": "地理分布看板",
+  "description": "展示数据的地理空间分布，包含地图、区域统计和明细",
+  "category": "dashboard",
+  "icon": "🗺️",
+  "tags": ["地图", "地理", "分布", "区域"],
+  "required_tables": {
+    "locations": {
+      "description": "含地理位置的数据表",
+      "required_columns": ["name", "lat", "lng"],
+      "optional_columns": ["value", "category", "region", "count"]
+    }
+  },
+  "default_config": {
+    "title": "地理分布看板",
+    "design_direction": "minimal",
+    "primary_color": "#0EA5E9"
+  },
+  "components": [
+    {
+      "component_id": "filter-bar",
+      "config": {
+        "filters": [
+          {"id": "region", "label": "区域", "type": "select", "options": ["all", "华东", "华南", "华北", "西南", "西北", "东北"]},
+          {"id": "category", "label": "分类", "type": "select", "options": ["all"]}
+        ]
+      }
+    },
+    {
+      "component_id": "map-scatter",
+      "config": {
+        "title": "分布地图",
+        "data_source": "{{TABLE_API:locations}}",
+        "lat_field": "lat",
+        "lng_field": "lng",
+        "name_field": "name",
+        "value_field": "value",
+        "height": 450
+      }
+    },
+    {
+      "component_id": "chart-bar",
+      "config": {
+        "title": "区域统计",
+        "data_source": "{{TABLE_API:locations}}?group_by=region&select=region,sum(value),count(*)&order_by=sum_value:desc",
+        "x_field": "region",
+        "y_fields": ["sum_value"],
+        "height": 300
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "位置明细",
+        "data_source": "{{TABLE_API:locations}}?order_by=value:desc&limit=100",
+        "columns": ["name", "region", "lat", "lng", "value", "category"],
+        "height": 350
+      }
+    }
+  ]
+}

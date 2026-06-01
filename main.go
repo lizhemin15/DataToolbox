@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/YOUR_USERNAME/DataToolbox/components"
+	"github.com/YOUR_USERNAME/DataToolbox/templates"
 )
 
 func main() {
@@ -46,6 +47,13 @@ func main() {
 		total := 0
 		for _, c := range comps { total += len(c) }
 		log.Printf("[组件] 已加载 %d 个预制组件", total)
+	}
+	// 加载应用模板库
+	if err := templates.LoadTemplates("templates"); err != nil {
+		log.Printf("[模板] 加载应用模板失败: %v（将使用空模板库）", err)
+	} else {
+		tmplList := templates.ListTemplatesFlat()
+		log.Printf("[模板] 已加载 %d 个应用模板", len(tmplList))
 	}
 	// 初始化网页导航
 	initWebNav()

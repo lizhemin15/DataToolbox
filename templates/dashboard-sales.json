@@ -1,0 +1,81 @@
+{
+  "id": "dashboard-sales",
+  "name": "销售数据看板",
+  "description": "展示销售数据的多维度分析看板，包含KPI卡片、趋势图、分类占比和明细表格",
+  "category": "dashboard",
+  "icon": "📊",
+  "tags": ["销售", "看板", "数据分析"],
+  "required_tables": {
+    "sales": {
+      "description": "销售数据表",
+      "required_columns": ["date", "amount", "category", "region", "product"],
+      "optional_columns": ["quantity", "profit", "customer_id"]
+    }
+  },
+  "default_config": {
+    "title": "销售数据看板",
+    "design_direction": "corporate",
+    "primary_color": "#4F46E5"
+  },
+  "components": [
+    {
+      "component_id": "kpi-card",
+      "config": {
+        "title": "核心指标",
+        "cards": [
+          {"label": "总销售额", "value_field": "amount", "format": "currency", "icon": "💰"},
+          {"label": "订单数", "value_field": "count", "format": "number", "icon": "📦"},
+          {"label": "平均客单价", "value_field": "avg_amount", "format": "currency", "icon": "💵"},
+          {"label": "利润率", "value_field": "profit_rate", "format": "percent", "icon": "📈"}
+        ],
+        "data_source": "{{TABLE_API:sales}}?select=sum(amount),count(*),avg(amount),sum(profit)/sum(amount)"
+      }
+    },
+    {
+      "component_id": "chart-line",
+      "config": {
+        "title": "销售趋势",
+        "data_source": "{{TABLE_API:sales}}?group_by=date&order_by=date&select=date,sum(amount)",
+        "x_field": "date",
+        "y_fields": ["sum_amount"],
+        "height": 300
+      }
+    },
+    {
+      "component_id": "chart-pie",
+      "config": {
+        "title": "分类占比",
+        "data_source": "{{TABLE_API:sales}}?group_by=category&select=category,sum(amount)",
+        "name_field": "category",
+        "value_field": "sum_amount",
+        "height": 300
+      }
+    },
+    {
+      "component_id": "chart-bar",
+      "config": {
+        "title": "区域销售对比",
+        "data_source": "{{TABLE_API:sales}}?group_by=region&select=region,sum(amount)&order_by=sum_amount:desc",
+        "x_field": "region",
+        "y_fields": ["sum_amount"],
+        "height": 300
+      }
+    },
+    {
+      "component_id": "data-table",
+      "config": {
+        "title": "销售明细",
+        "data_source": "{{TABLE_API:sales}}?order_by=date:desc&limit=100",
+        "columns": ["date", "product", "category", "region", "amount", "quantity"],
+        "height": 400
+      }
+    }
+  ],
+  "placeholders": {
+    "{{TABLE_API:sales}}": {
+      "description": "销售数据表的 API 地址",
+      "auto_fill": "database_id + table_name",
+      "template": "/api/v1/databases/{database_id}/tables/{table_name}/data"
+    }
+  }
+}
