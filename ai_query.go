@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -1128,7 +1129,11 @@ func executeForwardRequest(w http.ResponseWriter, r *http.Request, targetURL str
 		}
 	}
 
-	client := &http.Client{Timeout: HTTPClientTimeout}
+	// 转发请求跳过TLS证书验证（目标可能是自签名证书或IP无SAN）
+	insecureTransport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Timeout: HTTPClientTimeout, Transport: insecureTransport}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		log.Printf("[API] 转发请求失败: target=%s, err=%v", targetURL, err)
