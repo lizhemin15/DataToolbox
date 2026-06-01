@@ -2150,7 +2150,12 @@ func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in any) (*mcp.Cal
 	}
 
 	// 从 req.Params.Arguments 手动解析参数
-	args, _ := req.Params.Arguments.(map[string]any)
+	var args map[string]any
+	if len(req.Params.Arguments) > 0 {
+		if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+			return nil, nil, fmt.Errorf("解析参数失败: %w", err)
+		}
+	}
 	getStr := func(key string) string {
 		if v, ok := args[key]; ok && v != nil {
 			return fmt.Sprintf("%v", v)
