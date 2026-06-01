@@ -225,6 +225,16 @@
     cursor: default;
 }
 
+.non-editable-cell {
+    cursor: not-allowed;
+    background: #f9f9f9;
+    opacity: 0.8;
+}
+
+.non-editable-cell:focus {
+    outline: none;
+}
+
 .blob-badge {
     display: inline-block;
     background: #f0f0f0;

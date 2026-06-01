@@ -76,6 +76,8 @@ async function saveTableData() {
             const cells = row.querySelectorAll('.editable-cell');
             cells.forEach(cell => {
                 const column = cell.dataset.column;
+                // 跳过 BLOB/不可编辑列
+                if (cell.dataset.blob === 'true' || cell.classList.contains('cell-non-editable')) return;
                 const nullEl = cell.querySelector('.null-value');
                 const value = nullEl ? null : cell.textContent.trim();
                 rowData[column] = value === '' ? null : value;

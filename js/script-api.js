@@ -879,7 +879,8 @@ function formatCellValue(value) {
         const typeLabel = value._type || 'BLOB';
         return {
             html: `<span class="blob-badge" title="${typeLabel}, ${sizeStr}">${escapeHtml(typeLabel)} ${escapeHtml(sizeStr)}</span>`,
-            cls: ' cell-blob'
+            cls: ' cell-blob cell-non-editable',
+            isBlob: true
         };
     }
     // 未知对象（兜底，避免 [object Object] 或 JSON.stringify 大对象卡死）
@@ -1005,8 +1006,9 @@ async function previewTable(tableName, keepEditMode = false) {
                             return `
                                 <tr data-row-id="${rowId}" data-row-index="${rowIndex}">
                                     ${columns.map(col => {
-                                        const { html: displayValue, cls: cellCls } = formatCellValue(row[col]);
-                                        return `<td data-column="${escapeHtml(col)}" class="editable-cell${cellCls}">${displayValue}</td>`;
+                                        const { html: displayValue, cls: cellCls, isBlob } = formatCellValue(row[col]);
+                                        const editableCls = isBlob ? 'non-editable-cell' : 'editable-cell';
+                                        return `<td data-column="${escapeHtml(col)}" class="${editableCls}${cellCls}" ${isBlob ? 'data-blob="true"' : ''}>${displayValue}</td>`;
                                     }).join('')}
                                     ${isTableEditMode ? `<td class="action-column"><button class="btn-icon-delete" onclick="deleteTableRow('${rowId}')" title="删除">×</button></td>` : ''}
                                 </tr>
@@ -1161,6 +1163,9 @@ function enableTableEditMode() {
 function enableTableEditing() {
     const cells = document.querySelectorAll('.editable-cell');
     cells.forEach(cell => {
+        // 跳过 BLOB/不可编辑单元格
+        if (cell.classList.contains('cell-non-editable') || cell.dataset.blob === 'true') return;
+        
         cell.contentEditable = 'true';
         cell.classList.add('editing');
         
