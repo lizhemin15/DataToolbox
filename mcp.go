@@ -425,13 +425,13 @@ type askUserOption struct {
 	ID          string `json:"id" jsonschema:"required,选项ID"`
 	Label       string `json:"label" jsonschema:"required,选项显示文本"`
 	Description string `json:"description,omitempty" jsonschema:"选项描述"`
-	Style       string `json:"style,omitempty" jsonschema:"选项样式：default/primary/danger/warning"`
+	Style       string `json:"style,omitempty" jsonschema:"选项样式,enum=default,enum=primary,enum=danger,enum=warning"`
 }
 
 type askUserField struct {
 	ID           string           `json:"id" jsonschema:"required,字段ID"`
 	Label        string           `json:"label" jsonschema:"required,字段显示名"`
-	Type         string           `json:"type,omitempty" jsonschema:"字段类型：text/number/select/textarea，默认text"`
+	Type         string           `json:"type,omitempty" jsonschema:"字段类型,enum=text,enum=number,enum=select,enum=textarea"`
 	Placeholder  string           `json:"placeholder,omitempty" jsonschema:"占位提示文本"`
 	Required     bool             `json:"required,omitempty" jsonschema:"是否必填"`
 	DefaultValue string           `json:"default_value,omitempty" jsonschema:"默认值"`
@@ -439,13 +439,13 @@ type askUserField struct {
 }
 
 type askUserIn struct {
-	InteractionType string          `json:"interaction_type" jsonschema:"required,交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)"`
+	InteractionType string          `json:"interaction_type" jsonschema:"required,交互类型,enum=confirm,enum=single_select,enum=multi_select,enum=input,enum=form"`
 	Title           string          `json:"title" jsonschema:"required,交互标题"`
-	Description     string          `json:"description,omitempty" jsonschema:"交互描述/补充说明"`
-	Options         []askUserOption `json:"options,omitempty" jsonschema:"选项列表（confirm/single_select/multi_select类型使用）"`
-	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"表单字段列表（input/form类型使用）"`
-	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"超时秒数（默认86400=24小时）"`
-	SessionID       string          `json:"session_id,omitempty" jsonschema:"会话ID（可选，默认default）"`
+	Description     string          `json:"description,omitempty" jsonschema:"交互描述"`
+	Options         []askUserOption `json:"options,omitempty" jsonschema:"选项列表,description=用于confirm/single_select/multi_select类型"`
+	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"表单字段列表,description=用于input/form类型"`
+	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"超时秒数,description=默认86400即24小时"`
+	SessionID       string          `json:"session_id,omitempty" jsonschema:"会话ID,description=默认default"`
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
