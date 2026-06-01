@@ -22,6 +22,7 @@ import (
 	"github.com/YOUR_USERNAME/DataToolbox/components"
 	"github.com/YOUR_USERNAME/DataToolbox/templates"
 	"github.com/google/uuid"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -421,31 +422,77 @@ type createAppFromTemplateIn struct {
 
 // ─── ask_user HITL 工具输入类型 ─────────────────────────────────────────────────
 
-type askUserOption struct {
-	ID          string `json:"id" jsonschema:"required,description=Option ID"`
-	Label       string `json:"label" jsonschema:"required,description=Option display text"`
-	Description string `json:"description,omitempty" jsonschema:"description=Option description"`
-	Style       string `json:"style,omitempty" jsonschema:"enum=default,enum=primary,enum=danger,enum=warning,description=Option style"`
-}
-
-type askUserField struct {
-	ID           string           `json:"id" jsonschema:"required,description=Field ID"`
-	Label        string           `json:"label" jsonschema:"required,description=Field display name"`
-	Type         string           `json:"type,omitempty" jsonschema:"enum=text,enum=number,enum=select,enum=textarea,description=Field type"`
-	Placeholder  string           `json:"placeholder,omitempty" jsonschema:"description=Placeholder text"`
-	Required     bool             `json:"required,omitempty" jsonschema:"description=Whether the field is required"`
-	DefaultValue string           `json:"default_value,omitempty" jsonschema:"description=Default value"`
-	Options      []askUserOption  `json:"options,omitempty" jsonschema:"description=Options for select type fields"`
-}
-
-type askUserIn struct {
-	InteractionType string          `json:"interaction_type" jsonschema:"required,enum=confirm,enum=single_select,enum=multi_select,enum=input,enum=form,description=Interaction type"`
-	Title           string          `json:"title" jsonschema:"required,description=Interaction title"`
-	Description     string          `json:"description,omitempty" jsonschema:"description=Interaction description"`
-	Options         []askUserOption `json:"options,omitempty" jsonschema:"description=Options for confirm/single_select/multi_select types"`
-	Fields          []askUserField  `json:"fields,omitempty" jsonschema:"description=Form fields for input/form types"`
-	TimeoutSeconds  int             `json:"timeout_seconds,omitempty" jsonschema:"description=Timeout in seconds, default 86400"`
-	SessionID       string          `json:"session_id,omitempty" jsonschema:"description=Session ID, default is default"`
+// ask_user 工具的 JSON Schema（手动定义，避免 go jsonschema tag 解析限制）
+var askUserInputSchema = &jsonschema.Schema{
+	Type:        "object",
+	Description: "Ask user a question and wait for response",
+	Properties: map[string]*jsonschema.Schema{
+		"interaction_type": {
+			Type:        "string",
+			Description: "Interaction type",
+			Enum:        []any{"confirm", "single_select", "multi_select", "input", "form"},
+		},
+		"title":       {Type: "string", Description: "Interaction title"},
+		"description": {Type: "string", Description: "Interaction description"},
+		"options": {
+			Type:        "array",
+			Description: "Options for confirm/single_select/multi_select types",
+			Items: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"id":          {Type: "string", Description: "Option ID"},
+					"label":       {Type: "string", Description: "Option display text"},
+					"description": {Type: "string", Description: "Option description"},
+					"style": {
+						Type:        "string",
+						Description: "Option style",
+						Enum:        []any{"default", "primary", "danger", "warning"},
+					},
+				},
+				Required: []string{"id", "label"},
+			},
+		},
+		"fields": {
+			Type:        "array",
+			Description: "Form fields for input/form types",
+			Items: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"id":            {Type: "string", Description: "Field ID"},
+					"label":         {Type: "string", Description: "Field display name"},
+					"type": {
+						Type:        "string",
+						Description: "Field type",
+						Enum:        []any{"text", "number", "select", "textarea"},
+					},
+					"placeholder":   {Type: "string", Description: "Placeholder text"},
+					"required":      {Type: "boolean", Description: "Whether the field is required"},
+					"default_value": {Type: "string", Description: "Default value"},
+					"options": {
+						Type:        "array",
+						Description: "Options for select type fields",
+						Items: &jsonschema.Schema{
+							Type: "object",
+							Properties: map[string]*jsonschema.Schema{
+								"id":          {Type: "string", Description: "Option ID"},
+								"label":       {Type: "string", Description: "Option display text"},
+								"description": {Type: "string", Description: "Option description"},
+								"style": {
+									Type:        "string",
+									Description: "Option style",
+									Enum:        []any{"default", "primary", "danger", "warning"},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"id", "label"},
+			},
+		},
+		"timeout_seconds": {Type: "integer", Description: "Timeout in seconds, default 86400"},
+		"session_id":      {Type: "string", Description: "Session ID, default is default"},
+	},
+	Required: []string{"interaction_type", "title"},
 }
 
 // ─── 应用管理工具输入类型 ─────────────────────────────────────────────────────
@@ -2097,14 +2144,97 @@ func mcpDeleteApp(ctx context.Context, req *mcp.CallToolRequest, in deleteAppIn)
 // mcpAskUser 实现 MCP 版本的 ask_user 工具
 // 通过创建虚拟 agent run + HITLManager 注册请求，让前端能通过轮询机制看到 HITL 交互
 // 阻塞等待用户响应后返回结果
-func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*mcp.CallToolResult, any, error) {
+func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in any) (*mcp.CallToolResult, any, error) {
 	if globalHITLManager == nil {
 		return nil, nil, fmt.Errorf("HITL 管理器未初始化")
 	}
 
-	sessionID := in.SessionID
+	// 从 req.Params.Arguments 手动解析参数
+	args, _ := req.Params.Arguments.(map[string]any)
+	getStr := func(key string) string {
+		if v, ok := args[key]; ok && v != nil {
+			return fmt.Sprintf("%v", v)
+		}
+		return ""
+	}
+	getInt := func(key string) int {
+		if v, ok := args[key]; ok && v != nil {
+			switch n := v.(type) {
+			case float64:
+				return int(n)
+			case int:
+				return n
+			}
+		}
+		return 0
+	}
+
+	interactionType := getStr("interaction_type")
+	title := getStr("title")
+	description := getStr("description")
+	sessionID := getStr("session_id")
 	if sessionID == "" {
 		sessionID = "default"
+	}
+	timeoutSeconds := getInt("timeout_seconds")
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 86400
+	}
+
+	// 解析 options
+	var hitlOptions []agent.HITLOption
+	if rawOpts, ok := args["options"]; ok && rawOpts != nil {
+		if optList, ok := rawOpts.([]any); ok {
+			for _, raw := range optList {
+				if m, ok := raw.(map[string]any); ok {
+					hitlOptions = append(hitlOptions, agent.HITLOption{
+						ID:          fmt.Sprintf("%v", m["id"]),
+						Label:       fmt.Sprintf("%v", m["label"]),
+						Description: fmt.Sprintf("%v", m["description"]),
+						Style:       fmt.Sprintf("%v", m["style"]),
+					})
+				}
+			}
+		}
+	}
+
+	// 解析 fields
+	var hitlFields []agent.HITLField
+	if rawFields, ok := args["fields"]; ok && rawFields != nil {
+		if fieldList, ok := rawFields.([]any); ok {
+			for _, raw := range fieldList {
+				if m, ok := raw.(map[string]any); ok {
+					var fieldOpts []agent.HITLOption
+					if rawFieldOpts, ok := m["options"].([]any); ok {
+						for _, rawOpt := range rawFieldOpts {
+							if om, ok := rawOpt.(map[string]any); ok {
+								fieldOpts = append(fieldOpts, agent.HITLOption{
+									ID:          fmt.Sprintf("%v", om["id"]),
+									Label:       fmt.Sprintf("%v", om["label"]),
+									Description: fmt.Sprintf("%v", om["description"]),
+									Style:       fmt.Sprintf("%v", om["style"]),
+								})
+							}
+						}
+					}
+					required := false
+					if v, ok := m["required"]; ok {
+						if b, ok := v.(bool); ok {
+							required = b
+						}
+					}
+					hitlFields = append(hitlFields, agent.HITLField{
+						ID:           fmt.Sprintf("%v", m["id"]),
+						Label:        fmt.Sprintf("%v", m["label"]),
+						Type:         fmt.Sprintf("%v", m["type"]),
+						Placeholder:  fmt.Sprintf("%v", m["placeholder"]),
+						Required:     required,
+						DefaultValue: fmt.Sprintf("%v", m["default_value"]),
+						Options:      fieldOpts,
+					})
+				}
+			}
+		}
 	}
 
 	// 1. 创建虚拟 agent run（让前端轮询能发现）
@@ -2117,55 +2247,16 @@ func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*m
 	}
 	if err := sqlCreateAgentRun(run); err != nil {
 		log.Printf("[mcp-ask_user] 创建虚拟 agent run 失败: %v", err)
-		// 不阻断，继续执行
 	}
 
-	// 2. 转换选项和字段
-	var hitlOptions []agent.HITLOption
-	for _, o := range in.Options {
-		hitlOptions = append(hitlOptions, agent.HITLOption{
-			ID:          o.ID,
-			Label:       o.Label,
-			Description: o.Description,
-			Style:       o.Style,
-		})
-	}
-
-	var hitlFields []agent.HITLField
-	for _, f := range in.Fields {
-		var fieldOpts []agent.HITLOption
-		for _, o := range f.Options {
-			fieldOpts = append(fieldOpts, agent.HITLOption{
-				ID:          o.ID,
-				Label:       o.Label,
-				Description: o.Description,
-				Style:       o.Style,
-			})
-		}
-		hitlFields = append(hitlFields, agent.HITLField{
-			ID:           f.ID,
-			Label:        f.Label,
-			Type:         f.Type,
-			Placeholder:  f.Placeholder,
-			Required:     f.Required,
-			DefaultValue: f.DefaultValue,
-			Options:      fieldOpts,
-		})
-	}
-
-	timeoutSeconds := in.TimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 86400 // 默认 24 小时
-	}
-
-	// 3. 注册 HITL 请求
+	// 2. 注册 HITL 请求
 	hitlID := uuid.New().String()
 	hitlReq := agent.HITLRequest{
 		ID:              hitlID,
 		SessionID:       sessionID,
-		InteractionType: agent.HITLInteractionType(in.InteractionType),
-		Title:           in.Title,
-		Description:     in.Description,
+		InteractionType: agent.HITLInteractionType(interactionType),
+		Title:           title,
+		Description:     description,
 		Options:         hitlOptions,
 		Fields:          hitlFields,
 		TimeoutSeconds:  timeoutSeconds,
@@ -2173,13 +2264,13 @@ func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*m
 	}
 	respCh := globalHITLManager.RegisterRequest(hitlReq)
 
-	// 4. 写入 hitl_interaction 事件到 DB（前端轮询能看到）
+	// 3. 写入 hitl_interaction 事件到 DB（前端轮询能看到）
 	evtData := map[string]interface{}{
 		"hitl_id":         hitlID,
 		"session_id":      sessionID,
-		"interaction_type": in.InteractionType,
-		"title":           in.Title,
-		"description":     in.Description,
+		"interaction_type": interactionType,
+		"title":           title,
+		"description":     description,
 		"options":         hitlOptions,
 		"fields":          hitlFields,
 		"timeout_seconds": timeoutSeconds,
@@ -2188,9 +2279,9 @@ func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*m
 	evtDataJSON, _ := json.Marshal(evtData)
 	_ = sqlAppendAgentEvent(runID, 0, "hitl_interaction", string(evtDataJSON))
 
-	log.Printf("[mcp-ask_user] HITL 请求已注册: hitl_id=%s, session=%s, type=%s, run_id=%s", hitlID, sessionID, in.InteractionType, runID)
+	log.Printf("[mcp-ask_user] HITL 请求已注册: hitl_id=%s, session=%s, type=%s, run_id=%s", hitlID, sessionID, interactionType, runID)
 
-	// 5. 阻塞等待用户响应
+	// 4. 阻塞等待用户响应
 	select {
 	case resp := <-respCh:
 		log.Printf("[mcp-ask_user] 收到用户响应: hitl_id=%s, action=%s", hitlID, resp.Action)
@@ -2207,7 +2298,7 @@ func mcpAskUser(ctx context.Context, req *mcp.CallToolRequest, in askUserIn) (*m
 		_ = sqlAppendAgentEvent(runID, 1, "done", string(doneData))
 
 		if resp.Action == "cancel" {
-			return mcpTextResult(fmt.Sprintf("User cancelled the request.")), nil, nil
+			return mcpTextResult("User cancelled the request."), nil, nil
 		}
 		if resp.Action == "timeout" {
 			return mcpTextResult(fmt.Sprintf("Request timed out after %d seconds.", timeoutSeconds)), nil, nil
@@ -2495,7 +2586,7 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 		mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 		mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
-		mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`}, mcpAskUser)
+		mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`, InputSchema: askUserInputSchema}, mcpAskUser)
 
 		return server
 	}
@@ -2589,7 +2680,7 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "list_apps", Description: "列出所有应用"}, mcpListApps)
 	mcp.AddTool(server, &mcp.Tool{Name: "update_app", Description: "更新已有应用"}, mcpUpdateApp)
 	mcp.AddTool(server, &mcp.Tool{Name: "delete_app", Description: "删除指定应用"}, mcpDeleteApp)
-	mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`}, mcpAskUser)
+	mcp.AddTool(server, &mcp.Tool{Name: "ask_user", Description: `向用户提问并等待响应。交互类型：confirm(是/否确认)/single_select(单选)/multi_select(多选)/input(填空)/form(多字段表单)。危险操作前必须用confirm确认；需要用户选择时用single_select/multi_select；需要多个输入时用form。工具会阻塞直到用户响应或超时`, InputSchema: askUserInputSchema}, mcpAskUser)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP 运行错误: %v\n", err)
