@@ -4,7 +4,10 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +16,48 @@ import (
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/logger"
 	"github.com/YOUR_USERNAME/DataToolbox/picoclaw/pkg/providers"
 )
+
+// toolCallSignature generates a stable hash for a set of tool calls to detect loops.
+func toolCallSignature(calls []providers.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	// Sort by name for deterministic ordering
+	sorted := make([]providers.ToolCall, len(calls))
+	copy(sorted, calls)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+
+	h := sha256.New()
+	for _, tc := range sorted {
+		h.Write([]byte(tc.Name))
+		argsJSON, _ := json.Marshal(tc.Arguments)
+		h.Write(argsJSON)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))[:16]
+}
+
+// toolNamesFromCalls extracts tool names for logging
+func toolNamesFromCalls(calls []providers.ToolCall) []string {
+	names := make([]string, len(calls))
+	for i, tc := range calls {
+		names[i] = tc.Name
+	}
+	return names
+}
+
+// toolNameSignature generates a signature based only on tool names (ignoring args).
+// Used to detect loops where the LLM calls the same tools with slightly different args.
+func toolNameSignature(calls []providers.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	names := make([]string, len(calls))
+	for i, tc := range calls {
+		names[i] = tc.Name
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
+}
 
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
 	turnCtx, turnCancel := context.WithCancel(ctx)
@@ -88,6 +133,14 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	pendingMessages := exec.pendingMessages
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
+
+	// --- Dead-loop detection ---
+	// Track recent tool call signatures. If the same signature appears
+	// consecutively N times, the LLM is stuck in a loop and we force-break.
+	const maxRepeats = 3          // exact match (name + args)
+	const maxNameRepeats = 5      // name-only match (args may differ)
+	var recentSigs []string       // circular buffer of last maxRepeats signatures
+	var recentNameSigs []string   // circular buffer of last maxNameRepeats name-only signatures
 
 	for ts.currentIteration() < ts.agent.MaxIterations || len(exec.pendingMessages) > 0 || func() bool {
 		graceful, _ := ts.gracefulInterruptRequested()
@@ -225,6 +278,79 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			}
 			return result, finalizeErr
 		case ControlToolLoop:
+			// --- Dead-loop detection ---
+			// Level 1: Exact same tool calls (name + args) repeated maxRepeats times
+			// Level 2: Same tool names (different args) repeated maxNameRepeats times
+			sig := toolCallSignature(exec.normalizedToolCalls)
+			nameSig := toolNameSignature(exec.normalizedToolCalls)
+			if sig != "" {
+				recentSigs = append(recentSigs, sig)
+				if len(recentSigs) > maxRepeats {
+					recentSigs = recentSigs[1:]
+				}
+				// Check if all recent signatures are identical (exact match)
+				if len(recentSigs) == maxRepeats {
+					allSame := true
+					for i := 1; i < len(recentSigs); i++ {
+						if recentSigs[i] != recentSigs[0] {
+							allSame = false
+							break
+						}
+					}
+					if allSame {
+						logger.WarnCF("agent", "Dead loop detected: identical tool calls repeated, forcing break",
+							map[string]any{
+								"agent_id":   ts.agent.ID,
+								"iteration":  iteration,
+								"signature":  sig,
+								"tool_count": len(exec.normalizedToolCalls),
+								"tool_names": toolNamesFromCalls(exec.normalizedToolCalls),
+							})
+						if finalContent == "" {
+							finalContent = fmt.Sprintf("检测到工具调用死循环（连续%d次完全相同调用），已强制终止。请检查任务是否过于复杂或工具返回结果不明确。", maxRepeats)
+						}
+						result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
+						if finalizeErr != nil {
+							turnStatus = TurnEndStatusError
+						}
+						return result, finalizeErr
+					}
+				}
+			}
+			// Level 2: Same tool names with varying args — softer threshold
+			if nameSig != "" {
+				recentNameSigs = append(recentNameSigs, nameSig)
+				if len(recentNameSigs) > maxNameRepeats {
+					recentNameSigs = recentNameSigs[1:]
+				}
+				if len(recentNameSigs) == maxNameRepeats {
+					allSame := true
+					for i := 1; i < len(recentNameSigs); i++ {
+						if recentNameSigs[i] != recentNameSigs[0] {
+							allSame = false
+							break
+						}
+					}
+					if allSame {
+						logger.WarnCF("agent", "Dead loop detected: same tool names repeated with different args, forcing break",
+							map[string]any{
+								"agent_id":   ts.agent.ID,
+								"iteration":  iteration,
+								"name_sig":   nameSig,
+								"tool_count": len(exec.normalizedToolCalls),
+							})
+						if finalContent == "" {
+							finalContent = fmt.Sprintf("检测到工具调用死循环（连续%d次调用相同工具，参数略有不同），已强制终止。请简化任务或检查工具返回。", maxNameRepeats)
+						}
+						result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
+						if finalizeErr != nil {
+							turnStatus = TurnEndStatusError
+						}
+						return result, finalizeErr
+					}
+				}
+			}
+
 			// Execute tools via Pipeline
 			toolCtrl := pipeline.ExecuteTools(ctx, turnCtx, ts, exec, iteration)
 			switch toolCtrl {
