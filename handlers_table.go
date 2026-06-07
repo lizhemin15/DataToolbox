@@ -1388,22 +1388,77 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			return
 		}
 
+		// 先查列信息，识别 BLOB 列，避免 SELECT * 把大 BLOB 拉到内存
+		blobColNames := make(map[string]bool)
+		colInfoQuery := getColumnInfoQuery(config, tableName)
+		if colInfoQuery != "" {
+			colRows, colErr := db.Query(colInfoQuery)
+			if colErr == nil {
+				for colRows.Next() {
+					var colName, colType string
+					if scanErr := colRows.Scan(&colName, &colType); scanErr == nil {
+						if isBlobTypeDB(colType) {
+							blobColNames[colName] = true
+						}
+					}
+				}
+				colRows.Close()
+			}
+		}
+
+		// 构建 SELECT 列表：非 BLOB 列正常选，BLOB 列用 LENGTH 函数替代
+		var selectCols []string
+
+		if len(blobColNames) == 0 {
+			// 没有 BLOB 列，直接 SELECT *
+			selectCols = []string{"*"}
+		} else {
+			// 有 BLOB 列，需要显式列出所有列
+			// 先获取所有列名
+			allColsQuery := getAllColumnsQuery(config, tableName)
+			if allColsQuery != "" {
+				allColsRows, allColsErr := db.Query(allColsQuery)
+				if allColsErr == nil {
+					for allColsRows.Next() {
+						var colName string
+						if scanErr := allColsRows.Scan(&colName); scanErr == nil {
+							quotedCol := quoteIdentifier(config.Type, colName)
+							if blobColNames[colName] {
+								// BLOB 列用 LENGTH 函数
+								lengthExpr := getBlobLengthExpr(config.Type, quotedCol)
+								selectCols = append(selectCols, fmt.Sprintf("%s AS %s", lengthExpr, quotedCol))
+							} else {
+								selectCols = append(selectCols, quotedCol)
+							}
+						}
+					}
+					allColsRows.Close()
+				}
+			}
+			// 如果获取列名失败，回退到 SELECT *
+			if len(selectCols) == 0 {
+				selectCols = []string{"*"}
+			}
+		}
+
+		selectClause := strings.Join(selectCols, ", ")
+
 		// 查询数据（限制100条）
 		var query string
 		switch config.Type {
 		case "postgresql", "timescaledb", "cockroachdb":
-			query = fmt.Sprintf(`SELECT * FROM "%s" LIMIT 100`, tableName)
+			query = fmt.Sprintf(`SELECT %s FROM "%s" LIMIT 100`, selectClause, tableName)
 		case "oracle", "dm":
-			query = fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 100", tableName)
+			query = fmt.Sprintf("SELECT %s FROM %s WHERE ROWNUM <= 100", selectClause, tableName)
 		case "sqlserver":
-			query = fmt.Sprintf("SELECT TOP 100 * FROM [%s]", tableName)
+			query = fmt.Sprintf("SELECT TOP 100 %s FROM [%s]", selectClause, tableName)
 		case "duckdb":
-			query = fmt.Sprintf("SELECT * FROM %s LIMIT 100", tableName)
+			query = fmt.Sprintf("SELECT %s FROM %s LIMIT 100", selectClause, tableName)
 		case "clickhouse":
-			query = fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
+			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT 100", selectClause, tableName)
 		default:
 			// mysql, mariadb, tidb, sqlite
-			query = fmt.Sprintf("SELECT * FROM `%s` LIMIT 100", tableName)
+			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT 100", selectClause, tableName)
 		}
 
 		rows, err := db.Query(query)
@@ -1429,32 +1484,12 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 		// 读取数据
 		data = make([]map[string]interface{}, 0)
 
-		// 获取列类型信息，用于识别 BLOB/二进制列
+		// 获取列类型信息，用于识别大文本列（BLOB 列已在 SQL 层面用 LENGTH 替换）
 		colTypes, _ := rows.ColumnTypes()
-		blobCols := make(map[string]bool)   // BLOB/二进制列
 		textCols := make(map[string]bool)   // 大文本列
 		for _, ct := range colTypes {
 			dbType := strings.ToUpper(ct.DatabaseTypeName())
-			// BLOB/二进制类型
-			switch {
-			case strings.Contains(dbType, "BLOB"),
-				strings.Contains(dbType, "BINARY"),
-				strings.Contains(dbType, "BYTEA"),
-				strings.Contains(dbType, "RAW"),
-				strings.Contains(dbType, "IMAGE"),
-				strings.Contains(dbType, "VARBINARY"),
-				strings.Contains(dbType, "TINYBLOB"),
-				strings.Contains(dbType, "MEDIUMBLOB"),
-				strings.Contains(dbType, "LONGBLOB"),
-				dbType == "BYTE":
-				blobCols[ct.Name()] = true
-			// 大文本类型
-			case strings.Contains(dbType, "TEXT"),
-				strings.Contains(dbType, "CLOB"),
-				strings.Contains(dbType, "MEMO"),
-				strings.Contains(dbType, "LONGVARCHAR"),
-				strings.Contains(dbType, "NTEXT"),
-				strings.Contains(dbType, "NCLOB"):
+			if isTextTypeDB(dbType) {
 				textCols[ct.Name()] = true
 			}
 		}
@@ -1475,17 +1510,28 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 				val := values[i]
 				if val == nil {
 					row[col] = nil
+				} else if blobColNames[col] {
+					// BLOB 列已被 LENGTH 函数替换，val 是数字（字节大小）
+					var size int64
+					switch v := val.(type) {
+					case int64:
+						size = v
+					case float64:
+						size = int64(v)
+					case []byte:
+						// 某些驱动可能仍返回 []byte（如 SQLite）
+						size = int64(len(v))
+					case string:
+						fmt.Sscanf(v, "%d", &size)
+					}
+					row[col] = map[string]interface{}{
+						"_blob": true,
+						"_size": size,
+						"_type": "BLOB",
+					}
 				} else if b, ok := val.([]byte); ok {
-					if blobCols[col] {
-						// BLOB 列：只保留大小信息，不返回实际数据
-						row[col] = map[string]interface{}{
-							"_blob":    true,
-							"_size":    len(b),
-							"_preview": fmt.Sprintf("%x", b[:min(len(b), 32)]),
-							"_type":    colTypes[i].DatabaseTypeName(),
-						}
-					} else if len(b) > 1024 {
-						// 非 BLOB 的 []byte 但超长，截断显示
+					// 非 BLOB 的 []byte（如 JSON、UUID 等）
+					if len(b) > 1024 {
 						row[col] = string(b[:1024]) + "..."
 					} else {
 						row[col] = string(b)
@@ -1726,3 +1772,160 @@ type TableStructureUpdateRequest struct {
 }
 
 // handleTableStructureUpdate 修改表结构
+
+// ============================================================
+// BLOB 列处理辅助函数
+// ============================================================
+
+// isBlobTypeDB 判断数据库类型字符串是否为 BLOB/二进制类型
+func isBlobTypeDB(dbType string) bool {
+	dbType = strings.ToUpper(dbType)
+	switch {
+	case strings.Contains(dbType, "BLOB"),
+		strings.Contains(dbType, "BINARY"),
+		strings.Contains(dbType, "BYTEA"),
+		strings.Contains(dbType, "RAW"),
+		strings.Contains(dbType, "IMAGE"),
+		strings.Contains(dbType, "VARBINARY"),
+		strings.Contains(dbType, "TINYBLOB"),
+		strings.Contains(dbType, "MEDIUMBLOB"),
+		strings.Contains(dbType, "LONGBLOB"),
+		dbType == "BYTE":
+		return true
+	}
+	return false
+}
+
+// isTextTypeDB 判断数据库类型字符串是否为大文本类型
+func isTextTypeDB(dbType string) bool {
+	dbType = strings.ToUpper(dbType)
+	switch {
+	case strings.Contains(dbType, "TEXT"),
+		strings.Contains(dbType, "CLOB"),
+		strings.Contains(dbType, "MEMO"),
+		strings.Contains(dbType, "LONGVARCHAR"),
+		strings.Contains(dbType, "NTEXT"),
+		strings.Contains(dbType, "NCLOB"):
+		return true
+	}
+	return false
+}
+
+// getBlobLengthExpr 返回获取 BLOB 大小的 SQL 表达式
+func getBlobLengthExpr(dbType, quotedCol string) string {
+	switch strings.ToLower(dbType) {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return fmt.Sprintf("COALESCE(octet_length(%s), 0)", quotedCol)
+	case "mysql", "mariadb", "tidb":
+		return fmt.Sprintf("COALESCE(LENGTH(%s), 0)", quotedCol)
+	case "oracle":
+		return fmt.Sprintf("NVL(DBMS_LOB.GETLENGTH(%s), 0)", quotedCol)
+	case "dm":
+		return fmt.Sprintf("NVL(DBMS_LOB.GETLENGTH(%s), 0)", quotedCol)
+	case "sqlserver":
+		return fmt.Sprintf("COALESCE(DATALENGTH(%s), 0)", quotedCol)
+	case "sqlite":
+		return fmt.Sprintf("COALESCE(LENGTH(%s), 0)", quotedCol)
+	default:
+		return fmt.Sprintf("COALESCE(LENGTH(%s), 0)", quotedCol)
+	}
+}
+
+// getColumnInfoQuery 返回查询列名和类型的 SQL（用于预识别 BLOB 列）
+func getColumnInfoQuery(config *DatabaseConfig, tableName string) string {
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return fmt.Sprintf(`
+			SELECT column_name, data_type
+			FROM information_schema.columns
+			WHERE table_name = '%s'
+			ORDER BY ordinal_position
+		`, tableName)
+	case "mysql", "mariadb", "tidb":
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = DATABASE()
+		`, tableName)
+	case "sqlserver":
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY ORDINAL_POSITION
+		`, tableName)
+	case "dm":
+		dmTableName := strings.ToUpper(tableName)
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, dmTableName)
+	case "oracle":
+		tbl := tableName
+		if idx := strings.Index(tableName, "."); idx >= 0 {
+			tbl = tableName[idx+1:]
+		}
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME, DATA_TYPE
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, strings.ToUpper(tbl))
+	case "sqlite":
+		return fmt.Sprintf("SELECT name, type FROM pragma_table_info('%s')", tableName)
+	default:
+		return ""
+	}
+}
+
+// getAllColumnsQuery 返回查询所有列名的 SQL
+func getAllColumnsQuery(config *DatabaseConfig, tableName string) string {
+	switch config.Type {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return fmt.Sprintf(`
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_name = '%s'
+			ORDER BY ordinal_position
+		`, tableName)
+	case "mysql", "mariadb", "tidb":
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = DATABASE()
+			ORDER BY ORDINAL_POSITION
+		`, tableName)
+	case "sqlserver":
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY ORDINAL_POSITION
+		`, tableName)
+	case "dm":
+		dmTableName := strings.ToUpper(tableName)
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, dmTableName)
+	case "oracle":
+		tbl := tableName
+		if idx := strings.Index(tableName, "."); idx >= 0 {
+			tbl = tableName[idx+1:]
+		}
+		return fmt.Sprintf(`
+			SELECT COLUMN_NAME
+			FROM USER_TAB_COLUMNS
+			WHERE TABLE_NAME = '%s'
+			ORDER BY COLUMN_ID
+		`, strings.ToUpper(tbl))
+	case "sqlite":
+		return fmt.Sprintf("SELECT name FROM pragma_table_info('%s') ORDER BY cid", tableName)
+	default:
+		return ""
+	}
+}
