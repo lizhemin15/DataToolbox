@@ -82,6 +82,7 @@ func saveDataOntologyStoreJSONNoLock() error {
 	governanceShareRunsMu.RUnlock()
 	store := DataOntologyStore{
 		Users: dataOntologyUsers, Databases: dataOntologyDatabases, Apis: dataOntologyApis,
+		Platforms: dataOntologyPlatforms, ForwardApis: dataOntologyForwardApis,
 		AIConfig: dataOntologyAIConfig, AICapabilities: dataOntologyAICapabilities,
 		Tasks: governanceTasks, TaskLogs: governanceTaskLogs,
 		MCPEnabled: dataOntologyMCPEnabled, MCPSafeConfig: dataOntologyMCPSafeConfig,
@@ -163,6 +164,15 @@ func loadDataOntologyStore() error {
 				log.Printf("[DEBUG] API %s (%s) default_params: %v", id, api.Name, api.DefaultParams)
 			}
 		}
+	}
+
+	if store.Platforms != nil {
+		dataOntologyPlatforms = store.Platforms
+		log.Printf("已加载 %d 个平台配置", len(dataOntologyPlatforms))
+	}
+	if store.ForwardApis != nil {
+		dataOntologyForwardApis = store.ForwardApis
+		log.Printf("已加载 %d 个转发接口配置", len(dataOntologyForwardApis))
 	}
 
 	if store.AIConfig != nil {

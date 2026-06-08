@@ -160,4 +160,20 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	// ==================== 应用公开访问（不需要认证）====================
 	// 注意：此路由必须放在最后，避免与其他路由冲突
 	mux.HandleFunc("/app/", handleAppPublic)
+
+	// ==================== 平台管理 API ====================
+	mux.HandleFunc("/api/v1/platforms", handlePlatforms)
+	mux.HandleFunc("/api/v1/platforms/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// /api/v1/platforms/{id}/apis/** → 接口管理
+		if strings.Contains(path, "/apis") {
+			handlePlatformApis(w, r)
+		} else {
+			handlePlatformDetail(w, r)
+		}
+	})
+
+	// ==================== API 转发（动态路由）====================
+	// /api/fwd/{platform-slug}/** 转发到对应平台
+	mux.HandleFunc("/api/fwd/", handleForwardDispatch)
 }

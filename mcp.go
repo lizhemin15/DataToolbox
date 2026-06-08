@@ -366,6 +366,24 @@ type executeApiIn struct {
 	Params map[string]interface{} `json:"params,omitempty" jsonschema:"查询参数"`
 }
 
+// ─── 平台纳管工具输入类型 ──────────────────────────────────────────────
+
+type listPlatformsIn struct{}
+
+type getPlatformDetailIn struct {
+	PlatformID string `json:"platform_id" jsonschema:"平台 ID"`
+}
+
+type listPlatformApisIn struct {
+	PlatformID string `json:"platform_id" jsonschema:"平台 ID"`
+}
+
+type callPlatformApiIn struct {
+	PlatformID string                 `json:"platform_id" jsonschema:"平台 ID"`
+	ApiID      string                 `json:"api_id" jsonschema:"接口 ID"`
+	Params     map[string]interface{} `json:"params,omitempty" jsonschema:"请求参数，用于替换路径参数{key}和请求体模板{{key}}"`
+}
+
 // ─── 预制组件工具输入类型 ─────────────────────────────────────────────────
 
 type listComponentsIn struct {
@@ -1027,6 +1045,61 @@ func mcpCallApi(ctx context.Context, req *mcp.CallToolRequest, in callApiIn) (*m
 		body = []byte(`{"params":{}}`)
 	}
 	data, err := cli.do(http.MethodPost, "/api/v1/openapis/"+in.ApiID+"/test", body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpTextResult(string(data)), nil, nil
+}
+
+// ─── 平台纳管工具 ─────────────────────────────────────────────────────
+
+func mcpListPlatforms(ctx context.Context, req *mcp.CallToolRequest, _ listPlatformsIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/v1/platforms", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpTextResult(string(trimMCPResult("list_platforms", data))), nil, nil
+}
+
+func mcpGetPlatformDetail(ctx context.Context, req *mcp.CallToolRequest, in getPlatformDetailIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/v1/platforms/"+in.PlatformID, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpTextResult(string(data)), nil, nil
+}
+
+func mcpListPlatformApis(ctx context.Context, req *mcp.CallToolRequest, in listPlatformApisIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := cli.do(http.MethodGet, "/api/v1/platforms/"+in.PlatformID+"/apis", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcpTextResult(string(trimMCPResult("list_platform_apis", data))), nil, nil
+}
+
+func mcpCallPlatformApi(ctx context.Context, req *mcp.CallToolRequest, in callPlatformApiIn) (*mcp.CallToolResult, any, error) {
+	cli, err := getMCPClientFromContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	// 调用转发接口测试端点
+	body, _ := json.Marshal(map[string]interface{}{"params": in.Params})
+	if body == nil {
+		body = []byte(`{"params":{}}`)
+	}
+	data, err := cli.do(http.MethodPost, "/api/v1/platforms/"+in.PlatformID+"/apis/"+in.ApiID+"/test", body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2582,6 +2655,11 @@ func initMCPHTTPHandler() {
 		mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取数据库SQL方言提示"}, mcpGetDbSQLHints)
 		mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建数据接口（需先ask_user确认）"}, mcpCreateApi)
 		mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过路径调用接口"}, mcpExecuteApi)
+		// 平台纳管工具
+		mcp.AddTool(server, &mcp.Tool{Name: "list_platforms", Description: "列出已纳管的API平台（如飞书、OpenAI等）"}, mcpListPlatforms)
+		mcp.AddTool(server, &mcp.Tool{Name: "get_platform_detail", Description: "获取平台详情（base_url、认证方式、接口数量等）"}, mcpGetPlatformDetail)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_platform_apis", Description: "列出平台下的所有转发接口"}, mcpListPlatformApis)
+		mcp.AddTool(server, &mcp.Tool{Name: "call_platform_api", Description: "调用平台转发接口，传入平台ID、接口ID和参数"}, mcpCallPlatformApi)
 
 		// 应用管理工具（create_app 已内含组件列表和设计方向，无需单独调用 list_components/design_theme）
 		mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)
@@ -2678,6 +2756,11 @@ func runMCPServer() {
 	mcp.AddTool(server, &mcp.Tool{Name: "get_db_sql_hints", Description: "获取数据库SQL方言提示"}, mcpGetDbSQLHints)
 	mcp.AddTool(server, &mcp.Tool{Name: "create_api", Description: "创建数据接口"}, mcpCreateApi)
 	mcp.AddTool(server, &mcp.Tool{Name: "execute_api", Description: "通过路径调用接口"}, mcpExecuteApi)
+	// 平台纳管工具
+	mcp.AddTool(server, &mcp.Tool{Name: "list_platforms", Description: "列出已纳管的API平台"}, mcpListPlatforms)
+	mcp.AddTool(server, &mcp.Tool{Name: "get_platform_detail", Description: "获取平台详情"}, mcpGetPlatformDetail)
+	mcp.AddTool(server, &mcp.Tool{Name: "list_platform_apis", Description: "列出平台下的所有转发接口"}, mcpListPlatformApis)
+	mcp.AddTool(server, &mcp.Tool{Name: "call_platform_api", Description: "调用平台转发接口"}, mcpCallPlatformApi)
 
 	// 应用管理工具
 	mcp.AddTool(server, &mcp.Tool{Name: "create_app", Description: `基于预制组件创建可视化应用。confirmed=false预览→ask_user(preview)→confirmed=true正式创建。组件:chart-bar/line/pie/area/gauge/combo/heatmap,data-table,kpi-card,dashboard-summary,filter-bar,map-scatter/map-choropleth,timeline。设计:minimal/corporate/vibrant/elegant/playful/dark/nature/brutalist`}, mcpCreateAppFromBlueprint)

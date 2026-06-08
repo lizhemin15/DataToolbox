@@ -223,6 +223,45 @@ type ApiInfo struct {
 	Enabled       bool                   `json:"enabled"` // 是否启用，供前端展示与开关
 }
 
+// Platform 平台定义（API 纳管）
+type Platform struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	BaseURL     string            `json:"base_url"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	AuthType    string            `json:"auth_type,omitempty"`   // "none" | "bearer" | "api_key" | "basic" | "custom"
+	AuthConfig  map[string]string `json:"auth_config,omitempty"` // 认证配置
+	Timeout     int               `json:"timeout,omitempty"`     // 超时秒数，默认30
+	TLSVerify   *bool             `json:"tls_verify,omitempty"`  // TLS验证，默认false
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
+// ParamDef 参数定义
+type ParamDef struct {
+	Name        string `json:"name"`
+	Type        string `json:"type,omitempty"`        // "string" | "number" | "boolean"
+	In          string `json:"in,omitempty"`          // "path" | "query" | "body" | "header"
+	Required    bool   `json:"required,omitempty"`
+	Description string `json:"description,omitempty"`
+	Default     string `json:"default,omitempty"`
+}
+
+// ForwardApiConfig 转发接口定义（挂载在平台下）
+type ForwardApiConfig struct {
+	ID           string            `json:"id"`
+	PlatformID   string            `json:"platform_id"`
+	Name         string            `json:"name"`
+	Method       string            `json:"method"`                // GET/POST/PUT/DELETE/PATCH
+	Suffix       string            `json:"suffix"`                // 平台路径后缀，如 /open-apis/contact/v3/users/{user_id}
+	Headers      map[string]string `json:"headers,omitempty"`     // 接口级别额外请求头
+	Params       []ParamDef        `json:"params,omitempty"`      // 参数定义
+	BodyTemplate string            `json:"body_template,omitempty"` // 请求体模板（JSON，支持 {{param}} 占位符）
+	Description  string            `json:"description,omitempty"`
+	Enabled      *bool             `json:"enabled,omitempty"`
+}
+
 // AIConfig AI配置
 
 type AIConfig struct {
@@ -475,6 +514,8 @@ var (
 	dataOntologyUsers          = make(map[string]*User)
 	dataOntologyDatabases      = make(map[string]*DatabaseConfig)
 	dataOntologyApis           = make(map[string]*ApiConfig)
+	dataOntologyPlatforms      = make(map[string]*Platform)
+	dataOntologyForwardApis    = make(map[string]*ForwardApiConfig)
 	dataOntologyAIConfig       *AIConfig
 	dataOntologyAICapabilities *AICapabilities // AI模型能力检测结果
 	governanceTasks            = make(map[string]*GovernanceTask)
@@ -571,6 +612,8 @@ type DataOntologyStore struct {
 	Users          map[string]*User                `json:"users"`
 	Databases      map[string]*DatabaseConfig      `json:"databases"`
 	Apis           map[string]*ApiConfig           `json:"apis"`
+	Platforms      map[string]*Platform            `json:"platforms,omitempty"`
+	ForwardApis    map[string]*ForwardApiConfig    `json:"forward_apis,omitempty"`
 	AIConfig       *AIConfig                       `json:"ai_config,omitempty"`
 	AICapabilities *AICapabilities                 `json:"ai_capabilities,omitempty"`
 	Tasks          map[string]*GovernanceTask      `json:"governance_tasks,omitempty"`
