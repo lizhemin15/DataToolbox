@@ -974,8 +974,12 @@ async function loadApiDetail(apiId) {
             // 同步当前选中的 API。
             currentApi = data.api;
             
-            document.getElementById('apiWelcomeView').style.display = 'none';
-            document.getElementById('apiDetailView').style.display = 'block';
+            const welcomeView = document.getElementById('platformApiWelcome') || document.getElementById('apiWelcomeView');
+            const detailView = document.getElementById('apiDetailView');
+            const detailPanel = document.getElementById('platformDetailPanel');
+            if (detailPanel) detailPanel.style.display = '';
+            if (welcomeView) welcomeView.style.display = 'none';
+            if (detailView) detailView.style.display = 'block';
             
             const api = data.api;
             document.getElementById('apiName').textContent = api.name;
