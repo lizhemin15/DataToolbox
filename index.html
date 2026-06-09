@@ -175,10 +175,38 @@
                             <button id="dropTableBtn" class="btn btn-sm btn-danger" onclick="dropTable()">删除表</button>
                         </div>
                     </div>
+                    <!-- 第三列 Tab 切换 -->
+                    <div class="detail-tabs">
+                        <button id="tabPreview" class="detail-tab active" onclick="switchDetailTab('preview')">📋 数据预览</button>
+                        <button id="tabSqlWorkbench" class="detail-tab" onclick="switchDetailTab('sql')">⚡ SQL 工作台</button>
+                    </div>
                     <div id="previewContent" class="preview-content">
                         <div id="detailPlaceholder" class="col-detail-placeholder">
                             <div class="placeholder-icon">📋</div>
                             <p>请先选择数据表查看详情</p>
+                        </div>
+                    </div>
+                    <!-- SQL 工作台 -->
+                    <div id="sqlWorkbench" class="sql-workbench" style="display:none;">
+                        <div class="sql-editor-wrap">
+                            <textarea id="sqlEditor" class="sql-editor" placeholder="输入 SQL 语句...&#10;&#10;快捷键: Ctrl+Enter 执行" rows="6"></textarea>
+                            <div class="sql-toolbar">
+                                <button id="sqlExecuteBtn" class="btn btn-primary btn-sm" onclick="executeSqlWorkbench()">▶ 执行</button>
+                                <button id="sqlFormatBtn" class="btn btn-sm" onclick="formatSql()">格式化</button>
+                                <button id="sqlClearBtn" class="btn btn-sm" onclick="clearSqlEditor()">清空</button>
+                                <span id="sqlStatus" class="sql-status"></span>
+                            </div>
+                        </div>
+                        <div class="sql-history">
+                            <h4>查询历史</h4>
+                            <div id="sqlHistoryList" class="sql-history-list"></div>
+                        </div>
+                        <div id="sqlResult" class="sql-result" style="display:none;">
+                            <div class="sql-result-header">
+                                <span id="sqlResultInfo"></span>
+                                <button class="btn btn-sm" onclick="closeSqlResult()">✕</button>
+                            </div>
+                            <div id="sqlResultTable" class="sql-result-table"></div>
                         </div>
                     </div>
                 </div>
