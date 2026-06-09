@@ -601,18 +601,19 @@
                     <div id="platformList" class="db-list"></div>
                 </div>
                 <!-- 第二列：接口列表 -->
-                <div id="platformApiSidebar" style="min-width:240px;max-width:300px;border-right:1px solid var(--border-color,#e0e0e0);display:none;flex-direction:column;">
+                <div id="platformApiSidebar" class="sidebar" style="min-width:240px;max-width:300px;border-right:1px solid var(--border-color,#e0e0e0);display:none;flex-direction:column;">
                     <div class="sidebar-header">
                         <h3 id="platformApiSidebarTitle">接口列表</h3>
                         <div class="sidebar-header-actions">
                             <button class="btn btn-sm btn-primary" onclick="showAddPlatformApiModal()">+ 接口</button>
                             <button class="btn btn-sm" onclick="showAddApiModal()" title="创建独立接口">+ 自定义</button>
+                            <button class="btn btn-sm" id="apikeyTriggerBtn" title="API Key 鉴权">🔑 Key</button>
                         </div>
                     </div>
                     <div id="apiList" class="db-list"></div>
                 </div>
                 <!-- 第三列：详情+测试 -->
-                <div id="platformDetailPanel" style="flex:1;overflow:auto;display:none;">
+                <div id="platformDetailPanel" style="flex:1;overflow:auto;display:none;background:#fff;border-radius:0 8px 8px 0;">
                     <div id="platformApiWelcome" class="welcome-view">
                         <div class="welcome-icon">🔌</div>
                         <h2>接口分发</h2>
