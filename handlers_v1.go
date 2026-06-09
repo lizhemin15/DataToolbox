@@ -62,12 +62,6 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// /sql 结尾 → SQL 工作台
-		if strings.HasSuffix(suffix, "/sql") {
-			handleDatabaseSQL(w, r, config)
-			return
-		}
-
 		// /tables/{tableName}...
 		if len(parts) < 3 {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -125,6 +119,32 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	// /sql 结尾 → SQL 工作台（无 /tables 子路径）
+	if strings.HasSuffix(suffix, "/sql") {
+		username, authOK := getDataOntologyUserFromRequest(r)
+		if !authOK {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "未授权",
+			})
+			return
+		}
+		parts := strings.SplitN(suffix, "/", 2)
+		dbID := parts[0]
+		dataOntologyMu.RLock()
+		config, exists := dataOntologyDatabases[dbID]
+		dataOntologyMu.RUnlock()
+		if !exists || !dataOntologyResourceVisible(config.Owner, username) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "数据库不存在",
+			})
+			return
+		}
+		handleDatabaseSQL(w, r, config)
+		return
 	}
 
 	// 数据库详情请求（无 /tables 子路径）
