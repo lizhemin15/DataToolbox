@@ -152,6 +152,8 @@ async function switchTab(tabName) {
         }
     } else if (tabName === 'apps') {
         loadAppsMarketplace();
+    } else if (tabName === 'platform') {
+        loadPlatforms();
     }
 }
 

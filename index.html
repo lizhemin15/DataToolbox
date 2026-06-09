@@ -2474,133 +2474,21 @@
         </div>
     </div>
 
-    <!-- 平台编辑弹窗 -->
-    <div id="platformModal" class="modal" style="display:none;">
-        <div class="modal-backdrop" onclick="hidePlatformModal()"></div>
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="platformModalTitle">添加平台</h3>
-                <button class="modal-close" onclick="hidePlatformModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="platformEditId">
-                <div class="form-group">
-                    <label>名称</label>
-                    <input type="text" id="platformName" class="form-input" placeholder="如 OpenAI、飞书">
-                </div>
-                <div class="form-group">
-                    <label>Base URL</label>
-                    <input type="text" id="platformBaseURL" class="form-input" placeholder="https://api.openai.com">
-                </div>
-                <div class="form-group">
-                    <label>描述</label>
-                    <input type="text" id="platformDesc" class="form-input" placeholder="可选">
-                </div>
-                <div class="form-group">
-                    <label>认证方式</label>
-                    <select id="platformAuthType" class="form-input" onchange="togglePlatformAuthFields()">
-                        <option value="none">无认证</option>
-                        <option value="bearer">Bearer Token</option>
-                        <option value="api_key">API Key</option>
-                        <option value="basic">Basic Auth</option>
-                        <option value="custom">自定义 Headers</option>
-                    </select>
-                </div>
-                <div id="platformAuthBearer" class="form-group" style="display:none;">
-                    <label>Token</label>
-                    <input type="password" id="platformAuthToken" class="form-input" placeholder="Bearer Token">
-                </div>
-                <div id="platformAuthApiKey" class="form-group" style="display:none;">
-                    <label>Header 名称</label>
-                    <input type="text" id="platformAuthHeaderName" class="form-input" placeholder="如 x-api-key">
-                    <label style="margin-top:8px;">API Key</label>
-                    <input type="password" id="platformAuthApiKeyVal" class="form-input" placeholder="API Key 值">
-                </div>
-                <div id="platformAuthBasic" class="form-group" style="display:none;">
-                    <label>用户名</label>
-                    <input type="text" id="platformAuthUsername" class="form-input">
-                    <label style="margin-top:8px;">密码</label>
-                    <input type="password" id="platformAuthPassword" class="form-input">
-                </div>
-                <div class="form-group">
-                    <label>超时(秒)</label>
-                    <input type="number" id="platformTimeout" class="form-input" value="30" min="5" max="300">
-                </div>
-                <div class="form-group" style="display:flex;align-items:center;gap:8px;">
-                    <input type="checkbox" id="platformTLSVerify">
-                    <label for="platformTLSVerify">TLS 证书验证</label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="hidePlatformModal()">取消</button>
-                <button class="btn btn-primary" onclick="savePlatform()">保存</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 接口编辑弹窗 -->
-    <div id="platformApiModal" class="modal" style="display:none;">
-        <div class="modal-backdrop" onclick="hidePlatformApiModal()"></div>
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="platformApiModalTitle">添加接口</h3>
-                <button class="modal-close" onclick="hidePlatformApiModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="platformApiEditId">
-                <div class="form-group">
-                    <label>接口名称</label>
-                    <input type="text" id="platformApiName" class="form-input" placeholder="如 获取用户列表">
-                </div>
-                <div class="form-group">
-                    <label>请求方法</label>
-                    <select id="platformApiMethod" class="form-input">
-                        <option value="GET">GET</option>
-                        <option value="POST">POST</option>
-                        <option value="PUT">PUT</option>
-                        <option value="DELETE">DELETE</option>
-                        <option value="PATCH">PATCH</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>路径后缀</label>
-                    <input type="text" id="platformApiSuffix" class="form-input" placeholder="/open-apis/contact/v3/users/{user_id}">
-                </div>
-                <div class="form-group">
-                    <label>描述</label>
-                    <input type="text" id="platformApiDesc" class="form-input" placeholder="可选">
-                </div>
-                <div class="form-group">
-                    <label>请求体模板 (JSON, 支持 {{param}})</label>
-                    <textarea id="platformApiBodyTemplate" class="form-input" rows="4" placeholder='{"model":"gpt-4","messages":{{messages}}}'></textarea>
-                </div>
-                <div class="form-group" style="display:flex;align-items:center;gap:8px;">
-                    <input type="checkbox" id="platformApiEnabled" checked>
-                    <label for="platformApiEnabled">启用</label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="hidePlatformApiModal()">取消</button>
-                <button class="btn btn-primary" onclick="savePlatformApi()">保存</button>
-            </div>
-        </div>
-    </div>
-
     <script src="/lib/pizzip.js"></script>
     <script src="/lib/docxtemplater.js"></script>
     <script src="/lib/xlsx.full.min.js"></script>
     <script src="/js/script-core.js?v=20260531"></script>
     <script src="/js/script-agent.js?v=20260531"></script>
     <script src="/js/script-events.js?v=20260531"></script>
-    <script src="/js/script-tables.js?v=20260531"></script>
+    <script src="/js/script-platform.js?v=20260609"></script>
+    <script src="/js/script-tables.js?v=20260609"></script>
     <script src="/js/script-api.js?v=20260531"></script>
     <script src="/js/script-settings.js?v=20260531"></script>
     <script src="/js/script-ai-legacy.js?v=20260531"></script>
-    <script src="/js/script-governance.js?v=20260531"></script>
+    <script src="/js/script-governance.js?v=20260609"></script>
     <script src="/js/script-ontology.js?v=20260531"></script>
     <script src="/js/script-relations.js?v=20260531"></script>
     <script src="/js/script-api-detail.js?v=20260531"></script>
-    <script src="/js/script-platform.js?v=20260608"></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->
     <script src="/lib/twemoji.min.js"></script>
     <script>

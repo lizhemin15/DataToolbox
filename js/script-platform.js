@@ -1,5 +1,10 @@
 // ===== API纳管 =====
 
+function getAuthHeaders() {
+    const token = localStorage.getItem('dataOntologyToken');
+    return token ? { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } : { 'Content-Type': 'application/json' };
+}
+
 let currentPlatformId = null;
 let currentPlatformApiId = null;
 let platformsData = [];
