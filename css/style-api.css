@@ -52,7 +52,7 @@
 
 .param-type.required {
     background: #fed7d7;
-    color: #a93226;
+    color: #c53030;
 }
 
 .param-type.optional {
@@ -159,15 +159,15 @@
     gap: 6px;
 }
 
-.apikey-btn.btn {
-    font-size: 11px;
-    padding: 4px 10px;
+.apikey-btn {
+    font-size: 11px !important;
+    padding: 4px 10px !important;
 }
 
 /* ==================== 调用示例代码区域 ==================== */
 
 .code-examples-section h3::before {
-    content: "💻";
+    content: "💻" !important;
 }
 
 .code-examples-container {

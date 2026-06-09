@@ -673,12 +673,12 @@ function showRelationCandidates(candidates) {
     const modalHtml = `
         <style>
             .relation-filterable:hover {
-                color: #764ba2 !important;
+                color: #404040 !important;
                 text-decoration-style: solid !important;
             }
             #relationCandidatesModal input[type="text"]:focus,
             #relationCandidatesModal select:focus {
-                border-color: #667eea;
+                border-color: #171717;
                 outline: none;
                 box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
             }
@@ -917,7 +917,7 @@ function renderRelationCandidates() {
             <span>全选</span>
         </label>
         <span style="margin:0 8px;color:#ddd;">|</span>
-        <span>显示 <strong style="color:#667eea;">${filtered.length}</strong> / ${relationCandidatesData.length} 个候选</span>
+        <span>显示 <strong style="color:#171717;">${filtered.length}</strong> / ${relationCandidatesData.length} 个候选</span>
     `;
 
     // 渲染列表
@@ -940,27 +940,27 @@ function renderRelationCandidates() {
                 <div style="flex:1;">
                     <div style="font-size:13px;font-weight:600;color:#333;">
                         <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table1)}'); event.stopPropagation();"
-                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此表">${escapeHtml(c.table1)}</span>
                         <span style="color:#999;">→</span>
                         <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table2)}'); event.stopPropagation();"
-                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此表">${escapeHtml(c.table2)}</span>
                     </div>
                     <div style="font-size:12px;color:#666;margin-top:4px;">
                         关联字段:
                         <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col1)}'); event.stopPropagation();"
-                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此字段">${escapeHtml(c.col1)}</span>
                         <span style="color:#999;">=</span>
                         <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col2)}'); event.stopPropagation();"
-                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此字段">${escapeHtml(c.col2)}</span>
                         <br>
                         置信度: <strong style="color:${c.confidence >= 0.8 ? '#48bb78' : c.confidence >= 0.5 ? '#ed8936' : '#718096'};">${(c.confidence * 100).toFixed(1)}%</strong>
                         ·
                         <span class="relation-filterable" onclick="quickFilterRelation('matchType', '${escapeHtml(c.match_type)}'); event.stopPropagation();"
-                              style="cursor:pointer;color:#667eea;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
+                              style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此类型">${escapeHtml(c.match_type)}</span>
                         <br>
                         <span style="color:#888;">${escapeHtml(c.reason)}</span>
@@ -3822,7 +3822,7 @@ function renderAgentStatus(container, data) {
             </div>
         </div>
         <div class="ac-stat-card">
-            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#667eea,#764ba2);">
+            <div class="ac-stat-icon" style="background:linear-gradient(135deg,#171717,#404040);">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             </div>
             <div class="ac-stat-info">

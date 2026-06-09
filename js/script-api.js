@@ -1262,7 +1262,7 @@ function enableTableEditMode() {
     // 显示编辑模式加载态。
     const previewContent = document.getElementById('previewContent');
     if (previewContent) {
-        const loadingHtml = '<div style="text-align:center;padding:40px;color:#667eea;"><div style="font-size:24px;margin-bottom:12px;">⏳</div><div>正在进入编辑模式...</div></div>';
+        const loadingHtml = '<div style="text-align:center;padding:40px;color:#171717;"><div style="font-size:24px;margin-bottom:12px;">⏳</div><div>正在进入编辑模式...</div></div>';
         previewContent.innerHTML = loadingHtml;
     }
     

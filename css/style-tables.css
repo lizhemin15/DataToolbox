@@ -18,7 +18,7 @@
 
 .preview-actions .btn {
     background: rgba(255, 255, 255, 0.95);
-    color: #4a6cf7;
+    color: #171717;
     border: 2px solid rgba(255, 255, 255, 0.3);
     font-weight: 600;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -30,7 +30,7 @@
 }
 
 .preview-actions .btn-primary {
-    background: #38a169;
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
     color: white;
     border: none;
     position: relative;
@@ -56,7 +56,7 @@
 }
 
 .preview-actions .btn-primary:hover {
-    background: #38a169;
+    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
     box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
 }
 
@@ -74,13 +74,13 @@
 }
 
 .preview-actions .btn-danger {
-    background: #c0392b;
+    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
     color: white;
     border: none;
 }
 
 .preview-actions .btn-danger:hover {
-    background: #c0392b;
+    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
     box-shadow: 0 4px 8px rgba(229, 62, 62, 0.3);
 }
 
@@ -124,7 +124,7 @@
 }
 
 .preview-table th {
-    background: #4a6cf7;
+    background: linear-gradient(180deg, #171717 0%, #5568d3 100%);
     color: white;
     font-weight: 600;
     text-transform: uppercase;
@@ -162,7 +162,7 @@
 .preview-table tbody tr:not(.empty-row):not(.row-deleted):hover {
     background: #f8f9ff;
     transform: scale(1.01);
-    box-shadow: 0 2px 6px rgba(74, 108, 247, 0.1);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .action-column {
@@ -172,7 +172,7 @@
 }
 
 .btn-icon-delete {
-    background: #c0392b;
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
     border: none;
     cursor: pointer;
     font-size: 14px;
@@ -185,7 +185,7 @@
 
 .btn-icon-delete:hover {
     box-shadow: 0 4px 8px rgba(238, 90, 82, 0.3);
-    background: #c0392b;
+    background: linear-gradient(135deg, #ff5252 0%, #e63946 100%);
 }
 
 .btn-icon-delete:active {
@@ -199,16 +199,16 @@
 }
 
 .editable-cell.editing {
-    background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%);
-    border: 2px solid #fbbf24;
+    background: linear-gradient(135deg, #fff9e6 0%, #fffbf0 100%) !important;
+    border: 2px solid #fbbf24 !important;
     box-shadow: inset 0 2px 4px rgba(251, 191, 36, 0.1);
 }
 
 .editable-cell.editing:focus {
     outline: none;
-    border: 2px solid #4a6cf7;
-    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%);
-    box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
+    border: 2px solid #171717 !important;
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%) !important;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
 .null-value {
@@ -221,39 +221,6 @@
     -ms-user-select: none;
 }
 
-.cell-blob {
-    cursor: default;
-}
-
-.non-editable-cell {
-    cursor: not-allowed;
-    background: #f9f9f9;
-    opacity: 0.8;
-}
-
-.non-editable-cell:focus {
-    outline: none;
-}
-
-.blob-badge {
-    display: inline-block;
-    background: #f0f0f0;
-    color: #666;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-family: monospace;
-    user-select: none;
-    white-space: nowrap;
-}
-
-.cell-truncated {
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .row-deleted {
     opacity: 0.6;
     text-decoration: line-through;
@@ -263,9 +230,9 @@
         #fee 10px,
         #fdd 10px,
         #fdd 20px
-    );
+    ) !important;
     position: relative;
-    border: 2px solid #c0392b;
+    border: 2px solid #e53e3e !important;
     animation: deletedRowPulse 1.5s ease-in-out infinite;
 }
 
@@ -284,7 +251,7 @@
     left: -90px;
     top: 50%;
     transform: translateY(-50%);
-    background: #c0392b;
+    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
     color: white;
     padding: 4px 10px;
     border-radius: 6px;
@@ -307,12 +274,12 @@
 }
 
 .row-deleted .btn-icon-delete {
-    background: #38a169;
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.3);
 }
 
 .row-deleted .btn-icon-delete:hover {
-    background: #38a169;
+    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
     box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.5);
 }
 
@@ -342,8 +309,8 @@
 }
 
 .table-column-item:hover {
-    border-color: #4a6cf7;
-    box-shadow: 0 2px 8px rgba(74, 108, 247, 0.1);
+    border-color: #171717;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transform: translateX(4px);
 }
 
@@ -361,8 +328,8 @@
 .column-type-select:focus,
 .column-size-input:focus {
     outline: none;
-    border-color: #4a6cf7;
-    box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
+    border-color: #171717;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
 .table-column-item label {
@@ -394,7 +361,7 @@
 }
 
 .table-column-item .btn-icon {
-    background: #c0392b;
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
     border: none;
     color: white;
     width: 32px;
@@ -422,8 +389,8 @@
 }
 
 .structure-column-item:hover {
-    border-color: #4a6cf7;
-    box-shadow: 0 2px 8px rgba(74, 108, 247, 0.1);
+    border-color: #171717;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .structure-column-header {
@@ -439,7 +406,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: #4a6cf7;
+    background: linear-gradient(135deg, #171717 0%, #404040 100%);
     color: white;
     border-radius: 6px;
     font-weight: 600;
@@ -456,9 +423,9 @@
 }
 
 .structure-column-header input:focus {
-    border-color: #4a6cf7;
+    border-color: #171717;
     outline: none;
-    box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
 .structure-column-fields {
@@ -604,7 +571,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%) scale(0.8);
-    background: #38a169;
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
     color: white;
     padding: 24px 36px;
     border-radius: 16px;
@@ -674,7 +641,7 @@
 .error-title {
     font-size: 16px;
     font-weight: 600;
-    color: #a93226;
+    color: #c53030;
     margin-bottom: 8px;
 }
 
@@ -694,7 +661,7 @@
 }
 
 .error-fix strong {
-    color: #a93226;
+    color: #c53030;
     display: block;
     margin-bottom: 8px;
 }
@@ -710,8 +677,8 @@
     padding: 8px 12px;
     border-radius: 6px;
     margin-bottom: 6px;
-    color: #a93226;
-    border-left: 3px solid #c0392b;
+    color: #c53030;
+    border-left: 3px solid #e53e3e;
 }
 
 .fix-after {

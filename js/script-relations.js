@@ -1017,7 +1017,7 @@ async function doOntologyQuery() {
 
     const resultEl = document.getElementById('ontoQueryResult');
     resultEl.style.display = '';
-    resultEl.innerHTML = '<span style="color:#667eea">AI 正在分析本体...</span>';
+    resultEl.innerHTML = '<span style="color:#171717">AI 正在分析本体...</span>';
 
     try {
         const res = await fetchWithAuth(`${API_BASE}/api/v1/ontology/query`, {

@@ -1645,8 +1645,8 @@ function getUserAvatarSvg() {
         <path d="M8 26c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="white"/>
         <defs>
             <linearGradient id="userGrad" x1="0" y1="0" x2="32" y2="32">
-                <stop offset="0%" stop-color="#667eea"/>
-                <stop offset="100%" stop-color="#764ba2"/>
+                <stop offset="0%" stop-color="#171717"/>
+                <stop offset="100%" stop-color="#404040"/>
             </linearGradient>
         </defs>
     </svg>`;
