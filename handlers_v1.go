@@ -62,6 +62,12 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// /sql 结尾 → SQL 工作台
+		if strings.HasSuffix(suffix, "/sql") {
+			handleDatabaseSQL(w, r, config)
+			return
+		}
+
 		// /tables/{tableName}...
 		if len(parts) < 3 {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -84,10 +90,6 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 分发到具体 handler
-		if strings.HasSuffix(suffix, "/sql") {
-			handleDatabaseSQL(w, r, config)
-			return
-		}
 		if strings.HasSuffix(suffix, "/structure") {
 			handleTableStructure(w, r, config, tableName)
 			return
