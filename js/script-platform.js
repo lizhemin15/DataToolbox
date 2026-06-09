@@ -19,6 +19,9 @@ function loadPlatforms() {
         .then(data => {
             platformsData = data.platforms || [];
             renderPlatformList();
+            // 默认显示第二列（全局接口列表）
+            document.getElementById('platformApiSidebar').style.display = 'flex';
+            document.getElementById('platformApiSidebarTitle').textContent = '接口列表';
         })
         .catch(err => console.error('加载平台列表失败:', err));
 }
@@ -26,17 +29,24 @@ function loadPlatforms() {
 function renderPlatformList() {
     const listEl = document.getElementById('platformList');
     if (!listEl) return;
+    let html = '';
+    // "全局接口" 虚拟项 — 点击取消平台选择，恢复全局接口列表
+    html += `<div class="db-item ${!currentPlatformId ? 'active' : ''}" onclick="deselectPlatform()">
+        <div class="db-item-name">📋 全局接口</div>
+        <div class="db-item-info">自定义 SQL / HTTP 转发</div>
+    </div>`;
     if (!platformsData.length) {
-        listEl.innerHTML = '<div class="col-tables-placeholder"><p>暂无平台</p></div>';
+        listEl.innerHTML = html + '<div class="col-tables-placeholder"><p>暂无平台</p></div>';
         return;
     }
-    listEl.innerHTML = platformsData.map(p => {
+    html += platformsData.map(p => {
         const isActive = p.id === currentPlatformId;
         return `<div class="db-item ${isActive ? 'active' : ''}" onclick="selectPlatform('${p.id}')">
             <div class="db-item-name">${escHtml(p.name)}</div>
             <div class="db-item-info">${escHtml(p.base_url)}</div>
         </div>`;
     }).join('');
+    listEl.innerHTML = html;
 }
 
 function selectPlatform(id) {
@@ -55,6 +65,21 @@ function selectPlatform(id) {
     const platform = platformsData.find(p => p.id === id);
     const titleEl = document.getElementById('platformApiSidebarTitle');
     if (titleEl && platform) titleEl.textContent = platform.name + ' 接口';
+}
+
+function deselectPlatform() {
+    currentPlatformId = null;
+    currentPlatformApiId = null;
+    renderPlatformList();
+    // 恢复全局接口列表
+    loadApis();
+    // 隐藏详情面板
+    const detailPanel = document.getElementById('platformDetailPanel');
+    if (detailPanel) detailPanel.style.display = 'none';
+    const sidebar = document.getElementById('platformApiSidebar');
+    if (sidebar) sidebar.style.display = 'flex';
+    const titleEl = document.getElementById('platformApiSidebarTitle');
+    if (titleEl) titleEl.textContent = '接口列表';
 }
 
 // ===== 平台 CRUD =====
@@ -216,7 +241,7 @@ function loadPlatformApis(platformId) {
 }
 
 function renderPlatformApiList() {
-    const listEl = document.getElementById('platformApiList');
+    const listEl = document.getElementById('apiList');
     if (!listEl) return;
     if (!platformApisData.length) {
         listEl.innerHTML = '<div class="col-tables-placeholder"><p>暂无接口</p></div>';

@@ -87,7 +87,6 @@
                         <button class="nav-tab" data-tab="ai">智能助手</button>
                         <button class="nav-tab" data-tab="models">模型管理</button>
                         <button class="nav-tab" data-tab="quality" title="数据质量审核">数据质量审核</button>
-                        <button class="nav-tab" data-tab="platform">API纳管</button>
                         <button class="nav-tab" data-tab="apps">应用广场</button>
                     </div>
                 </div>
@@ -590,100 +589,41 @@
             </div>
         </div>
 
+        
         <div id="apiTab" class="tab-content">
-            <div class="container">
-                <div class="sidebar">
+            <div class="container" style="display:flex;height:calc(100vh - 120px);gap:0;">
+                <!-- 第一列：平台列表 -->
+                <div class="sidebar" style="min-width:220px;max-width:260px;border-right:1px solid var(--border-color,#e0e0e0);">
                     <div class="sidebar-header">
-                        <h3>接口列表</h3>
-                        <div class="sidebar-header-actions">
-                            <button id="apikeyTriggerBtn" class="btn btn-sm" title="API Key 管理">🔑</button>
-                            <button id="addApiBtn" class="btn btn-sm btn-primary">+ 添加</button>
-                        </div>
+                        <h3>平台列表</h3>
+                        <button class="btn btn-sm btn-primary" onclick="showAddPlatformModal()">+ 平台</button>
                     </div>
-                    <div class="sidebar-search">
-                        <input type="text" id="apiSearchInput" placeholder="搜索接口名称、路径..." oninput="filterApiList()">
-                        <div class="api-type-filter">
-                            <span class="api-filter-tag active" data-type="all" onclick="setApiTypeFilter('all')">全部</span>
-                            <span class="api-filter-tag" data-type="query" onclick="setApiTypeFilter('query')">SQL查询</span>
-                            <span class="api-filter-tag" data-type="forward" onclick="setApiTypeFilter('forward')">HTTP转发</span>
-                        </div>
-                    </div>
-                    <div id="apiList" class="db-list">
-                        <!-- 接口列表将动态生成 -->
-                    </div>
+                    <div id="platformList" class="db-list"></div>
                 </div>
-
-                <div class="main-content">
-                    <div id="apiWelcomeView" class="welcome-view">
+                <!-- 第二列：接口列表 -->
+                <div id="platformApiSidebar" style="min-width:240px;max-width:300px;border-right:1px solid var(--border-color,#e0e0e0);display:none;flex-direction:column;">
+                    <div class="sidebar-header">
+                        <h3 id="platformApiSidebarTitle">接口列表</h3>
+                        <div class="sidebar-header-actions">
+                            <button class="btn btn-sm btn-primary" onclick="showAddPlatformApiModal()">+ 接口</button>
+                            <button class="btn btn-sm" onclick="showAddApiModal()" title="创建独立接口">+ 自定义</button>
+                        </div>
+                    </div>
+                    <div id="apiList" class="db-list"></div>
+                </div>
+                <!-- 第三列：详情+测试 -->
+                <div id="platformDetailPanel" style="flex:1;overflow:auto;display:none;">
+                    <div id="platformApiWelcome" class="welcome-view">
                         <div class="welcome-icon">🔌</div>
-                        <h2>欢迎使用接口分发</h2>
-                        <p>请在左侧添加或选择一个接口开始使用</p>
+                        <h2>接口分发</h2>
+                        <p>选择左侧平台和接口查看详情</p>
                     </div>
-
-                    <div id="apiDetailView" class="db-detail-view" style="display:none;">
-                        <div class="detail-header">
-                            <h2 id="apiName">接口名称</h2>
-                            <div class="detail-actions">
-                                <label class="detail-enabled-wrap" onclick="event.stopPropagation()" title="启用/关闭接口">
-                                    <span class="detail-enabled-label">启用</span>
-                                    <div class="switch-wrap">
-                                        <input type="checkbox" id="apiDetailEnabledCheck" onchange="toggleApiEnabledFromDetail()">
-                                        <span class="switch-slider"></span>
-                                    </div>
-                                </label>
-                                <button id="editApiBtn" class="btn btn-sm">✏️ 编辑</button>
-                                <button id="testApiBtn" class="btn btn-sm btn-primary">🧪 测试</button>
-                                <button id="deleteApiBtn" class="btn btn-sm btn-danger">删除</button>
-                            </div>
-                        </div>
-
-                        <div class="db-info">
-                            <div class="info-item">
-                                <span class="info-label">接口路径:</span>
-                                <span id="apiPath" class="info-value"></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">请求方法:</span>
-                                <span id="apiMethod" class="info-value"></span>
-                            </div>
-                            <div class="info-item" id="apiTypeRow">
-                                <span class="info-label">接口类型:</span>
-                                <span id="apiTypeDisplay" class="info-value"></span>
-                            </div>
-                            <div class="info-item" id="apiDatabaseRow">
-                                <span class="info-label">数据库:</span>
-                                <span id="apiDatabase" class="info-value"></span>
-                            </div>
-                            <div class="info-item" id="apiForwardUrlRow" style="display:none;">
-                                <span class="info-label">转发URL:</span>
-                                <span id="apiForwardUrlDisplay" class="info-value" style="word-break:break-all;"></span>
-                            </div>
-                        </div>
-
-                        <div class="tables-section" id="apiSqlSection">
-                            <h3>SQL语句</h3>
-                            <div class="sql-display">
-                                <pre id="apiSqlDisplay"></pre>
-                            </div>
-                        </div>
-
-                        <div class="tables-section" id="apiParamsSection">
-                            <h3>参数说明</h3>
-                            <div id="apiParamsDisplay" class="params-display">
-                                <!-- 参数列表将动态生成 -->
-                            </div>
-                        </div>
-
-                        <div class="tables-section code-examples-section">
-                            <h3>调用示例</h3>
-                            <div id="apiCodeExamples" class="code-examples-container">
-                                <!-- 代码示例将动态生成 -->
-                            </div>
-                        </div>
-                    </div>
+                    <div id="apiDetailView" class="db-detail-view" style="display:none;padding:20px;"></div>
+                    <div id="platformApiDetailView" style="display:none;padding:20px;"></div>
                 </div>
             </div>
         </div>
+>
 
         <div id="mcpTab" class="tab-content">
             <div class="mcp-sub-tabs">
@@ -1079,36 +1019,7 @@
             </div>
         </div>
 
-        <!-- API纳管 标签页 -->
-        <div id="platformTab" class="tab-content">
-            <div class="container" style="display:flex;height:calc(100vh - 120px);gap:0;">
-                <!-- 第一列：平台列表 -->
-                <div class="sidebar" style="min-width:220px;max-width:260px;border-right:1px solid var(--border-color,#e0e0e0);">
-                    <div class="sidebar-header">
-                        <h3>平台列表</h3>
-                        <button class="btn btn-sm btn-primary" onclick="showAddPlatformModal()">+ 平台</button>
-                    </div>
-                    <div id="platformList" class="db-list"></div>
-                </div>
-                <!-- 第二列：接口列表 -->
-                <div id="platformApiSidebar" style="min-width:240px;max-width:300px;border-right:1px solid var(--border-color,#e0e0e0);display:none;flex-direction:column;">
-                    <div class="sidebar-header">
-                        <h3 id="platformApiSidebarTitle">接口列表</h3>
-                        <button class="btn btn-sm btn-primary" onclick="showAddPlatformApiModal()">+ 接口</button>
-                    </div>
-                    <div id="platformApiList" class="db-list"></div>
-                </div>
-                <!-- 第三列：详情+测试 -->
-                <div id="platformDetailPanel" style="flex:1;overflow:auto;display:none;">
-                    <div id="platformApiWelcome" class="welcome-view">
-                        <div class="welcome-icon">🔗</div>
-                        <h2>API 纳管</h2>
-                        <p>选择左侧平台和接口查看详情</p>
-                    </div>
-                    <div id="platformApiDetailView" style="display:none;padding:20px;"></div>
-                </div>
-            </div>
-        </div>
+>
 
         <div id="appsTab" class="tab-content">
             <div class="tab-content-wrap">

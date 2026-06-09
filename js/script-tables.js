@@ -116,6 +116,7 @@ async function switchTab(tabName) {
     if (tabName === 'api') {
         loadApis();
         loadApiKey();
+        loadPlatforms();
     } else if (tabName === 'mcp') {
         loadMcpInfo();
     } else if (tabName === 'ai') {
@@ -152,8 +153,6 @@ async function switchTab(tabName) {
         }
     } else if (tabName === 'apps') {
         loadAppsMarketplace();
-    } else if (tabName === 'platform') {
-        loadPlatforms();
     }
 }
 
