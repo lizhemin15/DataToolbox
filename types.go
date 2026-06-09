@@ -113,6 +113,23 @@ var dbPool = struct {
 	connections: make(map[string]*sql.DB),
 }
 
+// columnCache 列信息缓存，避免每次查询都查两次表元信息
+// key: "{dbID}:{tableName}" → cached column info
+var columnCache = struct {
+	sync.RWMutex
+	entries map[string]*cachedColumns
+}{
+	entries: make(map[string]*cachedColumns),
+}
+
+type cachedColumns struct {
+	BlobColumns map[string]bool // BLOB 列名
+	AllColumns  []string        // 所有列名
+	UpdatedAt   time.Time
+}
+
+const columnCacheTTL = 5 * time.Minute
+
 // dbPoolConfig 连接池配置
 
 const (

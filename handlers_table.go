@@ -1343,6 +1343,17 @@ func handleTableDataSave(w http.ResponseWriter, r *http.Request, config *Databas
 func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *DatabaseConfig, tableName string) {
 	var data []map[string]interface{}
 
+	// 解析分页参数 ?page=1&size=50
+	page := 1
+	size := 100
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {
+		page = p
+	}
+	if s, err := strconv.Atoi(r.URL.Query().Get("size")); err == nil && s > 0 && s <= 500 {
+		size = s
+	}
+	offset := (page - 1) * size
+
 	// MongoDB 特殊处理
 	if config.Type == "mongodb" {
 		uri := buildMongoURI(config)
@@ -1360,7 +1371,7 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 		defer client.Disconnect(ctx)
 
 		collection := client.Database(config.Database).Collection(tableName)
-		cursor, err := collection.Find(ctx, bson.M{}, options.Find().SetLimit(100))
+		cursor, err := collection.Find(ctx, bson.M{}, options.Find().SetLimit(int64(size)).SetSkip(int64(offset)))
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"success": false,
@@ -1379,6 +1390,7 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 		}
 	} else {
 		// SQL数据库通用处理 - 使用连接池
+		startTime := time.Now()
 		db, err := getDBFromPool(config)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1388,54 +1400,27 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			return
 		}
 
-		// 先查列信息，识别 BLOB 列，避免 SELECT * 把大 BLOB 拉到内存
-		blobColNames := make(map[string]bool)
-		colInfoQuery := getColumnInfoQuery(config, tableName)
-		if colInfoQuery != "" {
-			colRows, colErr := db.Query(colInfoQuery)
-			if colErr == nil {
-				for colRows.Next() {
-					var colName, colType string
-					if scanErr := colRows.Scan(&colName, &colType); scanErr == nil {
-						if isBlobTypeDB(colType) {
-							blobColNames[colName] = true
-						}
-					}
-				}
-				colRows.Close()
-			}
-		}
+		// 使用列信息缓存
+		blobColNames := getCachedBlobColumns(config.ID, tableName, db)
 
 		// 构建 SELECT 列表：非 BLOB 列正常选，BLOB 列用 LENGTH 函数替代
 		var selectCols []string
 
 		if len(blobColNames) == 0 {
-			// 没有 BLOB 列，直接 SELECT *
 			selectCols = []string{"*"}
 		} else {
-			// 有 BLOB 列，需要显式列出所有列
-			// 先获取所有列名
-			allColsQuery := getAllColumnsQuery(config, tableName)
-			if allColsQuery != "" {
-				allColsRows, allColsErr := db.Query(allColsQuery)
-				if allColsErr == nil {
-					for allColsRows.Next() {
-						var colName string
-						if scanErr := allColsRows.Scan(&colName); scanErr == nil {
-							quotedCol := quoteIdentifier(config.Type, colName)
-							if blobColNames[colName] {
-								// BLOB 列用 LENGTH 函数
-								lengthExpr := getBlobLengthExpr(config.Type, quotedCol)
-								selectCols = append(selectCols, fmt.Sprintf("%s AS %s", lengthExpr, quotedCol))
-							} else {
-								selectCols = append(selectCols, quotedCol)
-							}
-						}
+			allCols := getCachedAllColumns(config.ID, tableName, db)
+			if len(allCols) > 0 {
+				for _, colName := range allCols {
+					quotedCol := quoteIdentifier(config.Type, colName)
+					if blobColNames[colName] {
+						lengthExpr := getBlobLengthExpr(config.Type, quotedCol)
+						selectCols = append(selectCols, fmt.Sprintf("%s AS %s", lengthExpr, quotedCol))
+					} else {
+						selectCols = append(selectCols, quotedCol)
 					}
-					allColsRows.Close()
 				}
 			}
-			// 如果获取列名失败，回退到 SELECT *
 			if len(selectCols) == 0 {
 				selectCols = []string{"*"}
 			}
@@ -1443,22 +1428,23 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 
 		selectClause := strings.Join(selectCols, ", ")
 
-		// 查询数据（限制100条）
+		// 查询数据（带分页）
 		var query string
 		switch config.Type {
 		case "postgresql", "timescaledb", "cockroachdb":
-			query = fmt.Sprintf(`SELECT %s FROM "%s" LIMIT 100`, selectClause, tableName)
+			query = fmt.Sprintf(`SELECT %s FROM "%s" LIMIT %d OFFSET %d`, selectClause, tableName, size, offset)
 		case "oracle", "dm":
-			query = fmt.Sprintf("SELECT %s FROM %s WHERE ROWNUM <= 100", selectClause, tableName)
+			query = fmt.Sprintf("SELECT %s FROM (SELECT a.*, ROWNUM rn FROM (SELECT %s FROM %s) a WHERE ROWNUM <= %d) WHERE rn > %d",
+				selectClause, selectClause, tableName, offset+size, offset)
 		case "sqlserver":
-			query = fmt.Sprintf("SELECT TOP 100 %s FROM [%s]", selectClause, tableName)
+			query = fmt.Sprintf("SELECT %s FROM [%s] ORDER BY (SELECT NULL) OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+				selectClause, tableName, offset, size)
 		case "duckdb":
-			query = fmt.Sprintf("SELECT %s FROM %s LIMIT 100", selectClause, tableName)
+			query = fmt.Sprintf("SELECT %s FROM %s LIMIT %d OFFSET %d", selectClause, tableName, size, offset)
 		case "clickhouse":
-			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT 100", selectClause, tableName)
+			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT %d OFFSET %d", selectClause, tableName, size, offset)
 		default:
-			// mysql, mariadb, tidb, sqlite
-			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT 100", selectClause, tableName)
+			query = fmt.Sprintf("SELECT %s FROM `%s` LIMIT %d OFFSET %d", selectClause, tableName, size, offset)
 		}
 
 		rows, err := db.Query(query)
@@ -1484,9 +1470,9 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 		// 读取数据
 		data = make([]map[string]interface{}, 0)
 
-		// 获取列类型信息，用于识别大文本列（BLOB 列已在 SQL 层面用 LENGTH 替换）
+		// 获取列类型信息，用于识别大文本列
 		colTypes, _ := rows.ColumnTypes()
-		textCols := make(map[string]bool)   // 大文本列
+		textCols := make(map[string]bool)
 		for _, ct := range colTypes {
 			dbType := strings.ToUpper(ct.DatabaseTypeName())
 			if isTextTypeDB(dbType) {
@@ -1511,7 +1497,6 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 				if val == nil {
 					row[col] = nil
 				} else if blobColNames[col] {
-					// BLOB 列已被 LENGTH 函数替换，val 是数字（字节大小）
 					var size int64
 					switch v := val.(type) {
 					case int64:
@@ -1519,7 +1504,6 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 					case float64:
 						size = int64(v)
 					case []byte:
-						// 某些驱动可能仍返回 []byte（如 SQLite）
 						size = int64(len(v))
 					case string:
 						fmt.Sscanf(v, "%d", &size)
@@ -1530,14 +1514,12 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 						"_type": "BLOB",
 					}
 				} else if b, ok := val.([]byte); ok {
-					// 非 BLOB 的 []byte（如 JSON、UUID 等）
 					if len(b) > 1024 {
 						row[col] = string(b[:1024]) + "..."
 					} else {
 						row[col] = string(b)
 					}
 				} else if s, ok := val.(string); ok && textCols[col] && len(s) > 1024 {
-					// 大文本截断
 					row[col] = s[:1024] + "..."
 				} else {
 					row[col] = val
@@ -1545,6 +1527,9 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 			}
 			data = append(data, row)
 		}
+
+		elapsed := time.Since(startTime).Milliseconds()
+		w.Header().Set("X-Elapsed", fmt.Sprintf("%dms", elapsed))
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2077,4 +2062,119 @@ func isBinaryData(data []byte) bool {
 		}
 	}
 	return float64(nonPrintable)/float64(checkLen) > 0.3
+}
+
+// getCachedBlobColumns 获取表的 BLOB 列名（带缓存）
+func getCachedBlobColumns(dbID, tableName string, db *sql.DB) map[string]bool {
+	cacheKey := dbID + ":" + tableName
+
+	columnCache.RLock()
+	if entry, ok := columnCache.entries[cacheKey]; ok && time.Since(entry.UpdatedAt) < columnCacheTTL {
+		columnCache.RUnlock()
+		return entry.BlobColumns
+	}
+	columnCache.RUnlock()
+
+	// 缓存未命中，查询数据库
+	blobCols := make(map[string]bool)
+	allCols := []string{}
+
+	// 尝试通过 information_schema 获取列信息
+	dbType := getDBTypeForCache(db)
+	if dbType == "" {
+		return blobCols
+	}
+
+	// 获取列类型
+	colQuery := getColumnInfoQueryByType(dbType, tableName)
+	if colQuery != "" {
+		rows, err := db.Query(colQuery)
+		if err == nil {
+			for rows.Next() {
+				var colName, colType string
+				if scanErr := rows.Scan(&colName, &colType); scanErr == nil {
+					allCols = append(allCols, colName)
+					if isBlobTypeDB(colType) {
+						blobCols[colName] = true
+					}
+				}
+			}
+			rows.Close()
+		}
+	}
+
+	// 写入缓存
+	columnCache.Lock()
+	columnCache.entries[cacheKey] = &cachedColumns{
+		BlobColumns: blobCols,
+		AllColumns:  allCols,
+		UpdatedAt:   time.Now(),
+	}
+	columnCache.Unlock()
+
+	return blobCols
+}
+
+// getCachedAllColumns 获取表的所有列名（带缓存）
+func getCachedAllColumns(dbID, tableName string, db *sql.DB) []string {
+	cacheKey := dbID + ":" + tableName
+
+	columnCache.RLock()
+	if entry, ok := columnCache.entries[cacheKey]; ok && time.Since(entry.UpdatedAt) < columnCacheTTL {
+		columnCache.RUnlock()
+		return entry.AllColumns
+	}
+	columnCache.RUnlock()
+
+	// 缓存未命中，触发完整加载
+	getCachedBlobColumns(dbID, tableName, db)
+
+	columnCache.RLock()
+	if entry, ok := columnCache.entries[cacheKey]; ok {
+		columnCache.RUnlock()
+		return entry.AllColumns
+	}
+	columnCache.RUnlock()
+
+	return nil
+}
+
+// getDBTypeForCache 获取数据库类型用于缓存查询
+func getDBTypeForCache(db *sql.DB) string {
+	// 通过连接池反向查找
+	dbPool.RLock()
+	defer dbPool.RUnlock()
+	for id, conn := range dbPool.connections {
+		if conn == db {
+			dataOntologyMu.RLock()
+			if cfg, ok := dataOntologyDatabases[id]; ok {
+				dataOntologyMu.RUnlock()
+				return cfg.Type
+			}
+			dataOntologyMu.RUnlock()
+		}
+	}
+	return ""
+}
+
+// getColumnInfoQueryByType 根据数据库类型获取列信息查询
+func getColumnInfoQueryByType(dbType, tableName string) string {
+	switch dbType {
+	case "postgresql", "timescaledb", "cockroachdb":
+		return fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='%s' AND table_schema='public'", tableName)
+	case "mysql", "mariadb", "tidb":
+		return fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='%s' AND table_schema=DATABASE()", tableName)
+	case "sqlserver":
+		return fmt.Sprintf("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='%s'", tableName)
+	case "oracle", "dm":
+		return fmt.Sprintf("SELECT column_name, data_type FROM user_tab_columns WHERE table_name=UPPER('%s')", tableName)
+	case "sqlite":
+		return fmt.Sprintf("PRAGMA table_info('%s')", tableName)
+	case "duckdb":
+		return fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='%s'", tableName)
+	case "clickhouse":
+		return fmt.Sprintf("SELECT name, type FROM system.columns WHERE table='%s'", tableName)
+	default:
+		return fmt.Sprintf("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='%s' AND table_schema=DATABASE()", tableName)
+	}
 }

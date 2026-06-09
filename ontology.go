@@ -72,9 +72,23 @@ func handleDatabaseTablesList(w http.ResponseWriter, r *http.Request, config *Da
 	}
 	rows.Close()
 
+	// 快速估算行数（不阻塞，有就返回）
+	rowCounts := make(map[string]int64)
+	for _, t := range tables {
+		quoted, _ := safeQuoteIdentifier(t, config.Type)
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", quoted)
+		if countRow := db.QueryRow(countQuery); countRow != nil {
+			var cnt int64
+			if countRow.Scan(&cnt) == nil {
+				rowCounts[t] = cnt
+			}
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"tables":  tables,
+		"success":    true,
+		"tables":     tables,
+		"row_counts": rowCounts,
 	})
 }
 
