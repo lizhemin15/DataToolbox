@@ -1929,3 +1929,152 @@ func getAllColumnsQuery(config *DatabaseConfig, tableName string) string {
 		return ""
 	}
 }
+
+// handleDatabaseSQL SQL 工作台：执行任意 SQL
+func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseConfig) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		apiMethodNotAllowed(w, "只支持 POST")
+		return
+	}
+
+	var req struct {
+		SQL    string        `json:"sql"`
+		Params []interface{} `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiInvalidInput(w, "请求格式错误")
+		return
+	}
+	if req.SQL == "" {
+		apiInvalidInput(w, "SQL 不能为空")
+		return
+	}
+
+	// 危险操作拦截
+	sqlUpper := strings.TrimSpace(strings.ToUpper(req.SQL))
+	dangerousOps := []string{"DROP DATABASE", "DROP SCHEMA", "TRUNCATE", "ALTER DATABASE"}
+	for _, op := range dangerousOps {
+		if strings.HasPrefix(sqlUpper, op) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, "message": fmt.Sprintf("禁止执行危险操作: %s", op),
+			})
+			return
+		}
+	}
+
+	startTime := time.Now()
+	db, err := getDBFromPool(config)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "message": "连接失败: " + err.Error(),
+		})
+		return
+	}
+
+	if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") ||
+		strings.HasPrefix(sqlUpper, "DESCRIBE") || strings.HasPrefix(sqlUpper, "EXPLAIN") ||
+		strings.HasPrefix(sqlUpper, "DESC") || strings.HasPrefix(sqlUpper, "WITH") {
+		rows, err := db.Query(req.SQL, req.Params...)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, "message": "查询失败: " + err.Error(),
+			})
+			return
+		}
+		defer rows.Close()
+
+		columns, _ := rows.Columns()
+		var results []map[string]interface{}
+		blobColumns := make(map[int]bool)
+
+		for rows.Next() {
+			values := make([]interface{}, len(columns))
+			valuePtrs := make([]interface{}, len(columns))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+			rows.Scan(valuePtrs...)
+			row := make(map[string]interface{})
+			for i, col := range columns {
+				val := values[i]
+				if val == nil {
+					row[col] = nil
+					continue
+				}
+				switch v := val.(type) {
+				case []byte:
+					// 检测 BLOB — 非文本字节
+					if isBinaryData(v) {
+						blobColumns[i] = true
+						row[col] = fmt.Sprintf("[BLOB %d bytes]", len(v))
+					} else {
+						row[col] = string(v)
+					}
+				case time.Time:
+					row[col] = v.Format("2006-01-02 15:04:05")
+				default:
+					row[col] = v
+				}
+			}
+			results = append(results, row)
+		}
+
+		elapsed := time.Since(startTime).Milliseconds()
+
+		resp := map[string]interface{}{
+			"success": true,
+			"columns": columns,
+			"data":    results,
+			"count":   len(results),
+			"elapsed": elapsed,
+		}
+		if len(blobColumns) > 0 {
+			blobIdx := make([]int, 0, len(blobColumns))
+			for i := range blobColumns {
+				blobIdx = append(blobIdx, i)
+			}
+			resp["blob_columns"] = blobIdx
+		}
+		json.NewEncoder(w).Encode(resp)
+	} else {
+		result, err := db.Exec(req.SQL, req.Params...)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, "message": "执行失败: " + err.Error(),
+			})
+			return
+		}
+		affected, _ := result.RowsAffected()
+		lastID, _ := result.LastInsertId()
+		elapsed := time.Since(startTime).Milliseconds()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":       true,
+			"type":          "exec",
+			"rows_affected": affected,
+			"last_insert_id": lastID,
+			"elapsed":       elapsed,
+		})
+	}
+}
+
+// isBinaryData 检测字节是否包含大量二进制/非文本数据
+func isBinaryData(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	// 检查前 512 字节，如果有超过 30% 的非可打印字符 + null 字节，视为二进制
+	checkLen := len(data)
+	if checkLen > 512 {
+		checkLen = 512
+	}
+	nonPrintable := 0
+	for i := 0; i < checkLen; i++ {
+		b := data[i]
+		if b == 0 || (b < 32 && b != '\t' && b != '\n' && b != '\r') || b >= 0x80 {
+			nonPrintable++
+		}
+	}
+	return float64(nonPrintable)/float64(checkLen) > 0.3
+}

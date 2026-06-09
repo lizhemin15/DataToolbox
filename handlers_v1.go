@@ -84,6 +84,10 @@ func handleDatabaseDetailV1(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 分发到具体 handler
+		if strings.HasSuffix(suffix, "/sql") {
+			handleDatabaseSQL(w, r, config)
+			return
+		}
 		if strings.HasSuffix(suffix, "/structure") {
 			handleTableStructure(w, r, config, tableName)
 			return
