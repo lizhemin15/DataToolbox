@@ -122,8 +122,8 @@ func getTablesQuery(config *DatabaseConfig) string {
 		return "SELECT owner||'.'||table_name FROM all_tables WHERE (owner NOT IN (" + systemOwners + ") OR owner = USER) " +
 			"AND table_name NOT LIKE '%$%' ORDER BY owner, table_name"
 	case "dm":
-		// 达梦：使用 USER_TABLES 只返回当前用户的表，与 USER_TAB_COMMENTS 保持一致
-		return "SELECT TABLE_NAME FROM USER_TABLES"
+		// 达梦：使用 ALL_TABLES 返回所有有权限访问的模式下的表
+		return "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE OWNER NOT IN ('SYS','SYSDBA','SYSSSO','SYSAUDITOR') ORDER BY OWNER, TABLE_NAME"
 	case "sqlite":
 		return "SELECT name FROM sqlite_master WHERE type='table'"
 	case "duckdb":

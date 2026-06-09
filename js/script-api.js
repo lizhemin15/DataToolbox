@@ -818,31 +818,128 @@ function renderTablesList(tables) {
         return;
     }
 
-    // tables 可能是字符串数组或对象数组
-    const tablesHtml = tables.map(table => {
+    // 按 schema 分组（达梦/Oracle 等有 schema 的数据库）
+    const schemas = {};
+    const noSchema = [];
+    tables.forEach(table => {
         const tableName = typeof table === 'string' ? table : table.name;
+        const tableSchema = (typeof table === 'object' && table.schema) ? table.schema : '';
         const tableComment = typeof table === 'object' ? (table.comment || '') : '';
-        const isActive = currentPreviewTable === tableName;
+        
+        if (tableSchema) {
+            if (!schemas[tableSchema]) schemas[tableSchema] = [];
+            schemas[tableSchema].push({ name: tableName, comment: tableComment, schema: tableSchema });
+        } else {
+            noSchema.push({ name: tableName, comment: tableComment, schema: '' });
+        }
+    });
+
+    const schemaNames = Object.keys(schemas).sort();
+    const hasSchemas = schemaNames.length > 0;
+
+    // 生成表项 HTML
+    function tableItemHtml(t, indent) {
+        const isActive = currentPreviewTable === t.name;
         const activeClass = isActive ? ' active' : '';
-        const displayName = escapeHtml(tableName);
-        const commentTag = tableComment ? `<span class="table-comment">(${escapeHtml(tableComment)})</span>` : '';
+        const displayName = escapeHtml(t.name);
+        const commentTag = t.comment ? `<span class="table-comment">(${escapeHtml(t.comment)})</span>` : '';
+        const fullName = t.schema ? t.schema + '.' + t.name : t.name;
         return `
-            <div class="table-item${activeClass}" onclick="previewTable('${escapeHtml(tableName)}')" title="${escapeHtml(tableName)}${tableComment ? ' — '+escapeHtml(tableComment) : ''}">
+            <div class="table-item${activeClass}${indent ? ' schema-child' : ''}" onclick="previewTable('${escapeHtml(fullName)}')" title="${escapeHtml(fullName)}${t.comment ? ' — '+escapeHtml(t.comment) : ''}">
                 <span class="table-name">${displayName}</span>${commentTag}
             </div>
         `;
-    }).join('');
+    }
+
+    let html = '';
+
+    if (hasSchemas) {
+        // 有模式分组：可折叠展开
+        schemaNames.forEach((schema, idx) => {
+            const tablesInSchema = schemas[schema];
+            const defaultOpen = idx === 0; // 第一个模式默认展开
+            html += `
+                <div class="schema-group">
+                    <div class="schema-header" onclick="toggleSchema(this)" data-open="${defaultOpen}">
+                        <span class="schema-arrow">${defaultOpen ? '▾' : '▸'}</span>
+                        <span class="schema-name">${escapeHtml(schema)}</span>
+                        <span class="schema-count">${tablesInSchema.length}</span>
+                    </div>
+                    <div class="schema-tables" style="display:${defaultOpen ? 'block' : 'none'}">
+                        ${tablesInSchema.map(t => tableItemHtml(t, true)).join('')}
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    // 无模式的表直接显示
+    if (noSchema.length > 0) {
+        if (hasSchemas) {
+            html += `<div class="schema-group">
+                <div class="schema-header" onclick="toggleSchema(this)" data-open="true">
+                    <span class="schema-arrow">▾</span>
+                    <span class="schema-name">默认</span>
+                    <span class="schema-count">${noSchema.length}</span>
+                </div>
+                <div class="schema-tables" style="display:block">
+                    ${noSchema.map(t => tableItemHtml(t, false)).join('')}
+                </div>
+            </div>`;
+        } else {
+            html = noSchema.map(t => tableItemHtml(t, false)).join('');
+        }
+    }
     
-    listEl.innerHTML = tablesHtml;
+    listEl.innerHTML = html;
+}
+
+// 折叠/展开模式分组
+function toggleSchema(header) {
+    const tablesDiv = header.nextElementSibling;
+    const arrow = header.querySelector('.schema-arrow');
+    const isOpen = tablesDiv.style.display !== 'none';
+    if (isOpen) {
+        tablesDiv.style.display = 'none';
+        arrow.textContent = '▸';
+        header.setAttribute('data-open', 'false');
+    } else {
+        tablesDiv.style.display = 'block';
+        arrow.textContent = '▾';
+        header.setAttribute('data-open', 'true');
+    }
 }
 
 // 搜索过滤表列表。
 function filterTables(keyword) {
-    const items = document.querySelectorAll('.tables-list-col .table-item');
     const kw = keyword.toLowerCase().trim();
+    // 搜索表项
+    const items = document.querySelectorAll('.tables-list-col .table-item');
     items.forEach(item => {
         const name = item.getAttribute('title') || item.textContent || '';
         item.style.display = (!kw || name.toLowerCase().includes(kw)) ? '' : 'none';
+    });
+    // 搜索时自动展开所有 schema group，并隐藏空的 group
+    const groups = document.querySelectorAll('.tables-list-col .schema-group');
+    groups.forEach(group => {
+        const tablesDiv = group.querySelector('.schema-tables');
+        const visibleItems = tablesDiv.querySelectorAll('.table-item[style*="display: none"]');
+        const allItems = tablesDiv.querySelectorAll('.table-item');
+        if (kw) {
+            // 搜索时展开
+            tablesDiv.style.display = 'block';
+            group.querySelector('.schema-arrow').textContent = '▾';
+            // 如果该 group 下没有可见表，隐藏整个 group
+            const hasVisible = Array.from(allItems).some(item => item.style.display !== 'none');
+            group.style.display = hasVisible ? '' : 'none';
+        } else {
+            // 清空搜索时恢复默认折叠状态
+            group.style.display = '';
+            const header = group.querySelector('.schema-header');
+            const wasOpen = header.getAttribute('data-open') === 'true';
+            tablesDiv.style.display = wasOpen ? 'block' : 'none';
+            group.querySelector('.schema-arrow').textContent = wasOpen ? '▾' : '▸';
+        }
     });
 }
 
@@ -933,11 +1030,11 @@ async function previewTable(tableName, keepEditMode = false) {
 
     try {
         // 先加载字段结构。
-        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}/structure`);
+        const structureResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}/structure`);
         const structureData = await structureResponse.json();
         
         // 再加载表数据。
-        const dataResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${tableName}`);
+        const dataResponse = await fetchWithAuth(`${API_BASE}/api/v1/databases/${currentDb.id}/tables/${encodeURIComponent(tableName)}`);
         const data = await dataResponse.json();
 
         if (data.success) {

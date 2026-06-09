@@ -179,6 +179,7 @@ type DatabaseConfig struct {
 
 type TableInfo struct {
 	Name        string       `json:"name"`
+	Schema      string       `json:"schema,omitempty"`      // 模式名（达梦/Oracle 等）
 	Comment     string       `json:"comment,omitempty"`
 	ColumnNames []string     `json:"column_names,omitempty"` // 用于表检索
 	Columns     []ColumnInfo `json:"columns,omitempty"`      // 增强的字段信息（包含类型、注释、主键、外键）

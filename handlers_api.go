@@ -848,13 +848,21 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 						log.Printf("查询表列表失败: %v", err)
 					} else {
 						defer rows.Close()
+						cols, _ := rows.Columns()
+						hasSchema := len(cols) >= 2 // 达梦/Oracle 返回 OWNER + TABLE_NAME
 						for rows.Next() {
-							var tableName string
-							if err := rows.Scan(&tableName); err == nil {
-								tables = append(tables, tableName)
-								log.Printf("找到表: %s", tableName)
+							if hasSchema {
+								var schema, tableName string
+								if err := rows.Scan(&schema, &tableName); err == nil {
+									tables = append(tables, schema+"."+tableName)
+									log.Printf("找到表: %s.%s", schema, tableName)
+								}
 							} else {
-								log.Printf("扫描表名失败: %v", err)
+								var tableName string
+								if err := rows.Scan(&tableName); err == nil {
+									tables = append(tables, tableName)
+									log.Printf("找到表: %s", tableName)
+								}
 							}
 						}
 						log.Printf("共找到 %d 个表", len(tables))
@@ -863,18 +871,7 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// 达梦：左侧表列表只显示用户表，隐藏系统表
-		if config.Type == "dm" && len(tables) > 0 {
-			filtered := make([]string, 0, len(tables))
-			for _, t := range tables {
-				if strings.HasPrefix(t, "##") || strings.HasPrefix(t, "AQ$_") || strings.HasPrefix(t, "SYS$") ||
-					strings.HasPrefix(t, "DBMS_") || strings.HasPrefix(t, "REG$") || t == "POLICIES" || strings.HasPrefix(t, "POLICY_") {
-					continue
-				}
-				filtered = append(filtered, t)
-			}
-			tables = filtered
-		}
+		// 达梦：不再需要过滤系统表，ALL_TABLES 查询已排除 SYS/SYSDBA 等
 
 		if tables == nil {
 			tables = []string{}
@@ -896,9 +893,23 @@ func handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for i, tableName := range tables {
+			// 达梦/Oracle 格式 "SCHEMA.TABLE" → 拆分为 Schema + Name
+			schema := ""
+			name := tableName
+			if dotIdx := strings.Index(tableName, "."); dotIdx > 0 {
+				schema = tableName[:dotIdx]
+				name = tableName[dotIdx+1:]
+			}
+			commentKey := tableName
+			if tableComments != nil {
+				if _, ok := tableComments[tableName]; !ok && schema != "" {
+					commentKey = name // 达梦备注 key 可能只是表名
+				}
+			}
 			tableInfos[i] = TableInfo{
-				Name:    tableName,
-				Comment: tableComments[tableName],
+				Name:    name,
+				Schema:  schema,
+				Comment: tableComments[commentKey],
 			}
 		}
 

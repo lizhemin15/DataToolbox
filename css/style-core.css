@@ -1179,6 +1179,60 @@ body {
     transform: rotate(-10deg) scale(1.1);
 }
 
+/* 模式分组（达梦/Oracle 等） */
+.schema-group {
+    margin-bottom: 4px;
+}
+
+.schema-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+.schema-header:hover {
+    background: #f7fafc;
+}
+
+.schema-arrow {
+    font-size: 12px;
+    color: #718096;
+    width: 14px;
+    flex-shrink: 0;
+}
+
+.schema-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: #2d3748;
+    flex: 1;
+}
+
+.schema-count {
+    font-size: 12px;
+    color: #a0aec0;
+    background: #edf2f7;
+    padding: 2px 8px;
+    border-radius: 10px;
+    min-width: 24px;
+    text-align: center;
+}
+
+.schema-tables {
+    padding-left: 0;
+}
+
+.schema-child {
+    margin-left: 22px;
+    border-left: 2px solid #e2e8f0;
+    border-radius: 0 10px 10px 0;
+}
+
 .table-preview {
     margin-top: 30px;
     border-top: 3px solid transparent;
