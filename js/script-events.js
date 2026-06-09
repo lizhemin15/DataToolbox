@@ -195,23 +195,31 @@ function initEventListeners() {
         };
         document.addEventListener('click', window._apikeyPopoverClickHandler);
     }
-    document.getElementById('generateApikeyBtn').addEventListener('click', generateApiKey);
-    document.getElementById('copyApikeyBtn').addEventListener('click', copyApiKey);
-    document.getElementById('deleteApikeyBtn').addEventListener('click', deleteApiKey);
-    document.getElementById('addApiBtn').addEventListener('click', showAddApiModal);
-    document.getElementById('closeApiModal').addEventListener('click', hideAddApiModal);
-    document.getElementById('addApiModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideAddApiModal();
-        }
+    const generateApikeyBtn = document.getElementById('generateApikeyBtn');
+    if (generateApikeyBtn) generateApikeyBtn.addEventListener('click', generateApiKey);
+    const copyApikeyBtn = document.getElementById('copyApikeyBtn');
+    if (copyApikeyBtn) copyApikeyBtn.addEventListener('click', copyApiKey);
+    const deleteApikeyBtn = document.getElementById('deleteApikeyBtn');
+    if (deleteApikeyBtn) deleteApikeyBtn.addEventListener('click', deleteApiKey);
+    const addApiBtn = document.getElementById('addApiBtn');
+    if (addApiBtn) addApiBtn.addEventListener('click', showAddApiModal);
+    const closeApiModalEl = document.getElementById('closeApiModal');
+    if (closeApiModalEl) closeApiModalEl.addEventListener('click', hideAddApiModal);
+    const addApiModalEl = document.getElementById('addApiModal');
+    if (addApiModalEl) addApiModalEl.addEventListener('click', function(e) {
+        if (e.target === this) hideAddApiModal();
     });
-    document.getElementById('addApiForm').addEventListener('submit', handleAddApi);
+    const addApiFormEl = document.getElementById('addApiForm');
+    if (addApiFormEl) addApiFormEl.addEventListener('submit', handleAddApi);
     document.querySelectorAll('input[name="apiType"]').forEach(radio => {
         radio.addEventListener('change', () => switchApiTypeFields(radio.value));
     });
-    document.getElementById('editApiBtn').addEventListener('click', handleEditApi);
-    document.getElementById('testApiBtn').addEventListener('click', showTestApiModal);
-    document.getElementById('deleteApiBtn').addEventListener('click', handleDeleteApi);
+    const editApiBtn = document.getElementById('editApiBtn');
+    if (editApiBtn) editApiBtn.addEventListener('click', handleEditApi);
+    const testApiBtn = document.getElementById('testApiBtn');
+    if (testApiBtn) testApiBtn.addEventListener('click', showTestApiModal);
+    const deleteApiBtn = document.getElementById('deleteApiBtn');
+    if (deleteApiBtn) deleteApiBtn.addEventListener('click', handleDeleteApi);
 
     // MCP 相关按钮。
     const mcpCopyBaseUrlBtn = document.getElementById('mcpCopyBaseUrlBtn');
@@ -240,13 +248,14 @@ function initEventListeners() {
     });
 
     // 基础校验。
-    document.getElementById('closeTestApiModal').addEventListener('click', hideTestApiModal);
-    document.getElementById('testApiModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideTestApiModal();
-        }
+    const closeTestApiModalEl = document.getElementById('closeTestApiModal');
+    if (closeTestApiModalEl) closeTestApiModalEl.addEventListener('click', hideTestApiModal);
+    const testApiModalEl = document.getElementById('testApiModal');
+    if (testApiModalEl) testApiModalEl.addEventListener('click', function(e) {
+        if (e.target === this) hideTestApiModal();
     });
-    document.getElementById('executeTestBtn').addEventListener('click', executeApiTest);
+    const executeTestBtnEl = document.getElementById('executeTestBtn');
+    if (executeTestBtnEl) executeTestBtnEl.addEventListener('click', executeApiTest);
 
     // 测试结果视图切换
     document.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -279,20 +288,23 @@ function initEventListeners() {
     }
 
     // 同步索引弹窗
-    document.getElementById('closeSyncIndexModal').addEventListener('click', hideSyncIndexModal);
-    document.getElementById('syncIndexModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideSyncIndexModal();
-        }
+    const closeSyncIndexModalEl = document.getElementById('closeSyncIndexModal');
+    if (closeSyncIndexModalEl) closeSyncIndexModalEl.addEventListener('click', hideSyncIndexModal);
+    const syncIndexModalEl = document.getElementById('syncIndexModal');
+    if (syncIndexModalEl) syncIndexModalEl.addEventListener('click', function(e) {
+        if (e.target === this) hideSyncIndexModal();
     });
-    document.getElementById('cancelSyncIndexBtn').addEventListener('click', hideSyncIndexModal);
-    document.getElementById('startSyncIndexBtn').addEventListener('click', handleSyncIndex);
+    const cancelSyncIndexBtnEl = document.getElementById('cancelSyncIndexBtn');
+    if (cancelSyncIndexBtnEl) cancelSyncIndexBtnEl.addEventListener('click', hideSyncIndexModal);
+    const startSyncIndexBtnEl = document.getElementById('startSyncIndexBtn');
+    if (startSyncIndexBtnEl) startSyncIndexBtnEl.addEventListener('click', handleSyncIndex);
 
     // 下拉菜单切换
-    document.getElementById('syncDropdownToggle').addEventListener('click', function(e) {
+    const syncDropdownToggleEl = document.getElementById('syncDropdownToggle');
+    if (syncDropdownToggleEl) syncDropdownToggleEl.addEventListener('click', function(e) {
         e.stopPropagation();
         const menu = document.getElementById('syncDropdownMenu');
-        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
     });
 
     // 点击其他地方关闭下拉菜单
@@ -322,15 +334,18 @@ function initEventListeners() {
     });
 
     // 设置面板按钮。
-    document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
-    document.getElementById('closeSettingsModal').addEventListener('click', hideSettingsModal);
-    document.getElementById('settingsModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideSettingsModal();
-        }
+    const settingsBtn = document.getElementById('settingsBtn');
+    if (settingsBtn) settingsBtn.addEventListener('click', showSettingsModal);
+    const closeSettingsModalEl = document.getElementById('closeSettingsModal');
+    if (closeSettingsModalEl) closeSettingsModalEl.addEventListener('click', hideSettingsModal);
+    const settingsModalEl = document.getElementById('settingsModal');
+    if (settingsModalEl) settingsModalEl.addEventListener('click', function(e) {
+        if (e.target === this) hideSettingsModal();
     });
-    document.getElementById('saveTabSettingsBtn').addEventListener('click', saveTabSettings);
-    document.getElementById('resetTabSettingsBtn').addEventListener('click', resetTabSettings);
+    const saveTabSettingsBtnEl = document.getElementById('saveTabSettingsBtn');
+    if (saveTabSettingsBtnEl) saveTabSettingsBtnEl.addEventListener('click', saveTabSettings);
+    const resetTabSettingsBtnEl = document.getElementById('resetTabSettingsBtn');
+    if (resetTabSettingsBtnEl) resetTabSettingsBtnEl.addEventListener('click', resetTabSettings);
     
     // 修改密码按钮——所有登录用户可见
     const changePwdBtn = document.getElementById('changePwdBtn');
