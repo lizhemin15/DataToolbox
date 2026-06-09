@@ -72,17 +72,34 @@ func handleDatabaseTablesList(w http.ResponseWriter, r *http.Request, config *Da
 	}
 	rows.Close()
 
-	// 快速估算行数（不阻塞，有就返回）
+	// 快速估算行数（使用系统表，避免逐表 COUNT(*)）
 	rowCounts := make(map[string]int64)
-	for _, t := range tables {
-		quoted, _ := safeQuoteIdentifier(t, config.Type)
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", quoted)
-		if countRow := db.QueryRow(countQuery); countRow != nil {
-			var cnt int64
-			if countRow.Scan(&cnt) == nil {
-				rowCounts[t] = cnt
+	switch config.Type {
+	case "dm", "oracle":
+		countQuery := "SELECT table_name, num_rows FROM user_tables"
+		if cr, err := db.Query(countQuery); err == nil {
+			defer cr.Close()
+			for cr.Next() {
+				var tn string
+				var cnt int64
+				if cr.Scan(&tn, &cnt) == nil {
+					rowCounts[strings.ToUpper(tn)] = cnt
+				}
 			}
 		}
+	case "postgresql":
+		countQuery := "SELECT relname, n_live_tup FROM pg_stat_user_tables"
+		if cr, err := db.Query(countQuery); err == nil {
+			defer cr.Close()
+			for cr.Next() {
+				var tn string
+				var cnt int64
+				if cr.Scan(&tn, &cnt) == nil {
+					rowCounts[tn] = cnt
+				}
+			}
+		}
+	// MySQL/SQLite 等不做行数估算，太快了没必要在列表页展示
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
