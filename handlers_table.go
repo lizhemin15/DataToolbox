@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
@@ -1385,6 +1387,16 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 		for cursor.Next(ctx) {
 			var result map[string]interface{}
 			if err := cursor.Decode(&result); err == nil {
+				// 安全处理 Binary 数据：替换为元信息，避免 base64 巨型字符串
+				for k, v := range result {
+					if bin, ok := v.(primitive.Binary); ok {
+						result[k] = map[string]interface{}{
+							"_blob": true,
+							"_size": len(bin.Data),
+							"_type": "BINARY",
+						}
+					}
+				}
 				data = append(data, result)
 			}
 		}
@@ -1514,12 +1526,27 @@ func handleTableDataQuery(w http.ResponseWriter, r *http.Request, config *Databa
 						"_type": "BLOB",
 					}
 				} else if b, ok := val.([]byte); ok {
-					if len(b) > 1024 {
+					// 运行时安全检测：不依赖预识别的两层兜底
+					if len(b) > 256 {
+						// 超过 256 字节直接当作 BLOB 处理
+						row[col] = map[string]interface{}{
+							"_blob": true,
+							"_size": len(b),
+							"_type": "BLOB",
+						}
+					} else if isBinaryData(b[:min(len(b), 512)]) {
+						// 小数据但检测为二进制
+						row[col] = map[string]interface{}{
+							"_blob": true,
+							"_size": len(b),
+							"_type": "BLOB",
+						}
+					} else if len(b) > 1024 {
 						row[col] = string(b[:1024]) + "..."
 					} else {
 						row[col] = string(b)
 					}
-				} else if s, ok := val.(string); ok && textCols[col] && len(s) > 1024 {
+				} else if s, ok := val.(string); ok && len(s) > 1024 {
 					row[col] = s[:1024] + "..."
 				} else {
 					row[col] = val
@@ -1993,9 +2020,23 @@ func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseC
 					// 检测 BLOB — 非文本字节
 					if isBinaryData(v) {
 						blobColumns[i] = true
-						row[col] = fmt.Sprintf("[BLOB %d bytes]", len(v))
+						previewLen := 64
+						if len(v) < previewLen {
+							previewLen = len(v)
+						}
+						row[col] = map[string]interface{}{
+							"_blob":    true,
+							"_size":    len(v),
+							"_type":    "BLOB",
+							"_preview": hex.EncodeToString(v[:previewLen]),
+						}
 					} else {
-						row[col] = string(v)
+						// 文本类 []byte，截断大内容防 JSON 卡死
+						if len(v) > 2048 {
+							row[col] = string(v[:2048]) + "..."
+						} else {
+							row[col] = string(v)
+						}
 					}
 				case time.Time:
 					row[col] = v.Format("2006-01-02 15:04:05")
