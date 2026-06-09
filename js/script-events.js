@@ -162,27 +162,29 @@ function initEventListeners() {
     });
 
     // API 与鉴权逻辑。
-    document.getElementById('apikeyTriggerBtn').addEventListener('click', function(e) {
-        e.stopPropagation();
-        const popover = document.getElementById('apikeyPopover');
-        const btn = document.getElementById('apikeyTriggerBtn');
-        popover.classList.toggle('show');
-        if (popover.classList.contains('show')) {
-            var rect = btn.getBoundingClientRect();
-            var popoverW = 270;
-            var sidebarWidth = 330;
-            // 避免弹层被左侧栏遮挡，固定到右侧安全区域。
-            var targetLeft = Math.max(rect.right, sidebarWidth);
-            if (targetLeft + popoverW <= window.innerWidth) {
-                popover.style.left = targetLeft + 'px';
-                popover.style.right = 'auto';
-            } else {
-                popover.style.right = '20px';
-                popover.style.left = 'auto';
+    const apikeyBtn = document.getElementById('apikeyTriggerBtn');
+    if (apikeyBtn) {
+        apikeyBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const popover = document.getElementById('apikeyPopover');
+            const btn = document.getElementById('apikeyTriggerBtn');
+            popover.classList.toggle('show');
+            if (popover.classList.contains('show')) {
+                var rect = btn.getBoundingClientRect();
+                var popoverW = 270;
+                var sidebarWidth = 330;
+                var targetLeft = Math.max(rect.right, sidebarWidth);
+                if (targetLeft + popoverW <= window.innerWidth) {
+                    popover.style.left = targetLeft + 'px';
+                    popover.style.right = 'auto';
+                } else {
+                    popover.style.right = '20px';
+                    popover.style.left = 'auto';
+                }
+                popover.style.top = rect.top + 'px';
             }
-            popover.style.top = rect.top + 'px';
-        }
-    });
+        });
+    }
     // API Key 弹层点击空白处自动关闭。
     if (!window._apikeyPopoverClickHandler) {
         window._apikeyPopoverClickHandler = function(e) {
