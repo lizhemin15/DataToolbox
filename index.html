@@ -619,7 +619,59 @@
                         <h2>接口分发</h2>
                         <p>选择左侧平台和接口查看详情</p>
                     </div>
-                    <div id="apiDetailView" class="db-detail-view" style="display:none;padding:20px;"></div>
+                    <div id="apiDetailView" class="db-detail-view" style="display:none;">
+                        <div class="detail-header">
+                            <h2 id="apiName">接口名称</h2>
+                            <div class="detail-actions">
+                                <label class="detail-enabled-wrap" onclick="event.stopPropagation()" title="启用/关闭接口">
+                                    <span class="detail-enabled-label">启用</span>
+                                    <div class="switch-wrap">
+                                        <input type="checkbox" id="apiDetailEnabledCheck" onchange="toggleApiEnabledFromDetail()">
+                                        <span class="switch-slider"></span>
+                                    </div>
+                                </label>
+                                <button id="editApiBtn" class="btn btn-sm">✏️ 编辑</button>
+                                <button id="testApiBtn" class="btn btn-sm btn-primary">🧪 测试</button>
+                                <button id="deleteApiBtn" class="btn btn-sm btn-danger">删除</button>
+                            </div>
+                        </div>
+                        <div class="db-info">
+                            <div class="info-item">
+                                <span class="info-label">接口路径:</span>
+                                <span id="apiPath" class="info-value"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">请求方法:</span>
+                                <span id="apiMethod" class="info-value"></span>
+                            </div>
+                            <div class="info-item" id="apiTypeRow">
+                                <span class="info-label">接口类型:</span>
+                                <span id="apiTypeDisplay" class="info-value"></span>
+                            </div>
+                            <div class="info-item" id="apiDatabaseRow">
+                                <span class="info-label">数据库:</span>
+                                <span id="apiDatabase" class="info-value"></span>
+                            </div>
+                            <div class="info-item" id="apiForwardUrlRow" style="display:none;">
+                                <span class="info-label">转发URL:</span>
+                                <span id="apiForwardUrlDisplay" class="info-value" style="word-break:break-all;"></span>
+                            </div>
+                        </div>
+                        <div class="tables-section" id="apiSqlSection">
+                            <h3>SQL语句</h3>
+                            <div class="sql-display">
+                                <pre id="apiSqlDisplay"></pre>
+                            </div>
+                        </div>
+                        <div class="tables-section" id="apiParamsSection">
+                            <h3>参数说明</h3>
+                            <div id="apiParamsDisplay" class="params-display"></div>
+                        </div>
+                        <div class="tables-section code-examples-section">
+                            <h3>调用示例</h3>
+                            <div id="apiCodeExamples" class="code-examples-container"></div>
+                        </div>
+                    </div>
                     <div id="platformApiDetailView" style="display:none;padding:20px;"></div>
                 </div>
             </div>
