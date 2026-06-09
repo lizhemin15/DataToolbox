@@ -123,8 +123,8 @@ func getTablesQuery(config *DatabaseConfig) string {
 			"AND table_name NOT LIKE '%$%' ORDER BY owner, table_name"
 	case "dm":
 		// 达梦：使用 ALL_TABLES 返回所有有权限访问的模式下的表
-		// 排除达梦内置系统模式，保留用户创建的模式（如 SYSDBA 等）
-		return "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE OWNER NOT IN ('SYS','SYSSSO','SYSAUDITOR') ORDER BY OWNER, TABLE_NAME"
+		// 排除达梦内置系统模式，排除 ## 开头的系统表
+		return "SELECT OWNER, TABLE_NAME FROM ALL_TABLES WHERE OWNER NOT IN ('SYS','SYSSSO','SYSAUDITOR') AND TABLE_NAME NOT LIKE '##%' ORDER BY OWNER, TABLE_NAME"
 	case "sqlite":
 		return "SELECT name FROM sqlite_master WHERE type='table'"
 	case "duckdb":
