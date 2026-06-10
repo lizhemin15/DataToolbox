@@ -51,13 +51,13 @@
 }
 
 .param-type.required {
-    background: #fed7d7;
-    color: #a93226;
+    background: #f5f5f5;
+    color: #333;
 }
 
 .param-type.optional {
-    background: #bee3f8;
-    color: #2c5282;
+    background: #f5f5f5;
+    color: #333;
 }
 
 /* ==================== ApiKey 弹出面板 ==================== */
@@ -88,7 +88,7 @@
     align-items: center;
     gap: 10px;
     padding: 8px 16px;
-    background: linear-gradient(90deg, #fef3cd 0%, #fff8e1 100%);
+    background: #333;
     border-bottom: 1px solid #f0d060;
     font-size: 13px;
     color: #856404;
@@ -347,7 +347,7 @@
 
 .view-toggle-btn.active {
     background: white;
-    color: #2b6cb0;
+    color: #111;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -427,25 +427,25 @@
 }
 
 .value-boolean {
-    color: #d53f8c;
+    color: #333;
     font-weight: 500;
 }
 
 .value-number {
-    color: #2b6cb0;
+    color: #333;
     font-weight: 500;
 }
 
 .value-string {
-    color: #38a169;
+    color: #404040;
 }
 
 .value-array {
-    color: #805ad5;
+    color: #333;
 }
 
 .value-object {
-    color: #dd6b20;
+    color: #404040;
 }
 
 .object-key {

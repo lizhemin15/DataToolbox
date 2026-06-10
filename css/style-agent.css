@@ -26,11 +26,11 @@
 }
 
 .mcp-sub-tab:hover {
-    color: #4f46e5;
+    color: #333;
 }
 
 .mcp-sub-tab.active {
-    color: #4f46e5;
+    color: #333;
     font-weight: 600;
 }
 
@@ -41,7 +41,7 @@
     left: 0;
     right: 0;
     height: 2px;
-    background: #4f46e5;
+    background: #333;
 }
 
 /* MCP 子标签内容 */
@@ -119,8 +119,7 @@
 }
 
 .skill-card:hover {
-    border-color: #4f46e5;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+    border-color: #333;
 }
 
 .skill-icon {
@@ -265,7 +264,7 @@
 }
 
 .switch-wrap input:checked + .switch-slider {
-    background: #4a6cf7;
+    background: #333;
 }
 
 .switch-wrap input:checked + .switch-slider::before {
@@ -404,7 +403,7 @@
 }
 
 .mcp-input:focus {
-    border-color: #4a6cf7;
+    border-color: #171717;
     background: #fff;
 }
 
