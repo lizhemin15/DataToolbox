@@ -70,9 +70,6 @@ const aiModules = [
     { id: 'quality-audit', name: '质量审计', icon: '✅', description: '数据质量检查、校验规则', aliases: ['质量', '审计', '校验', '检查'] },
     { id: 'ontology', name: '本体查询', icon: '🧠', description: '概念关系、语义分析', aliases: ['本体论', '本体', '语义', '概念'] },
     { id: 'small-model', name: '小模型', icon: '🤖', description: '小模型相关、本地模型、离线推理', aliases: ['小模型', '本地模型', '离线'] },
-    { id: 'apps', name: '应用广场', icon: '📱', description: '浏览和管理应用', aliases: ['应用', '广场', 'app', 'apps'] },
-    { id: 'mcp', name: 'Agent服务', icon: '🤝', description: 'MCP服务、智能体编排', aliases: ['agent', 'MCP', '智能体', '代理'] },
-    { id: 'lineage', name: '数据血缘', icon: '🔗', description: '数据溯源、血缘关系追踪', aliases: ['血缘', '溯源', '追踪', 'lineage'] },
 ];
 
 let aiSessionContext = {
@@ -90,8 +87,10 @@ async function loadSessions() {
     try {
         const res = await fetchWithAuth(`${API_BASE}/api/v1/agent/sessions`);
         const data = await res.json();
+        console.log('[loadSessions] API response:', JSON.stringify(data).substring(0, 500));
         if (data.success) {
             aiSessions = data.data || data.sessions || [];
+            console.log('[loadSessions] loaded sessions:', aiSessions.length);
             // 如果有会话但没有当前会话，选择第一个
             if (aiSessions.length > 0 && !currentSessionId) {
                 currentSessionId = aiSessions[0].id;
@@ -165,7 +164,6 @@ async function switchToSession(sessionId) {
         }
     } catch(e) {
         console.error('加载会话详情失败:', e);
-        showToast('加载会话详情失败', 'error');
     }
     
     // 恢复会话上下文
@@ -178,8 +176,6 @@ async function switchToSession(sessionId) {
     if (messagesEl) {
         messagesEl.innerHTML = '';
         if (session.messages && session.messages.length > 0) {
-            // 有消息的会话，隐藏快捷提示
-            if (typeof hideQuickPrompts === 'function') hideQuickPrompts();
             session.messages.forEach(msg => {
                 if (msg.mode === 'cluster' && msg.blocks && msg.blocks.length > 0) {
                     appendClusterMessageToChat(msg.content, msg.blocks);
@@ -305,9 +301,64 @@ function showSessionWelcome() {
     if (!messagesEl) return;
     messagesEl.innerHTML = `
         <div class="ai-welcome-message">
-            <p class="ai-welcome-subtitle">输入 @ 引用数据库或模块，直接描述任务</p>
+            <div class="ai-welcome-hero">
+                <div class="ai-welcome-logo">
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                        <defs>
+                            <linearGradient id="wg1" x1="0" y1="0" x2="48" y2="48">
+                                <stop offset="0%" stop-color="#6366f1"/>
+                                <stop offset="50%" stop-color="#8b5cf6"/>
+                                <stop offset="100%" stop-color="#a78bfa"/>
+                            </linearGradient>
+                            <linearGradient id="wg2" x1="0" y1="48" x2="48" y2="0">
+                                <stop offset="0%" stop-color="#6366f1" stop-opacity="0.6"/>
+                                <stop offset="100%" stop-color="#c084fc" stop-opacity="0.3"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="48" height="48" rx="14" fill="url(#wg1)"/>
+                        <circle cx="17" cy="20" r="3.5" fill="white" opacity="0.95"/>
+                        <circle cx="31" cy="20" r="3.5" fill="white" opacity="0.95"/>
+                        <path d="M16 30 Q24 36 32 30" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9"/>
+                        <path d="M6 24 L10 22" stroke="url(#wg2)" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M42 24 L38 22" stroke="url(#wg2)" stroke-width="2" stroke-linecap="round"/>
+                        <circle cx="8" cy="16" r="2" fill="white" opacity="0.4"/>
+                        <circle cx="40" cy="16" r="2" fill="white" opacity="0.4"/>
+                    </svg>
+                </div>
+                <h3>智能助手</h3>
+                <p>多智能体协作 · 自主规划 · 复杂任务拆解执行</p>
+            </div>
+            <div class="ai-welcome-cards">
+                <div class="ai-welcome-card" onclick="fillPrompt('看看我有哪些数据，这个表长什么样')">
+                    <div class="ai-welcome-card-icon"></div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">看看我有哪些数据</div>
+                        <div class="ai-welcome-card-desc">浏览数据库，查看表结构</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('查一下最近的数据有没有异常')">
+                    <div class="ai-welcome-card-icon"></div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">查一下最近异常</div>
+                        <div class="ai-welcome-card-desc">扫描数据质量，找异常值</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('用这些数据做个看板，我想看整体情况')">
+                    <div class="ai-welcome-card-icon"></div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">做个数据看板</div>
+                        <div class="ai-welcome-card-desc">可视化展示数据全貌</div>
+                    </div>
+                </div>
+                <div class="ai-welcome-card" onclick="fillPrompt('帮我创建一个接口，把数据开放出去')">
+                    <div class="ai-welcome-card-icon"></div>
+                    <div class="ai-welcome-card-text">
+                        <div class="ai-welcome-card-title">帮我创建一个接口</div>
+                        <div class="ai-welcome-card-desc">快速生成 API，分发数据</div>
+                    </div>
+                </div>
+            </div>
         </div>`;
-    if (typeof showQuickPrompts === 'function') showQuickPrompts();
 }
 
 function fillPrompt(text) {
@@ -464,23 +515,23 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=2026.05.14.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
 }
 
 
 function handleUnauthorizedFromApi() {
     if (!localStorage.getItem('dataOntologyToken')) return;
-    try { closeUserMgmtPanel(true); } catch (e) { console.warn('[logout] closeUserMgmtPanel:', e); }
+    try { closeUserMgmtPanel(true); } catch (e) {}
     try {
         window._qualityAuditDataLoaded = false;
         window._qualityAuditRulesLoaded = false;
-    } catch (e) { console.warn('[logout] qualityAudit reset:', e); }
+    } catch (e) {}
     localStorage.removeItem('dataOntologyToken');
     localStorage.removeItem('dataOntologyUser');
     currentUser = null;
@@ -520,7 +571,7 @@ async function fetchWithAuth(input, init, timeoutMs = 60000) {
                 if (data && data.success === false && typeof data.message === 'string' && data.message.indexOf('未授权') !== -1) {
                     handleUnauthorizedFromApi();
                 }
-            } catch (e) { /* non-JSON response, ignore */ }
+            } catch (e) {}
         }
         return response;
     } catch (e) {

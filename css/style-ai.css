@@ -408,9 +408,7 @@
 }
 
 .ai-welcome-card-icon {
-    font-size: 22px;
-    flex-shrink: 0;
-    margin-top: 1px;
+    display: none;
 }
 
 .ai-welcome-card-title {
