@@ -6,7 +6,7 @@
     flex-direction: row;
     padding: 0;
     overflow: hidden;
-    background: #333;
+    background: #fafafa;
 }
 
 .ai-session-sidebar {
@@ -14,11 +14,11 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: row;
-    background: #333;
+    background: #fff;
     overflow: hidden;
     transition: width 0.25s ease;
-    border-right: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
+    border-right: 1px solid #e5e5e5;
+    box-shadow: 1px 0 4px rgba(0, 0, 0, 0.03);
 }
 
 .ai-session-sidebar.collapsed {
@@ -31,17 +31,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #333;
+    background: #fafafa;
     cursor: pointer;
-    color: #64748b;
+    color: #666;
     font-size: 14px;
     transition: all 0.2s;
-    border-right: 1px solid rgba(0, 0, 0, 0.06);
+    border-right: 1px solid #e5e5e5;
 }
 
 .ai-sidebar-toggle:hover {
-    color: #171717;
-    background: #333;
+    color: #000;
+    background: #f0f0f0;
 }
 
 .ai-session-sidebar.collapsed .sidebar-toggle-icon {
@@ -64,40 +64,45 @@
     padding: 16px 12px;
     display: flex;
     gap: 8px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid #e5e5e5;
     flex-shrink: 0;
-    background: white;
+    background: #fff;
 }
 
 .ai-new-session-btn {
     flex: 1;
     padding: 10px 0;
-    border: 1px solid rgba(0, 0, 0, 0.3);
+    border: 1px solid #e5e5e5;
     border-radius: 10px;
-    background: #333;
-    color: white;
+    background: #fff;
+    color: #171717;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
     text-align: center;
     line-height: 1;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .ai-new-session-btn:hover {
+    background: #171717;
+    color: #fff;
+    border-color: #171717;
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .ai-new-session-btn[data-mode="fast"]:hover {
     border-color: #171717;
-    background: #333;
+    background: #171717;
+    color: #fff;
 }
 
 .ai-new-session-btn[data-mode="cluster"]:hover {
-    border-color: #333;
-    background: #333;
+    border-color: #171717;
+    background: #171717;
+    color: #fff;
 }
 
 .ai-session-list {
@@ -111,7 +116,7 @@
     width: 4px;
 }
 .ai-session-list::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: #ccc;
     border-radius: 2px;
 }
 .ai-session-list::-webkit-scrollbar-track {
@@ -131,20 +136,20 @@
 }
 
 .ai-session-item:hover {
-    background: rgba(0, 0, 0, 0.08);
+    background: #f0f0f0;
 }
 
 .ai-session-item.active {
-    background: linear-gradient(135deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.12) 100%);
+    background: #f5f5f5;
     border-left: 3px solid #171717;
     padding-left: 11px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .ai-session-item .session-title {
     flex: 1;
     font-size: 13px;
-    color: #475569;
+    color: #666;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -153,7 +158,7 @@
 }
 
 .ai-session-item.active .session-title {
-    color: #334155;
+    color: #171717;
     font-weight: 600;
 }
 
@@ -168,13 +173,13 @@
 }
 
 .ai-session-item .session-mode-badge.mode-fast {
-    background: #333;
-    color: white;
+    background: #171717;
+    color: #fff;
 }
 
 .ai-session-item .session-mode-badge.mode-cluster {
-    background: #333;
-    color: white;
+    background: #666;
+    color: #fff;
 }
 
 .ai-session-item .session-delete {
@@ -185,7 +190,7 @@
     height: 24px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: #999;
     font-size: 14px;
     cursor: pointer;
     border-radius: 6px;
@@ -200,8 +205,8 @@
 }
 
 .ai-session-item .session-delete:hover {
-    background: rgba(239,68,68,0.3);
-    color: #ef4444;
+    background: #f5f5f5;
+    color: #999;
 }
 
 .ai-chat-area {
@@ -209,11 +214,11 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: #333;
-    border-radius: 16px;
+    background: #fff;
+    border-radius: 0;
     overflow: hidden;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-    margin: 8px;
+    box-shadow: none;
+    margin: 0;
 }
 
 .ai-chat-header {
@@ -221,11 +226,11 @@
     justify-content: space-between;
     align-items: center;
     padding: 14px 20px;
-    background: #333;
-    color: white;
-    border-bottom: none;
+    background: #fff;
+    color: #171717;
+    border-bottom: 1px solid #e5e5e5;
     flex-shrink: 0;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    box-shadow: none;
 }
 
 .ai-chat-header h3 {
@@ -244,14 +249,14 @@
     align-items: center;
     gap: 8px;
     padding: 4px 12px 4px 8px;
-    background: rgba(255, 255, 255, 0.15);
+    background: #f5f5f5;
     border-radius: 16px;
     font-size: 13px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid #e5e5e5;
 }
 
 .ai-context-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: #666;
     font-size: 12px;
 }
 
@@ -260,14 +265,14 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 2px;
-    color: white;
+    color: #171717;
     font-weight: 600;
 }
 
 .ai-context-clear {
-    background: rgba(255, 255, 255, 0.2);
+    background: #e5e5e5;
     border: none;
-    color: white;
+    color: #666;
     width: 18px;
     height: 18px;
     border-radius: 50%;
@@ -281,26 +286,26 @@
 }
 
 .ai-context-clear:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: #ccc;
 }
 
 .ai-chat-header .btn {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: #f5f5f5;
+    color: #171717;
+    border: 1px solid #e5e5e5;
     padding: 6px 12px;
     font-size: 16px;
 }
 
 .ai-chat-header .btn:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: #e5e5e5;
 }
 
 .ai-chat-messages {
     flex: 1;
     overflow-y: auto;
     padding: 0;
-    background: #333;
+    background: #fafafa;
     min-height: 0;
     max-height: 100%;
 }
@@ -323,7 +328,7 @@
 .ai-welcome-message {
     text-align: center;
     padding: 48px 24px 32px;
-    color: #64748b;
+    color: #666;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -341,17 +346,17 @@
     width: 64px;
     height: 64px;
     border-radius: 18px;
-    background: #333;
+    background: #f5f5f5;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     animation: welcomePulse 3s ease-in-out infinite;
 }
 
 @keyframes welcomePulse {
-    0%, 100% { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.15); }
-    50% { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25); }
+    0%, 100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+    50% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); }
 }
 
 .ai-welcome-logo svg {
@@ -361,7 +366,7 @@
 
 .ai-welcome-message h3 {
     margin: 0;
-    color: #0f172a;
+    color: #171717;
     font-size: 24px;
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -370,7 +375,7 @@
 .ai-welcome-hero p {
     margin: 0;
     font-size: 14px;
-    color: #94a3b8;
+    color: #999;
     letter-spacing: 0.04em;
 }
 
@@ -387,8 +392,8 @@
     align-items: flex-start;
     gap: 12px;
     padding: 14px 16px;
-    background: white;
-    border: 1px solid #e2e8f0;
+    background: #fff;
+    border: 1px solid #e5e5e5;
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -396,9 +401,9 @@
 }
 
 .ai-welcome-card:hover {
-    border-color: #404040;
-    background: #f5f5f5 100%);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    border-color: #171717;
+    background: #f5f5f5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     transform: translateY(-1px);
 }
 
@@ -411,19 +416,19 @@
 .ai-welcome-card-title {
     font-size: 13px;
     font-weight: 600;
-    color: #1e293b;
+    color: #171717;
     margin-bottom: 2px;
 }
 
 .ai-welcome-card-desc {
     font-size: 12px;
-    color: #94a3b8;
+    color: #999;
     line-height: 1.4;
 }
 
 .ai-welcome-hint {
     font-size: 12px;
-    color: #94a3b8;
+    color: #999;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -432,8 +437,8 @@
 }
 
 .ai-welcome-hint-key {
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
+    background: #f0f0f0;
+    border: 1px solid #e5e5e5;
     padding: 1px 6px;
     border-radius: 4px;
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -484,12 +489,12 @@
 }
 
 .ai-message.user .ai-message-avatar {
-    background: #333;
+    background: #171717;
 }
 
 .ai-message.assistant .ai-message-avatar {
-    background: #333;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background: #171717;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .ai-message-content {
@@ -548,27 +553,27 @@
 }
 
 .ai-message.user .ai-message-bubble {
-    background: #333;
-    color: white;
+    background: #171717;
+    color: #fff;
     border-bottom-right-radius: 6px;
     white-space: pre-wrap;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .ai-message.assistant .ai-message-bubble {
-    background: white;
-    color: #334155;
-    border: 1px solid rgba(0, 0, 0, 0.04);
+    background: #fff;
+    color: #333;
+    border: 1px solid #e5e5e5;
     border-bottom-left-radius: 6px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 /* Cluster mode: assistant card style (PicoClaw-inspired) */
 .ai-chat-messages.cluster-mode .ai-message.assistant .ai-message-bubble {
     border-radius: 16px;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-    background: #333;
+    border: 1px solid #e5e5e5;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    background: #fff;
 }
 
 /* Cluster mode: user message right-aligned */
@@ -582,7 +587,7 @@
 
 .ai-message-meta {
     font-size: 11px;
-    color: #a0aec0;
+    color: #999;
     margin-top: 2px;
     padding: 0 4px;
 }
@@ -593,27 +598,25 @@
 
 .ai-db-reference {
     display: inline-block;
-    background: rgba(255, 255, 255, 0.25);
-    color: #ffffff;
+    background: #171717;
+    color: #fff;
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 700;
     margin: 0 2px;
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    border: 1px solid #333;
 }
 
 /* 在助手消息中的数据库引用样式 */
 .ai-message.assistant .ai-db-reference {
-    background: rgba(0, 0, 0, 0.1);
+    background: #f0f0f0;
     color: #171717;
-    border: 1px solid rgba(0, 0, 0, 0.2);
-    text-shadow: none;
+    border: 1px solid #e5e5e5;
 }
 
 .ai-sql-block {
-    background: #2d3748;
-    color: #e2e8f0;
+    background: #f5f5f5;
+    color: #333;
     padding: 8px 12px;
     border-radius: 6px;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -622,7 +625,7 @@
     margin: 4px 0;
     overflow-x: auto;
     border-left: 3px solid #171717;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     max-width: 100%;
     white-space: pre-wrap;
     word-break: break-all;
@@ -632,9 +635,9 @@
     margin: 4px 0;
     overflow-x: auto;
     border-radius: 6px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #e5e5e5;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-    background: white;
+    background: #fff;
     max-width: 100%;
 }
 
@@ -646,19 +649,19 @@
 }
 
 .ai-result-table th {
-    background: #333;
+    background: #fafafa;
     padding: 6px 10px;
     text-align: left;
     font-weight: 600;
-    color: #2d3748;
-    border-bottom: 2px solid #cbd5e0;
+    color: #333;
+    border-bottom: 2px solid #e5e5e5;
     white-space: nowrap;
 }
 
 .ai-result-table td {
     padding: 5px 10px;
-    border-bottom: 1px solid #e2e8f0;
-    color: #4a5568;
+    border-bottom: 1px solid #e5e5e5;
+    color: #333;
 }
 
 .ai-result-table tr:last-child td {
@@ -666,7 +669,7 @@
 }
 
 .ai-result-table tbody tr:hover {
-    background: #f7fafc;
+    background: #f5f5f5;
     transition: background 0.15s ease;
 }
 
@@ -680,7 +683,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #a0aec0;
+    background: #999;
     animation: bounce 1.4s infinite ease-in-out both;
 }
 
@@ -714,17 +717,17 @@
     margin: -24px 20px 16px;
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(0, 0, 0, 0.15);
+    border: 1px solid #e5e5e5;
     border-radius: 20px;
     padding: 12px 16px;
-    background: white;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    background: #fff;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
     transition: all 0.2s;
 }
 
 .ai-input-float-wrap:focus-within {
     border-color: #171717;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1);
 }
 
 .ai-db-suggestions {
@@ -732,10 +735,10 @@
     bottom: 100%;
     left: 0;
     right: 0;
-    background: white;
-    border: 1px solid #e2e8f0;
+    background: #fff;
+    border: 1px solid #e5e5e5;
     border-radius: 10px;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
     max-height: 200px;
     overflow-y: auto;
     z-index: 10;
@@ -753,7 +756,7 @@
 
 .ai-db-suggestion:hover,
 .ai-db-suggestion.active {
-    background: #edf2f7;
+    background: #f0f0f0;
 }
 
 .ai-db-suggestion-icon {
@@ -763,22 +766,22 @@
 .ai-db-suggestion-name {
     flex: 1;
     font-weight: 600;
-    color: #2d3748;
+    color: #171717;
 }
 
 .ai-db-suggestion-info {
     font-size: 12px;
-    color: #718096;
+    color: #999;
 }
 
 .ai-suggestion-group-title {
     padding: 6px 16px 4px;
     font-size: 11px;
     font-weight: 700;
-    color: #a0aec0;
+    color: #999;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-top: 1px solid #edf2f7;
+    border-top: 1px solid #e5e5e5;
 }
 
 .ai-suggestion-group-title:first-child {
@@ -786,7 +789,7 @@
 }
 
 .ai-module-suggestion .ai-db-suggestion-name {
-    color: #6b46c1;
+    color: #171717;
 }
 
 .ai-context-tag {
@@ -801,13 +804,13 @@
 }
 
 .ai-context-tag-db {
-    background: rgba(255, 255, 255, 0.25);
-    color: white;
+    background: #171717;
+    color: #fff;
 }
 
 .ai-context-tag-module {
-    background: rgba(167, 139, 250, 0.35);
-    color: #f5f3ff;
+    background: #e5e5e5;
+    color: #333;
 }
 
 .ai-input-wrapper {
@@ -842,9 +845,9 @@
     height: 36px;
     min-width: 36px;
     border-radius: 50%;
-    background: #404040;
+    background: #171717;
     border: none;
-    color: white;
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -855,7 +858,7 @@
 }
 
 .ai-send-btn:hover {
-    background: #404040;
+    background: #333;
     transform: scale(1.05);
 }
 
@@ -870,32 +873,31 @@
 }
 
 .ai-error {
-    background: #fed7d7;
-    color: #c53030;
+    background: #f5f5f5;
+    color: #171717;
     padding: 6px 10px;
     border-radius: 6px;
     margin: 4px 0;
-    border: 1px solid #fc8181;
+    border: 1px solid #e5e5e5;
     font-size: 13px;
 }
-
 
 
 /* AI 思考过程折叠块 */
 .ai-think-block {
     margin: 8px 0;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #e5e5e5;
     border-radius: 8px;
     overflow: hidden;
 }
 
 .ai-think-summary {
     padding: 8px 12px;
-    background: #f7fafc;
+    background: #fafafa;
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
-    color: #718096;
+    color: #666;
     user-select: none;
     list-style: none;
     display: flex;
@@ -919,32 +921,31 @@
 }
 
 .ai-think-summary:hover {
-    background: #edf2f7;
+    background: #f0f0f0;
 }
 
 .ai-think-content {
     padding: 10px 12px;
     font-size: 12px;
-    color: #718096;
+    color: #666;
     line-height: 1.6;
-    background: #f7fafc;
-    border-top: 1px solid #e2e8f0;
+    background: #fafafa;
+    border-top: 1px solid #e5e5e5;
     max-height:300px;
     overflow-y: auto;
 }
 
 
-
 .ai-context-hint {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.9);
+    color: #666;
     margin-top: 6px;
     padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.15);
+    background: #f5f5f5;
     border-radius: 4px;
     font-style: italic;
     display: inline-block;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid #e5e5e5;
 }
 
 /* AI创建接口样式 */
@@ -953,12 +954,12 @@
     border: 2px solid #171717;
     border-radius: 12px;
     overflow: hidden;
-    background: white;
+    background: #fff;
 }
 
 .ai-api-config-header {
-    background: #333;
-    color: white;
+    background: #171717;
+    color: #fff;
     padding: 12px 16px;
     display: flex;
     justify-content: space-between;
@@ -966,15 +967,15 @@
 }
 
 .ai-api-config-header .btn {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     padding: 4px 12px;
     font-size: 13px;
 }
 
 .ai-api-config-header .btn:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .ai-api-config-body {
@@ -982,7 +983,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    background: #f8f9fa;
+    background: #fafafa;
 }
 
 .config-item {
@@ -993,23 +994,23 @@
 
 .config-label {
     font-size: 12px;
-    color: #718096;
+    color: #666;
     font-weight: 600;
 }
 
 .config-value {
     font-size: 14px;
-    color: #2d3748;
+    color: #171717;
     font-weight: 500;
 }
 
 .ai-api-config-actions {
     padding: 12px 16px;
-    background: white;
+    background: #fff;
     display: flex;
     gap: 12px;
     justify-content: flex-end;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid #e5e5e5;
 }
 
 .ai-api-config-actions .btn {
@@ -1017,8 +1018,7 @@
 }
 
 .ai-api-config-actions .btn-primary {
-    background: #333;
+    background: #171717;
     border: none;
-    color: white;
+    color: #fff;
 }
-
