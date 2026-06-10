@@ -31,7 +31,7 @@ body {
 .server-error-box {
     background: white;
     border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     padding: 40px;
     width: 100%;
     max-width: 600px;
@@ -39,7 +39,7 @@ body {
 }
 
 .server-error-icon {
-    font-size: 80px;
+    font-size: 32px;
     margin-bottom: 20px;
 }
 
@@ -123,7 +123,7 @@ body {
 .login-box {
     background: white;
     border-radius: 16px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     padding: 40px;
     width: 100%;
     max-width: 420px;
@@ -135,7 +135,7 @@ body {
 }
 
 .login-icon {
-    font-size: 64px;
+    font-size: 32px;
     margin-bottom: 16px;
 }
 
@@ -270,7 +270,7 @@ body {
 }
 
 .success-message {
-    color: #38a169;
+    color: #404040;
     font-size: 13px;
     margin-top: 12px;
     display: none;
@@ -753,13 +753,13 @@ body {
 }
 
 .welcome-icon {
-    font-size: 64px;
+    font-size: 32px;
     line-height: 1;
     margin-bottom: 24px;
-    opacity: 0.6;
+    opacity: 0.5;
     flex-shrink: 0;
-    width: 80px;
-    height: 80px;
+    width: 48px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -834,10 +834,9 @@ body {
     gap: 16px;
     margin-bottom: 30px;
     padding: 24px;
-    background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+    background: #fafafa;
     border-radius: 12px;
-    border: 2px solid #e2e8f0;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e5e5e5;
 }
 
 .info-item {
@@ -1039,7 +1038,7 @@ body {
 
 .tables-list-compact .table-item-compact:hover {
     border-color: #e5e5e5;
-    background: #f0f4ff;
+    background: #f5f5f5;
 }
 
 .tables-list-compact .table-item-compact.active {
@@ -1058,9 +1057,7 @@ body {
     align-items: center;
     margin-bottom: 20px;
     padding-bottom: 16px;
-    border-bottom: 3px solid transparent;
-    border-image: linear-gradient(90deg, #171717 0%, #404040 50%, transparent 50%);
-    border-image-slice: 1;
+    border-bottom: 1px solid #e5e5e5;
 }
 
 .tables-section h3 {
@@ -1068,42 +1065,24 @@ body {
     color: #2d3748;
     margin: 0;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.tables-section h3::before {
-    content: "📊";
-    font-size: 24px;
 }
 
 .tables-section-header .btn-primary {
-    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    background: #171717;
     color: white;
     border: none;
-    box-shadow: 0 2px 8px rgba(72, 187, 120, 0.3);
-    font-weight: 600;
+    font-weight: 500;
     padding: 8px 18px;
-    transition: all 0.3s ease;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.tables-section-header .btn-primary::before {
-    content: "➕";
+    transition: all 0.2s;
     font-size: 14px;
 }
 
 .tables-section-header .btn-primary:hover {
-    box-shadow: 0 4px 12px rgba(72, 187, 120, 0.4);
-    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+    background: #333;
 }
 
 .tables-section-header .btn-primary:active {
-    background: linear-gradient(135deg, #2f855a 0%, #276749 100%);
+    background: #000;
 }
 
 .tables-list {
@@ -1113,70 +1092,49 @@ body {
 }
 
 .table-item {
-    padding: 14px 18px;
-    border: 2px solid #e2e8f0;
-    border-radius: 10px;
+    padding: 8px 12px;
+    border: 1px solid #e5e5e5;
+    border-radius: 6px;
     cursor: pointer;
-    transition: all 0.3s;
+    transition: border-color 0.15s, background 0.15s;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    background: white;
+    gap: 1px;
+    background: #fff;
     font-weight: 500;
-    color: #2d3748;
+    color: #1a1a1a;
     position: relative;
     overflow: hidden;
+    font-size: 13px;
 }
 
 .table-item .table-name {
     font-weight: 600;
-    color: #2d3748;
+    color: #111;
+    font-size: 13px;
+    line-height: 1.3;
 }
 
 .table-item .table-comment {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 400;
-    color: #718096;
+    color: #999;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.table-item::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 4px;
-    height: 100%;
-    background: #fafafa;
-    transform: scaleY(0);
-    transition: transform 0.3s ease;
+    line-height: 1.3;
 }
 
 .table-item:hover {
-    border-color: #e5e5e5;
-    background: linear-gradient(135deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.05) 100%);
-    transform: translateX(4px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-color: #333;
+    background: #fafafa;
 }
 
-.table-item:hover::after {
-    transform: scaleY(1);
-}
-
-.table-item::before {
-    content: "📋";
-    font-size: 22px;
-    filter: grayscale(0.3);
-    transition: all 0.3s ease;
-}
-
-.table-item:hover::before {
-    filter: grayscale(0);
-    transform: rotate(-10deg) scale(1.1);
+.table-item.active {
+    border-color: #333;
+    background: #f5f5f5;
 }
 
 /* 模式分组（达梦/Oracle 等） */
@@ -1235,9 +1193,7 @@ body {
 
 .table-preview {
     margin-top: 30px;
-    border-top: 3px solid transparent;
-    border-image: linear-gradient(90deg, #171717 0%, #404040 100%);
-    border-image-slice: 1;
+    border-top: 1px solid #e5e5e5;
     padding-top: 30px;
 }
 
@@ -1249,22 +1205,14 @@ body {
     padding: 16px 20px;
     background: #fafafa;
     border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .preview-header h3 {
-    font-size: 20px;
-    color: white;
+    font-size: 18px;
+    color: #2d3748;
     margin: 0;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.preview-header h3::before {
-    content: "📋";
-    font-size: 24px;
 }
 
 .preview-content {
@@ -1288,7 +1236,7 @@ body {
 }
 
 .preview-content::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #5568d3 0%, #63398a 100%);
+    background: #666;
 }
 
 .preview-table {
@@ -1324,9 +1272,9 @@ body {
 }
 
 .coming-soon-icon {
-    font-size: 80px;
+    font-size: 32px;
     margin-bottom: 24px;
-    opacity: 0.6;
+    opacity: 0.5;
 }
 
 .coming-soon h2 {
