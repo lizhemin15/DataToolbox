@@ -19,33 +19,54 @@
     transition: width 0.25s ease;
     border-right: 1px solid #e5e5e5;
     box-shadow: 1px 0 4px rgba(0, 0, 0, 0.03);
+    position: relative;
 }
 
 .ai-session-sidebar.collapsed {
     width: 36px;
 }
 
-.ai-sidebar-toggle {
-    width: 36px;
-    flex-shrink: 0;
-    display: flex;
+/* 展开按钮（折叠时可见） */
+.ai-session-sidebar.collapsed .ai-sidebar-collapse-btn {
+    display: none;
+}
+
+.ai-session-sidebar.collapsed::before {
+    content: '';
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.ai-session-sidebar.collapsed {
+    justify-content: center;
+    cursor: pointer;
+}
+
+.sidebar-expand-btn {
+    display: none;
+}
+
+.ai-session-sidebar.collapsed ~ .ai-chat-area .sidebar-expand-btn {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: #fafafa;
-    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    background: none;
+    border: none;
     color: #666;
-    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
     transition: all 0.2s;
-    border-right: 1px solid #e5e5e5;
 }
 
-.ai-sidebar-toggle:hover {
+.ai-session-sidebar.collapsed ~ .ai-chat-area .sidebar-expand-btn:hover {
     color: #000;
     background: #f0f0f0;
-}
-
-.ai-session-sidebar.collapsed .sidebar-toggle-icon {
-    transform: rotate(180deg);
 }
 
 .ai-sidebar-body {
