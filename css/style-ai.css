@@ -764,6 +764,37 @@
     margin-bottom: 4px;
 }
 
+.ai-quick-prompts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 0;
+}
+
+.ai-quick-prompts.hidden {
+    display: none;
+}
+
+.ai-quick-prompt {
+    font-size: 12px;
+    color: #666;
+    background: #f5f5f5;
+    border: 1px solid #e5e5e5;
+    border-radius: 14px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.ai-quick-prompt:hover {
+    color: #171717;
+    background: #e5e5e5;
+    border-color: #ccc;
+}
+
 .ai-db-suggestion {
     padding: 12px 16px;
     cursor: pointer;
