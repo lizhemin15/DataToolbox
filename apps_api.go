@@ -1157,5 +1157,82 @@ func handleScreenEditorPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	http.ServeFile(w, r, "apps/screen-editor/screen-editor.html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(screenEditorHTML))
 }
+
+const screenEditorHTML = `<!DOCTYPE html>
+<html lang="zh-CN" data-theme="linear-dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>大屏编辑器 - DataToolbox</title>
+  <link rel="stylesheet" href="/components/themes.css">
+  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061601">
+</head>
+<body>
+<!-- 顶部工具栏 -->
+<header class="editor-toolbar">
+  <div class="toolbar-left">
+    <span class="toolbar-logo">📊 DataToolbox 大屏编辑器</span>
+    <input type="text" class="toolbar-name" id="screenName" placeholder="大屏名称" value="未命名大屏">
+    <span class="toolbar-slug">/screen/<input type="text" id="screenSlug" placeholder="my-screen" value=""></span>
+  </div>
+  <div class="toolbar-center">
+    <div class="theme-switcher" id="themeSwitcher">
+      <button class="theme-btn active" data-theme="linear-dark">Linear</button>
+      <button class="theme-btn" data-theme="vercel-light">Vercel</button>
+      <button class="theme-btn" data-theme="mission-control">Mission</button>
+      <button class="theme-btn" data-theme="stripe-dark">Stripe</button>
+    </div>
+  </div>
+  <div class="toolbar-right">
+    <label class="toolbar-toggle" title="显示地图底图">
+      <input type="checkbox" id="showMap">
+      <span>地图</span>
+    </label>
+    <select id="mapRegion" class="toolbar-select">
+      <option value="china">中国</option>
+      <option value="world">世界</option>
+    </select>
+    <button class="toolbar-btn" id="btnPreview">预览</button>
+    <button class="toolbar-btn primary" id="btnSave">保存</button>
+  </div>
+</header>
+
+<!-- 主体三栏布局 -->
+<div class="editor-layout">
+  <!-- 左侧：组件面板 -->
+  <aside class="editor-panel" id="componentPanel">
+    <div class="panel-header">组件</div>
+    <div class="panel-body" id="componentList">
+      <!-- JS动态生成 -->
+    </div>
+  </aside>
+
+  <!-- 中间：画布 -->
+  <main class="editor-canvas-wrapper">
+    <div class="canvas-controls">
+      <span class="canvas-label">画布 12×8</span>
+      <button class="canvas-btn" id="btnClear" title="清空画布">清空</button>
+    </div>
+    <div class="editor-canvas" id="screenCanvas">
+      <!-- JS 动态生成网格 + widget -->
+      <div class="canvas-grid" id="canvasGrid"></div>
+      <div class="canvas-widgets" id="canvasWidgets"></div>
+    </div>
+  </main>
+
+  <!-- 右侧：属性面板 -->
+  <aside class="editor-panel" id="propsPanel">
+    <div class="panel-header">属性</div>
+    <div class="panel-body" id="propsContent">
+      <p class="panel-hint">选择画布上的组件来编辑属性</p>
+    </div>
+  </aside>
+</div>
+
+<script src="/components/themes.css"></script>
+<script src="/apps/screen-editor/screen-editor.js?v=2026061601"></script>
+</body>
+</html>`
