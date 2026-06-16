@@ -1,59 +1,61 @@
 {
   "id": "data-table",
   "name": "数据表格",
-  "category": "table",
-  "icon": "📋",
-  "description": "可排序、可筛选、可分页的数据表格",
-  "version": "1.0.0",
+  "category": "atom",
+  "icon": "TABLE",
+  "description": "轻量数据表格，支持排序、斑马纹、固定表头",
+  "version": "2.0.0",
   "dependencies": [],
+  "min_w": 3,
+  "min_h": 3,
   "config_schema": {
     "title": {
       "type": "string",
-      "label": "表格标题",
-      "default": "数据列表",
+      "label": "标题",
+      "default": "",
       "required": false
     },
     "data_source": {
       "type": "api_url",
       "label": "数据接口",
       "default": "",
-      "required": true
+      "required": false,
+      "hint": "返回 {columns:[{key,title}], rows:[{...}]}"
     },
     "columns": {
-      "type": "list",
+      "type": "json",
       "label": "列定义",
-      "item_schema": {
-        "field": { "type": "string", "label": "字段名" },
-        "label": { "type": "string", "label": "显示名" },
-        "width": { "type": "string", "label": "列宽", "default": "auto" },
-        "align": { "type": "select", "label": "对齐", "default": "left", "options": ["left", "center", "right"] },
-        "sortable": { "type": "boolean", "label": "可排序", "default": false },
-        "render": { "type": "select", "label": "渲染方式", "default": "text", "options": ["text", "number", "percent", "tag", "link"] }
-      },
-      "default": [],
-      "required": true
+      "default": [{"key":"rank","title":"排名"},{"key":"name","title":"名称"},{"key":"value","title":"数值"}],
+      "required": false
     },
-    "page_size": {
-      "type": "number",
-      "label": "每页条数",
-      "default": 20,
-      "min": 5,
-      "max": 100
+    "rows": {
+      "type": "json",
+      "label": "行数据",
+      "default": [
+        {"rank":1,"name":"北京","value":"12,580"},
+        {"rank":2,"name":"上海","value":"11,920"},
+        {"rank":3,"name":"深圳","value":"9,340"},
+        {"rank":4,"name":"广州","value":"8,760"},
+        {"rank":5,"name":"杭州","value":"6,520"}
+      ],
+      "required": false
     },
-    "show_search": {
-      "type": "boolean",
-      "label": "显示搜索",
-      "default": true
-    },
-    "show_export": {
-      "type": "boolean",
-      "label": "显示导出",
-      "default": false
-    },
-    "stripe": {
+    "striped": {
       "type": "boolean",
       "label": "斑马纹",
       "default": true
+    },
+    "dense": {
+      "type": "boolean",
+      "label": "紧凑模式",
+      "default": false
+    },
+    "max_height": {
+      "type": "number",
+      "label": "最大高度(px)",
+      "default": 0,
+      "min": 0,
+      "hint": "0=自适应, >0 时固定表头滚动"
     }
   }
 }

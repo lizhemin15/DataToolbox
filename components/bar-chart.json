@@ -1,0 +1,53 @@
+{
+  "id": "bar-chart",
+  "name": "柱状图",
+  "category": "atom",
+  "icon": "BAR",
+  "description": "ECharts 柱状图，支持单/多系列、堆叠、横向",
+  "version": "2.0.0",
+  "dependencies": ["echarts"],
+  "min_w": 3,
+  "min_h": 3,
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "标题",
+      "default": "",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": false,
+      "hint": "返回 {categories:[], series:[{name,data}]}"
+    },
+    "categories": {
+      "type": "json",
+      "label": "分类",
+      "default": ["1月","2月","3月","4月","5月","6月"],
+      "required": false
+    },
+    "series": {
+      "type": "json",
+      "label": "系列数据",
+      "default": [{"name":"销售额","data":[820,932,901,934,1290,1330]}],
+      "required": false
+    },
+    "horizontal": {
+      "type": "boolean",
+      "label": "横向",
+      "default": false
+    },
+    "stacked": {
+      "type": "boolean",
+      "label": "堆叠",
+      "default": false
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    }
+  }
+}

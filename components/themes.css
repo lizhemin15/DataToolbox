@@ -1,0 +1,291 @@
+/* ============================================================
+   DataToolbox 大屏设计系统 — CSS 变量主题
+   一键换肤：修改 html 上的 data-theme 属性即可切换
+   ============================================================ */
+
+/* ========== 基础变量（所有主题共用） ========== */
+:root {
+    --radius-sm: 4px;
+    --radius: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+    --transition: 150ms ease;
+    --transition-slow: 300ms ease;
+}
+
+/* ========== 主题 1: Linear Dark（默认） ========== */
+[data-theme="linear-dark"], :root {
+    --bg: #08090a;
+    --bg-panel: #0f1011;
+    --bg-elevated: #191a1b;
+    --bg-hover: rgba(255,255,255,0.04);
+    --bg-active: rgba(255,255,255,0.06);
+
+    --text: #f7f8f8;
+    --text-secondary: #8a8f98;
+    --text-tertiary: #62666d;
+    --text-inverse: #08090a;
+
+    --border: rgba(255,255,255,0.08);
+    --border-subtle: rgba(255,255,255,0.05);
+    --border-strong: rgba(255,255,255,0.12);
+
+    --accent: #5e6ad2;
+    --accent-hover: #828fff;
+    --accent-text: #ffffff;
+
+    --success: #27a644;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+
+    --widget-bg: rgba(255,255,255,0.02);
+    --widget-border: rgba(255,255,255,0.06);
+    --widget-shadow: none;
+
+    --chart-colors: #5e6ad2, #27a644, #f59e0b, #ef4444, #8b5cf6, #06b6d4, #ec4899, #f97316;
+}
+
+/* ========== 主题 2: Vercel Light ========== */
+[data-theme="vercel-light"] {
+    --bg: #ffffff;
+    --bg-panel: #fafafa;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.03);
+    --bg-active: rgba(0,0,0,0.05);
+
+    --text: #171717;
+    --text-secondary: #666666;
+    --text-tertiary: #999999;
+    --text-inverse: #ffffff;
+
+    --border: rgba(0,0,0,0.08);
+    --border-subtle: rgba(0,0,0,0.04);
+    --border-strong: rgba(0,0,0,0.12);
+
+    --accent: #171717;
+    --accent-hover: #404040;
+    --accent-text: #ffffff;
+
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #0072f5;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow: 0 0 0 1px rgba(0,0,0,0.08), 0 2px 2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 0 0 1px rgba(0,0,0,0.08), 0 2px 2px rgba(0,0,0,0.04), 0 8px 8px -8px rgba(0,0,0,0.04);
+
+    --widget-bg: #ffffff;
+    --widget-border: rgba(0,0,0,0.06);
+    --widget-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03);
+
+    --chart-colors: #171717, #666666, #999999, #0072f5, #10b981, #f59e0b, #ef4444, #8b5cf6;
+}
+
+/* ========== 主题 3: Mission Control ========== */
+[data-theme="mission-control"] {
+    --bg: #0a0e17;
+    --bg-panel: #0f1520;
+    --bg-elevated: #151d2b;
+    --bg-hover: rgba(0,212,255,0.04);
+    --bg-active: rgba(0,212,255,0.08);
+
+    --text: #e8edf2;
+    --text-secondary: #6b7d95;
+    --text-tertiary: #3d4f65;
+    --text-inverse: #0a0e17;
+
+    --border: rgba(0,212,255,0.1);
+    --border-subtle: rgba(0,212,255,0.05);
+    --border-strong: rgba(0,212,255,0.18);
+
+    --accent: #00d4ff;
+    --accent-hover: #33ddff;
+    --accent-text: #0a0e17;
+
+    --success: #00e676;
+    --warning: #ffb800;
+    --danger: #ff3d5a;
+    --info: #00d4ff;
+
+    --shadow-sm: 0 0 4px rgba(0,212,255,0.1);
+    --shadow: 0 0 0 1px rgba(0,212,255,0.08), 0 2px 8px rgba(0,0,0,0.3);
+    --shadow-lg: 0 0 0 1px rgba(0,212,255,0.12), 0 4px 16px rgba(0,0,0,0.4);
+
+    --widget-bg: rgba(0,212,255,0.02);
+    --widget-border: rgba(0,212,255,0.06);
+    --widget-shadow: 0 0 0 1px rgba(0,212,255,0.04);
+
+    --chart-colors: #00d4ff, #ffb800, #00e676, #ff3d5a, #b388ff, #ff6e40, #40c4ff, #69f0ae;
+}
+
+/* ========== 主题 4: Stripe Dark ========== */
+[data-theme="stripe-dark"] {
+    --bg: #0a0f1a;
+    --bg-panel: #0f1625;
+    --bg-elevated: #162032;
+    --bg-hover: rgba(99,91,255,0.05);
+    --bg-active: rgba(99,91,255,0.1);
+
+    --text: #e6e9f0;
+    --text-secondary: #7c85a0;
+    --text-tertiary: #4a5370;
+    --text-inverse: #0a0f1a;
+
+    --border: rgba(99,91,255,0.1);
+    --border-subtle: rgba(99,91,255,0.05);
+    --border-strong: rgba(99,91,255,0.16);
+
+    --accent: #635bff;
+    --accent-hover: #7c75ff;
+    --accent-text: #ffffff;
+
+    --success: #00d924;
+    --warning: #ff9900;
+    --danger: #ff4757;
+    --info: #0084ff;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow: 0 0 0 1px rgba(99,91,255,0.06), 0 2px 8px rgba(0,0,0,0.3);
+    --shadow-lg: 0 0 0 1px rgba(99,91,255,0.1), 0 4px 16px rgba(0,0,0,0.4);
+
+    --widget-bg: rgba(99,91,255,0.02);
+    --widget-border: rgba(99,91,255,0.06);
+    --widget-shadow: 0 0 0 1px rgba(99,91,255,0.04);
+
+    --chart-colors: #635bff, #00d924, #ff9900, #ff4757, #0084ff, #b388ff, #00c4ff, #ff6e40;
+}
+
+/* ========== 全局基础样式 ========== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========== Widget 通用样式 ========== */
+.screen-widget {
+    position: absolute;
+    background: var(--widget-bg);
+    border: 1px solid var(--widget-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--widget-shadow);
+    overflow: hidden;
+    transition: box-shadow var(--transition), border-color var(--transition);
+}
+
+.screen-widget:hover {
+    border-color: var(--border);
+    box-shadow: var(--shadow);
+}
+
+.screen-widget.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.screen-widget .widget-header {
+    padding: 10px 14px 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+
+.screen-widget .widget-body {
+    padding: 0 14px 14px;
+    height: calc(100% - 36px);
+}
+
+.screen-widget .widget-loading,
+.screen-widget .widget-empty,
+.screen-widget .widget-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+/* ========== KPI 卡片样式 ========== */
+.kpi-card {
+    padding: 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.kpi-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+}
+
+.kpi-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.kpi-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1;
+}
+
+.kpi-trend {
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 6px;
+}
+
+/* ========== 表格样式 ========== */
+.widget-table {
+    font-variant-numeric: tabular-nums;
+}
+
+.widget-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 1;
+}
+
+.widget-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+/* ========== 文本块样式 ========== */
+.text-block h1 { color: var(--text); }
+.text-block h2 { color: var(--text); }
+.text-block h3 { color: var(--text); }
+.text-block strong { color: var(--text); font-weight: 600; }
+.text-block code { font-family: var(--font-mono); }
+
+/* ========== 滚动条 ========== */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }

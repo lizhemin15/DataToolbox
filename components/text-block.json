@@ -1,0 +1,32 @@
+{
+  "id": "text-block",
+  "name": "文本块",
+  "category": "atom",
+  "icon": "TXT",
+  "description": "富文本块，支持 Markdown、HTML、纯文本，可用于标题/描述/注释",
+  "version": "2.0.0",
+  "dependencies": [],
+  "min_w": 1,
+  "min_h": 1,
+  "config_schema": {
+    "content": {
+      "type": "text",
+      "label": "内容",
+      "default": "# 标题\n\n这是一段描述文字。支持 **Markdown** 格式。",
+      "required": true
+    },
+    "text_align": {
+      "type": "select",
+      "label": "对齐",
+      "default": "left",
+      "options": ["left", "center", "right"]
+    },
+    "font_size": {
+      "type": "number",
+      "label": "字号",
+      "default": 14,
+      "min": 10,
+      "max": 72
+    }
+  }
+}

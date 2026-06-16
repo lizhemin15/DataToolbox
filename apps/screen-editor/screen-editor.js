@@ -1,0 +1,520 @@
+/* ============================================================
+   DataToolbox 大屏编辑器 — 交互逻辑
+   纯 JS，无框架依赖
+   ============================================================ */
+
+(function() {
+  'use strict';
+
+  // ======================== 状态 ========================
+  var state = {
+    screenId: null,
+    name: '未命名大屏',
+    slug: 'my-screen',
+    theme: 'linear-dark',
+    showMap: false,
+    mapRegion: 'china',
+    gridCols: 12,
+    gridRows: 8,
+    widgets: [],         // { id, compId, x, y, w, h, config }
+    selectedId: null,
+    widgetCounter: 0,
+    dirty: false
+  };
+
+  // ======================== 组件注册表 ========================
+  var COMPONENTS = [
+    { id: 'kpi-card',    name: 'KPI 卡片',   icon: '📊', cat: 'atom', defW: 2, defH: 2, defConfig: { title: '指标', value: '0', unit: '', trend: 'flat' } },
+    { id: 'bar-chart',   name: '柱状图',     icon: '📊', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '柱状图', xAxis: ['A','B','C'], series: [{ name: '系列1', data: [30,50,20] }] } },
+    { id: 'line-chart',  name: '折线图',     icon: '📈', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '折线图', xAxis: ['Mon','Tue','Wed','Thu','Fri'], series: [{ name: '系列1', data: [10,25,15,30,20] }] } },
+    { id: 'pie-chart',   name: '饼图',       icon: '🥧', cat: 'atom', defW: 3, defH: 3, defConfig: { title: '饼图', data: [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }], donut: true } },
+    { id: 'data-table',  name: '数据表格',   icon: '📋', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '数据表格', columns: ['列1','列2','列3'], rows: [['a','b','c'],['d','e','f']] } },
+    { id: 'text-block',  name: '文本块',     icon: '📝', cat: 'atom', defW: 2, defH: 1, defConfig: { content: '文本内容', text_align: 'left', font_size: 14 } },
+    { id: 'image-block', name: '图片',       icon: '🖼️', cat: 'atom', defW: 2, defH: 2, defConfig: { src: '', alt: '图片', fit: 'cover' } },
+    { id: 'gauge',       name: '仪表盘',     icon: '⏱️', cat: 'atom', defW: 2, defH: 2, defConfig: { title: '仪表盘', value: 65, min: 0, max: 100 } }
+  ];
+
+  // ======================== DOM 引用 ========================
+  var $ = function(id) { return document.getElementById(id); };
+  var el = {
+    screenName: $('screenName'),
+    screenSlug: $('screenSlug'),
+    showMap: $('showMap'),
+    mapRegion: $('mapRegion'),
+    themeSwitcher: $('themeSwitcher'),
+    componentList: $('componentList'),
+    canvasGrid: $('canvasGrid'),
+    canvasWidgets: $('canvasWidgets'),
+    propsContent: $('propsContent'),
+    btnSave: $('btnSave'),
+    btnPreview: $('btnPreview'),
+    btnClear: $('btnClear')
+  };
+
+  // ======================== 初始化 ========================
+  function init() {
+    renderComponentList();
+    updateGrid();
+    bindEvents();
+    // 从 URL 加载已有大屏
+    var urlParams = new URLSearchParams(window.location.search);
+    var screenId = urlParams.get('id');
+    if (screenId) {
+      loadScreen(screenId);
+    }
+    // 如果 URL 有 slug，直接用
+    var slug = urlParams.get('slug');
+    if (slug) {
+      state.slug = slug;
+      el.screenSlug.value = slug;
+    }
+  }
+
+  // ======================== 组件列表 ========================
+  function renderComponentList() {
+    var html = '';
+    COMPONENTS.forEach(function(comp) {
+      html += '<div class="comp-item" draggable="true" data-comp-id="' + comp.id + '" data-def-w="' + comp.defW + '" data-def-h="' + comp.defH + '" data-def-config="' + escapeHtml(JSON.stringify(comp.defConfig)) + '">';
+      html += '<span class="comp-icon">' + comp.icon + '</span>';
+      html += '<span class="comp-name">' + comp.name + '</span>';
+      html += '<span class="comp-cat">' + comp.cat + '</span>';
+      html += '</div>';
+    });
+    el.componentList.innerHTML = html;
+  }
+
+  // ======================== 更新网格 ========================
+  function updateGrid() {
+    el.canvasGrid.style.backgroundSize =
+      (100 / state.gridCols) + '% ' + (100 / state.gridRows) + '%';
+  }
+
+  // ======================== 渲染画布 ========================
+  function renderCanvas() {
+    var html = '';
+    state.widgets.forEach(function(w) {
+      var comp = getComponent(w.compId);
+      var name = comp ? comp.name : w.compId;
+      var left = (w.x / state.gridCols * 100).toFixed(2);
+      var top = (w.y / state.gridRows * 100).toFixed(2);
+      var width = (w.w / state.gridCols * 100).toFixed(2);
+      var height = (w.h / state.gridRows * 100).toFixed(2);
+      var selected = (w.id === state.selectedId) ? ' selected' : '';
+
+      html += '<div class="screen-widget' + selected + '" data-widget-id="' + w.id + '"';
+      html += ' style="left:' + left + '%;top:' + top + '%;width:' + width + '%;height:' + height + '%">';
+      html += '<div class="widget-header"><span>' + name + '</span>';
+      html += '<button class="widget-delete" data-action="delete" data-widget-id="' + w.id + '">×</button></div>';
+      html += '<div class="widget-body">' + escapeHtml(JSON.stringify(w.config).substring(0, 60)) + '</div>';
+      html += '</div>';
+    });
+    el.canvasWidgets.innerHTML = html;
+  }
+
+  // ======================== 拖拽添加组件 ========================
+  function bindEvents() {
+    // 拖拽开始
+    document.addEventListener('dragstart', function(e) {
+      var compItem = e.target.closest('.comp-item');
+      if (!compItem) return;
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        compId: compItem.dataset.compId,
+        defW: parseInt(compItem.dataset.defW),
+        defH: parseInt(compItem.dataset.defH),
+        defConfig: compItem.dataset.defConfig
+      }));
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+
+    // 允许拖放到画布
+    el.canvasWidgets.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+
+    // 放置组件
+    el.canvasWidgets.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+
+      // 计算网格位置
+      var rect = el.canvasWidgets.getBoundingClientRect();
+      var relX = e.clientX - rect.left;
+      var relY = e.clientY - rect.top;
+      var x = Math.floor(relX / rect.width * state.gridCols);
+      var y = Math.floor(relY / rect.height * state.gridRows);
+      var w = Math.min(data.defW, state.gridCols - x);
+      var h = Math.min(data.defH, state.gridRows - y);
+
+      // 防止越界
+      x = Math.max(0, Math.min(x, state.gridCols - 1));
+      y = Math.max(0, Math.min(y, state.gridRows - 1));
+
+      addWidget(data.compId, x, y, w, h, JSON.parse(data.defConfig));
+    });
+
+    // 画布点击：选中/取消选中
+    el.canvasWidgets.addEventListener('click', function(e) {
+      // 删除按钮
+      var delBtn = e.target.closest('[data-action="delete"]');
+      if (delBtn) {
+        var widgetId = delBtn.dataset.widgetId;
+        removeWidget(widgetId);
+        return;
+      }
+
+      // 选中 widget
+      var widgetEl = e.target.closest('.screen-widget');
+      if (widgetEl) {
+        selectWidget(widgetEl.dataset.widgetId);
+      } else {
+        selectWidget(null);
+      }
+    });
+
+    // 主题切换
+    el.themeSwitcher.addEventListener('click', function(e) {
+      var btn = e.target.closest('.theme-btn');
+      if (!btn) return;
+      var theme = btn.dataset.theme;
+      setTheme(theme);
+    });
+
+    // 名称变更
+    el.screenName.addEventListener('input', function() {
+      state.name = this.value;
+      markDirty();
+    });
+
+    // slug 变更
+    el.screenSlug.addEventListener('input', function() {
+      state.slug = this.value;
+      markDirty();
+    });
+
+    // 地图选项
+    el.showMap.addEventListener('change', function() {
+      state.showMap = this.checked;
+      markDirty();
+    });
+
+    el.mapRegion.addEventListener('change', function() {
+      state.mapRegion = this.value;
+      markDirty();
+    });
+
+    // 保存
+    el.btnSave.addEventListener('click', saveScreen);
+
+    // 预览
+    el.btnPreview.addEventListener('click', previewScreen);
+
+    // 清空
+    el.btnClear.addEventListener('click', function() {
+      if (state.widgets.length === 0) return;
+      if (confirm('确定清空画布上的所有组件？')) {
+        state.widgets = [];
+        state.selectedId = null;
+        renderCanvas();
+        renderProps();
+        markDirty();
+      }
+    });
+
+    // 键盘快捷键
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // 不在 input/textarea 中时删除选中 widget
+        if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+        if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
+        if (state.selectedId) {
+          removeWidget(state.selectedId);
+        }
+      }
+      // Ctrl+S 保存
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveScreen();
+      }
+    });
+  }
+
+  // ======================== Widget 操作 ========================
+  function addWidget(compId, x, y, w, h, config) {
+    state.widgetCounter++;
+    var widget = {
+      id: 'w-' + Date.now() + '-' + state.widgetCounter,
+      compId: compId,
+      x: x, y: y, w: w, h: h,
+      config: config || {}
+    };
+    state.widgets.push(widget);
+    state.selectedId = widget.id;
+    renderCanvas();
+    renderProps();
+    markDirty();
+  }
+
+  function removeWidget(widgetId) {
+    state.widgets = state.widgets.filter(function(w) { return w.id !== widgetId; });
+    if (state.selectedId === widgetId) {
+      state.selectedId = null;
+      renderProps();
+    }
+    renderCanvas();
+    markDirty();
+  }
+
+  function selectWidget(widgetId) {
+    state.selectedId = widgetId;
+    renderCanvas();
+    renderProps();
+  }
+
+  function getWidget(widgetId) {
+    return state.widgets.find(function(w) { return w.id === widgetId; });
+  }
+
+  function getComponent(compId) {
+    return COMPONENTS.find(function(c) { return c.id === compId; });
+  }
+
+  // ======================== 属性面板 ========================
+  function renderProps() {
+    if (!state.selectedId) {
+      el.propsContent.innerHTML = '<p class="panel-hint">选择画布上的组件来编辑属性</p>';
+      return;
+    }
+
+    var widget = getWidget(state.selectedId);
+    if (!widget) {
+      el.propsContent.innerHTML = '<p class="panel-hint">组件不存在</p>';
+      return;
+    }
+
+    var comp = getComponent(widget.compId);
+    var compName = comp ? comp.name : widget.compId;
+
+    var html = '';
+    html += '<div class="prop-group"><div class="prop-label">组件</div>';
+    html += '<div style="font-size:13px;font-weight:500;">' + compName + '</div></div>';
+
+    // 位置信息
+    html += '<div class="prop-group"><div class="prop-label">位置</div>';
+    html += '<div class="prop-row">';
+    html += '<div class="prop-group"><div class="prop-label">X (列)</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.x + '" data-prop="x" min="0" max="' + (state.gridCols - 1) + '">';
+    html += '</div>';
+    html += '<div class="prop-group"><div class="prop-label">Y (行)</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.y + '" data-prop="y" min="0" max="' + (state.gridRows - 1) + '">';
+    html += '</div></div>';
+
+    // 尺寸
+    html += '<div class="prop-group"><div class="prop-label">尺寸</div>';
+    html += '<div class="prop-row">';
+    html += '<div class="prop-group"><div class="prop-label">宽 (列)</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.w + '" data-prop="w" min="1" max="' + state.gridCols + '">';
+    html += '</div>';
+    html += '<div class="prop-group"><div class="prop-label">高 (行)</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.h + '" data-prop="h" min="1" max="' + state.gridRows + '">';
+    html += '</div></div>';
+
+    // 配置项（简化版，对常见属性生成输入框）
+    html += '<div class="prop-group"><div class="prop-label">配置</div>';
+    html += '<textarea class="prop-textarea" data-prop="config">' + JSON.stringify(widget.config, null, 2) + '</textarea>';
+    html += '</div>';
+
+    el.propsContent.innerHTML = html;
+
+    // 绑定输入事件
+    el.propsContent.querySelectorAll('[data-prop]').forEach(function(input) {
+      input.addEventListener('input', function() {
+        var prop = this.dataset.prop;
+        if (prop === 'config') {
+          try {
+            widget.config = JSON.parse(this.value);
+          } catch(e) { /* 解析中，忽略 */ }
+        } else {
+          widget[prop] = parseInt(this.value) || 0;
+          // 边界检查
+          if (prop === 'x') widget.x = Math.max(0, Math.min(widget.x, state.gridCols - 1));
+          if (prop === 'y') widget.y = Math.max(0, Math.min(widget.y, state.gridRows - 1));
+          if (prop === 'w') widget.w = Math.max(1, Math.min(widget.w, state.gridCols));
+          if (prop === 'h') widget.h = Math.max(1, Math.min(widget.h, state.gridRows));
+        }
+        renderCanvas();
+        markDirty();
+      });
+    });
+  }
+
+  // ======================== 主题 ========================
+  function setTheme(theme) {
+    state.theme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+
+    // 更新按钮状态
+    el.themeSwitcher.querySelectorAll('.theme-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+
+    markDirty();
+  }
+
+  // ======================== 保存 ========================
+  function saveScreen() {
+    state.name = el.screenName.value || '未命名大屏';
+    state.slug = el.screenSlug.value || 'my-screen';
+
+    var payload = {
+      name: state.name,
+      slug: state.slug,
+      title: state.name,
+      theme: state.theme,
+      show_map: state.showMap,
+      map_region: state.mapRegion,
+      grid_cols: state.gridCols,
+      grid_rows: state.gridRows,
+      widgets: state.widgets.map(function(w) {
+        return {
+          id: w.id,
+          comp_id: w.compId,
+          x: w.x, y: w.y, w: w.w, h: w.h,
+          config: w.config
+        };
+      })
+    };
+
+    var method = state.screenId ? 'PUT' : 'POST';
+    var url = state.screenId
+      ? '/api/v1/screens/' + state.screenId
+      : '/api/v1/screens';
+
+    fetchWithAuth(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        state.screenId = data.data.screen ? data.data.screen.id : state.screenId;
+        state.dirty = false;
+        showToast('已保存 ✓', 'success');
+      } else {
+        showToast('保存失败: ' + (data.error || '未知错误'), 'error');
+      }
+    })
+    .catch(function(err) {
+      showToast('保存失败: ' + err.message, 'error');
+    });
+  }
+
+  // ======================== 加载 ========================
+  function loadScreen(screenId) {
+    fetchWithAuth('/api/v1/screens/' + screenId)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok && data.data && data.data.blueprint) {
+        var bp = data.data.blueprint;
+        state.screenId = screenId;
+        state.name = bp.title || '未命名大屏';
+        state.slug = bp.slug || 'my-screen';
+        state.theme = bp.theme || 'linear-dark';
+        state.showMap = bp.show_map || false;
+        state.mapRegion = bp.map_region || 'china';
+        state.gridCols = bp.grid_cols || 12;
+        state.gridRows = bp.grid_rows || 8;
+        state.widgets = (bp.widgets || []).map(function(w) {
+          return {
+            id: w.id,
+            compId: w.comp_id,
+            x: w.x, y: w.y, w: w.w, h: w.h,
+            config: w.config || {}
+          };
+        });
+        state.dirty = false;
+
+        el.screenName.value = state.name;
+        el.screenSlug.value = state.slug;
+        el.showMap.checked = state.showMap;
+        el.mapRegion.value = state.mapRegion;
+        setTheme(state.theme);
+        updateGrid();
+        renderCanvas();
+        renderProps();
+        showToast('已加载: ' + state.name, 'success');
+      } else {
+        showToast('加载失败', 'error');
+      }
+    })
+    .catch(function(err) {
+      showToast('加载失败: ' + err.message, 'error');
+    });
+  }
+
+  // ======================== 预览 ========================
+  function previewScreen() {
+    // 先保存，再打开预览
+    if (!state.screenId || state.dirty) {
+      saveScreen();
+      return; // 保存后需要手动再点预览（避免异步问题）
+    }
+    var previewUrl = '/screen/' + state.slug + '?token=' + encodeURIComponent(getToken());
+    window.open(previewUrl, '_blank');
+  }
+
+  // ======================== 工具函数 ========================
+  function markDirty() {
+    state.dirty = true;
+  }
+
+  function getToken() {
+    if (window._appToken) return window._appToken;
+    var params = new URLSearchParams(window.location.search);
+    return params.get('token') || '';
+  }
+
+  function showToast(msg, type) {
+    var existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + (type || '');
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+
+    setTimeout(function() {
+      if (toast.parentNode) toast.remove();
+    }, 2000);
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // 注入 fetchWithAuth（如果还没有）
+  if (!window.fetchWithAuth) {
+    window.fetchWithAuth = function(url, options) {
+      options = options || {};
+      options.headers = options.headers || {};
+      var token = getToken();
+      if (token) {
+        options.headers['Authorization'] = 'Bearer ' + token;
+      }
+      return fetch(url, options);
+    };
+  }
+
+  // ======================== 启动 ========================
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();

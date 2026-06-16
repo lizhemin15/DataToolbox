@@ -782,3 +782,379 @@ func updateAppHTML(appID string, html string) error {
 	_, err := storeDB.Exec("UPDATE apps SET html=? WHERE id=?", html, appID)
 	return err
 }
+
+// ============================================================
+// 大屏管理 API
+// ============================================================
+
+// handleScreens 处理大屏列表和创建
+// GET /api/v1/screens - 列出用户的大屏
+// POST /api/v1/screens - 创建大屏
+func handleScreens(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// 列出 type=screen 的应用
+		apps, err := sqlListApps(username)
+		if err != nil {
+			apiError(w, "查询大屏列表失败", http.StatusInternalServerError, "internal_error")
+			return
+		}
+		screens := []*App{}
+		for _, app := range apps {
+			if app.Config != "" {
+				var cfg map[string]interface{}
+				if json.Unmarshal([]byte(app.Config), &cfg) == nil {
+					if t, ok := cfg["type"].(string); ok && t == "screen" {
+						screens = append(screens, app)
+					}
+				}
+			}
+		}
+		apiSuccess(w, map[string]interface{}{
+			"screens": screens,
+			"total":   len(screens),
+		})
+	case http.MethodPost:
+		handleCreateScreen(w, r, username)
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+// handleCreateScreen 创建大屏
+func handleCreateScreen(w http.ResponseWriter, r *http.Request, username string) {
+	var req struct {
+		Name        string                   `json:"name"`
+		Slug        string                   `json:"slug"`
+		Title       string                   `json:"title"`
+		Description string                   `json:"description"`
+		Theme       string                   `json:"theme"`
+		ShowMap     bool                     `json:"show_map"`
+		MapRegion   string                   `json:"map_region"`
+		GridCols    int                      `json:"grid_cols"`
+		GridRows    int                      `json:"grid_rows"`
+		Widgets     []components.ScreenWidget `json:"widgets"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiBadRequest(w, "无效的请求体")
+		return
+	}
+
+	if req.Name == "" {
+		apiBadRequest(w, "大屏名称不能为空")
+		return
+	}
+	if req.Slug == "" {
+		apiBadRequest(w, "slug 不能为空")
+		return
+	}
+
+	// 默认值
+	if req.Theme == "" {
+		req.Theme = "linear-dark"
+	}
+	if req.GridCols == 0 {
+		req.GridCols = 12
+	}
+	if req.GridRows == 0 {
+		req.GridRows = 8
+	}
+	if req.MapRegion == "" {
+		req.MapRegion = "china"
+	}
+
+	// 检查 slug 唯一性
+	existing, _ := sqlGetAppBySlug(req.Slug)
+	if existing != nil {
+		apiBadRequest(w, "slug 已被使用")
+		return
+	}
+
+	appID := uuid.New().String()
+	appTitle := req.Title
+	if appTitle == "" {
+		appTitle = req.Name
+	}
+
+	// 构建 ScreenBlueprint
+	bp := components.ScreenBlueprint{
+		Title:       appTitle,
+		Slug:        req.Slug,
+		Description: req.Description,
+		Theme:       req.Theme,
+		ShowMap:     req.ShowMap,
+		MapRegion:   req.MapRegion,
+		GridCols:    req.GridCols,
+		GridRows:    req.GridRows,
+		Widgets:     req.Widgets,
+	}
+
+	// 组装 HTML
+	htmlContent := components.AssembleScreenPage(bp)
+
+	// 保存 config（包含 blueprint + type）
+	configMap := map[string]interface{}{
+		"type":      "screen",
+		"blueprint": bp,
+	}
+	configJSON := toJSON(configMap)
+
+	app := &App{
+		ID:          appID,
+		Owner:       username,
+		Name:        req.Name,
+		Slug:        req.Slug,
+		Title:       appTitle,
+		Description: req.Description,
+		HTML:        htmlContent,
+		Config:      configJSON,
+		IsPublic:    true, // 大屏默认公开
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := sqlSaveApp(app); err != nil {
+		log.Printf("[大屏] 创建失败: %v", err)
+		apiError(w, "创建大屏失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	log.Printf("[大屏] 用户 %s 创建大屏 %s (slug: %s)", username, appID, req.Slug)
+
+	apiSuccess(w, map[string]interface{}{
+		"screen": app,
+	})
+}
+
+// handleScreenDetail 处理单个大屏的 CRUD
+func handleScreenDetail(w http.ResponseWriter, r *http.Request) {
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		apiUnauthorized(w, "")
+		return
+	}
+
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 5 || parts[4] == "" {
+		apiBadRequest(w, "缺少大屏 ID")
+		return
+	}
+	screenID := parts[4]
+
+	switch r.Method {
+	case http.MethodGet:
+		handleGetScreen(w, r, username, screenID)
+	case http.MethodPut:
+		handleUpdateScreen(w, r, username, screenID)
+	case http.MethodDelete:
+		handleDeleteApp(w, r, username, screenID) // 复用 app 删除逻辑
+	default:
+		apiMethodNotAllowed(w)
+	}
+}
+
+func handleGetScreen(w http.ResponseWriter, r *http.Request, username string, screenID string) {
+	app, err := sqlGetApp(screenID)
+	if err != nil || app == nil {
+		apiNotFound(w, "大屏不存在")
+		return
+	}
+
+	// 解析 blueprint
+	var bp *components.ScreenBlueprint
+	if app.Config != "" {
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(app.Config), &cfg) == nil {
+			if bpRaw, ok := cfg["blueprint"]; ok {
+				bpJSON, _ := json.Marshal(bpRaw)
+				bp = &components.ScreenBlueprint{}
+				json.Unmarshal(bpJSON, bp)
+			}
+		}
+	}
+
+	apiSuccess(w, map[string]interface{}{
+		"screen":    app,
+		"blueprint": bp,
+	})
+}
+
+func handleUpdateScreen(w http.ResponseWriter, r *http.Request, username string, screenID string) {
+	app, err := sqlGetApp(screenID)
+	if err != nil || app == nil {
+		apiNotFound(w, "大屏不存在")
+		return
+	}
+	if app.Owner != username {
+		apiForbidden(w, "无权修改此大屏")
+		return
+	}
+
+	var req struct {
+		Name        string                   `json:"name"`
+		Slug        string                   `json:"slug"`
+		Title       string                   `json:"title"`
+		Description string                   `json:"description"`
+		Theme       string                   `json:"theme"`
+		ShowMap     *bool                    `json:"show_map"`
+		MapRegion   string                   `json:"map_region"`
+		GridCols    int                      `json:"grid_cols"`
+		GridRows    int                      `json:"grid_rows"`
+		Widgets     []components.ScreenWidget `json:"widgets"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apiBadRequest(w, "无效的请求体")
+		return
+	}
+
+	// 从现有 config 解析 blueprint
+	var bp components.ScreenBlueprint
+	if app.Config != "" {
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(app.Config), &cfg) == nil {
+			if bpRaw, ok := cfg["blueprint"]; ok {
+				bpJSON, _ := json.Marshal(bpRaw)
+				json.Unmarshal(bpJSON, &bp)
+			}
+		}
+	}
+
+	if req.Name != "" {
+		app.Name = req.Name
+	}
+	if req.Title != "" {
+		app.Title = req.Title
+		bp.Title = req.Title
+	}
+	if req.Description != "" {
+		app.Description = req.Description
+		bp.Description = req.Description
+	}
+	if req.Theme != "" {
+		bp.Theme = req.Theme
+	}
+	if req.ShowMap != nil {
+		bp.ShowMap = *req.ShowMap
+	}
+	if req.MapRegion != "" {
+		bp.MapRegion = req.MapRegion
+	}
+	if req.GridCols > 0 {
+		bp.GridCols = req.GridCols
+	}
+	if req.GridRows > 0 {
+		bp.GridRows = req.GridRows
+	}
+	if req.Widgets != nil {
+		bp.Widgets = req.Widgets
+	}
+
+	// 重新组装 HTML
+	app.HTML = components.AssembleScreenPage(bp)
+
+	// 更新 config
+	configMap := map[string]interface{}{
+		"type":      "screen",
+		"blueprint": bp,
+	}
+	app.Config = toJSON(configMap)
+	app.UpdatedAt = time.Now()
+
+	if err := sqlSaveApp(app); err != nil {
+		log.Printf("[大屏] 更新失败: %v", err)
+		apiError(w, "更新大屏失败", http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	log.Printf("[大屏] 用户 %s 更新大屏 %s", username, screenID)
+
+	apiSuccess(w, map[string]interface{}{
+		"screen": app,
+	})
+}
+
+// handleScreenPreview 大屏预览（无需认证）
+// GET /screen/{slug}
+func handleScreenPreview(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 || parts[2] == "" {
+		http.Error(w, "缺少大屏 slug", http.StatusBadRequest)
+		return
+	}
+	slug := parts[2]
+
+	app, err := sqlGetAppBySlug(slug)
+	if err != nil || app == nil {
+		http.Error(w, "大屏不存在", http.StatusNotFound)
+		return
+	}
+
+	// 检查是否是大屏类型
+	isScreen := false
+	if app.Config != "" {
+		var cfg map[string]interface{}
+		if json.Unmarshal([]byte(app.Config), &cfg) == nil {
+			if t, ok := cfg["type"].(string); ok && t == "screen" {
+				isScreen = true
+			}
+		}
+	}
+
+	if !isScreen {
+		// 不是大屏，走普通 app 逻辑
+		handleAppPublic(w, r)
+		return
+	}
+
+	// 如果 HTML 为空或需要重新生成
+	htmlContent := app.HTML
+	if htmlContent == "" {
+		var bp components.ScreenBlueprint
+		if app.Config != "" {
+			var cfg map[string]interface{}
+			if json.Unmarshal([]byte(app.Config), &cfg) == nil {
+				if bpRaw, ok := cfg["blueprint"]; ok {
+					bpJSON, _ := json.Marshal(bpRaw)
+					json.Unmarshal(bpJSON, &bp)
+				}
+			}
+		}
+		htmlContent = components.AssembleScreenPage(bp)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(htmlContent))
+}
+
+// handleScreenThemes 返回可用主题列表
+func handleScreenThemes(w http.ResponseWriter, r *http.Request) {
+	themes := []map[string]interface{}{
+		{"id": "linear-dark", "name": "Linear Dark", "mode": "dark", "preview": "#0d1117"},
+		{"id": "vercel-light", "name": "Vercel Light", "mode": "light", "preview": "#ffffff"},
+		{"id": "mission-control", "name": "Mission Control", "mode": "dark", "preview": "#0a0e17"},
+		{"id": "stripe-dark", "name": "Stripe Dark", "mode": "dark", "preview": "#0a0f1a"},
+	}
+	apiSuccess(w, map[string]interface{}{
+		"themes": themes,
+	})
+}
+
+// handleScreenEditorPage 大屏编辑器页面
+func handleScreenEditorPage(w http.ResponseWriter, r *http.Request) {
+	_, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	http.ServeFile(w, r, "apps/screen-editor/screen-editor.html")
+}

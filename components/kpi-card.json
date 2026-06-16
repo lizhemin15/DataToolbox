@@ -1,43 +1,63 @@
 {
   "id": "kpi-card",
-  "name": "指标卡片",
-  "category": "kpi",
-  "icon": "🔢",
-  "description": "关键指标展示卡片，支持数值、趋势、同比环比",
-  "version": "1.0.0",
+  "name": "KPI 卡片",
+  "category": "atom",
+  "icon": "KPI",
+  "description": "单个数值指标卡片，支持标题、数值、趋势箭头、迷你趋势图",
+  "version": "2.0.0",
   "dependencies": [],
+  "min_w": 2,
+  "min_h": 2,
   "config_schema": {
     "title": {
       "type": "string",
-      "label": "卡片标题",
-      "default": "关键指标",
+      "label": "标题",
+      "default": "总销售额",
       "required": false
     },
-    "data_source": {
-      "type": "api_url",
-      "label": "数据接口",
+    "value": {
+      "type": "string",
+      "label": "数值",
+      "default": "¥ 128.5万",
+      "required": true
+    },
+    "prefix": {
+      "type": "string",
+      "label": "前缀",
       "default": "",
-      "required": true
+      "required": false
     },
-    "metrics": {
-      "type": "list",
-      "label": "指标列表",
-      "item_schema": {
-        "label": { "type": "string", "label": "指标名称" },
-        "field": { "type": "string", "label": "字段名" },
-        "prefix": { "type": "string", "label": "前缀", "default": "" },
-        "suffix": { "type": "string", "label": "后缀", "default": "" },
-        "trend_field": { "type": "string", "label": "趋势字段(对比值)", "default": "" },
-        "color": { "type": "color", "label": "强调色", "default": "#4F46E5" }
-      },
-      "default": [],
-      "required": true
+    "suffix": {
+      "type": "string",
+      "label": "后缀",
+      "default": "",
+      "required": false
     },
-    "columns": {
+    "trend": {
       "type": "select",
-      "label": "每行显示数量",
-      "default": "4",
-      "options": ["2", "3", "4"]
+      "label": "趋势",
+      "default": "up",
+      "options": ["up", "down", "flat", "none"]
+    },
+    "trend_value": {
+      "type": "string",
+      "label": "趋势值",
+      "default": "12.5%",
+      "required": false
+    },
+    "sparkline_data": {
+      "type": "json",
+      "label": "迷你趋势图数据",
+      "default": [],
+      "required": false,
+      "hint": "[10, 20, 15, 30, 25, 35, 28]"
+    },
+    "accent": {
+      "type": "color",
+      "label": "强调色",
+      "default": "",
+      "required": false,
+      "hint": "留空使用主题默认色"
     }
   }
 }

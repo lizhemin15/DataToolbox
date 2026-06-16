@@ -1,0 +1,54 @@
+{
+  "id": "gauge",
+  "name": "仪表盘",
+  "category": "atom",
+  "icon": "GAUGE",
+  "description": "ECharts 仪表盘/速度表，适合展示百分比、进度、利用率",
+  "version": "2.0.0",
+  "dependencies": ["echarts"],
+  "min_w": 2,
+  "min_h": 2,
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "标题",
+      "default": "",
+      "required": false
+    },
+    "value": {
+      "type": "number",
+      "label": "数值",
+      "default": 68,
+      "min": 0,
+      "max": 100
+    },
+    "min": {
+      "type": "number",
+      "label": "最小值",
+      "default": 0
+    },
+    "max": {
+      "type": "number",
+      "label": "最大值",
+      "default": 100
+    },
+    "unit": {
+      "type": "string",
+      "label": "单位",
+      "default": "%",
+      "required": false
+    },
+    "segments": {
+      "type": "number",
+      "label": "分段数",
+      "default": 3,
+      "min": 2,
+      "max": 5
+    },
+    "colors": {
+      "type": "color_list",
+      "label": "分段颜色",
+      "default": ["var(--success)", "var(--warning)", "var(--danger)"]
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "pie-chart",
+  "name": "饼图",
+  "category": "atom",
+  "icon": "PIE",
+  "description": "ECharts 饼图/环形图，支持标签、图例、南丁格尔玫瑰",
+  "version": "2.0.0",
+  "dependencies": ["echarts"],
+  "min_w": 2,
+  "min_h": 2,
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "标题",
+      "default": "",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": false
+    },
+    "data": {
+      "type": "json",
+      "label": "数据",
+      "default": [{"name":"产品A","value":335},{"name":"产品B","value":310},{"name":"产品C","value":234},{"name":"产品D","value":135}],
+      "required": false
+    },
+    "donut": {
+      "type": "boolean",
+      "label": "环形图",
+      "default": true
+    },
+    "rose": {
+      "type": "boolean",
+      "label": "玫瑰图",
+      "default": false
+    },
+    "show_label": {
+      "type": "boolean",
+      "label": "显示标签",
+      "default": true
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    }
+  }
+}

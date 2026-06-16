@@ -60,6 +60,30 @@ type AppBlueprint struct {
 	Components      []ComponentInstance  `json:"components"`
 }
 
+// ScreenWidget 大屏上的一个 widget 实例
+type ScreenWidget struct {
+	ID       string                 `json:"id"`       // widget 唯一 ID，如 "w-001"
+	CompID   string                 `json:"comp_id"`  // 组件 ID，如 "kpi-card"
+	X        int                    `json:"x"`        // 网格列位置
+	Y        int                    `json:"y"`        // 网格行位置
+	W        int                    `json:"w"`        // 网格列宽
+	H        int                    `json:"h"`        // 网格行高
+	Config   map[string]interface{} `json:"config"`   // 组件配置
+}
+
+// ScreenBlueprint 大屏蓝图
+type ScreenBlueprint struct {
+	Title       string         `json:"title"`
+	Slug        string         `json:"slug"`
+	Description string         `json:"description"`
+	Theme       string         `json:"theme"`        // linear-dark | vercel-light | mission-control | stripe-dark
+	ShowMap     bool           `json:"show_map"`      // 是否显示地图底图
+	MapRegion   string         `json:"map_region"`    // 地图区域: world | china
+	GridCols    int            `json:"grid_cols"`     // 网格列数
+	GridRows    int            `json:"grid_rows"`     // 网格行数
+	Widgets     []ScreenWidget `json:"widgets"`       // widget 列表
+}
+
 // componentRegistry 全局组件注册表
 var componentRegistry = map[string]*ComponentDef{}
 var componentTemplates = map[string]string{} // id → JS template content
@@ -505,22 +529,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 // getRenderFuncName 根据 component ID 获取渲染函数名
 func getRenderFuncName(id string) string {
 	switch id {
-	case "chart-bar":
+	case "chart-bar", "bar-chart":
 		return "renderBarChart"
-	case "chart-line":
+	case "chart-line", "line-chart":
 		return "renderLineChart"
-	case "chart-pie":
+	case "chart-pie", "pie-chart":
 		return "renderPieChart"
 	case "kpi-card":
-		return "renderKpiCards"
+		return "renderKpiCard"
 	case "data-table":
 		return "renderDataTable"
+	case "text-block":
+		return "renderTextBlock"
+	case "image-block":
+		return "renderImageBlock"
+	case "gauge", "chart-gauge":
+		return "renderGauge"
 	case "map-scatter":
 		return "renderMapScatter"
 	case "filter-bar":
 		return "renderFilterBar"
-	case "chart-gauge":
-		return "renderChartGauge"
 	case "timeline":
 		return "renderTimeline"
 	case "chart-area":
@@ -581,4 +609,215 @@ func clamp(v, min, max int) int {
 // GeneratePreviewHTML 生成预览用的 HTML（用于 HITL iframe）
 func GeneratePreviewHTML(blueprint AppBlueprint, primaryColor string) string {
 	return AssembleAppPage(blueprint, primaryColor)
+}
+
+// AssembleScreenPage 根据大屏蓝图组装完整 HTML 页面
+func AssembleScreenPage(bp ScreenBlueprint) string {
+	// 默认值
+	if bp.Theme == "" {
+		bp.Theme = "linear-dark"
+	}
+	if bp.GridCols == 0 {
+		bp.GridCols = 12
+	}
+	if bp.MapRegion == "" {
+		bp.MapRegion = "china"
+	}
+
+	// 收集所有依赖
+	allDeps := map[string]bool{}
+	for _, w := range bp.Widgets {
+		def, ok := componentRegistry[w.CompID]
+		if !ok {
+			continue
+		}
+		for _, dep := range def.Dependencies {
+			allDeps[dep] = true
+		}
+	}
+	// 地图依赖
+	if bp.ShowMap {
+		allDeps["echarts"] = true
+	}
+
+	// 依赖库
+	libScripts := ""
+	for dep := range allDeps {
+		switch dep {
+		case "echarts":
+			libScripts += `<script src="/lib/echarts.min.js"></script>` + "\n"
+		case "leaflet":
+			libScripts += `<link rel="stylesheet" href="/lib/leaflet.min.css">` + "\n"
+			libScripts += `<script src="/lib/leaflet.min.js"></script>` + "\n"
+		}
+	}
+
+	// 组件 JS 代码
+	componentJSCode := ""
+	seen := map[string]bool{}
+	for _, w := range bp.Widgets {
+		if tmpl, ok := componentTemplates[w.CompID]; ok {
+			if !seen[w.CompID] {
+				componentJSCode += tmpl + "\n"
+				seen[w.CompID] = true
+			}
+		}
+	}
+
+	// widget 容器 HTML（绝对定位，基于网格）
+	widgetHTML := ""
+	if bp.ShowMap {
+		widgetHTML += `<div id="screen-map" class="screen-map"></div>` + "\n"
+	}
+	for _, w := range bp.Widgets {
+		leftPct := float64(w.X) / float64(bp.GridCols) * 100
+		topPct := float64(w.Y) / float64(bp.GridRows) * 100
+		widthPct := float64(w.W) / float64(bp.GridCols) * 100
+		heightPct := float64(w.H) / float64(bp.GridRows) * 100
+
+		widgetHTML += fmt.Sprintf(`<div class="screen-widget" id="screen-w-%s" style="left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%;"></div>`+"\n",
+			w.ID, leftPct, topPct, widthPct, heightPct)
+	}
+
+	// 组件初始化 JS
+	componentInits := ""
+	for _, w := range bp.Widgets {
+		renderFunc := getRenderFuncName(w.CompID)
+		configJSON, _ := json.Marshal(w.Config)
+		componentInits += fmt.Sprintf("  %s(%s, 'screen-w-%s');\n", renderFunc, string(configJSON), w.ID)
+	}
+
+	// 地图初始化（ECharts geo）
+	mapInit := ""
+	if bp.ShowMap {
+		mapJS, _ := getMapConfigJSON(bp.MapRegion)
+		mapInit = fmt.Sprintf(`
+  (function() {
+    var mapDom = document.getElementById('screen-map');
+    if (!mapDom || typeof echarts === 'undefined') return;
+    var mapChart = echarts.init(mapDom);
+    mapChart.setOption(%s);
+    var ro = new ResizeObserver(function() { mapChart.resize(); });
+    ro.observe(mapDom);
+  })();`, mapJS)
+	}
+
+	// 序列化 widget 数据（给编辑器用）
+	widgetsJSON, _ := json.Marshal(bp.Widgets)
+	theme := bp.Theme
+
+	page := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="zh-CN" data-theme="%s">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>%s - DataToolbox</title>
+  %s
+  <link rel="stylesheet" href="/components/themes.css">
+  <style>
+    /* 大屏特定样式 */
+    html, body { width: 100%%; height: 100%%; overflow: hidden; }
+    #screen-canvas {
+      position: relative;
+      width: 100%%;
+      height: 100vh;
+      max-width: %dpx;
+      margin: 0 auto;
+    }
+    .screen-map {
+      position: absolute;
+      left: 0; top: 0;
+      width: 100%%; height: 100%%;
+      z-index: 0;
+      opacity: 0.4;
+    }
+    .screen-widget { z-index: 1; }
+  </style>
+</head>
+<body>
+<div id="screen-canvas">
+  %s
+</div>
+<script>
+// 注入认证
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    window._appToken = params.get('token') || localStorage.getItem('dataOntologyToken') || '';
+    window._appBaseURL = (window.location.origin && window.location.origin !== 'null')
+        ? window.location.origin
+        : (window.location.protocol + '//' + window.location.host);
+    window.fetchWithAuth = function(url, options) {
+        options = options || {};
+        options.headers = options.headers || {};
+        if (url && typeof url === 'string' && url.startsWith('/') && window._appBaseURL)
+            url = window._appBaseURL + url;
+        if (window._appToken) {
+            if (options.headers instanceof Headers)
+                options.headers.set('Authorization', 'Bearer ' + window._appToken);
+            else
+                options.headers['Authorization'] = 'Bearer ' + window._appToken;
+        }
+        return fetch(url, options);
+    };
+})();
+</script>
+<script>
+// 组件渲染函数
+%s
+</script>
+<script>
+// 大屏数据
+window.__screenBlueprint = {
+    theme: '%s',
+    gridCols: %d,
+    gridRows: %d,
+    widgets: %s
+};
+</script>
+<script>
+// 地图 + 组件初始化
+%s
+%s
+</script>
+</body>
+</html>`,
+		theme,
+		bp.Title,
+		libScripts,
+		1920, // max canvas width
+		widgetHTML,
+		componentJSCode,
+		theme, bp.GridCols, bp.GridRows, widgetsJSON,
+		mapInit,
+		componentInits)
+
+	return page
+}
+
+// getMapConfigJSON 返回 ECharts geo 地图配置
+func getMapConfigJSON(region string) (string, error) {
+	// 采用世界地图或中国地图的 geo 配置
+	cfg := map[string]interface{}{
+		"geo": map[string]interface{}{
+			"map":    region,
+			"roam":   true,
+			"center": []int{104, 38},
+			"zoom":   1.2,
+			"itemStyle": map[string]interface{}{
+				"areaColor":    "#1a1d24",
+				"borderColor":  "#2a2d35",
+				"borderWidth":  1,
+			},
+			"emphasis": map[string]interface{}{
+				"itemStyle": map[string]interface{}{
+					"areaColor": "#2a2d35",
+				},
+			},
+		},
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "{}", err
+	}
+	return string(b), nil
 }

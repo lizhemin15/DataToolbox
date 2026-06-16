@@ -156,10 +156,20 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	// ==================== 预制组件 API ====================
 	mux.HandleFunc("/api/v1/components/preview", handlePreviewApp)
 	mux.HandleFunc("/api/v1/components/list", handleListComponents)
-	
+
+	// ==================== 大屏 API ====================
+	mux.HandleFunc("/api/v1/screens", handleScreens)
+	mux.HandleFunc("/api/v1/screens/", handleScreenDetail)
+	mux.HandleFunc("/api/v1/screens/themes", handleScreenThemes)
+
+	// ==================== 大屏编辑器页面（需要认证）====================
+	mux.HandleFunc("/screen-editor", handleScreenEditorPage)
+	mux.HandleFunc("/screen-editor/", handleScreenEditorPage)
+
 	// ==================== 应用公开访问（不需要认证）====================
 	// 注意：此路由必须放在最后，避免与其他路由冲突
 	mux.HandleFunc("/app/", handleAppPublic)
+	mux.HandleFunc("/screen/", handleScreenPreview)
 
 	// ==================== 平台管理 API ====================
 	mux.HandleFunc("/api/v1/platforms", handlePlatforms)

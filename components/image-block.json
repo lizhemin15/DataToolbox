@@ -1,0 +1,39 @@
+{
+  "id": "image-block",
+  "name": "图片",
+  "category": "atom",
+  "icon": "IMG",
+  "description": "图片展示组件，支持 URL、本地路径、base64，可配置填充模式",
+  "version": "2.0.0",
+  "dependencies": [],
+  "min_w": 1,
+  "min_h": 1,
+  "config_schema": {
+    "src": {
+      "type": "string",
+      "label": "图片地址",
+      "default": "",
+      "required": true,
+      "hint": "支持 http/https URL 或 /api/files/ 路径"
+    },
+    "alt": {
+      "type": "string",
+      "label": "替代文本",
+      "default": "",
+      "required": false
+    },
+    "fit": {
+      "type": "select",
+      "label": "填充模式",
+      "default": "cover",
+      "options": ["cover", "contain", "fill", "none"]
+    },
+    "radius": {
+      "type": "number",
+      "label": "圆角",
+      "default": 0,
+      "min": 0,
+      "max": 50
+    }
+  }
+}

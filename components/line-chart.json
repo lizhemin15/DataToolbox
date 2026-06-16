@@ -1,0 +1,52 @@
+{
+  "id": "line-chart",
+  "name": "折线图",
+  "category": "atom",
+  "icon": "LINE",
+  "description": "ECharts 折线图，支持平滑曲线、面积填充、多系列",
+  "version": "2.0.0",
+  "dependencies": ["echarts"],
+  "min_w": 3,
+  "min_h": 3,
+  "config_schema": {
+    "title": {
+      "type": "string",
+      "label": "标题",
+      "default": "",
+      "required": false
+    },
+    "data_source": {
+      "type": "api_url",
+      "label": "数据接口",
+      "default": "",
+      "required": false
+    },
+    "categories": {
+      "type": "json",
+      "label": "分类",
+      "default": ["00:00","04:00","08:00","12:00","16:00","20:00"],
+      "required": false
+    },
+    "series": {
+      "type": "json",
+      "label": "系列数据",
+      "default": [{"name":"访问量","data":[120,200,450,380,520,300]}],
+      "required": false
+    },
+    "smooth": {
+      "type": "boolean",
+      "label": "平滑曲线",
+      "default": true
+    },
+    "area": {
+      "type": "boolean",
+      "label": "面积填充",
+      "default": true
+    },
+    "show_legend": {
+      "type": "boolean",
+      "label": "显示图例",
+      "default": true
+    }
+  }
+}
