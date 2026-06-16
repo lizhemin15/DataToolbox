@@ -811,7 +811,8 @@ func handleScreens(w http.ResponseWriter, r *http.Request) {
 				var cfg map[string]interface{}
 				if json.Unmarshal([]byte(app.Config), &cfg) == nil {
 					if t, ok := cfg["type"].(string); ok && t == "screen" {
-						screens = append(screens, app)
+						appCopy := app
+						screens = append(screens, &appCopy)
 					}
 				}
 			}
