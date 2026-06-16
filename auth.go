@@ -755,6 +755,12 @@ func getDataOntologyUserFromRequest(r *http.Request) (username string, ok bool) 
 	}
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+		// 浏览器访问：检查 cookie
+		if cookie, err := r.Cookie("session_token"); err == nil && cookie.Value != "" {
+			authHeader = "Bearer " + cookie.Value
+		}
+	}
+	if authHeader == "" {
 		return "", false
 	}
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
