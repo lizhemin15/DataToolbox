@@ -898,6 +898,15 @@ func handleDataOntologyLogin(w http.ResponseWriter, r *http.Request) {
 	dataOntologyMu.Lock()
 
 	log.Printf("[Auth] 登录成功: username=%s", loginReq.Username)
+	// 设置 session_token cookie，用于页面认证（如 /screen-editor）
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 7, // 7天
+	})
 	jsonSuccess(w, map[string]interface{}{"success": true, "token": token})
 }
 
