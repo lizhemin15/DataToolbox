@@ -101,6 +101,11 @@ function updateUserMgmtNavVisibility() {
 
 // 数据库列表
 async function switchTab(tabName) {
+    // 大屏编辑器直接跳转到独立页面
+    if (tabName === 'screen-editor') {
+        window.location.href = '/screen-editor';
+        return;
+    }
     if (tabName !== 'database') {
         closeUserMgmtPanel();
     }

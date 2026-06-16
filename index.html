@@ -88,14 +88,15 @@
                         <button class="nav-tab" data-tab="models">模型管理</button>
                         <button class="nav-tab" data-tab="quality" title="数据质量审核">数据质量审核</button>
                         <button class="nav-tab" data-tab="apps">应用广场</button>
+                        <button class="nav-tab" data-tab="screen-editor">大屏编辑器</button>
                     </div>
                 </div>
                 <div class="header-right">
                     <div class="user-info">
                         <span id="currentUser">admin</span>
-                        <button type="button" id="changePwdBtn" class="header-icon-btn" title="修改密码" aria-label="修改密码">🔑</button>
-                        <button type="button" id="settingsBtn" class="header-icon-btn" title="设置" aria-label="设置">⚙️</button>
-                        <button type="button" id="userMgmtHeaderBtn" class="header-icon-btn" title="用户管理" style="display:none;" aria-label="用户管理">👤</button>
+                        <button type="button" id="changePwdBtn" class="settings-header-btn" title="修改密码" aria-label="修改密码">🔑</button>
+                        <button type="button" id="settingsBtn" class="settings-header-btn" title="设置" aria-label="设置">⚙️</button>
+                        <button type="button" id="userMgmtHeaderBtn" class="settings-header-btn" title="用户管理" style="display:none;" aria-label="用户管理">👤</button>
                         <button id="logoutBtn" class="btn btn-sm">退出</button>
                     </div>
                 </div>
@@ -1112,6 +1113,7 @@
                             <p class="apps-marketplace-desc">管理和发布自定义应用，支持 HTML+CSS+JS 纯前端应用</p>
                             <div class="apps-marketplace-actions">
                                 <button class="btn btn-primary" onclick="openAppEditor()">➕ 创建应用</button>
+                                <button class="btn" onclick="window.location.href='/screen-editor'">📺 大屏编辑器</button>
                             </div>
                         </div>
                         <div class="apps-marketplace-content">
