@@ -167,7 +167,7 @@ jobs:
           # 复制 components 目录（预制组件 JSON + JS 模板）
           if [ -d "components" ]; then
             mkdir -p package/components
-            cp components/*.json components/*.js package/components/
+            cp components/*.json components/*.js components/*.css package/components/
             echo "Copied components directory"
           fi
 
