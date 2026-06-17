@@ -1163,14 +1163,14 @@ const screenEditorHTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>大屏编辑器 - DataToolbox</title>
   <link rel="stylesheet" href="/components/themes.css">
-  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061701">
+  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061702">
 </head>
 <body>
 <!-- 顶部工具栏 -->
 <header class="editor-toolbar">
   <div class="toolbar-left">
     <a href="/" class="toolbar-back" title="返回主页">← 返回</a>
-    <span class="toolbar-logo">📊 大屏编辑器</span>
+    <span class="toolbar-logo">大屏编辑器</span>
     <input type="text" class="toolbar-name" id="screenName" placeholder="大屏名称" value="未命名大屏">
     <span class="toolbar-slug">/screen/<input type="text" id="screenSlug" placeholder="my-screen" value=""></span>
   </div>
@@ -1209,16 +1209,23 @@ const screenEditorHTML = `<!DOCTYPE html>
   <!-- 中间：画布 -->
   <main class="editor-canvas-wrapper">
     <div class="canvas-controls">
-      <span class="canvas-label">画布 12×8</span>
-      <button class="canvas-btn layout-btn" onclick="autoLayout('tile')" title="等宽网格排列">▦</button>
-      <button class="canvas-btn layout-btn" onclick="autoLayout('masonry')" title="瀑布流">▥</button>
-      <button class="canvas-btn layout-btn" onclick="autoLayout('snap')" title="吸附网格">⌸</button>
-      <button class="canvas-btn" id="btnClear" title="清空画布">清空</button>
+      <div class="canvas-controls-left">
+        <span class="canvas-label">16:9</span>
+        <button class="canvas-btn" onclick="autoLayout('tile')" title="等宽网格"><span class="btn-icon">▦</span> 网格</button>
+        <button class="canvas-btn" onclick="autoLayout('masonry')" title="瀑布流"><span class="btn-icon">▥</span> 瀑布</button>
+        <button class="canvas-btn" onclick="autoLayout('snap')" title="吸附网格"><span class="btn-icon">⌸</span> 吸附</button>
+      </div>
+      <div class="canvas-controls-right">
+        <button class="canvas-btn" id="btnClear" title="清空画布">清空</button>
+      </div>
     </div>
     <div class="editor-canvas" id="screenCanvas">
-      <!-- JS 动态生成网格 + widget -->
-      <div class="canvas-grid" id="canvasGrid"></div>
-      <div class="canvas-widgets" id="canvasWidgets"></div>
+      <div class="canvas-stage" id="canvasStage">
+        <div class="canvas-grid" id="canvasGrid"></div>
+        <div class="canvas-widgets" id="canvasWidgets"></div>
+        <div class="selection-rect" id="selectionRect" style="display:none"></div>
+        <div class="align-guides" id="alignGuides"></div>
+      </div>
     </div>
   </main>
 
@@ -1232,6 +1239,6 @@ const screenEditorHTML = `<!DOCTYPE html>
 </div>
 
 <script src="/components/themes.css"></script>
-<script src="/apps/screen-editor/screen-editor.js?v=2026061701"></script>
+<script src="/apps/screen-editor/screen-editor.js?v=2026061702"></script>
 </body>
 </html>`

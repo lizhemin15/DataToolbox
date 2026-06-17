@@ -1,6 +1,6 @@
 /* ============================================================
    DataToolbox 大屏编辑器 — 交互逻辑
-   纯 JS，无框架依赖
+   PPT 风格：16:9 画布、8 控制点、框选、多选、Ctrl+D、对齐辅助线
    ============================================================ */
 
 (function() {
@@ -16,12 +16,16 @@
     mapRegion: 'china',
     gridCols: 12,
     gridRows: 8,
-    widgets: [],         // { id, compId, x, y, w, h, config }  — x/y/w/h 是百分比 (0-100)
-    selectedId: null,
+    widgets: [],         // { id, compId, x, y, w, h, config }
+    selectedIds: [],     // 多选
     widgetCounter: 0,
     dirty: false,
-    // 拖拽移动状态
-    dragging: null       // { widgetId, startX, startY, origX, origY, origW, origH, mode: 'move'|'resize' }
+    // 拖拽状态
+    dragging: null,      // { mode: 'move'|'resize'|'select', widgetIds, startX, startY, origX, origY, origW, origH, handle }
+    // 框选
+    selecting: null,     // { startX, startY }
+    // 对齐辅助线
+    guides: { h: [], v: [] }
   };
 
   // ======================== 组件注册表 ========================
@@ -45,8 +49,11 @@
     mapRegion: $('mapRegion'),
     themeSwitcher: $('themeSwitcher'),
     componentList: $('componentList'),
+    canvasStage: $('canvasStage'),
     canvasGrid: $('canvasGrid'),
     canvasWidgets: $('canvasWidgets'),
+    selectionRect: $('selectionRect'),
+    alignGuides: $('alignGuides'),
     propsContent: $('propsContent'),
     btnSave: $('btnSave'),
     btnPreview: $('btnPreview'),
@@ -60,21 +67,15 @@
     bindEvents();
     var urlParams = new URLSearchParams(window.location.search);
     var screenId = urlParams.get('id');
-    if (screenId) {
-      loadScreen(screenId);
-    }
+    if (screenId) loadScreen(screenId);
     var slug = urlParams.get('slug');
-    if (slug) {
-      state.slug = slug;
-      el.screenSlug.value = slug;
-    }
+    if (slug) { state.slug = slug; el.screenSlug.value = slug; }
   }
 
-  // ======================== 组件缩略图预览 ========================
+  // ======================== 组件缩略图 ========================
   function getComponentPreview(comp) {
     var w = 120, h = 80;
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '" style="background:var(--bg);border-radius:4px;">';
-
     switch (comp.id) {
       case 'kpi-card':
         svg += '<text x="' + (w/2) + '" y="28" text-anchor="middle" font-size="10" fill="var(--text-secondary)">KPI</text>';
@@ -135,10 +136,7 @@
     COMPONENTS.forEach(function(comp) {
       html += '<div class="comp-item" draggable="true" data-comp-id="' + comp.id + '" data-def-w="' + comp.defW + '" data-def-h="' + comp.defH + '" data-def-config="' + escapeHtml(JSON.stringify(comp.defConfig)) + '">';
       html += '<div class="comp-preview">' + getComponentPreview(comp) + '</div>';
-      html += '<div class="comp-info">';
-      html += '<span class="comp-icon">' + comp.icon + '</span>';
-      html += '<span class="comp-name">' + comp.name + '</span>';
-      html += '</div>';
+      html += '<div class="comp-info"><span class="comp-icon">' + comp.icon + '</span><span class="comp-name">' + comp.name + '</span></div>';
       html += '</div>';
     });
     el.componentList.innerHTML = html;
@@ -156,20 +154,25 @@
     state.widgets.forEach(function(w) {
       var comp = getComponent(w.compId);
       var name = comp ? comp.name : w.compId;
-      // x/y/w/h 直接是百分比
-      var left = w.x;
-      var top = w.y;
-      var width = w.w;
-      var height = w.h;
-      var selected = (w.id === state.selectedId) ? ' selected' : '';
+      var selected = (state.selectedIds.indexOf(w.id) !== -1);
+      var cls = selected ? (state.selectedIds.length > 1 ? ' multi-selected' : ' selected') : '';
 
-      html += '<div class="screen-widget' + selected + '" data-widget-id="' + w.id + '"';
-      html += ' style="left:' + left + '%;top:' + top + '%;width:' + width + '%;height:' + height + '%">';
+      html += '<div class="screen-widget' + cls + '" data-widget-id="' + w.id + '"';
+      html += ' style="left:' + w.x + '%;top:' + w.y + '%;width:' + w.w + '%;height:' + w.h + '%">';
       html += '<div class="widget-header"><span>' + name + '</span>';
       html += '<button class="widget-delete" data-action="delete" data-widget-id="' + w.id + '">×</button></div>';
       html += '<div class="widget-body">' + renderWidgetContent(w.compId, w.config) + '</div>';
-      // 调整大小手柄
-      html += '<div class="widget-resize-handle" data-resize="se"></div>';
+      // 控制点（仅单选时显示）
+      if (selected && state.selectedIds.length === 1) {
+        html += '<div class="widget-control-point nw" data-handle="nw"></div>';
+        html += '<div class="widget-control-point n" data-handle="n"></div>';
+        html += '<div class="widget-control-point ne" data-handle="ne"></div>';
+        html += '<div class="widget-control-point w" data-handle="w"></div>';
+        html += '<div class="widget-control-point e" data-handle="e"></div>';
+        html += '<div class="widget-control-point sw" data-handle="sw"></div>';
+        html += '<div class="widget-control-point s" data-handle="s"></div>';
+        html += '<div class="widget-control-point se" data-handle="se"></div>';
+      }
       html += '</div>';
     });
     el.canvasWidgets.innerHTML = html;
@@ -177,7 +180,7 @@
 
   // ======================== 事件绑定 ========================
   function bindEvents() {
-    // --- 拖拽添加组件（从左侧面板到画布）---
+    // --- 拖拽添加组件 ---
     document.addEventListener('dragstart', function(e) {
       var compItem = e.target.closest('.comp-item');
       if (!compItem) return;
@@ -199,122 +202,225 @@
     el.canvasWidgets.addEventListener('drop', function(e) {
       e.preventDefault();
       var data = JSON.parse(e.dataTransfer.getData('text/plain'));
-
       var rect = el.canvasWidgets.getBoundingClientRect();
       var relX = e.clientX - rect.left;
       var relY = e.clientY - rect.top;
-      // 像素百分比坐标
       var x = (relX / rect.width * 100);
       var y = (relY / rect.height * 100);
       var w = data.defW;
       var h = data.defH;
-
-      // 边界裁剪
       x = Math.max(0, Math.min(x, 100 - w));
       y = Math.max(0, Math.min(y, 100 - h));
-
       addWidget(data.compId, x, y, w, h, JSON.parse(data.defConfig));
     });
 
-    // --- 画布内 Widget 拖拽移动 ---
+    // --- 画布 mousedown ---
     el.canvasWidgets.addEventListener('mousedown', function(e) {
-      if (e.target.closest('[data-action="delete"]')) return;
-      // 调整大小手柄
-      if (e.target.closest('.widget-resize-handle')) {
-        var handle = e.target.closest('.widget-resize-handle');
-        var widgetEl = handle.closest('.screen-widget');
-        if (!widgetEl) return;
+      // 控制点拖拽
+      var handle = e.target.closest('.widget-control-point');
+      if (handle) {
         e.preventDefault();
         e.stopPropagation();
+        var widgetEl = handle.closest('.screen-widget');
         var widgetId = widgetEl.dataset.widgetId;
         var w = getWidget(widgetId);
         if (!w) return;
-        selectWidget(widgetId);
+        selectWidgets([widgetId]);
         state.dragging = {
-          widgetId: widgetId,
+          mode: 'resize',
+          widgetIds: [widgetId],
           startX: e.clientX,
           startY: e.clientY,
-          origX: w.x,
-          origY: w.y,
-          origW: w.w,
-          origH: w.h,
-          mode: 'resize'
+          origX: w.x, origY: w.y, origW: w.w, origH: w.h,
+          handle: handle.dataset.handle
         };
         return;
       }
 
+      // 删除按钮
+      if (e.target.closest('[data-action="delete"]')) return;
+
+      // Widget header 拖拽移动
       var widgetEl = e.target.closest('.screen-widget');
-      if (!widgetEl) return;
-      // 只在 header 上才能拖拽移动
-      if (!e.target.closest('.widget-header')) return;
+      if (widgetEl && e.target.closest('.widget-header')) {
+        e.preventDefault();
+        var widgetId = widgetEl.dataset.widgetId;
+        var w = getWidget(widgetId);
+        if (!w) return;
 
-      e.preventDefault();
-      var widgetId = widgetEl.dataset.widgetId;
-      var w = getWidget(widgetId);
-      if (!w) return;
+        // 如果点击的 widget 不在选中列表里，改为单选
+        if (state.selectedIds.indexOf(widgetId) === -1) {
+          if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            selectWidgets([widgetId]);
+          } else {
+            selectWidgets(state.selectedIds.concat([widgetId]));
+          }
+        }
 
-      selectWidget(widgetId);
-      state.dragging = {
-        widgetId: widgetId,
-        startX: e.clientX,
-        startY: e.clientY,
-        origX: w.x,
-        origY: w.y,
-        origW: w.w,
-        origH: w.h,
-        mode: 'move'
-      };
+        // 记录所有选中 widget 的原始位置
+        var origs = {};
+        state.selectedIds.forEach(function(id) {
+          var ww = getWidget(id);
+          if (ww) origs[id] = { x: ww.x, y: ww.y, w: ww.w, h: ww.h };
+        });
+
+        state.dragging = {
+          mode: 'move',
+          widgetIds: state.selectedIds.slice(),
+          startX: e.clientX,
+          startY: e.clientY,
+          origs: origs
+        };
+        return;
+      }
+
+      // 点击 widget body（非 header）— 选中
+      if (widgetEl) {
+        var widgetId = widgetEl.dataset.widgetId;
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          var idx = state.selectedIds.indexOf(widgetId);
+          if (idx === -1) {
+            selectWidgets(state.selectedIds.concat([widgetId]));
+          } else {
+            var newIds = state.selectedIds.slice();
+            newIds.splice(idx, 1);
+            selectWidgets(newIds);
+          }
+        } else {
+          if (state.selectedIds.indexOf(widgetId) === -1) {
+            selectWidgets([widgetId]);
+          }
+        }
+        return;
+      }
+
+      // 点击空白区域 — 框选
+      if (!widgetEl && !e.target.closest('.widget-control-point')) {
+        selectWidgets([]);
+        state.selecting = {
+          startX: e.clientX,
+          startY: e.clientY
+        };
+      }
     });
 
-    // 全局 mousemove — 像素级自由拖拽
+    // --- 全局 mousemove ---
     document.addEventListener('mousemove', function(e) {
+      // 框选
+      if (state.selecting) {
+        var rect = el.canvasWidgets.getBoundingClientRect();
+        var sx = state.selecting.startX;
+        var sy = state.selecting.startY;
+        var ex = e.clientX;
+        var ey = e.clientY;
+
+        var left = Math.min(sx, ex);
+        var top = Math.min(sy, ey);
+        var width = Math.abs(ex - sx);
+        var height = Math.abs(ey - sy);
+
+        el.selectionRect.style.display = 'block';
+        el.selectionRect.style.left = (left - rect.left) + 'px';
+        el.selectionRect.style.top = (top - rect.top) + 'px';
+        el.selectionRect.style.width = width + 'px';
+        el.selectionRect.style.height = height + 'px';
+        return;
+      }
+
       if (!state.dragging) return;
       var d = state.dragging;
       var rect = el.canvasWidgets.getBoundingClientRect();
       var dxPct = (e.clientX - d.startX) / rect.width * 100;
       var dyPct = (e.clientY - d.startY) / rect.height * 100;
 
-      var w = getWidget(d.widgetId);
-      if (!w) return;
-
       if (d.mode === 'move') {
-        w.x = Math.max(0, Math.min(d.origX + dxPct, 100 - w.w));
-        w.y = Math.max(0, Math.min(d.origY + dyPct, 100 - w.h));
+        // 多选移动
+        d.widgetIds.forEach(function(id) {
+          var w = getWidget(id);
+          var orig = d.origs[id];
+          if (!w || !orig) return;
+          w.x = Math.max(0, Math.min(orig.x + dxPct, 100 - w.w));
+          w.y = Math.max(0, Math.min(orig.y + dyPct, 100 - w.h));
+        });
+        // 对齐辅助线
+        computeAlignGuides(d.widgetIds);
+        renderCanvas();
+        markDirty();
       } else if (d.mode === 'resize') {
-        w.w = Math.max(4, Math.min(d.origW + dxPct, 100 - w.x));
-        w.h = Math.max(4, Math.min(d.origH + dyPct, 100 - w.y));
-      }
-      renderCanvas();
-      markDirty();
-    });
+        var w = getWidget(d.widgetIds[0]);
+        if (!w) return;
+        var handle = d.handle;
+        var ox = d.origX, oy = d.origY, ow = d.origW, oh = d.origH;
 
-    // 全局 mouseup
-    document.addEventListener('mouseup', function(e) {
-      if (!state.dragging) return;
-      var w = getWidget(state.dragging.widgetId);
-      state.dragging = null;
-      if (w) {
+        switch (handle) {
+          case 'se': w.w = Math.max(4, ow + dxPct); w.h = Math.max(4, oh + dyPct); break;
+          case 'sw': w.x = Math.min(ox + ow, ox + dxPct); w.w = Math.max(4, ow - dxPct); w.h = Math.max(4, oh + dyPct); break;
+          case 'ne': w.y = Math.min(oy + oh, oy + dyPct); w.w = Math.max(4, ow + dxPct); w.h = Math.max(4, oh - dyPct); break;
+          case 'nw': w.x = Math.min(ox + ow, ox + dxPct); w.y = Math.min(oy + oh, oy + dyPct); w.w = Math.max(4, ow - dxPct); w.h = Math.max(4, oh - dyPct); break;
+          case 'n':  w.y = Math.min(oy + oh, oy + dyPct); w.h = Math.max(4, oh - dyPct); break;
+          case 's':  w.h = Math.max(4, oh + dyPct); break;
+          case 'w':  w.x = Math.min(ox + ow, ox + dxPct); w.w = Math.max(4, ow - dxPct); break;
+          case 'e':  w.w = Math.max(4, ow + dxPct); break;
+        }
+        // 边界裁剪
+        w.x = Math.max(0, w.x);
+        w.y = Math.max(0, w.y);
+        w.w = Math.min(w.w, 100 - w.x);
+        w.h = Math.min(w.h, 100 - w.y);
+
         renderCanvas();
         renderProps();
+        markDirty();
       }
     });
 
-    // --- 画布点击：选中/取消选中 ---
+    // --- 全局 mouseup ---
+    document.addEventListener('mouseup', function(e) {
+      // 框选结束
+      if (state.selecting) {
+        var rect = el.canvasWidgets.getBoundingClientRect();
+        var sx = state.selecting.startX;
+        var sy = state.selecting.startY;
+        var ex = e.clientX;
+        var ey = e.clientY;
+
+        var selLeft = Math.min(sx, ex) - rect.left;
+        var selTop = Math.min(sy, ey) - rect.top;
+        var selRight = Math.max(sx, ex) - rect.left;
+        var selBottom = Math.max(sy, ey) - rect.top;
+
+        var selectedIds = [];
+        state.widgets.forEach(function(w) {
+          var wLeft = w.x / 100 * rect.width;
+          var wTop = w.y / 100 * rect.height;
+          var wRight = (w.x + w.w) / 100 * rect.width;
+          var wBottom = (w.y + w.h) / 100 * rect.height;
+          if (wLeft < selRight && wRight > selLeft && wTop < selBottom && wBottom > selTop) {
+            selectedIds.push(w.id);
+          }
+        });
+
+        selectWidgets(selectedIds);
+        el.selectionRect.style.display = 'none';
+        state.selecting = null;
+        return;
+      }
+
+      if (!state.dragging) return;
+      state.dragging = null;
+      clearGuides();
+      renderCanvas();
+      renderProps();
+    });
+
+    // --- 画布点击 ---
     el.canvasWidgets.addEventListener('click', function(e) {
       if (state.dragging) return;
-
       var delBtn = e.target.closest('[data-action="delete"]');
       if (delBtn) {
         var widgetId = delBtn.dataset.widgetId;
         removeWidget(widgetId);
         return;
-      }
-
-      var widgetEl = e.target.closest('.screen-widget');
-      if (widgetEl) {
-        selectWidget(widgetEl.dataset.widgetId);
-      } else {
-        selectWidget(null);
       }
     });
 
@@ -325,25 +431,13 @@
       setTheme(btn.dataset.theme);
     });
 
-    // --- 名称/slug 变更 ---
-    el.screenName.addEventListener('input', function() {
-      state.name = this.value;
-      markDirty();
-    });
-    el.screenSlug.addEventListener('input', function() {
-      state.slug = this.value;
-      markDirty();
-    });
+    // --- 名称/slug ---
+    el.screenName.addEventListener('input', function() { state.name = this.value; markDirty(); });
+    el.screenSlug.addEventListener('input', function() { state.slug = this.value; markDirty(); });
 
-    // --- 地图选项 ---
-    el.showMap.addEventListener('change', function() {
-      state.showMap = this.checked;
-      markDirty();
-    });
-    el.mapRegion.addEventListener('change', function() {
-      state.mapRegion = this.value;
-      markDirty();
-    });
+    // --- 地图 ---
+    el.showMap.addEventListener('change', function() { state.showMap = this.checked; markDirty(); });
+    el.mapRegion.addEventListener('change', function() { state.mapRegion = this.value; markDirty(); });
 
     // --- 保存/预览/清空 ---
     el.btnSave.addEventListener('click', saveScreen);
@@ -352,7 +446,7 @@
       if (state.widgets.length === 0) return;
       if (confirm('确定清空画布上的所有组件？')) {
         state.widgets = [];
-        state.selectedId = null;
+        state.selectedIds = [];
         renderCanvas();
         renderProps();
         markDirty();
@@ -361,15 +455,54 @@
 
     // --- 键盘快捷键 ---
     document.addEventListener('keydown', function(e) {
+      // 在输入框中不处理
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+
+      // Delete / Backspace — 删除选中
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
-        if (state.selectedId) {
-          removeWidget(state.selectedId);
+        if (state.selectedIds.length > 0) {
+          state.selectedIds.forEach(function(id) { removeWidgetSilent(id); });
+          state.selectedIds = [];
+          renderCanvas();
+          renderProps();
+          markDirty();
         }
       }
+
+      // Ctrl+D — 复制选中
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        duplicateSelected();
+      }
+
+      // Ctrl+A — 全选
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        selectWidgets(state.widgets.map(function(w) { return w.id; }));
+      }
+
+      // Ctrl+S — 保存
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         saveScreen();
+      }
+
+      // 箭头键 — 微调位置
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.key) !== -1) {
+        if (state.selectedIds.length === 0) return;
+        e.preventDefault();
+        var step = e.shiftKey ? 5 : 1;
+        state.selectedIds.forEach(function(id) {
+          var w = getWidget(id);
+          if (!w) return;
+          if (e.key === 'ArrowUp') w.y = Math.max(0, w.y - step);
+          if (e.key === 'ArrowDown') w.y = Math.min(100 - w.h, w.y + step);
+          if (e.key === 'ArrowLeft') w.x = Math.max(0, w.x - step);
+          if (e.key === 'ArrowRight') w.x = Math.min(100 - w.w, w.x + step);
+        });
+        renderCanvas();
+        renderProps();
+        markDirty();
       }
     });
   }
@@ -384,7 +517,7 @@
       config: config || {}
     };
     state.widgets.push(widget);
-    state.selectedId = widget.id;
+    selectWidgets([widget.id]);
     renderCanvas();
     renderProps();
     markDirty();
@@ -392,16 +525,18 @@
 
   function removeWidget(widgetId) {
     state.widgets = state.widgets.filter(function(w) { return w.id !== widgetId; });
-    if (state.selectedId === widgetId) {
-      state.selectedId = null;
-      renderProps();
-    }
+    state.selectedIds = state.selectedIds.filter(function(id) { return id !== widgetId; });
     renderCanvas();
+    renderProps();
     markDirty();
   }
 
-  function selectWidget(widgetId) {
-    state.selectedId = widgetId;
+  function removeWidgetSilent(widgetId) {
+    state.widgets = state.widgets.filter(function(w) { return w.id !== widgetId; });
+  }
+
+  function selectWidgets(ids) {
+    state.selectedIds = ids;
     renderCanvas();
     renderProps();
   }
@@ -414,154 +549,91 @@
     return COMPONENTS.find(function(c) { return c.id === compId; });
   }
 
-  // ======================== 画布组件内容渲染 ========================
-  function renderWidgetContent(compId, config) {
-    config = config || {};
-    var colors = ['var(--accent)', '#4ade80', '#f87171', '#fbbf24', '#60a5fa', '#c084fc', '#fb923c'];
-    var i, j;
+  // ======================== 复制选中 ========================
+  function duplicateSelected() {
+    if (state.selectedIds.length === 0) return;
+    var newIds = [];
+    state.selectedIds.forEach(function(id) {
+      var w = getWidget(id);
+      if (!w) return;
+      state.widgetCounter++;
+      var newId = 'w-' + Date.now() + '-' + state.widgetCounter;
+      var newWidget = {
+        id: newId,
+        compId: w.compId,
+        x: Math.min(w.x + 2, 100 - w.w),
+        y: Math.min(w.y + 2, 100 - w.h),
+        w: w.w, h: w.h,
+        config: JSON.parse(JSON.stringify(w.config))
+      };
+      state.widgets.push(newWidget);
+      newIds.push(newId);
+    });
+    selectWidgets(newIds);
+    renderCanvas();
+    renderProps();
+    markDirty();
+    showToast('已复制 ' + newIds.length + ' 个组件', 'success');
+  }
 
-    switch (compId) {
-      // --- KPI 卡片 ---
-      case 'kpi-card': {
-        var trendIcon = '';
-        if (config.trend === 'up') trendIcon = '<span style="color:#4ade80">▲</span>';
-        else if (config.trend === 'down') trendIcon = '<span style="color:#f87171">▼</span>';
-        else trendIcon = '<span style="color:var(--text-secondary)">—</span>';
-        return '<div class="kpi-preview">' +
-          '<div class="kpi-title">' + escapeHtml(config.title || '指标') + '</div>' +
-          '<div class="kpi-value">' + escapeHtml(String(config.value || '0')) + '<span class="kpi-unit">' + escapeHtml(config.unit || '') + '</span></div>' +
-          '<div class="kpi-trend">' + trendIcon + '</div>' +
-          '</div>';
-      }
+  // ======================== 对齐辅助线 ========================
+  function computeAlignGuides(movingIds) {
+    clearGuides();
+    var threshold = 2; // 百分比阈值
+    var guidesH = [];
+    var guidesV = [];
 
-      // --- 柱状图 ---
-      case 'bar-chart': {
-        var series = config.series || [{ name: '系列1', data: [30, 50, 20, 70, 40] }];
-        var xAxis = config.xAxis || ['A', 'B', 'C', 'D', 'E'];
-        var maxVal = 0;
-        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
-        maxVal = maxVal || 1;
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
-        var barW = 60 / xAxis.length;
-        var gap = barW * 0.2;
-        barW = barW - gap;
-        series.forEach(function(s, si) {
-          s.data.forEach(function(v, vi) {
-            var bh = (v / maxVal) * 60;
-            var bx = 20 + vi * (barW + gap) + si * (barW / series.length);
-            var by = 85 - bh;
-            svg += '<rect x="' + bx + '" y="' + by + '" width="' + (barW / series.length) + '" height="' + bh + '" rx="1" fill="' + (colors[si % colors.length]) + '" opacity="0.85"/>';
-          });
+    // 收集所有非移动 widget 的边
+    var others = state.widgets.filter(function(w) { return movingIds.indexOf(w.id) === -1; });
+    var movers = movingIds.map(function(id) { return getWidget(id); }).filter(Boolean);
+
+    movers.forEach(function(mw) {
+      var edges = {
+        left: mw.x, right: mw.x + mw.w,
+        top: mw.y, bottom: mw.y + mw.h,
+        midX: mw.x + mw.w / 2, midY: mw.y + mw.h / 2
+      };
+
+      others.forEach(function(ow) {
+        var oEdges = {
+          left: ow.x, right: ow.x + ow.w,
+          top: ow.y, bottom: ow.y + ow.h,
+          midX: ow.x + ow.w / 2, midY: ow.y + ow.h / 2
+        };
+
+        // 水平对齐
+        ['top', 'bottom', 'midY'].forEach(function(key) {
+          if (Math.abs(edges[key] - oEdges[key]) < threshold) {
+            guidesH.push(oEdges[key]);
+          }
         });
-        svg += '<line x1="20" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
-        svg += '</svg>';
-        return svg;
-      }
 
-      // --- 折线图 ---
-      case 'line-chart': {
-        var series = config.series || [{ name: '系列1', data: [10, 25, 15, 30, 20] }];
-        var xAxis = config.xAxis || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-        var maxVal = 0;
-        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
-        maxVal = maxVal || 1;
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
-        var stepX = 70 / (xAxis.length - 1);
-        series.forEach(function(s, si) {
-          var pts = s.data.map(function(v, vi) {
-            return (15 + vi * stepX) + ',' + (85 - (v / maxVal) * 60);
-          });
-          svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + (colors[si % colors.length]) + '" stroke-width="1.5" opacity="0.85"/>';
-          s.data.forEach(function(v, vi) {
-            svg += '<circle cx="' + (15 + vi * stepX) + '" cy="' + (85 - (v / maxVal) * 60) + '" r="1.5" fill="' + (colors[si % colors.length]) + '"/>';
-          });
+        // 垂直对齐
+        ['left', 'right', 'midX'].forEach(function(key) {
+          if (Math.abs(edges[key] - oEdges[key]) < threshold) {
+            guidesV.push(oEdges[key]);
+          }
         });
-        svg += '<line x1="15" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
-        svg += '</svg>';
-        return svg;
-      }
+      });
+    });
 
-      // --- 饼图 ---
-      case 'pie-chart': {
-        var data = config.data || [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }];
-        var total = 0;
-        data.forEach(function(d) { total += d.value; });
-        total = total || 1;
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
-        var cx = 50, cy = 50, r = 28;
-        if (config.donut) r = 22;
-        var startAngle = -90;
-        data.forEach(function(d, i) {
-          var angle = (d.value / total) * 360;
-          var endAngle = startAngle + angle;
-          var x1 = cx + r * Math.cos(startAngle * Math.PI / 180);
-          var y1 = cy + r * Math.sin(startAngle * Math.PI / 180);
-          var x2 = cx + r * Math.cos(endAngle * Math.PI / 180);
-          var y2 = cy + r * Math.sin(endAngle * Math.PI / 180);
-          var largeArc = angle > 180 ? 1 : 0;
-          svg += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ',' + y2 + ' Z" fill="' + (colors[i % colors.length]) + '" opacity="0.85"/>';
-          startAngle = endAngle;
-        });
-        if (config.donut) {
-          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="var(--bg-card)"/>';
-        }
-        svg += '</svg>';
-        return svg;
-      }
+    // 去重
+    guidesH = guidesH.filter(function(v, i, a) { return a.indexOf(v) === i; });
+    guidesV = guidesV.filter(function(v, i, a) { return a.indexOf(v) === i; });
 
-      // --- 数据表格 ---
-      case 'data-table': {
-        var columns = config.columns || ['列1', '列2', '列3'];
-        var rows = config.rows || [['a', 'b', 'c'], ['d', 'e', 'f']];
-        var html = '<table class="widget-table"><thead><tr>';
-        columns.forEach(function(col) { html += '<th>' + escapeHtml(col) + '</th>'; });
-        html += '</tr></thead><tbody>';
-        rows.forEach(function(row) {
-          html += '<tr>';
-          row.forEach(function(cell) { html += '<td>' + escapeHtml(String(cell)) + '</td>'; });
-          html += '</tr>';
-        });
-        html += '</tbody></table>';
-        return html;
-      }
+    // 渲染辅助线
+    var html = '';
+    guidesH.forEach(function(y) {
+      html += '<div class="align-guide h" style="top:' + y + '%"></div>';
+    });
+    guidesV.forEach(function(x) {
+      html += '<div class="align-guide v" style="left:' + x + '%"></div>';
+    });
+    el.alignGuides.innerHTML = html;
+  }
 
-      // --- 文本块 ---
-      case 'text-block': {
-        var content = config.content || '文本内容';
-        var align = config.text_align || 'left';
-        var size = config.font_size || 14;
-        return '<div style="text-align:' + align + ';font-size:' + size + 'px;padding:4px;white-space:pre-wrap;">' + escapeHtml(content) + '</div>';
-      }
-
-      // --- 图片 ---
-      case 'image-block': {
-        if (config.src) {
-          return '<img src="' + escapeHtml(config.src) + '" alt="' + escapeHtml(config.alt || '') + '" style="width:100%;height:100%;object-fit:' + (config.fit || 'cover') + ';">';
-        }
-        return '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:24px;">🖼</div>';
-      }
-
-      // --- 仪表盘 ---
-      case 'gauge': {
-        var value = config.value || 65;
-        var min = config.min || 0;
-        var max = config.max || 100;
-        var pct = (value - min) / (max - min);
-        var angle = -180 + pct * 180;
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
-        svg += '<path d="M15,80 A35,35 0 0,1 85,80" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>';
-        var endX = 50 + 35 * Math.cos(angle * Math.PI / 180);
-        var endY = 80 + 35 * Math.sin(angle * Math.PI / 180);
-        svg += '<path d="M15,80 A35,35 0 0,1 ' + endX + ',' + endY + '" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>';
-        svg += '<text x="50" y="72" text-anchor="middle" font-size="14" font-weight="bold" fill="var(--text)">' + value + '</text>';
-        svg += '<text x="50" y="85" text-anchor="middle" font-size="7" fill="var(--text-secondary)">' + escapeHtml(config.title || '') + '</text>';
-        svg += '</svg>';
-        return svg;
-      }
-
-      default:
-        return '<div style="padding:8px;font-size:11px;color:var(--text-secondary);">' + escapeHtml(compId) + '</div>';
-    }
+  function clearGuides() {
+    el.alignGuides.innerHTML = '';
   }
 
   // ======================== 一键排版 ========================
@@ -570,7 +642,6 @@
 
     switch (mode) {
       case 'tile':
-        // 等宽网格排列
         var cols = Math.ceil(Math.sqrt(state.widgets.length));
         var rows = Math.ceil(state.widgets.length / cols);
         var cellW = 100 / cols;
@@ -586,14 +657,11 @@
         break;
 
       case 'masonry':
-        // 瀑布流：按列排列，每列高度独立
         var nCols = Math.min(3, state.widgets.length);
         var colWidth = 100 / nCols;
         var colHeights = [];
         for (var i = 0; i < nCols; i++) colHeights.push(0);
-
         state.widgets.forEach(function(w) {
-          // 找最短的列
           var minCol = 0;
           for (var c = 1; c < nCols; c++) {
             if (colHeights[c] < colHeights[minCol]) minCol = c;
@@ -601,14 +669,12 @@
           w.x = minCol * colWidth + colWidth * 0.05;
           w.y = colHeights[minCol];
           w.w = colWidth * 0.9;
-          // 保持宽高比
           w.h = Math.max(10, w.w * 0.8);
           colHeights[minCol] += w.h + 2;
         });
         break;
 
       case 'snap':
-        // 吸附到最近的网格线
         var cellW = 100 / state.gridCols;
         var cellH = 100 / state.gridRows;
         state.widgets.forEach(function(w) {
@@ -616,7 +682,6 @@
           w.y = Math.round(w.y / cellH) * cellH;
           w.w = Math.max(cellW, Math.round(w.w / cellW) * cellW);
           w.h = Math.max(cellH, Math.round(w.h / cellH) * cellH);
-          // 边界裁剪
           w.x = Math.max(0, Math.min(w.x, 100 - cellW));
           w.y = Math.max(0, Math.min(w.y, 100 - cellH));
           w.w = Math.min(w.w, 100 - w.x);
@@ -632,12 +697,17 @@
 
   // ======================== 属性面板 ========================
   function renderProps() {
-    if (!state.selectedId) {
+    if (state.selectedIds.length === 0) {
       el.propsContent.innerHTML = '<p class="panel-hint">选择画布上的组件来编辑属性</p>';
       return;
     }
 
-    var widget = getWidget(state.selectedId);
+    if (state.selectedIds.length > 1) {
+      el.propsContent.innerHTML = '<p class="panel-hint">已选中 ' + state.selectedIds.length + ' 个组件<br><small>多选时请使用拖拽或键盘调整</small></p>';
+      return;
+    }
+
+    var widget = getWidget(state.selectedIds[0]);
     if (!widget) {
       el.propsContent.innerHTML = '<p class="panel-hint">组件不存在</p>';
       return;
@@ -648,7 +718,7 @@
 
     var html = '';
     html += '<div class="prop-group"><div class="prop-label">组件</div>';
-    html += '<div style="font-size:13px;font-weight:500;">' + compName + '</div></div>';
+    html += '<div style="font-size:12px;font-weight:500;">' + compName + '</div></div>';
 
     html += '<div class="prop-group"><div class="prop-label">位置 (%)</div>';
     html += '<div class="prop-row">';
@@ -775,6 +845,7 @@
           };
         });
         state.dirty = false;
+        state.selectedIds = [];
 
         el.screenName.value = state.name;
         el.screenSlug.value = state.slug;
@@ -802,6 +873,147 @@
     }
     var previewUrl = '/screen/' + state.slug + '?token=' + encodeURIComponent(getToken());
     window.open(previewUrl, '_blank');
+  }
+
+  // ======================== 画布组件内容渲染 ========================
+  function renderWidgetContent(compId, config) {
+    config = config || {};
+    var colors = ['var(--accent)', '#4ade80', '#f87171', '#fbbf24', '#60a5fa', '#c084fc', '#fb923c'];
+
+    switch (compId) {
+      case 'kpi-card': {
+        var trendIcon = '';
+        if (config.trend === 'up') trendIcon = '<span style="color:#4ade80">▲</span>';
+        else if (config.trend === 'down') trendIcon = '<span style="color:#f87171">▼</span>';
+        else trendIcon = '<span style="color:var(--text-secondary)">—</span>';
+        return '<div class="kpi-preview">' +
+          '<div class="kpi-title">' + escapeHtml(config.title || '指标') + '</div>' +
+          '<div class="kpi-value">' + escapeHtml(String(config.value || '0')) + '<span class="kpi-unit">' + escapeHtml(config.unit || '') + '</span></div>' +
+          '<div class="kpi-trend">' + trendIcon + '</div>' +
+          '</div>';
+      }
+
+      case 'bar-chart': {
+        var series = config.series || [{ name: '系列1', data: [30, 50, 20, 70, 40] }];
+        var xAxis = config.xAxis || ['A', 'B', 'C', 'D', 'E'];
+        var maxVal = 0;
+        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
+        maxVal = maxVal || 1;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
+        var barW = 60 / xAxis.length;
+        var gap = barW * 0.2;
+        barW = barW - gap;
+        series.forEach(function(s, si) {
+          s.data.forEach(function(v, vi) {
+            var bh = (v / maxVal) * 60;
+            var bx = 20 + vi * (barW + gap) + si * (barW / series.length);
+            var by = 85 - bh;
+            svg += '<rect x="' + bx + '" y="' + by + '" width="' + (barW / series.length) + '" height="' + bh + '" rx="1" fill="' + (colors[si % colors.length]) + '" opacity="0.85"/>';
+          });
+        });
+        svg += '<line x1="20" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      case 'line-chart': {
+        var series = config.series || [{ name: '系列1', data: [10, 25, 15, 30, 20] }];
+        var xAxis = config.xAxis || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        var maxVal = 0;
+        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
+        maxVal = maxVal || 1;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
+        var stepX = 70 / (xAxis.length - 1);
+        series.forEach(function(s, si) {
+          var pts = s.data.map(function(v, vi) {
+            return (15 + vi * stepX) + ',' + (85 - (v / maxVal) * 60);
+          });
+          svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + (colors[si % colors.length]) + '" stroke-width="1.5" opacity="0.85"/>';
+          s.data.forEach(function(v, vi) {
+            svg += '<circle cx="' + (15 + vi * stepX) + '" cy="' + (85 - (v / maxVal) * 60) + '" r="1.5" fill="' + (colors[si % colors.length]) + '"/>';
+          });
+        });
+        svg += '<line x1="15" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      case 'pie-chart': {
+        var data = config.data || [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }];
+        var total = 0;
+        data.forEach(function(d) { total += d.value; });
+        total = total || 1;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
+        var cx = 50, cy = 50, r = 28;
+        if (config.donut) r = 22;
+        var startAngle = -90;
+        data.forEach(function(d, i) {
+          var angle = (d.value / total) * 360;
+          var endAngle = startAngle + angle;
+          var x1 = cx + r * Math.cos(startAngle * Math.PI / 180);
+          var y1 = cy + r * Math.sin(startAngle * Math.PI / 180);
+          var x2 = cx + r * Math.cos(endAngle * Math.PI / 180);
+          var y2 = cy + r * Math.sin(endAngle * Math.PI / 180);
+          var largeArc = angle > 180 ? 1 : 0;
+          svg += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ',' + y2 + ' Z" fill="' + (colors[i % colors.length]) + '" opacity="0.85"/>';
+          startAngle = endAngle;
+        });
+        if (config.donut) {
+          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="var(--bg-card)"/>';
+        }
+        svg += '</svg>';
+        return svg;
+      }
+
+      case 'data-table': {
+        var columns = config.columns || ['列1', '列2', '列3'];
+        var rows = config.rows || [['a', 'b', 'c'], ['d', 'e', 'f']];
+        var html = '<table class="widget-table"><thead><tr>';
+        columns.forEach(function(col) { html += '<th>' + escapeHtml(col) + '</th>'; });
+        html += '</tr></thead><tbody>';
+        rows.forEach(function(row) {
+          html += '<tr>';
+          row.forEach(function(cell) { html += '<td>' + escapeHtml(String(cell)) + '</td>'; });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+      }
+
+      case 'text-block': {
+        var content = config.content || '文本内容';
+        var align = config.text_align || 'left';
+        var size = config.font_size || 14;
+        return '<div style="text-align:' + align + ';font-size:' + size + 'px;padding:4px;white-space:pre-wrap;">' + escapeHtml(content) + '</div>';
+      }
+
+      case 'image-block': {
+        if (config.src) {
+          return '<img src="' + escapeHtml(config.src) + '" alt="' + escapeHtml(config.alt || '') + '" style="width:100%;height:100%;object-fit:' + (config.fit || 'cover') + ';">';
+        }
+        return '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:24px;">🖼</div>';
+      }
+
+      case 'gauge': {
+        var value = config.value || 65;
+        var min = config.min || 0;
+        var max = config.max || 100;
+        var pct = (value - min) / (max - min);
+        var angle = -180 + pct * 180;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
+        svg += '<path d="M15,80 A35,35 0 0,1 85,80" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>';
+        var endX = 50 + 35 * Math.cos(angle * Math.PI / 180);
+        var endY = 80 + 35 * Math.sin(angle * Math.PI / 180);
+        svg += '<path d="M15,80 A35,35 0 0,1 ' + endX + ',' + endY + '" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>';
+        svg += '<text x="50" y="72" text-anchor="middle" font-size="14" font-weight="bold" fill="var(--text)">' + value + '</text>';
+        svg += '<text x="50" y="85" text-anchor="middle" font-size="7" fill="var(--text-secondary)">' + escapeHtml(config.title || '') + '</text>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      default:
+        return '<div style="padding:8px;font-size:11px;color:var(--text-secondary);">' + escapeHtml(compId) + '</div>';
+    }
   }
 
   // ======================== 工具函数 ========================
@@ -846,7 +1058,7 @@
     };
   }
 
-  // 暴露 autoLayout 到全局
+  // 暴露到全局
   window.autoLayout = autoLayout;
 
   // ======================== 启动 ========================
