@@ -1131,7 +1131,11 @@
   function getToken() {
     if (window._appToken) return window._appToken;
     var params = new URLSearchParams(window.location.search);
-    return params.get('token') || '';
+    var urlToken = params.get('token');
+    if (urlToken) return urlToken;
+    // 尝试从 session_token cookie 读取（登录后自动设置）
+    var match = document.cookie.match(/(?:^|;\s*)session_token=([^;]*)/);
+    return match ? match[1] : '';
   }
 
   function showToast(msg, type) {

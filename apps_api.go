@@ -1163,7 +1163,7 @@ const screenEditorHTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>大屏编辑器 - DataToolbox</title>
   <link rel="stylesheet" href="/components/themes.css">
-  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061703">
+  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061704">
 </head>
 <body>
 <!-- 顶部工具栏 -->
@@ -1240,6 +1240,6 @@ const screenEditorHTML = `<!DOCTYPE html>
 </div>
 
 <script src="/lib/echarts.min.js"></script>
-<script src="/apps/screen-editor/screen-editor.js?v=2026061703"></script>
+<script src="/apps/screen-editor/screen-editor.js?v=2026061704"></script>
 </body>
 </html>`
