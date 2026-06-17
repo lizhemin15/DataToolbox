@@ -1163,7 +1163,7 @@ const screenEditorHTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>大屏编辑器 - DataToolbox</title>
   <link rel="stylesheet" href="/components/themes.css">
-  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061601">
+  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061701">
 </head>
 <body>
 <!-- 顶部工具栏 -->
@@ -1210,6 +1210,9 @@ const screenEditorHTML = `<!DOCTYPE html>
   <main class="editor-canvas-wrapper">
     <div class="canvas-controls">
       <span class="canvas-label">画布 12×8</span>
+      <button class="canvas-btn layout-btn" onclick="autoLayout('tile')" title="等宽网格排列">▦</button>
+      <button class="canvas-btn layout-btn" onclick="autoLayout('masonry')" title="瀑布流">▥</button>
+      <button class="canvas-btn layout-btn" onclick="autoLayout('snap')" title="吸附网格">⌸</button>
       <button class="canvas-btn" id="btnClear" title="清空画布">清空</button>
     </div>
     <div class="editor-canvas" id="screenCanvas">
@@ -1229,6 +1232,6 @@ const screenEditorHTML = `<!DOCTYPE html>
 </div>
 
 <script src="/components/themes.css"></script>
-<script src="/apps/screen-editor/screen-editor.js?v=2026061601"></script>
+<script src="/apps/screen-editor/screen-editor.js?v=2026061701"></script>
 </body>
 </html>`

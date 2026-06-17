@@ -16,7 +16,7 @@
     mapRegion: 'china',
     gridCols: 12,
     gridRows: 8,
-    widgets: [],         // { id, compId, x, y, w, h, config }
+    widgets: [],         // { id, compId, x, y, w, h, config }  — x/y/w/h 是百分比 (0-100)
     selectedId: null,
     widgetCounter: 0,
     dirty: false,
@@ -26,14 +26,14 @@
 
   // ======================== 组件注册表 ========================
   var COMPONENTS = [
-    { id: 'kpi-card',    name: 'KPI 卡片',   icon: '📊', cat: 'atom', defW: 2, defH: 2, defConfig: { title: '指标', value: '0', unit: '', trend: 'flat' } },
-    { id: 'bar-chart',   name: '柱状图',     icon: '📊', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '柱状图', xAxis: ['A','B','C'], series: [{ name: '系列1', data: [30,50,20] }] } },
-    { id: 'line-chart',  name: '折线图',     icon: '📈', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '折线图', xAxis: ['Mon','Tue','Wed','Thu','Fri'], series: [{ name: '系列1', data: [10,25,15,30,20] }] } },
-    { id: 'pie-chart',   name: '饼图',       icon: '🥧', cat: 'atom', defW: 3, defH: 3, defConfig: { title: '饼图', data: [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }], donut: true } },
-    { id: 'data-table',  name: '数据表格',   icon: '📋', cat: 'atom', defW: 4, defH: 3, defConfig: { title: '数据表格', columns: ['列1','列2','列3'], rows: [['a','b','c'],['d','e','f']] } },
-    { id: 'text-block',  name: '文本块',     icon: '📝', cat: 'atom', defW: 2, defH: 1, defConfig: { content: '文本内容', text_align: 'left', font_size: 14 } },
-    { id: 'image-block', name: '图片',       icon: '🖼️', cat: 'atom', defW: 2, defH: 2, defConfig: { src: '', alt: '图片', fit: 'cover' } },
-    { id: 'gauge',       name: '仪表盘',     icon: '⏱️', cat: 'atom', defW: 2, defH: 2, defConfig: { title: '仪表盘', value: 65, min: 0, max: 100 } }
+    { id: 'kpi-card',    name: 'KPI 卡片',   icon: '📊', cat: 'atom', defW: 16, defH: 18, defConfig: { title: '指标', value: '0', unit: '', trend: 'flat' } },
+    { id: 'bar-chart',   name: '柱状图',     icon: '📊', cat: 'atom', defW: 33, defH: 35, defConfig: { title: '柱状图', xAxis: ['A','B','C'], series: [{ name: '系列1', data: [30,50,20] }] } },
+    { id: 'line-chart',  name: '折线图',     icon: '📈', cat: 'atom', defW: 33, defH: 35, defConfig: { title: '折线图', xAxis: ['Mon','Tue','Wed','Thu','Fri'], series: [{ name: '系列1', data: [10,25,15,30,20] }] } },
+    { id: 'pie-chart',   name: '饼图',       icon: '🥧', cat: 'atom', defW: 25, defH: 35, defConfig: { title: '饼图', data: [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }], donut: true } },
+    { id: 'data-table',  name: '数据表格',   icon: '📋', cat: 'atom', defW: 33, defH: 35, defConfig: { title: '数据表格', columns: ['列1','列2','列3'], rows: [['a','b','c'],['d','e','f']] } },
+    { id: 'text-block',  name: '文本块',     icon: '📝', cat: 'atom', defW: 16, defH: 10, defConfig: { content: '文本内容', text_align: 'left', font_size: 14 } },
+    { id: 'image-block', name: '图片',       icon: '🖼️', cat: 'atom', defW: 16, defH: 18, defConfig: { src: '', alt: '图片', fit: 'cover' } },
+    { id: 'gauge',       name: '仪表盘',     icon: '⏱️', cat: 'atom', defW: 16, defH: 18, defConfig: { title: '仪表盘', value: 65, min: 0, max: 100 } }
   ];
 
   // ======================== DOM 引用 ========================
@@ -156,10 +156,11 @@
     state.widgets.forEach(function(w) {
       var comp = getComponent(w.compId);
       var name = comp ? comp.name : w.compId;
-      var left = (w.x / state.gridCols * 100).toFixed(2);
-      var top = (w.y / state.gridRows * 100).toFixed(2);
-      var width = (w.w / state.gridCols * 100).toFixed(2);
-      var height = (w.h / state.gridRows * 100).toFixed(2);
+      // x/y/w/h 直接是百分比
+      var left = w.x;
+      var top = w.y;
+      var width = w.w;
+      var height = w.h;
       var selected = (w.id === state.selectedId) ? ' selected' : '';
 
       html += '<div class="screen-widget' + selected + '" data-widget-id="' + w.id + '"';
@@ -180,7 +181,6 @@
     document.addEventListener('dragstart', function(e) {
       var compItem = e.target.closest('.comp-item');
       if (!compItem) return;
-      // 如果正在拖拽移动 widget，阻止左侧拖拽
       if (state.dragging) { e.preventDefault(); return; }
       e.dataTransfer.setData('text/plain', JSON.stringify({
         compId: compItem.dataset.compId,
@@ -203,20 +203,21 @@
       var rect = el.canvasWidgets.getBoundingClientRect();
       var relX = e.clientX - rect.left;
       var relY = e.clientY - rect.top;
-      var x = Math.floor(relX / rect.width * state.gridCols);
-      var y = Math.floor(relY / rect.height * state.gridRows);
-      var w = Math.min(data.defW, state.gridCols - x);
-      var h = Math.min(data.defH, state.gridRows - y);
+      // 像素百分比坐标
+      var x = (relX / rect.width * 100);
+      var y = (relY / rect.height * 100);
+      var w = data.defW;
+      var h = data.defH;
 
-      x = Math.max(0, Math.min(x, state.gridCols - 1));
-      y = Math.max(0, Math.min(y, state.gridRows - 1));
+      // 边界裁剪
+      x = Math.max(0, Math.min(x, 100 - w));
+      y = Math.max(0, Math.min(y, 100 - h));
 
       addWidget(data.compId, x, y, w, h, JSON.parse(data.defConfig));
     });
 
     // --- 画布内 Widget 拖拽移动 ---
     el.canvasWidgets.addEventListener('mousedown', function(e) {
-      // 删除按钮不触发拖拽
       if (e.target.closest('[data-action="delete"]')) return;
       // 调整大小手柄
       if (e.target.closest('.widget-resize-handle')) {
@@ -265,25 +266,23 @@
       };
     });
 
-    // 全局 mousemove
+    // 全局 mousemove — 像素级自由拖拽
     document.addEventListener('mousemove', function(e) {
       if (!state.dragging) return;
       var d = state.dragging;
       var rect = el.canvasWidgets.getBoundingClientRect();
-      var cellW = rect.width / state.gridCols;
-      var cellH = rect.height / state.gridRows;
-      var dx = Math.round((e.clientX - d.startX) / cellW);
-      var dy = Math.round((e.clientY - d.startY) / cellH);
+      var dxPct = (e.clientX - d.startX) / rect.width * 100;
+      var dyPct = (e.clientY - d.startY) / rect.height * 100;
 
       var w = getWidget(d.widgetId);
       if (!w) return;
 
       if (d.mode === 'move') {
-        w.x = Math.max(0, Math.min(d.origX + dx, state.gridCols - w.w));
-        w.y = Math.max(0, Math.min(d.origY + dy, state.gridRows - w.h));
+        w.x = Math.max(0, Math.min(d.origX + dxPct, 100 - w.w));
+        w.y = Math.max(0, Math.min(d.origY + dyPct, 100 - w.h));
       } else if (d.mode === 'resize') {
-        w.w = Math.max(1, Math.min(d.origW + dx, state.gridCols - w.x));
-        w.h = Math.max(1, Math.min(d.origH + dy, state.gridRows - w.y));
+        w.w = Math.max(4, Math.min(d.origW + dxPct, 100 - w.x));
+        w.h = Math.max(4, Math.min(d.origH + dyPct, 100 - w.y));
       }
       renderCanvas();
       markDirty();
@@ -302,7 +301,6 @@
 
     // --- 画布点击：选中/取消选中 ---
     el.canvasWidgets.addEventListener('click', function(e) {
-      // 如果刚完成拖拽，不触发 click
       if (state.dragging) return;
 
       var delBtn = e.target.closest('[data-action="delete"]');
@@ -426,13 +424,13 @@
       // --- KPI 卡片 ---
       case 'kpi-card': {
         var trendIcon = '';
-        if (config.trend === 'up') trendIcon = '<span style=\"color:#4ade80\">▲</span>';
-        else if (config.trend === 'down') trendIcon = '<span style=\"color:#f87171\">▼</span>';
-        else trendIcon = '<span style=\"color:var(--text-secondary)\">—</span>';
-        return '<div class=\"kpi-preview\">' +
-          '<div class=\"kpi-title\">' + escapeHtml(config.title || '指标') + '</div>' +
-          '<div class=\"kpi-value\">' + escapeHtml(String(config.value || '0')) + '<span class=\"kpi-unit\">' + escapeHtml(config.unit || '') + '</span></div>' +
-          '<div class=\"kpi-trend\">' + trendIcon + '</div>' +
+        if (config.trend === 'up') trendIcon = '<span style="color:#4ade80">▲</span>';
+        else if (config.trend === 'down') trendIcon = '<span style="color:#f87171">▼</span>';
+        else trendIcon = '<span style="color:var(--text-secondary)">—</span>';
+        return '<div class="kpi-preview">' +
+          '<div class="kpi-title">' + escapeHtml(config.title || '指标') + '</div>' +
+          '<div class="kpi-value">' + escapeHtml(String(config.value || '0')) + '<span class="kpi-unit">' + escapeHtml(config.unit || '') + '</span></div>' +
+          '<div class="kpi-trend">' + trendIcon + '</div>' +
           '</div>';
       }
 
@@ -443,7 +441,7 @@
         var maxVal = 0;
         series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
         maxVal = maxVal || 1;
-        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
         var barW = 60 / xAxis.length;
         var gap = barW * 0.2;
         barW = barW - gap;
@@ -452,10 +450,10 @@
             var bh = (v / maxVal) * 60;
             var bx = 20 + vi * (barW + gap) + si * (barW / series.length);
             var by = 85 - bh;
-            svg += '<rect x=\"' + bx + '\" y=\"' + by + '\" width=\"' + (barW / series.length) + '\" height=\"' + bh + '\" rx=\"1\" fill=\"' + (colors[si % colors.length]) + '\" opacity=\"0.85\"/>';
+            svg += '<rect x="' + bx + '" y="' + by + '" width="' + (barW / series.length) + '" height="' + bh + '" rx="1" fill="' + (colors[si % colors.length]) + '" opacity="0.85"/>';
           });
         });
-        svg += '<line x1=\"20\" y1=\"85\" x2=\"95\" y2=\"85\" stroke=\"var(--border)\" stroke-width=\"0.5\"/>';
+        svg += '<line x1="20" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
         svg += '</svg>';
         return svg;
       }
@@ -467,18 +465,18 @@
         var maxVal = 0;
         series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
         maxVal = maxVal || 1;
-        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
         var stepX = 70 / (xAxis.length - 1);
         series.forEach(function(s, si) {
           var pts = s.data.map(function(v, vi) {
             return (15 + vi * stepX) + ',' + (85 - (v / maxVal) * 60);
           });
-          svg += '<polyline points=\"' + pts.join(' ') + '\" fill=\"none\" stroke=\"' + (colors[si % colors.length]) + '\" stroke-width=\"1.5\" opacity=\"0.85\"/>';
+          svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + (colors[si % colors.length]) + '" stroke-width="1.5" opacity="0.85"/>';
           s.data.forEach(function(v, vi) {
-            svg += '<circle cx=\"' + (15 + vi * stepX) + '\" cy=\"' + (85 - (v / maxVal) * 60) + '\" r=\"1.5\" fill=\"' + (colors[si % colors.length]) + '\"/>';
+            svg += '<circle cx="' + (15 + vi * stepX) + '" cy="' + (85 - (v / maxVal) * 60) + '" r="1.5" fill="' + (colors[si % colors.length]) + '"/>';
           });
         });
-        svg += '<line x1=\"15\" y1=\"85\" x2=\"95\" y2=\"85\" stroke=\"var(--border)\" stroke-width=\"0.5\"/>';
+        svg += '<line x1="15" y1="85" x2="95" y2="85" stroke="var(--border)" stroke-width="0.5"/>';
         svg += '</svg>';
         return svg;
       }
@@ -489,7 +487,7 @@
         var total = 0;
         data.forEach(function(d) { total += d.value; });
         total = total || 1;
-        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
         var cx = 50, cy = 50, r = 28;
         if (config.donut) r = 22;
         var startAngle = -90;
@@ -501,11 +499,11 @@
           var x2 = cx + r * Math.cos(endAngle * Math.PI / 180);
           var y2 = cy + r * Math.sin(endAngle * Math.PI / 180);
           var largeArc = angle > 180 ? 1 : 0;
-          svg += '<path d=\"M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ',' + y2 + ' Z\" fill=\"' + (colors[i % colors.length]) + '\" opacity=\"0.85\"/>';
+          svg += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ',' + y2 + ' Z" fill="' + (colors[i % colors.length]) + '" opacity="0.85"/>';
           startAngle = endAngle;
         });
         if (config.donut) {
-          svg += '<circle cx=\"' + cx + '\" cy=\"' + cy + '\" r=\"12\" fill=\"var(--bg-card)\"/>';
+          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="var(--bg-card)"/>';
         }
         svg += '</svg>';
         return svg;
@@ -515,7 +513,7 @@
       case 'data-table': {
         var columns = config.columns || ['列1', '列2', '列3'];
         var rows = config.rows || [['a', 'b', 'c'], ['d', 'e', 'f']];
-        var html = '<table class=\"widget-table\"><thead><tr>';
+        var html = '<table class="widget-table"><thead><tr>';
         columns.forEach(function(col) { html += '<th>' + escapeHtml(col) + '</th>'; });
         html += '</tr></thead><tbody>';
         rows.forEach(function(row) {
@@ -532,15 +530,15 @@
         var content = config.content || '文本内容';
         var align = config.text_align || 'left';
         var size = config.font_size || 14;
-        return '<div style=\"text-align:' + align + ';font-size:' + size + 'px;padding:4px;white-space:pre-wrap;\">' + escapeHtml(content) + '</div>';
+        return '<div style="text-align:' + align + ';font-size:' + size + 'px;padding:4px;white-space:pre-wrap;">' + escapeHtml(content) + '</div>';
       }
 
       // --- 图片 ---
       case 'image-block': {
         if (config.src) {
-          return '<img src=\"' + escapeHtml(config.src) + '\" alt=\"' + escapeHtml(config.alt || '') + '\" style=\"width:100%;height:100%;object-fit:' + (config.fit || 'cover') + ';\">';
+          return '<img src="' + escapeHtml(config.src) + '" alt="' + escapeHtml(config.alt || '') + '" style="width:100%;height:100%;object-fit:' + (config.fit || 'cover') + ';">';
         }
-        return '<div style=\"display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:24px;\">🖼</div>';
+        return '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:24px;">🖼</div>';
       }
 
       // --- 仪表盘 ---
@@ -550,20 +548,86 @@
         var max = config.max || 100;
         var pct = (value - min) / (max - min);
         var angle = -180 + pct * 180;
-        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
-        svg += '<path d=\"M15,80 A35,35 0 0,1 85,80\" fill=\"none\" stroke=\"var(--border)\" stroke-width=\"8\" stroke-linecap=\"round\"/>';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%">';
+        svg += '<path d="M15,80 A35,35 0 0,1 85,80" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>';
         var endX = 50 + 35 * Math.cos(angle * Math.PI / 180);
         var endY = 80 + 35 * Math.sin(angle * Math.PI / 180);
-        svg += '<path d=\"M15,80 A35,35 0 0,1 ' + endX + ',' + endY + '\" fill=\"none\" stroke=\"var(--accent)\" stroke-width=\"8\" stroke-linecap=\"round\"/>';
-        svg += '<text x=\"50\" y=\"72\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\" fill=\"var(--text)\">' + value + '</text>';
-        svg += '<text x=\"50\" y=\"85\" text-anchor=\"middle\" font-size=\"7\" fill=\"var(--text-secondary)\">' + escapeHtml(config.title || '') + '</text>';
+        svg += '<path d="M15,80 A35,35 0 0,1 ' + endX + ',' + endY + '" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>';
+        svg += '<text x="50" y="72" text-anchor="middle" font-size="14" font-weight="bold" fill="var(--text)">' + value + '</text>';
+        svg += '<text x="50" y="85" text-anchor="middle" font-size="7" fill="var(--text-secondary)">' + escapeHtml(config.title || '') + '</text>';
         svg += '</svg>';
         return svg;
       }
 
       default:
-        return '<div style=\"padding:8px;font-size:11px;color:var(--text-secondary);\">' + escapeHtml(compId) + '</div>';
+        return '<div style="padding:8px;font-size:11px;color:var(--text-secondary);">' + escapeHtml(compId) + '</div>';
     }
+  }
+
+  // ======================== 一键排版 ========================
+  function autoLayout(mode) {
+    if (state.widgets.length === 0) return;
+
+    switch (mode) {
+      case 'tile':
+        // 等宽网格排列
+        var cols = Math.ceil(Math.sqrt(state.widgets.length));
+        var rows = Math.ceil(state.widgets.length / cols);
+        var cellW = 100 / cols;
+        var cellH = 100 / rows;
+        state.widgets.forEach(function(w, i) {
+          var col = i % cols;
+          var row = Math.floor(i / cols);
+          w.x = col * cellW + cellW * 0.05;
+          w.y = row * cellH + cellH * 0.05;
+          w.w = cellW * 0.9;
+          w.h = cellH * 0.9;
+        });
+        break;
+
+      case 'masonry':
+        // 瀑布流：按列排列，每列高度独立
+        var nCols = Math.min(3, state.widgets.length);
+        var colWidth = 100 / nCols;
+        var colHeights = [];
+        for (var i = 0; i < nCols; i++) colHeights.push(0);
+
+        state.widgets.forEach(function(w) {
+          // 找最短的列
+          var minCol = 0;
+          for (var c = 1; c < nCols; c++) {
+            if (colHeights[c] < colHeights[minCol]) minCol = c;
+          }
+          w.x = minCol * colWidth + colWidth * 0.05;
+          w.y = colHeights[minCol];
+          w.w = colWidth * 0.9;
+          // 保持宽高比
+          w.h = Math.max(10, w.w * 0.8);
+          colHeights[minCol] += w.h + 2;
+        });
+        break;
+
+      case 'snap':
+        // 吸附到最近的网格线
+        var cellW = 100 / state.gridCols;
+        var cellH = 100 / state.gridRows;
+        state.widgets.forEach(function(w) {
+          w.x = Math.round(w.x / cellW) * cellW;
+          w.y = Math.round(w.y / cellH) * cellH;
+          w.w = Math.max(cellW, Math.round(w.w / cellW) * cellW);
+          w.h = Math.max(cellH, Math.round(w.h / cellH) * cellH);
+          // 边界裁剪
+          w.x = Math.max(0, Math.min(w.x, 100 - cellW));
+          w.y = Math.max(0, Math.min(w.y, 100 - cellH));
+          w.w = Math.min(w.w, 100 - w.x);
+          w.h = Math.min(w.h, 100 - w.y);
+        });
+        break;
+    }
+
+    renderCanvas();
+    markDirty();
+    showToast('已排版 ✓', 'success');
   }
 
   // ======================== 属性面板 ========================
@@ -586,22 +650,22 @@
     html += '<div class="prop-group"><div class="prop-label">组件</div>';
     html += '<div style="font-size:13px;font-weight:500;">' + compName + '</div></div>';
 
-    html += '<div class="prop-group"><div class="prop-label">位置</div>';
+    html += '<div class="prop-group"><div class="prop-label">位置 (%)</div>';
     html += '<div class="prop-row">';
-    html += '<div class="prop-group"><div class="prop-label">X (列)</div>';
-    html += '<input class="prop-input" type="number" value="' + widget.x + '" data-prop="x" min="0" max="' + (state.gridCols - 1) + '">';
+    html += '<div class="prop-group"><div class="prop-label">X</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.x.toFixed(1) + '" data-prop="x" min="0" max="100" step="0.1">';
     html += '</div>';
-    html += '<div class="prop-group"><div class="prop-label">Y (行)</div>';
-    html += '<input class="prop-input" type="number" value="' + widget.y + '" data-prop="y" min="0" max="' + (state.gridRows - 1) + '">';
+    html += '<div class="prop-group"><div class="prop-label">Y</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.y.toFixed(1) + '" data-prop="y" min="0" max="100" step="0.1">';
     html += '</div></div>';
 
-    html += '<div class="prop-group"><div class="prop-label">尺寸</div>';
+    html += '<div class="prop-group"><div class="prop-label">尺寸 (%)</div>';
     html += '<div class="prop-row">';
-    html += '<div class="prop-group"><div class="prop-label">宽 (列)</div>';
-    html += '<input class="prop-input" type="number" value="' + widget.w + '" data-prop="w" min="1" max="' + state.gridCols + '">';
+    html += '<div class="prop-group"><div class="prop-label">宽</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.w.toFixed(1) + '" data-prop="w" min="4" max="100" step="0.1">';
     html += '</div>';
-    html += '<div class="prop-group"><div class="prop-label">高 (行)</div>';
-    html += '<input class="prop-input" type="number" value="' + widget.h + '" data-prop="h" min="1" max="' + state.gridRows + '">';
+    html += '<div class="prop-group"><div class="prop-label">高</div>';
+    html += '<input class="prop-input" type="number" value="' + widget.h.toFixed(1) + '" data-prop="h" min="4" max="100" step="0.1">';
     html += '</div></div>';
 
     html += '<div class="prop-group"><div class="prop-label">配置</div>';
@@ -616,11 +680,11 @@
         if (prop === 'config') {
           try { widget.config = JSON.parse(this.value); } catch(e) {}
         } else {
-          widget[prop] = parseInt(this.value) || 0;
-          if (prop === 'x') widget.x = Math.max(0, Math.min(widget.x, state.gridCols - 1));
-          if (prop === 'y') widget.y = Math.max(0, Math.min(widget.y, state.gridRows - 1));
-          if (prop === 'w') widget.w = Math.max(1, Math.min(widget.w, state.gridCols));
-          if (prop === 'h') widget.h = Math.max(1, Math.min(widget.h, state.gridRows));
+          widget[prop] = parseFloat(this.value) || 0;
+          if (prop === 'x') widget.x = Math.max(0, Math.min(widget.x, 100 - widget.w));
+          if (prop === 'y') widget.y = Math.max(0, Math.min(widget.y, 100 - widget.h));
+          if (prop === 'w') widget.w = Math.max(4, Math.min(widget.w, 100 - widget.x));
+          if (prop === 'h') widget.h = Math.max(4, Math.min(widget.h, 100 - widget.y));
         }
         renderCanvas();
         markDirty();
@@ -781,6 +845,9 @@
       return fetch(url, options);
     };
   }
+
+  // 暴露 autoLayout 到全局
+  window.autoLayout = autoLayout;
 
   // ======================== 启动 ========================
   if (document.readyState === 'loading') {
