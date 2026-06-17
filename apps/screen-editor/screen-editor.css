@@ -551,3 +551,73 @@ html, body {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* --- Widget 内容预览 --- */
+.widget-body {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* KPI 卡片预览 */
+.kpi-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 8px;
+  gap: 2px;
+}
+.kpi-preview .kpi-title {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.kpi-preview .kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+.kpi-preview .kpi-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+.kpi-preview .kpi-trend {
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+/* 表格预览 */
+.widget-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.widget-table th {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 3px 4px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.widget-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60px;
+}
+.widget-table tr:last-child td {
+  border-bottom: none;
+}

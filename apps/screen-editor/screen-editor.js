@@ -166,7 +166,7 @@
       html += ' style="left:' + left + '%;top:' + top + '%;width:' + width + '%;height:' + height + '%">';
       html += '<div class="widget-header"><span>' + name + '</span>';
       html += '<button class="widget-delete" data-action="delete" data-widget-id="' + w.id + '">×</button></div>';
-      html += '<div class="widget-body">' + escapeHtml(JSON.stringify(w.config).substring(0, 60)) + '</div>';
+      html += '<div class="widget-body">' + renderWidgetContent(w.compId, w.config) + '</div>';
       // 调整大小手柄
       html += '<div class="widget-resize-handle" data-resize="se"></div>';
       html += '</div>';
@@ -414,6 +414,156 @@
 
   function getComponent(compId) {
     return COMPONENTS.find(function(c) { return c.id === compId; });
+  }
+
+  // ======================== 画布组件内容渲染 ========================
+  function renderWidgetContent(compId, config) {
+    config = config || {};
+    var colors = ['var(--accent)', '#4ade80', '#f87171', '#fbbf24', '#60a5fa', '#c084fc', '#fb923c'];
+    var i, j;
+
+    switch (compId) {
+      // --- KPI 卡片 ---
+      case 'kpi-card': {
+        var trendIcon = '';
+        if (config.trend === 'up') trendIcon = '<span style=\"color:#4ade80\">▲</span>';
+        else if (config.trend === 'down') trendIcon = '<span style=\"color:#f87171\">▼</span>';
+        else trendIcon = '<span style=\"color:var(--text-secondary)\">—</span>';
+        return '<div class=\"kpi-preview\">' +
+          '<div class=\"kpi-title\">' + escapeHtml(config.title || '指标') + '</div>' +
+          '<div class=\"kpi-value\">' + escapeHtml(String(config.value || '0')) + '<span class=\"kpi-unit\">' + escapeHtml(config.unit || '') + '</span></div>' +
+          '<div class=\"kpi-trend\">' + trendIcon + '</div>' +
+          '</div>';
+      }
+
+      // --- 柱状图 ---
+      case 'bar-chart': {
+        var series = config.series || [{ name: '系列1', data: [30, 50, 20, 70, 40] }];
+        var xAxis = config.xAxis || ['A', 'B', 'C', 'D', 'E'];
+        var maxVal = 0;
+        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
+        maxVal = maxVal || 1;
+        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var barW = 60 / xAxis.length;
+        var gap = barW * 0.2;
+        barW = barW - gap;
+        series.forEach(function(s, si) {
+          s.data.forEach(function(v, vi) {
+            var bh = (v / maxVal) * 60;
+            var bx = 20 + vi * (barW + gap) + si * (barW / series.length);
+            var by = 85 - bh;
+            svg += '<rect x=\"' + bx + '\" y=\"' + by + '\" width=\"' + (barW / series.length) + '\" height=\"' + bh + '\" rx=\"1\" fill=\"' + (colors[si % colors.length]) + '\" opacity=\"0.85\"/>';
+          });
+        });
+        svg += '<line x1=\"20\" y1=\"85\" x2=\"95\" y2=\"85\" stroke=\"var(--border)\" stroke-width=\"0.5\"/>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      // --- 折线图 ---
+      case 'line-chart': {
+        var series = config.series || [{ name: '系列1', data: [10, 25, 15, 30, 20] }];
+        var xAxis = config.xAxis || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        var maxVal = 0;
+        series.forEach(function(s) { s.data.forEach(function(v) { if (v > maxVal) maxVal = v; }); });
+        maxVal = maxVal || 1;
+        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var stepX = 70 / (xAxis.length - 1);
+        series.forEach(function(s, si) {
+          var pts = s.data.map(function(v, vi) {
+            return (15 + vi * stepX) + ',' + (85 - (v / maxVal) * 60);
+          });
+          svg += '<polyline points=\"' + pts.join(' ') + '\" fill=\"none\" stroke=\"' + (colors[si % colors.length]) + '\" stroke-width=\"1.5\" opacity=\"0.85\"/>';
+          s.data.forEach(function(v, vi) {
+            svg += '<circle cx=\"' + (15 + vi * stepX) + '\" cy=\"' + (85 - (v / maxVal) * 60) + '\" r=\"1.5\" fill=\"' + (colors[si % colors.length]) + '\"/>';
+          });
+        });
+        svg += '<line x1=\"15\" y1=\"85\" x2=\"95\" y2=\"85\" stroke=\"var(--border)\" stroke-width=\"0.5\"/>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      // --- 饼图 ---
+      case 'pie-chart': {
+        var data = config.data || [{ name: 'A', value: 30 }, { name: 'B', value: 20 }, { name: 'C', value: 15 }];
+        var total = 0;
+        data.forEach(function(d) { total += d.value; });
+        total = total || 1;
+        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        var cx = 50, cy = 50, r = 28;
+        if (config.donut) r = 22;
+        var startAngle = -90;
+        data.forEach(function(d, i) {
+          var angle = (d.value / total) * 360;
+          var endAngle = startAngle + angle;
+          var x1 = cx + r * Math.cos(startAngle * Math.PI / 180);
+          var y1 = cy + r * Math.sin(startAngle * Math.PI / 180);
+          var x2 = cx + r * Math.cos(endAngle * Math.PI / 180);
+          var y2 = cy + r * Math.sin(endAngle * Math.PI / 180);
+          var largeArc = angle > 180 ? 1 : 0;
+          svg += '<path d=\"M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ',' + y2 + ' Z\" fill=\"' + (colors[i % colors.length]) + '\" opacity=\"0.85\"/>';
+          startAngle = endAngle;
+        });
+        if (config.donut) {
+          svg += '<circle cx=\"' + cx + '\" cy=\"' + cy + '\" r=\"12\" fill=\"var(--bg-card)\"/>';
+        }
+        svg += '</svg>';
+        return svg;
+      }
+
+      // --- 数据表格 ---
+      case 'data-table': {
+        var columns = config.columns || ['列1', '列2', '列3'];
+        var rows = config.rows || [['a', 'b', 'c'], ['d', 'e', 'f']];
+        var html = '<table class=\"widget-table\"><thead><tr>';
+        columns.forEach(function(col) { html += '<th>' + escapeHtml(col) + '</th>'; });
+        html += '</tr></thead><tbody>';
+        rows.forEach(function(row) {
+          html += '<tr>';
+          row.forEach(function(cell) { html += '<td>' + escapeHtml(String(cell)) + '</td>'; });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+      }
+
+      // --- 文本块 ---
+      case 'text-block': {
+        var content = config.content || '文本内容';
+        var align = config.text_align || 'left';
+        var size = config.font_size || 14;
+        return '<div style=\"text-align:' + align + ';font-size:' + size + 'px;padding:4px;white-space:pre-wrap;\">' + escapeHtml(content) + '</div>';
+      }
+
+      // --- 图片 ---
+      case 'image-block': {
+        if (config.src) {
+          return '<img src=\"' + escapeHtml(config.src) + '\" alt=\"' + escapeHtml(config.alt || '') + '\" style=\"width:100%;height:100%;object-fit:' + (config.fit || 'cover') + ';\">';
+        }
+        return '<div style=\"display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);font-size:24px;\">🖼</div>';
+      }
+
+      // --- 仪表盘 ---
+      case 'gauge': {
+        var value = config.value || 65;
+        var min = config.min || 0;
+        var max = config.max || 100;
+        var pct = (value - min) / (max - min);
+        var angle = -180 + pct * 180;
+        var svg = '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" style=\"width:100%;height:100%\">';
+        svg += '<path d=\"M15,80 A35,35 0 0,1 85,80\" fill=\"none\" stroke=\"var(--border)\" stroke-width=\"8\" stroke-linecap=\"round\"/>';
+        var endX = 50 + 35 * Math.cos(angle * Math.PI / 180);
+        var endY = 80 + 35 * Math.sin(angle * Math.PI / 180);
+        svg += '<path d=\"M15,80 A35,35 0 0,1 ' + endX + ',' + endY + '\" fill=\"none\" stroke=\"var(--accent)\" stroke-width=\"8\" stroke-linecap=\"round\"/>';
+        svg += '<text x=\"50\" y=\"72\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"bold\" fill=\"var(--text)\">' + value + '</text>';
+        svg += '<text x=\"50\" y=\"85\" text-anchor=\"middle\" font-size=\"7\" fill=\"var(--text-secondary)\">' + escapeHtml(config.title || '') + '</text>';
+        svg += '</svg>';
+        return svg;
+      }
+
+      default:
+        return '<div style=\"padding:8px;font-size:11px;color:var(--text-secondary);\">' + escapeHtml(compId) + '</div>';
+    }
   }
 
   // ======================== 属性面板 ========================
