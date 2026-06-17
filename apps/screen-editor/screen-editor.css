@@ -32,6 +32,22 @@ html, body {
   gap: 12px;
 }
 
+.toolbar-back {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+
+.toolbar-back:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 .toolbar-logo {
   font-size: 14px;
   font-weight: 600;
@@ -90,9 +106,7 @@ html, body {
   transition: all 0.15s;
 }
 
-.theme-btn:hover {
-  background: var(--bg-hover);
-}
+.theme-btn:hover { background: var(--bg-hover); }
 
 .theme-btn.active {
   background: var(--accent);
@@ -114,9 +128,7 @@ html, body {
   cursor: pointer;
 }
 
-.toolbar-toggle input {
-  accent-color: var(--accent);
-}
+.toolbar-toggle input { accent-color: var(--accent); }
 
 .toolbar-select {
   height: 28px;
@@ -141,9 +153,7 @@ html, body {
   transition: all 0.15s;
 }
 
-.toolbar-btn:hover {
-  background: var(--bg-hover);
-}
+.toolbar-btn:hover { background: var(--bg-hover); }
 
 .toolbar-btn.primary {
   background: var(--accent);
@@ -151,9 +161,7 @@ html, body {
   border-color: var(--accent);
 }
 
-.toolbar-btn.primary:hover {
-  opacity: 0.9;
-}
+.toolbar-btn.primary:hover { opacity: 0.9; }
 
 /* --- 三栏布局 --- */
 .editor-layout {
@@ -202,38 +210,60 @@ html, body {
 /* --- 组件列表项 --- */
 .comp-item {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  flex-direction: column;
+  padding: 8px;
+  margin-bottom: 6px;
   border-radius: var(--radius);
   cursor: grab;
   font-size: 13px;
-  transition: background 0.1s;
+  transition: background 0.1s, box-shadow 0.1s;
   user-select: none;
+  border: 1px solid transparent;
 }
 
 .comp-item:hover {
   background: var(--bg-hover);
+  border-color: var(--border);
 }
 
-.comp-item:active {
-  cursor: grabbing;
-}
+.comp-item:active { cursor: grabbing; }
 
-.comp-icon {
-  width: 28px;
-  height: 28px;
+.comp-preview {
+  width: 100%;
+  height: 80px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
   background: var(--bg);
-  border-radius: 4px;
+  border-radius: calc(var(--radius) * 0.75);
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+
+.comp-preview svg {
+  display: block;
+}
+
+.comp-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comp-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
 .comp-name {
   flex: 1;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .comp-cat {
@@ -367,6 +397,29 @@ html, body {
   color: #fff;
 }
 
+/* 调整大小手柄 */
+.widget-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--border) 50%, transparent 51%, var(--border) 51%, transparent 52%, var(--border) 52%);
+  background-size: 4px 4px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.screen-widget:hover .widget-resize-handle,
+.screen-widget.selected .widget-resize-handle {
+  opacity: 0.8;
+}
+
+.widget-resize-handle:hover {
+  opacity: 1 !important;
+}
+
 /* --- 属性面板 --- */
 .prop-group {
   margin-bottom: 12px;
@@ -429,18 +482,14 @@ html, body {
   cursor: pointer;
 }
 
-.prop-check input {
-  accent-color: var(--accent);
-}
+.prop-check input { accent-color: var(--accent); }
 
 .prop-row {
   display: flex;
   gap: 8px;
 }
 
-.prop-row .prop-group {
-  flex: 1;
-}
+.prop-row .prop-group { flex: 1; }
 
 /* --- 预览弹窗 --- */
 .preview-overlay {
@@ -497,9 +546,6 @@ html, body {
   z-index: 2000;
   animation: toastIn 0.2s ease;
 }
-
-.toast.success { border-color: #22c55e; }
-.toast.error { border-color: #ef4444; }
 
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }

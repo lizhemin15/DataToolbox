@@ -1169,7 +1169,8 @@ const screenEditorHTML = `<!DOCTYPE html>
 <!-- 顶部工具栏 -->
 <header class="editor-toolbar">
   <div class="toolbar-left">
-    <span class="toolbar-logo">📊 DataToolbox 大屏编辑器</span>
+    <a href="/" class="toolbar-back" title="返回主页">← 返回</a>
+    <span class="toolbar-logo">📊 大屏编辑器</span>
     <input type="text" class="toolbar-name" id="screenName" placeholder="大屏名称" value="未命名大屏">
     <span class="toolbar-slug">/screen/<input type="text" id="screenSlug" placeholder="my-screen" value=""></span>
   </div>

@@ -19,7 +19,9 @@
     widgets: [],         // { id, compId, x, y, w, h, config }
     selectedId: null,
     widgetCounter: 0,
-    dirty: false
+    dirty: false,
+    // 拖拽移动状态
+    dragging: null       // { widgetId, startX, startY, origX, origY, origW, origH, mode: 'move'|'resize' }
   };
 
   // ======================== 组件注册表 ========================
@@ -56,13 +58,11 @@
     renderComponentList();
     updateGrid();
     bindEvents();
-    // 从 URL 加载已有大屏
     var urlParams = new URLSearchParams(window.location.search);
     var screenId = urlParams.get('id');
     if (screenId) {
       loadScreen(screenId);
     }
-    // 如果 URL 有 slug，直接用
     var slug = urlParams.get('slug');
     if (slug) {
       state.slug = slug;
@@ -70,14 +70,75 @@
     }
   }
 
+  // ======================== 组件缩略图预览 ========================
+  function getComponentPreview(comp) {
+    var w = 120, h = 80;
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '" style="background:var(--bg);border-radius:4px;">';
+
+    switch (comp.id) {
+      case 'kpi-card':
+        svg += '<text x="' + (w/2) + '" y="28" text-anchor="middle" font-size="10" fill="var(--text-secondary)">KPI</text>';
+        svg += '<text x="' + (w/2) + '" y="52" text-anchor="middle" font-size="20" font-weight="bold" fill="var(--accent)">0</text>';
+        svg += '<text x="' + (w/2) + '" y="68" text-anchor="middle" font-size="9" fill="var(--text-secondary)">指标</text>';
+        break;
+      case 'bar-chart':
+        svg += '<text x="' + (w/2) + '" y="14" text-anchor="middle" font-size="9" fill="var(--text-secondary)">柱状图</text>';
+        var bars = [25, 40, 20, 50, 30];
+        for (var i = 0; i < bars.length; i++) {
+          var bh = bars[i] * 0.8;
+          svg += '<rect x="' + (15 + i*22) + '" y="' + (70 - bh) + '" width="16" height="' + bh + '" rx="2" fill="var(--accent)" opacity="' + (0.5 + i*0.1) + '"/>';
+        }
+        break;
+      case 'line-chart':
+        svg += '<text x="' + (w/2) + '" y="14" text-anchor="middle" font-size="9" fill="var(--text-secondary)">折线图</text>';
+        var pts = [[15,55],[35,35],[55,50],[75,25],[105,40]];
+        svg += '<polyline points="' + pts.map(function(p){return p[0]+','+p[1];}).join(' ') + '" fill="none" stroke="var(--accent)" stroke-width="2"/>';
+        pts.forEach(function(p){ svg += '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="2" fill="var(--accent)"/>'; });
+        break;
+      case 'pie-chart':
+        svg += '<text x="' + (w/2) + '" y="14" text-anchor="middle" font-size="9" fill="var(--text-secondary)">饼图</text>';
+        svg += '<circle cx="' + (w/2) + '" cy="50" r="22" fill="none" stroke="var(--accent)" stroke-width="12" stroke-dasharray="40 100" transform="rotate(-90 ' + (w/2) + ' 50)"/>';
+        svg += '<circle cx="' + (w/2) + '" cy="50" r="22" fill="none" stroke="var(--border)" stroke-width="12" stroke-dasharray="30 100" transform="rotate(54 ' + (w/2) + ' 50)"/>';
+        break;
+      case 'data-table':
+        svg += '<text x="' + (w/2) + '" y="14" text-anchor="middle" font-size="9" fill="var(--text-secondary)">表格</text>';
+        for (var r = 0; r < 3; r++) {
+          svg += '<rect x="15" y="' + (22 + r*18) + '" width="90" height="16" rx="2" fill="var(--bg-hover)" opacity="0.5"/>';
+          svg += '<line x1="45" y1="' + (22 + r*18) + '" x2="45" y2="' + (38 + r*18) + '" stroke="var(--border)" stroke-width="0.5"/>';
+          svg += '<line x1="75" y1="' + (22 + r*18) + '" x2="75" y2="' + (38 + r*18) + '" stroke="var(--border)" stroke-width="0.5"/>';
+        }
+        break;
+      case 'text-block':
+        svg += '<text x="' + (w/2) + '" y="28" text-anchor="middle" font-size="10" fill="var(--text-secondary)">Aa</text>';
+        svg += '<line x1="25" y1="40" x2="95" y2="40" stroke="var(--border)" stroke-width="1"/>';
+        svg += '<line x1="25" y1="48" x2="80" y2="48" stroke="var(--border)" stroke-width="1"/>';
+        svg += '<line x1="25" y1="56" x2="90" y2="56" stroke="var(--border)" stroke-width="1"/>';
+        break;
+      case 'image-block':
+        svg += '<rect x="30" y="18" width="60" height="48" rx="3" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="1"/>';
+        svg += '<text x="' + (w/2) + '" y="48" text-anchor="middle" font-size="14" fill="var(--text-secondary)">🖼</text>';
+        break;
+      case 'gauge':
+        svg += '<text x="' + (w/2) + '" y="16" text-anchor="middle" font-size="9" fill="var(--text-secondary)">仪表盘</text>';
+        svg += '<path d="M25,70 A35,35 0 0,1 95,70" fill="none" stroke="var(--border)" stroke-width="8" stroke-linecap="round"/>';
+        svg += '<path d="M25,70 A35,35 0 0,1 60,35" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round"/>';
+        svg += '<text x="' + (w/2) + '" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--accent)">65</text>';
+        break;
+    }
+    svg += '</svg>';
+    return svg;
+  }
+
   // ======================== 组件列表 ========================
   function renderComponentList() {
     var html = '';
     COMPONENTS.forEach(function(comp) {
       html += '<div class="comp-item" draggable="true" data-comp-id="' + comp.id + '" data-def-w="' + comp.defW + '" data-def-h="' + comp.defH + '" data-def-config="' + escapeHtml(JSON.stringify(comp.defConfig)) + '">';
+      html += '<div class="comp-preview">' + getComponentPreview(comp) + '</div>';
+      html += '<div class="comp-info">';
       html += '<span class="comp-icon">' + comp.icon + '</span>';
       html += '<span class="comp-name">' + comp.name + '</span>';
-      html += '<span class="comp-cat">' + comp.cat + '</span>';
+      html += '</div>';
       html += '</div>';
     });
     el.componentList.innerHTML = html;
@@ -106,17 +167,21 @@
       html += '<div class="widget-header"><span>' + name + '</span>';
       html += '<button class="widget-delete" data-action="delete" data-widget-id="' + w.id + '">×</button></div>';
       html += '<div class="widget-body">' + escapeHtml(JSON.stringify(w.config).substring(0, 60)) + '</div>';
+      // 调整大小手柄
+      html += '<div class="widget-resize-handle" data-resize="se"></div>';
       html += '</div>';
     });
     el.canvasWidgets.innerHTML = html;
   }
 
-  // ======================== 拖拽添加组件 ========================
+  // ======================== 事件绑定 ========================
   function bindEvents() {
-    // 拖拽开始
+    // --- 拖拽添加组件（从左侧面板到画布）---
     document.addEventListener('dragstart', function(e) {
       var compItem = e.target.closest('.comp-item');
       if (!compItem) return;
+      // 如果正在拖拽移动 widget，阻止左侧拖拽
+      if (state.dragging) { e.preventDefault(); return; }
       e.dataTransfer.setData('text/plain', JSON.stringify({
         compId: compItem.dataset.compId,
         defW: parseInt(compItem.dataset.defW),
@@ -126,18 +191,15 @@
       e.dataTransfer.effectAllowed = 'copy';
     });
 
-    // 允许拖放到画布
     el.canvasWidgets.addEventListener('dragover', function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
     });
 
-    // 放置组件
     el.canvasWidgets.addEventListener('drop', function(e) {
       e.preventDefault();
       var data = JSON.parse(e.dataTransfer.getData('text/plain'));
 
-      // 计算网格位置
       var rect = el.canvasWidgets.getBoundingClientRect();
       var relX = e.clientX - rect.left;
       var relY = e.clientY - rect.top;
@@ -146,16 +208,103 @@
       var w = Math.min(data.defW, state.gridCols - x);
       var h = Math.min(data.defH, state.gridRows - y);
 
-      // 防止越界
       x = Math.max(0, Math.min(x, state.gridCols - 1));
       y = Math.max(0, Math.min(y, state.gridRows - 1));
 
       addWidget(data.compId, x, y, w, h, JSON.parse(data.defConfig));
     });
 
-    // 画布点击：选中/取消选中
+    // --- 画布内 Widget 拖拽移动 ---
+    el.canvasWidgets.addEventListener('mousedown', function(e) {
+      // 删除按钮不触发拖拽
+      if (e.target.closest('[data-action="delete"]')) return;
+      // 调整大小手柄
+      if (e.target.closest('.widget-resize-handle')) {
+        var handle = e.target.closest('.widget-resize-handle');
+        var widgetEl = handle.closest('.screen-widget');
+        if (!widgetEl) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var widgetId = widgetEl.dataset.widgetId;
+        var w = getWidget(widgetId);
+        if (!w) return;
+        selectWidget(widgetId);
+        state.dragging = {
+          widgetId: widgetId,
+          startX: e.clientX,
+          startY: e.clientY,
+          origX: w.x,
+          origY: w.y,
+          origW: w.w,
+          origH: w.h,
+          mode: 'resize'
+        };
+        return;
+      }
+
+      var widgetEl = e.target.closest('.screen-widget');
+      if (!widgetEl) return;
+      // 只在 header 上才能拖拽移动
+      if (!e.target.closest('.widget-header')) return;
+
+      e.preventDefault();
+      var widgetId = widgetEl.dataset.widgetId;
+      var w = getWidget(widgetId);
+      if (!w) return;
+
+      selectWidget(widgetId);
+      state.dragging = {
+        widgetId: widgetId,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: w.x,
+        origY: w.y,
+        origW: w.w,
+        origH: w.h,
+        mode: 'move'
+      };
+    });
+
+    // 全局 mousemove
+    document.addEventListener('mousemove', function(e) {
+      if (!state.dragging) return;
+      var d = state.dragging;
+      var rect = el.canvasWidgets.getBoundingClientRect();
+      var cellW = rect.width / state.gridCols;
+      var cellH = rect.height / state.gridRows;
+      var dx = Math.round((e.clientX - d.startX) / cellW);
+      var dy = Math.round((e.clientY - d.startY) / cellH);
+
+      var w = getWidget(d.widgetId);
+      if (!w) return;
+
+      if (d.mode === 'move') {
+        w.x = Math.max(0, Math.min(d.origX + dx, state.gridCols - w.w));
+        w.y = Math.max(0, Math.min(d.origY + dy, state.gridRows - w.h));
+      } else if (d.mode === 'resize') {
+        w.w = Math.max(1, Math.min(d.origW + dx, state.gridCols - w.x));
+        w.h = Math.max(1, Math.min(d.origH + dy, state.gridRows - w.y));
+      }
+      renderCanvas();
+      markDirty();
+    });
+
+    // 全局 mouseup
+    document.addEventListener('mouseup', function(e) {
+      if (!state.dragging) return;
+      var w = getWidget(state.dragging.widgetId);
+      state.dragging = null;
+      if (w) {
+        renderCanvas();
+        renderProps();
+      }
+    });
+
+    // --- 画布点击：选中/取消选中 ---
     el.canvasWidgets.addEventListener('click', function(e) {
-      // 删除按钮
+      // 如果刚完成拖拽，不触发 click
+      if (state.dragging) return;
+
       var delBtn = e.target.closest('[data-action="delete"]');
       if (delBtn) {
         var widgetId = delBtn.dataset.widgetId;
@@ -163,7 +312,6 @@
         return;
       }
 
-      // 选中 widget
       var widgetEl = e.target.closest('.screen-widget');
       if (widgetEl) {
         selectWidget(widgetEl.dataset.widgetId);
@@ -172,44 +320,36 @@
       }
     });
 
-    // 主题切换
+    // --- 主题切换 ---
     el.themeSwitcher.addEventListener('click', function(e) {
       var btn = e.target.closest('.theme-btn');
       if (!btn) return;
-      var theme = btn.dataset.theme;
-      setTheme(theme);
+      setTheme(btn.dataset.theme);
     });
 
-    // 名称变更
+    // --- 名称/slug 变更 ---
     el.screenName.addEventListener('input', function() {
       state.name = this.value;
       markDirty();
     });
-
-    // slug 变更
     el.screenSlug.addEventListener('input', function() {
       state.slug = this.value;
       markDirty();
     });
 
-    // 地图选项
+    // --- 地图选项 ---
     el.showMap.addEventListener('change', function() {
       state.showMap = this.checked;
       markDirty();
     });
-
     el.mapRegion.addEventListener('change', function() {
       state.mapRegion = this.value;
       markDirty();
     });
 
-    // 保存
+    // --- 保存/预览/清空 ---
     el.btnSave.addEventListener('click', saveScreen);
-
-    // 预览
     el.btnPreview.addEventListener('click', previewScreen);
-
-    // 清空
     el.btnClear.addEventListener('click', function() {
       if (state.widgets.length === 0) return;
       if (confirm('确定清空画布上的所有组件？')) {
@@ -221,17 +361,14 @@
       }
     });
 
-    // 键盘快捷键
+    // --- 键盘快捷键 ---
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // 不在 input/textarea 中时删除选中 widget
-        if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
-        if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
+        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
         if (state.selectedId) {
           removeWidget(state.selectedId);
         }
       }
-      // Ctrl+S 保存
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         saveScreen();
@@ -299,7 +436,6 @@
     html += '<div class="prop-group"><div class="prop-label">组件</div>';
     html += '<div style="font-size:13px;font-weight:500;">' + compName + '</div></div>';
 
-    // 位置信息
     html += '<div class="prop-group"><div class="prop-label">位置</div>';
     html += '<div class="prop-row">';
     html += '<div class="prop-group"><div class="prop-label">X (列)</div>';
@@ -309,7 +445,6 @@
     html += '<input class="prop-input" type="number" value="' + widget.y + '" data-prop="y" min="0" max="' + (state.gridRows - 1) + '">';
     html += '</div></div>';
 
-    // 尺寸
     html += '<div class="prop-group"><div class="prop-label">尺寸</div>';
     html += '<div class="prop-row">';
     html += '<div class="prop-group"><div class="prop-label">宽 (列)</div>';
@@ -319,24 +454,19 @@
     html += '<input class="prop-input" type="number" value="' + widget.h + '" data-prop="h" min="1" max="' + state.gridRows + '">';
     html += '</div></div>';
 
-    // 配置项（简化版，对常见属性生成输入框）
     html += '<div class="prop-group"><div class="prop-label">配置</div>';
     html += '<textarea class="prop-textarea" data-prop="config">' + JSON.stringify(widget.config, null, 2) + '</textarea>';
     html += '</div>';
 
     el.propsContent.innerHTML = html;
 
-    // 绑定输入事件
     el.propsContent.querySelectorAll('[data-prop]').forEach(function(input) {
       input.addEventListener('input', function() {
         var prop = this.dataset.prop;
         if (prop === 'config') {
-          try {
-            widget.config = JSON.parse(this.value);
-          } catch(e) { /* 解析中，忽略 */ }
+          try { widget.config = JSON.parse(this.value); } catch(e) {}
         } else {
           widget[prop] = parseInt(this.value) || 0;
-          // 边界检查
           if (prop === 'x') widget.x = Math.max(0, Math.min(widget.x, state.gridCols - 1));
           if (prop === 'y') widget.y = Math.max(0, Math.min(widget.y, state.gridRows - 1));
           if (prop === 'w') widget.w = Math.max(1, Math.min(widget.w, state.gridCols));
@@ -352,12 +482,9 @@
   function setTheme(theme) {
     state.theme = theme;
     document.documentElement.setAttribute('data-theme', theme);
-
-    // 更新按钮状态
     el.themeSwitcher.querySelectorAll('.theme-btn').forEach(function(btn) {
       btn.classList.toggle('active', btn.dataset.theme === theme);
     });
-
     markDirty();
   }
 
@@ -455,19 +582,16 @@
 
   // ======================== 预览 ========================
   function previewScreen() {
-    // 先保存，再打开预览
     if (!state.screenId || state.dirty) {
       saveScreen();
-      return; // 保存后需要手动再点预览（避免异步问题）
+      return;
     }
     var previewUrl = '/screen/' + state.slug + '?token=' + encodeURIComponent(getToken());
     window.open(previewUrl, '_blank');
   }
 
   // ======================== 工具函数 ========================
-  function markDirty() {
-    state.dirty = true;
-  }
+  function markDirty() { state.dirty = true; }
 
   function getToken() {
     if (window._appToken) return window._appToken;
@@ -478,12 +602,10 @@
   function showToast(msg, type) {
     var existing = document.querySelector('.toast');
     if (existing) existing.remove();
-
     var toast = document.createElement('div');
     toast.className = 'toast ' + (type || '');
     toast.textContent = msg;
     document.body.appendChild(toast);
-
     setTimeout(function() {
       if (toast.parentNode) toast.remove();
     }, 2000);
@@ -497,7 +619,7 @@
       .replace(/"/g, '&quot;');
   }
 
-  // 注入 fetchWithAuth（如果还没有）
+  // 注入 fetchWithAuth
   if (!window.fetchWithAuth) {
     window.fetchWithAuth = function(url, options) {
       options = options || {};
