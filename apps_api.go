@@ -1150,13 +1150,8 @@ func handleScreenThemes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleScreenEditorPage 大屏编辑器页面
+// handleScreenEditorPage 大屏编辑器页面（页面本身公开，API 调用由 JS 端 fetchWithAuth 认证）
 func handleScreenEditorPage(w http.ResponseWriter, r *http.Request) {
-	_, authOK := getDataOntologyUserFromRequest(r)
-	if !authOK {
-		http.Redirect(w, r, "/", http.StatusFound)
-		return
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(screenEditorHTML))
 }
