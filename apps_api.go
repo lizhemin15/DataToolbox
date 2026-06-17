@@ -1163,7 +1163,7 @@ const screenEditorHTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>大屏编辑器 - DataToolbox</title>
   <link rel="stylesheet" href="/components/themes.css">
-  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061702">
+  <link rel="stylesheet" href="/apps/screen-editor/screen-editor.css?v=2026061703">
 </head>
 <body>
 <!-- 顶部工具栏 -->
@@ -1221,6 +1221,7 @@ const screenEditorHTML = `<!DOCTYPE html>
     </div>
     <div class="editor-canvas" id="screenCanvas">
       <div class="canvas-stage" id="canvasStage">
+        <div class="canvas-map-layer" id="canvasMap" style="display:none"></div>
         <div class="canvas-grid" id="canvasGrid"></div>
         <div class="canvas-widgets" id="canvasWidgets"></div>
         <div class="selection-rect" id="selectionRect" style="display:none"></div>
@@ -1238,7 +1239,7 @@ const screenEditorHTML = `<!DOCTYPE html>
   </aside>
 </div>
 
-<script src="/components/themes.css"></script>
-<script src="/apps/screen-editor/screen-editor.js?v=2026061702"></script>
+<script src="/lib/echarts.min.js"></script>
+<script src="/apps/screen-editor/screen-editor.js?v=2026061703"></script>
 </body>
 </html>`

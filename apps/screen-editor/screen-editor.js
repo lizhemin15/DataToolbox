@@ -25,7 +25,12 @@
     // 框选
     selecting: null,     // { startX, startY }
     // 对齐辅助线
-    guides: { h: [], v: [] }
+    guides: { h: [], v: [] },
+    // 地图
+    mapChart: null,
+    mapLoaded: false,
+    mapZoom: 1,
+    mapCenter: [104.07, 35.66]  // 中国中心
   };
 
   // ======================== 组件注册表 ========================
@@ -436,8 +441,23 @@
     el.screenSlug.addEventListener('input', function() { state.slug = this.value; markDirty(); });
 
     // --- 地图 ---
-    el.showMap.addEventListener('change', function() { state.showMap = this.checked; markDirty(); });
-    el.mapRegion.addEventListener('change', function() { state.mapRegion = this.value; markDirty(); });
+    el.showMap.addEventListener('change', function() {
+      state.showMap = this.checked;
+      if (state.showMap) {
+        initMap();
+      } else {
+        destroyMap();
+      }
+      markDirty();
+    });
+    el.mapRegion.addEventListener('change', function() {
+      state.mapRegion = this.value;
+      if (state.showMap) {
+        destroyMap();
+        initMap();
+      }
+      markDirty();
+    });
 
     // --- 保存/预览/清空 ---
     el.btnSave.addEventListener('click', saveScreen);
@@ -503,6 +523,13 @@
         renderCanvas();
         renderProps();
         markDirty();
+      }
+    });
+
+    // --- 窗口 resize（ECharts 地图自适应）---
+    window.addEventListener('resize', function() {
+      if (state.mapChart) {
+        try { state.mapChart.resize(); } catch(e) {}
       }
     });
   }
@@ -855,6 +882,7 @@
         updateGrid();
         renderCanvas();
         renderProps();
+        if (state.showMap) { initMap(); }
         showToast('已加载: ' + state.name, 'success');
       } else {
         showToast('加载失败', 'error');
@@ -873,6 +901,87 @@
     }
     var previewUrl = '/screen/' + state.slug + '?token=' + encodeURIComponent(getToken());
     window.open(previewUrl, '_blank');
+  }
+
+  // ======================== 地图底图 ========================
+  function initMap() {
+    var mapEl = document.getElementById('canvasMap');
+    if (!mapEl) return;
+    if (state.mapChart) {
+      try { state.mapChart.resize(); } catch(e) {}
+      return;
+    }
+
+    // 确保 ECharts 已加载
+    if (typeof echarts === 'undefined') {
+      console.warn('ECharts 未加载，无法渲染地图');
+      return;
+    }
+
+    mapEl.style.display = 'block';
+    state.mapChart = echarts.init(mapEl);
+
+    // 加载 GeoJSON
+    var geoUrl = '/assets/china.json';
+    if (state.mapRegion === 'world') {
+      // 世界地图暂时也用 china，后续可扩展
+      geoUrl = '/assets/china.json';
+    }
+
+    fetch(geoUrl)
+      .then(function(res) { return res.json(); })
+      .then(function(geoJson) {
+        echarts.registerMap('map', geoJson);
+
+        var option = {
+          backgroundColor: 'transparent',
+          geo: {
+            map: 'map',
+            roam: true,
+            zoom: 1.2,
+            center: [104.07, 35.66],
+            label: { show: false },
+            emphasis: {
+              label: { show: true, fontSize: 10, color: '#fff' },
+              itemStyle: { areaColor: 'rgba(74, 144, 217, 0.3)' }
+            },
+            itemStyle: {
+              areaColor: 'rgba(40, 40, 50, 0.6)',
+              borderColor: 'rgba(100, 100, 120, 0.5)',
+              borderWidth: 1
+            }
+          },
+          series: []
+        };
+
+        state.mapChart.setOption(option);
+
+        // 点击省份事件
+        state.mapChart.on('click', function(params) {
+          if (params.componentType === 'geo') {
+            var provinceName = params.name;
+            showToast('选中: ' + provinceName, 'info');
+            // 可扩展：根据选中省份更新组件数据
+            state.selectedProvince = provinceName;
+          }
+        });
+
+        state.mapLoaded = true;
+      })
+      .catch(function(err) {
+        console.error('加载地图 GeoJSON 失败:', err);
+        showToast('地图加载失败', 'error');
+      });
+  }
+
+  function destroyMap() {
+    var mapEl = document.getElementById('canvasMap');
+    if (mapEl) mapEl.style.display = 'none';
+    if (state.mapChart) {
+      try { state.mapChart.dispose(); } catch(e) {}
+      state.mapChart = null;
+      state.mapLoaded = false;
+    }
   }
 
   // ======================== 画布组件内容渲染 ========================
