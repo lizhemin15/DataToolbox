@@ -34,23 +34,7 @@ var (
 	// 审核取消控制
 	qaCancelMu    sync.Mutex
 	qaCancelFuncs = make(map[string]context.CancelFunc)
-
-	// 定时审核任务
-	qaSchedulerMu    sync.Mutex
-	qaSchedulerJobs  = make(map[string]*qaScheduledJob)
 )
-
-type qaScheduledJob struct {
-	DatabaseID string
-	RuleNMs    []string
-	CronExpr   string       // cron 表达式
-	Enabled    bool
-	LastRun    time.Time
-	NextRun    time.Time
-	CreatedBy  string
-	CreatedAt  time.Time
-	stopChan   chan struct{}
-}
 
 // 取消正在执行的审核
 func qaCancel(databaseID string) {
@@ -74,147 +58,6 @@ func qaClearCancel(databaseID string) {
 	qaCancelMu.Lock()
 	defer qaCancelMu.Unlock()
 	delete(qaCancelFuncs, databaseID)
-}
-
-// 简单定时调度器 (不支持复杂 cron，只支持分钟间隔)
-func qaScheduleJob(jobID, databaseID string, ruleNMs []string, intervalMinutes int, username string) error {
-	qaSchedulerMu.Lock()
-	defer qaSchedulerMu.Unlock()
-
-	// 停止已存在的任务
-	if existing, ok := qaSchedulerJobs[jobID]; ok {
-		close(existing.stopChan)
-	}
-
-	job := &qaScheduledJob{
-		DatabaseID: databaseID,
-		RuleNMs:    ruleNMs,
-		CronExpr:   fmt.Sprintf("every %d minutes", intervalMinutes),
-		Enabled:    true,
-		CreatedBy:  username,
-		CreatedAt:  time.Now(),
-		NextRun:    time.Now().Add(time.Duration(intervalMinutes) * time.Minute),
-		stopChan:   make(chan struct{}),
-	}
-	qaSchedulerJobs[jobID] = job
-
-	// 启动定时任务
-	go func() {
-		ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-job.stopChan:
-				return
-			case <-ticker.C:
-				if !job.Enabled {
-					continue
-				}
-				// 执行审核
-				qaRunScheduledAudit(jobID, job)
-				job.LastRun = time.Now()
-				job.NextRun = time.Now().Add(time.Duration(intervalMinutes) * time.Minute)
-			}
-		}
-	}()
-
-	return nil
-}
-
-// 执行定时审核
-func qaRunScheduledAudit(jobID string, job *qaScheduledJob) {
-	dataOntologyMu.RLock()
-	dbConfig, ok := dataOntologyDatabases[job.DatabaseID]
-	dataOntologyMu.RUnlock()
-	if !ok {
-		return
-	}
-
-	// 使用连接池获取数据库连接
-	targetDB, err := getDBFromPool(dbConfig)
-	if err != nil {
-		return
-	}
-	// 注意：不关闭连接，由连接池管理
-
-	flat, _ := loadRulesFlat()
-	byNM := map[string]qaRule{}
-	for _, x := range flat {
-		byNM[x.NM] = x
-	}
-
-	dialect := normalizeQualityDialect(dbConfig.Type)
-	metaDB, _ := openQualityAuditDB()
-
-	for _, nm := range job.RuleNMs {
-		nm = padNM(nm)
-		rule, exists := byNM[nm]
-		if !exists {
-			continue
-		}
-		orig := strings.TrimSpace(rule.SQL)
-		if orig == "" {
-			continue
-		}
-		safeSQL, sqlErr := sanitizeSQLForQA(orig)
-		if sqlErr != nil {
-			continue
-		}
-		execSQL := convertOracleSQLForDialect(safeSQL, dialect)
-		cnt, _, errExec := executeRuleQuery(targetDB, execSQL)
-		if errExec != nil {
-			if metaDB != nil {
-				_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-					job.DatabaseID, rule.NM, rule.Name, errExec.Error(), time.Now().Format(time.RFC3339), "scheduler")
-			}
-		} else {
-			// 记录结果
-			if metaDB != nil {
-				summaryJSON, _ := json.Marshal(map[string]interface{}{
-					"job_id":        jobID,
-					"rule_nm":       rule.NM,
-					"rule_name":     rule.Name,
-					"violation_count": cnt,
-					"passed":        cnt == 0,
-				})
-				_, _ = metaDB.Exec(`INSERT INTO audit_history (database_id, database_type, executed_at, duration_ms, summary, created_by) VALUES (?,?,?,?,?,?)`,
-					job.DatabaseID, dbConfig.Type, time.Now().Format(time.RFC3339), 0, string(summaryJSON), "scheduler")
-			}
-		}
-	}
-}
-
-// 停止定时任务
-func qaStopScheduleJob(jobID string) {
-	qaSchedulerMu.Lock()
-	defer qaSchedulerMu.Unlock()
-	if job, ok := qaSchedulerJobs[jobID]; ok {
-		close(job.stopChan)
-		delete(qaSchedulerJobs, jobID)
-	}
-}
-
-// 获取所有定时任务
-func qaListScheduleJobs() []map[string]interface{} {
-	qaSchedulerMu.Lock()
-	defer qaSchedulerMu.Unlock()
-
-	var jobs []map[string]interface{}
-	for id, job := range qaSchedulerJobs {
-		jobs = append(jobs, map[string]interface{}{
-			"job_id":     id,
-			"database_id": job.DatabaseID,
-			"rule_nms":   job.RuleNMs,
-			"cron_expr":  job.CronExpr,
-			"enabled":    job.Enabled,
-			"last_run":   job.LastRun.Format(time.RFC3339),
-			"next_run":   job.NextRun.Format(time.RFC3339),
-			"created_by": job.CreatedBy,
-			"created_at": job.CreatedAt.Format(time.RFC3339),
-		})
-	}
-	return jobs
 }
 
 type qaCacheEntry struct {
@@ -348,6 +191,45 @@ CREATE INDEX IF NOT EXISTS idx_audit_errors_db ON audit_errors(database_id);
 CREATE INDEX IF NOT EXISTS idx_audit_errors_time ON audit_errors(executed_at);
 CREATE INDEX IF NOT EXISTS idx_rule_versions_nm ON rule_versions(nm);
 CREATE INDEX IF NOT EXISTS idx_rule_versions_time ON rule_versions(changed_at);
+CREATE TABLE IF NOT EXISTS qa_schedules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  database_id TEXT NOT NULL,
+  cron_expr TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1,
+  rule_nms TEXT DEFAULT '[]',
+  ai_check_nms TEXT DEFAULT '[]',
+  ai_prompt TEXT DEFAULT '',
+  report_template_id TEXT DEFAULT '',
+  last_run_at TEXT DEFAULT '',
+  last_run_status TEXT DEFAULT '',
+  next_run_at TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  created_at TEXT DEFAULT '',
+  updated_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS qa_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT DEFAULT '',
+  schedule_name TEXT DEFAULT '',
+  trigger_type TEXT DEFAULT 'cron',
+  database_id TEXT DEFAULT '',
+  started_at TEXT DEFAULT '',
+  finished_at TEXT DEFAULT '',
+  duration_ms INTEGER DEFAULT 0,
+  status TEXT DEFAULT '',
+  total_rules INTEGER DEFAULT 0,
+  passed INTEGER DEFAULT 0,
+  failed INTEGER DEFAULT 0,
+  ai_flagged INTEGER DEFAULT 0,
+  report_file TEXT DEFAULT '',
+  summary TEXT DEFAULT '',
+  detail TEXT DEFAULT '',
+  error TEXT DEFAULT '',
+  created_by TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_qa_runs_schedule ON qa_runs(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_qa_runs_time ON qa_runs(started_at);
 `); err != nil {
 			_ = db.Close()
 			qualityAuditErr = err
@@ -371,6 +253,7 @@ func initQualityAuditDB() {
 	}
 	seedQualityAuditSampleData(db)
 	seedQualityAuditReportTemplates(db)
+	qaSchedulerStart()
 }
 
 func migrateQualityAuditReportTemplates(db *sql.DB) {
@@ -887,12 +770,25 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaExecuteCancel(w, r, username)
 	case path == "export" && r.Method == http.MethodGet:
 		qaExportReport(w, r, username)
-	case path == "schedule" && r.Method == http.MethodGet:
-		qaScheduleList(w, r, username)
-	case path == "schedule" && r.Method == http.MethodPost:
-		qaScheduleCreate(w, r, username)
-	case len(parts) == 2 && parts[0] == "schedule" && r.Method == http.MethodDelete:
-		qaScheduleDelete(w, parts[1], username)
+	case path == "schedules" && r.Method == http.MethodGet:
+		qaSchedulesGET(w, r, username)
+	case path == "schedules" && r.Method == http.MethodPost:
+		qaSchedulesPOST(w, r, username)
+	case len(parts) == 2 && parts[0] == "schedules" && r.Method == http.MethodDelete:
+		qaScheduleDELETE(w, parts[1], username)
+	case len(parts) == 3 && parts[0] == "schedules" && parts[2] == "run" && r.Method == http.MethodPost:
+		qaScheduleRun(w, r, parts[1], username)
+	case path == "runs" && r.Method == http.MethodGet:
+		qaRunsGET(w, r, username)
+	case len(parts) == 2 && parts[0] == "runs" && r.Method == http.MethodGet:
+		qaRunGET(w, r, parts[1], username)
+	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "report" && r.Method == http.MethodGet:
+		qaRunReportGET(w, r, parts[1], username)
+	case path == "overview" && r.Method == http.MethodGet:
+		qaOverviewGET(w, r, username)
+	case path == "schedule":
+		// 旧版单数 schedule 接口已废弃（前端从未调用），改用 /schedules
+		apiNotFound(w, "接口不存在，请使用 /api/v1/quality-audit/schedules")
 	case path == "stats" && r.Method == http.MethodGet:
 		qaStats(w, r, username)
 	case path == "report" && r.Method == http.MethodPost:
@@ -1173,6 +1069,114 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 	return out, rows.Err()
 }
 
+// qaExecuteRules 并行执行指定规则的审核查询，供 qaExecute 与定时任务复用。
+// 返回每条规则的结果、通过数、不通过数；执行错误会写入 audit_errors。
+func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time) ([]map[string]interface{}, int, int, error) {
+	flat, err := loadRulesFlat()
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	byNM := map[string]qaRule{}
+	for _, x := range flat {
+		byNM[x.NM] = x
+	}
+
+	metaDB, _ := openQualityAuditDB()
+
+	type ruleResult struct {
+		nm    string
+		entry map[string]interface{}
+	}
+
+	resultChan := make(chan ruleResult, len(ruleNMs))
+	var wg sync.WaitGroup
+
+	// 限制并发数，避免数据库连接耗尽
+	semaphore := make(chan struct{}, 5) // 最多 5 个并发
+
+	for _, nm := range ruleNMs {
+		nm = padNM(nm)
+		rule, exists := byNM[nm]
+		if !exists {
+			continue
+		}
+
+		wg.Add(1)
+		go func(r qaRule) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // 获取信号量
+			defer func() { <-semaphore }() // 释放信号量
+
+			orig := strings.TrimSpace(r.SQL)
+			if orig == "" {
+				resultChan <- ruleResult{nm: r.NM, entry: map[string]interface{}{
+					"nm": r.NM, "xh": r.XH, "name": r.Name, "skipped": true, "message": "分类节点无 SQL",
+				}}
+				return
+			}
+
+			// SQL 安全校验
+			safeSQL, sqlErr := sanitizeSQLForQA(orig)
+			if sqlErr != nil {
+				entry := map[string]interface{}{
+					"nm": r.NM, "xh": r.XH, "name": r.Name, "error": sqlErr.Error(), "passed": false,
+				}
+				if metaDB != nil {
+					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+						databaseID, r.NM, r.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
+				}
+				resultChan <- ruleResult{nm: r.NM, entry: entry}
+				return
+			}
+
+			execSQL := convertOracleSQLForDialect(safeSQL, dialect)
+			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
+			entry := map[string]interface{}{
+				"nm":              r.NM,
+				"xh":              r.XH,
+				"name":            r.Name,
+				"category":        r.Category,
+				"sql_original":    orig,
+				"sql_executed":    execSQL,
+				"violation_count": cnt,
+				"sample_rows":     sample,
+			}
+			if errExec != nil {
+				entry["error"] = errExec.Error()
+				entry["passed"] = false
+				if metaDB != nil {
+					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
+						databaseID, r.NM, r.Name, errExec.Error(), t0.Format(time.RFC3339), username)
+				}
+			} else {
+				entry["passed"] = cnt == 0
+			}
+			resultChan <- ruleResult{nm: r.NM, entry: entry}
+		}(rule)
+	}
+
+	// 等待所有 goroutine 完成后关闭 channel
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// 收集结果
+	var ruleResults []map[string]interface{}
+	passed, failed := 0, 0
+	for result := range resultChan {
+		if passedRule, ok := result.entry["passed"].(bool); ok {
+			if passedRule {
+				passed++
+			} else {
+				failed++
+			}
+		}
+		ruleResults = append(ruleResults, result.entry)
+	}
+	return ruleResults, passed, failed, nil
+}
+
 func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
 		DatabaseID string   `json:"database_id"`
@@ -1221,111 +1225,15 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		return
 	}
 
-	flat, err := loadRulesFlat()
+	t0 := time.Now()
+
+	ruleResults, passed, failed, err := qaExecuteRules(req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0)
 	if err != nil {
 		apiInternalError(w, err.Error())
 		return
 	}
-	byNM := map[string]qaRule{}
-	for _, x := range flat {
-		byNM[x.NM] = x
-	}
 
-	t0 := time.Now()
 	metaDB, _ := openQualityAuditDB()
-
-	// 并行执行规则审核
-	type ruleResult struct {
-		nm    string
-		entry map[string]interface{}
-	}
-
-	resultChan := make(chan ruleResult, len(req.RuleNMs))
-	var wg sync.WaitGroup
-
-	// 限制并发数，避免数据库连接耗尽
-	semaphore := make(chan struct{}, 5) // 最多 5 个并发
-
-	for _, nm := range req.RuleNMs {
-		nm = padNM(nm)
-		rule, exists := byNM[nm]
-		if !exists {
-			continue
-		}
-
-		wg.Add(1)
-		go func(r qaRule) {
-			defer wg.Done()
-			semaphore <- struct{}{}        // 获取信号量
-			defer func() { <-semaphore }() // 释放信号量
-
-			orig := strings.TrimSpace(r.SQL)
-			if orig == "" {
-				resultChan <- ruleResult{nm: r.NM, entry: map[string]interface{}{
-					"nm": r.NM, "xh": r.XH, "name": r.Name, "skipped": true, "message": "分类节点无 SQL",
-				}}
-				return
-			}
-
-			// SQL 安全校验
-			safeSQL, sqlErr := sanitizeSQLForQA(orig)
-			if sqlErr != nil {
-				entry := map[string]interface{}{
-					"nm": r.NM, "xh": r.XH, "name": r.Name, "error": sqlErr.Error(), "passed": false,
-				}
-				if metaDB != nil {
-					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-						req.DatabaseID, r.NM, r.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
-				}
-				resultChan <- ruleResult{nm: r.NM, entry: entry}
-				return
-			}
-
-			execSQL := convertOracleSQLForDialect(safeSQL, dialect)
-			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
-			entry := map[string]interface{}{
-				"nm":              r.NM,
-				"xh":              r.XH,
-				"name":            r.Name,
-				"category":        r.Category,
-				"sql_original":    orig,
-				"sql_executed":    execSQL,
-				"violation_count": cnt,
-				"sample_rows":     sample,
-			}
-			if errExec != nil {
-				entry["error"] = errExec.Error()
-				entry["passed"] = false
-				if metaDB != nil {
-					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-						req.DatabaseID, r.NM, r.Name, errExec.Error(), t0.Format(time.RFC3339), username)
-				}
-			} else {
-				entry["passed"] = cnt == 0
-			}
-			resultChan <- ruleResult{nm: r.NM, entry: entry}
-		}(rule)
-	}
-
-	// 等待所有 goroutine 完成后关闭 channel
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
-
-	// 收集结果
-	var ruleResults []map[string]interface{}
-	passed, failed := 0, 0
-	for result := range resultChan {
-		if passedRule, ok := result.entry["passed"].(bool); ok {
-			if passedRule {
-				passed++
-			} else {
-				failed++
-			}
-		}
-		ruleResults = append(ruleResults, result.entry)
-	}
 
 	// 写入缓存
 	qaCacheSet(cacheKey, ruleResults)
@@ -1541,58 +1449,6 @@ func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 	qaRespondSuccess(w, map[string]interface{}{
 		"message":     "已发送取消信号",
 		"database_id": req.DatabaseID,
-	})
-}
-
-// 定时任务列表
-func qaScheduleList(w http.ResponseWriter, r *http.Request, username string) {
-	jobs := qaListScheduleJobs()
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"jobs":    jobs,
-		"count":   len(jobs),
-	})
-}
-
-// 创建定时任务
-func qaScheduleCreate(w http.ResponseWriter, r *http.Request, username string) {
-	var req struct {
-		JobID           string   `json:"job_id"`
-		DatabaseID      string   `json:"database_id"`
-		RuleNMs         []string `json:"rule_nms"`
-		IntervalMinutes int      `json:"interval_minutes"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apiBadRequest(w, "JSON 解析失败")
-		return
-	}
-	if req.DatabaseID == "" || len(req.RuleNMs) == 0 || req.IntervalMinutes < 1 {
-		apiBadRequest(w, "参数不完整或无效")
-		return
-	}
-	if req.JobID == "" {
-		req.JobID = fmt.Sprintf("job_%s_%d", req.DatabaseID, time.Now().Unix())
-	}
-
-	err := qaScheduleJob(req.JobID, req.DatabaseID, req.RuleNMs, req.IntervalMinutes, username)
-	if err != nil {
-		apiInternalError(w, err.Error())
-		return
-	}
-
-	qaRespondSuccess(w, map[string]interface{}{
-		"message":  "定时任务创建成功",
-		"job_id":   req.JobID,
-		"next_run": time.Now().Add(time.Duration(req.IntervalMinutes) * time.Minute).Format(time.RFC3339),
-	})
-}
-
-// 删除定时任务
-func qaScheduleDelete(w http.ResponseWriter, jobID string, username string) {
-	qaStopScheduleJob(jobID)
-	qaRespondSuccess(w, map[string]interface{}{
-		"message": "定时任务已删除",
-		"job_id":  jobID,
 	})
 }
 
@@ -1964,7 +1820,20 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 		audit = body
 	}
 	tid, _ := body["template_id"].(string)
-	tid = strings.TrimSpace(tid)
+	doc, err := qaBuildReportDocx(audit, tid)
+	if err != nil {
+		apiInternalError(w, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename="quality-audit-report.docx"`)
+	_, _ = io.Copy(w, bytes.NewReader(doc))
+}
+
+// qaBuildReportDocx 按模板生成审核报告 docx 二进制，供手动报告与定时任务复用。
+// templateID 为空时回退到默认模板。qaReport 的对外行为保持不变。
+func qaBuildReportDocx(audit map[string]interface{}, templateID string) ([]byte, error) {
+	tid := strings.TrimSpace(templateID)
 	var styles *qaTemplateStyles
 	if tid != "" {
 		if row, err := loadReportTemplateByID(tid); err == nil && row != nil {
@@ -1979,14 +1848,7 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	if styles == nil {
 		styles = parseQATemplateContent("{}")
 	}
-	doc, err := buildQualityAuditDocx(audit, styles)
-	if err != nil {
-		apiInternalError(w, err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-	w.Header().Set("Content-Disposition", `attachment; filename="quality-audit-report.docx"`)
-	_, _ = io.Copy(w, bytes.NewReader(doc))
+	return buildQualityAuditDocx(audit, styles)
 }
 
 type qaReportTemplateRow struct {

@@ -521,7 +521,7 @@ async function ensureGovernanceScriptsLoaded() {
 }
 
 async function ensureQualityAuditScriptLoaded() {
-    await loadLazyScript('quality-audit.js?v=1.3.81.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=1.3.82.1706.1706.1249.1249.1450.1450');
 }
 
 

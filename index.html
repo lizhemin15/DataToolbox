@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091502">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091503">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
@@ -1018,6 +1018,12 @@
         <div id="qualityTab" class="tab-content">
             <div class="tab-content-wrap">
                 <div class="qa-page">
+                    <div class="qa-subtabs" id="qaSubtabs">
+                        <button type="button" class="qa-subtab active" data-qa-sub="rules">规则配置</button>
+                        <button type="button" class="qa-subtab" data-qa-sub="schedules">定时任务</button>
+                        <button type="button" class="qa-subtab" data-qa-sub="runs">执行记录</button>
+                    </div>
+                    <div id="qaSubRules" class="qa-subpanel">
                     <div id="qaMsg" class="qa-msg"></div>
                     <div class="qa-topbar">
                         <button type="button" class="btn btn-sm qa-tpl-open-btn" id="qaOpenReportTpl" title="配置报告样式与页眉页脚">报告模板</button>
@@ -1098,6 +1104,77 @@
                         <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
                     </div>
                     <div id="qaAuditResult" class="qa-audit-result" style="display:none;" aria-live="polite"></div>
+                    </div><!-- /qaSubRules -->
+
+                    <div id="qaSubSchedules" class="qa-subpanel" style="display:none;">
+                        <div class="qa-panel">
+                            <div class="qa-panel-head">
+                                <strong>定时任务</strong>
+                                <div class="qa-panel-actions">
+                                    <button type="button" class="btn btn-sm" id="qaSchedRefresh">刷新</button>
+                                    <button type="button" class="btn btn-primary btn-sm" id="qaSchedNew">+ 新建任务</button>
+                                </div>
+                            </div>
+                            <div class="qa-table-wrap">
+                                <table class="qa-table">
+                                    <thead><tr>
+                                        <th>任务名</th>
+                                        <th>目标数据库</th>
+                                        <th>执行时间</th>
+                                        <th>规则数</th>
+                                        <th>AI 校核</th>
+                                        <th>状态</th>
+                                        <th>上次执行</th>
+                                        <th>下次执行</th>
+                                        <th>操作</th>
+                                    </tr></thead>
+                                    <tbody id="qaSchedBody"></tbody>
+                                </table>
+                            </div>
+                            <div id="qaSchedEmpty" class="qa-empty" style="display:none;">暂无定时任务，点击「+ 新建任务」创建。</div>
+                        </div>
+                    </div>
+
+                    <div id="qaSubRuns" class="qa-subpanel" style="display:none;">
+                        <div class="qa-stat-cards">
+                            <div class="qa-stat-card"><div class="qa-stat-value" id="qaOvSchedTotal">-</div><div class="qa-stat-label">任务总数</div></div>
+                            <div class="qa-stat-card"><div class="qa-stat-value" id="qaOvSchedEnabled">-</div><div class="qa-stat-label">已启用</div></div>
+                            <div class="qa-stat-card"><div class="qa-stat-value" id="qaOvRunsToday">-</div><div class="qa-stat-label">今日执行</div></div>
+                            <div class="qa-stat-card"><div class="qa-stat-value" id="qaOvSuccessRate">-</div><div class="qa-stat-label">近 30 天成功率</div></div>
+                            <div class="qa-stat-card"><div class="qa-stat-value" id="qaOvAiFlagged">-</div><div class="qa-stat-label">近 30 天 AI 误判提示</div></div>
+                        </div>
+                        <div class="qa-panel">
+                            <strong>近 14 天通过 / 不通过趋势</strong>
+                            <div class="qa-chart" id="qaTrendChart"></div>
+                        </div>
+                        <div class="qa-panel" id="qaTopFailed"></div>
+                        <div class="qa-panel">
+                            <div class="qa-panel-head">
+                                <strong>执行记录</strong>
+                                <div class="qa-panel-actions">
+                                    <select id="qaRunFilter"><option value="">全部任务</option></select>
+                                    <button type="button" class="btn btn-sm" id="qaRunsRefresh">刷新</button>
+                                </div>
+                            </div>
+                            <div class="qa-table-wrap">
+                                <table class="qa-table">
+                                    <thead><tr>
+                                        <th>开始时间</th>
+                                        <th>任务</th>
+                                        <th>触发方式</th>
+                                        <th>数据库</th>
+                                        <th>通过 / 不通过</th>
+                                        <th>AI 误判</th>
+                                        <th>耗时</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr></thead>
+                                    <tbody id="qaRunsBody"></tbody>
+                                </table>
+                            </div>
+                            <div id="qaRunsEmpty" class="qa-empty" style="display:none;">暂无执行记录。</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2386,6 +2463,95 @@
             <div class="qa-tpl-foot">
                 <button type="button" class="btn btn-sm" id="qaTplCloseBtn">关闭</button>
                 <button type="button" class="btn btn-sm btn-primary" id="qaTplSaveBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 质量审核：定时任务新建 / 编辑 -->
+    <div id="qaSchedModal" class="modal" aria-hidden="true">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="qaSchedModalTitle">新建定时任务</h2>
+                <button class="modal-close" type="button" id="qaSchedCloseX">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="qa-sched-form">
+                    <div class="qa-sched-field">
+                        <label for="qaSchedName">任务名称</label>
+                        <input type="text" id="qaSchedName" placeholder="例如：每日数据质量巡检">
+                    </div>
+                    <div class="qa-sched-field">
+                        <label for="qaSchedDb">目标数据库</label>
+                        <select id="qaSchedDb"></select>
+                    </div>
+                    <div class="qa-sched-field">
+                        <label>执行时间</label>
+                        <div class="qa-cron-row">
+                            <select id="qaSchedFreq">
+                                <option value="daily">每天</option>
+                                <option value="weekly">每周</option>
+                                <option value="monthly">每月</option>
+                                <option value="hourly">每 N 小时</option>
+                                <option value="custom">自定义</option>
+                            </select>
+                            <span id="qaSchedFreqFields" class="qa-cron-fields"></span>
+                            <input type="text" id="qaSchedCron" placeholder="分 时 日 月 周" style="display:none;" autocomplete="off">
+                        </div>
+                        <div class="qa-cron-preview" id="qaSchedCronPreview"></div>
+                    </div>
+                    <div class="qa-sched-field">
+                        <label>审核项（第一列勾选执行范围，第二列勾选 AI 校核）</label>
+                        <div class="qa-sched-tree-head">
+                            <label class="cursor-pointer"><input type="checkbox" id="qaSchedRuleAll"> 全选审核项</label>
+                            <span class="qa-form-hint">AI 校核项应为审核项的子集</span>
+                        </div>
+                        <div id="qaSchedRuleTree" class="qa-tree qa-sched-tree"></div>
+                    </div>
+                    <div class="qa-sched-field">
+                        <label for="qaSchedAiPrompt">AI 校核原则（可选）</label>
+                        <textarea id="qaSchedAiPrompt" rows="3" placeholder="留空则由 AI 结合字段名、SQL 与常识自行判断"></textarea>
+                        <div class="qa-form-hint">勾选的规则在审核失败时，将交由 AI 判断是否为规则过严误判并给出修改建议；不填原则则让 AI 结合字段名、SQL 与常识自行判断。</div>
+                    </div>
+                    <div class="qa-sched-field">
+                        <label for="qaSchedTpl">报告模板</label>
+                        <select id="qaSchedTpl"><option value="">默认模板</option></select>
+                    </div>
+                    <label class="qa-sched-enable"><input type="checkbox" id="qaSchedEnabled" checked> 启用该任务</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm" id="qaSchedCancel">取消</button>
+                <button type="button" class="btn btn-sm btn-primary" id="qaSchedSave">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 质量审核：执行记录详情 -->
+    <div id="qaRunModal" class="modal" aria-hidden="true">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="qaRunModalTitle">执行详情</h2>
+                <button class="modal-close" type="button" id="qaRunCloseX">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="qaRunDetailTop" class="qa-run-detail-top"></div>
+                <div class="qa-table-wrap">
+                    <table class="qa-table">
+                        <thead><tr>
+                            <th>编号</th>
+                            <th>名称</th>
+                            <th>类别</th>
+                            <th>结果</th>
+                            <th>违规数</th>
+                            <th>AI 校核</th>
+                        </tr></thead>
+                        <tbody id="qaRunDetailBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm" id="qaRunDetailReport">下载报告 docx</button>
+                <button type="button" class="btn btn-sm" id="qaRunCloseBtn">关闭</button>
             </div>
         </div>
     </div>

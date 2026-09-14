@@ -806,3 +806,196 @@ body.embed-mode .embed-settings-btn {
     cursor: not-allowed;
 }
 
+/* ===== 数据质量审核：子 tab（规则配置 / 定时任务 / 执行记录） ===== */
+.qa-subtabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid #e2e8f0;
+    margin: 0 0 12px;
+}
+.qa-subtab {
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    color: #4a5568;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+.qa-subtab:hover { color: #171717; }
+.qa-subtab.active {
+    color: #171717;
+    border-bottom-color: #171717;
+    font-weight: 600;
+}
+.qa-subpanel { display: flex; flex-direction: column; gap: 12px; }
+
+/* 面板头 + 操作区 */
+.qa-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.qa-panel-actions { display: flex; align-items: center; gap: 8px; }
+
+/* 通用表格 */
+.qa-table-wrap { overflow-x: auto; }
+.qa-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.qa-table th, .qa-table td {
+    border: 1px solid #e2e8f0;
+    padding: 8px;
+    text-align: left;
+    vertical-align: middle;
+}
+.qa-table th { background: #f7fafc; white-space: nowrap; }
+.qa-empty { color: #718096; font-size: 13px; padding: 12px; text-align: center; }
+.qa-empty-cell { color: #718096; font-size: 13px; text-align: center; padding: 16px; }
+.qa-muted { color: #a0aec0; font-size: 12px; }
+.qa-pass-num { color: #22543d; font-weight: 600; }
+.qa-fail-num { color: #822727; font-weight: 600; }
+.qa-err { color: #e53e3e; font-size: 12px; margin-top: 4px; }
+.qa-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.qa-row-actions .btn { padding: 3px 10px; font-size: 12px; }
+.qa-cron-raw {
+    display: inline-block;
+    background: #edf2f7;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+    color: #4a5568;
+}
+
+/* 统计卡片 */
+.qa-stat-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+@media (max-width: 900px) { .qa-stat-cards { grid-template-columns: repeat(2, 1fr); } }
+.qa-stat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 14px 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.1);
+    text-align: center;
+}
+.qa-stat-value { font-size: 22px; font-weight: 700; color: #171717; line-height: 1.3; }
+.qa-stat-label { font-size: 12px; color: #718096; margin-top: 4px; }
+
+/* 近 14 天趋势：纯 CSS 柱状图 */
+.qa-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 160px;
+    padding: 8px 4px 0;
+    overflow-x: auto;
+}
+.qa-chart-col {
+    flex: 1 0 26px;
+    min-width: 26px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+}
+.qa-chart-bar {
+    width: 60%;
+    max-width: 26px;
+    height: 100%;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: stretch;
+}
+.qa-chart-seg { width: 100%; min-height: 1px; }
+.qa-chart-pass { background: #48bb78; }
+.qa-chart-fail { background: #f56565; }
+.qa-chart-zero { width: 100%; height: 2px; background: #e2e8f0; }
+.qa-chart-tip { font-size: 11px; color: #718096; line-height: 1.4; }
+.qa-chart-label { font-size: 11px; color: #a0aec0; white-space: nowrap; }
+
+/* 近 30 天高频不通过规则 */
+.qa-top-failed-title { font-weight: 600; margin-bottom: 6px; }
+.qa-top-failed-list { margin: 0; padding-left: 18px; font-size: 13px; }
+.qa-top-failed-list li { margin: 4px 0; }
+.qa-top-count { color: #822727; font-weight: 600; }
+
+/* 定时任务新建 / 编辑表单 */
+.qa-sched-form { display: flex; flex-direction: column; gap: 10px; }
+.qa-sched-field { display: flex; flex-direction: column; gap: 4px; }
+.qa-sched-field > label { font-weight: 600; color: #2d3748; font-size: 13px; }
+.qa-sched-field input[type="text"],
+.qa-sched-field select,
+.qa-sched-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.qa-sched-field textarea { min-height: 70px; font-family: inherit; resize: vertical; }
+.qa-cron-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.qa-cron-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.qa-cron-fields input, .qa-cron-fields select {
+    width: auto;
+    padding: 4px 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.qa-cron-preview { font-size: 12px; color: #2f855a; margin-top: 2px; }
+.qa-cron-preview.err { color: #e53e3e; }
+
+/* 审核项 / AI 校核项 双列规则树 */
+.qa-sched-tree {
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px;
+}
+.qa-sched-tree-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #718096;
+    margin-bottom: 6px;
+}
+.qa-sched-group { margin-left: 6px; }
+.qa-sched-group-body { margin-left: 16px; }
+.qa-sched-rule-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.qa-sched-rule-row.qa-sched-rule-nosql { opacity: .55; }
+.qa-sched-rule-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+.qa-sched-cb-rule, .qa-sched-cb-ai { flex-shrink: 0; }
+.qa-sched-cb-ai { margin-left: auto; }
+.qa-sched-enable { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.qa-sched-toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 执行记录详情弹窗 */
+.qa-run-detail-top { margin-bottom: 10px; }
+.qa-run-meta { font-size: 13px; color: #4a5568; line-height: 1.8; }
+.qa-run-sum { font-size: 14px; font-weight: 600; margin-top: 4px; }
+.qa-run-detail-top .btn { margin-top: 8px; }
+.qa-run-ai-cell { font-size: 12px; }
+.qa-ai-reason { color: #4a5568; margin-top: 2px; }
+.qa-ai-sug { color: #2b6cb0; margin-top: 2px; }
+.qa-run-row-warn { background: #fffaf0; }
+.qa-badge-ai { background: #bee3f8; color: #2a4365; }
+.qa-badge-ok { background: #c6f6d5; color: #22543d; }
+.qa-badge-warn { background: #feebc8; color: #7b341e; }
+
