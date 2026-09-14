@@ -730,7 +730,7 @@
 
         var qaPasteExcel = document.getElementById('qaPasteExcel');
         if (qaPasteExcel) qaPasteExcel.addEventListener('click', function () {
-            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：');
+            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：\n批量导入，一次多行；列格式见「下载模板」。');
             if (!raw) return;
             var rules = parseExcelPasteRules(raw);
             if (!rules.length) { showMsg('未解析到有效行', true); return; }
@@ -742,6 +742,38 @@
                     return loadRules();
                 })
                 .catch(function (e) { showMsg(e.message || String(e), true); });
+        });
+
+        var qaDownloadTemplate = document.getElementById('qaDownloadTemplate');
+        if (qaDownloadTemplate) qaDownloadTemplate.addEventListener('click', function () {
+            try {
+                if (typeof XLSX === 'undefined') { showMsg('XLSX 库未加载，无法生成模板', true); return; }
+                var header = ['NM', 'XH', '名称', 'SQL', '类别'];
+                var rows = [
+                    ['010000', '01', '表数据量校验', 'SELECT COUNT(*) FROM 表名', '基础校验'],
+                    ['010100', '0101', '主键唯一性', 'SELECT 主键字段 FROM 表名 GROUP BY 主键字段 HAVING COUNT(*) > 1', '完整性'],
+                    ['010200', '0102', '手机号格式', "SELECT 手机号字段 FROM 表名 WHERE 手机号字段 NOT LIKE '1%'", '规范性']
+                ];
+                var wb = XLSX.utils.book_new();
+                var ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
+                ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 64 }, { wch: 12 }];
+                XLSX.utils.book_append_sheet(wb, ws, '规则导入模板');
+                var notes = [
+                    ['列名', '是否必填', '说明'],
+                    ['NM', '是', '6 位数字编号，不足 6 位前补 0（如 010000）。同一 NM 重复导入会覆盖原规则'],
+                    ['XH', '是', '层级编码，每两位一级（01 / 0101 / 010101），用于规则树分组'],
+                    ['名称', '是', '规则名称'],
+                    ['SQL', '是', '审核用 SQL，按 Oracle 方言书写，执行时自动转换为目标库方言'],
+                    ['类别', '否', '自由文本分类，如 完整性 / 规范性 / 基础校验']
+                ];
+                var ws2 = XLSX.utils.aoa_to_sheet(notes);
+                ws2['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 72 }];
+                XLSX.utils.book_append_sheet(wb, ws2, '列说明');
+                XLSX.writeFile(wb, 'quality-audit-rules-template.xlsx');
+                showMsg('模板已下载', false);
+            } catch (e) {
+                showMsg(e.message || String(e), true);
+            }
         });
 
         var qaXlsxFile = document.getElementById('qaXlsxFile');
