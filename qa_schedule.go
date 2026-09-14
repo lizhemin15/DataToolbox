@@ -637,6 +637,9 @@ func qaNormalizeAuditJSON(m map[string]interface{}) map[string]interface{} {
 // ---------------------------------------------------------------------------
 
 // qaPickLLMModel 选第一个已启用的 llm 模型（确定性：按创建时间/ID 排序）。
+// qaPickLLMModel 选取 AI 校核所用的大模型：
+//  1. 优先使用 llm_models 中已启用的 LLM 模型（创建时间最早者优先，保持既有行为）
+//  2. 未单独配置时，回退复用「智能助手」的大模型配置（ai_config）
 func qaPickLLMModel() *LLMModelConfig {
 	dataOntologyMu.RLock()
 	defer dataOntologyMu.RUnlock()
@@ -655,7 +658,7 @@ func qaPickLLMModel() *LLMModelConfig {
 		cands = append(cands, &cp)
 	}
 	if len(cands) == 0 {
-		return nil
+		return qaAssistantLLMModel()
 	}
 	sort.Slice(cands, func(i, j int) bool {
 		if cands[i].CreatedAt != cands[j].CreatedAt {
@@ -664,6 +667,45 @@ func qaPickLLMModel() *LLMModelConfig {
 		return cands[i].ID < cands[j].ID
 	})
 	return cands[0]
+}
+
+// qaAssistantLLMModel 复用「智能助手」的大模型配置（ai_config）。
+// 调用方必须已持有 dataOntologyMu 读锁。
+func qaAssistantLLMModel() *LLMModelConfig {
+	cfg := dataOntologyAIConfig
+	if cfg == nil {
+		return nil
+	}
+	url := strings.TrimSpace(cfg.URL)
+	key := strings.TrimSpace(cfg.APIKey)
+	model := strings.TrimSpace(cfg.Model)
+	if url == "" || key == "" || model == "" {
+		return nil
+	}
+	return &LLMModelConfig{
+		ID:          "assistant-ai-config",
+		Name:        model,
+		Type:        "llm",
+		Provider:    qaGuessLLMProvider(url),
+		URL:         url,
+		APIKey:      key,
+		Model:       model,
+		Description: "复用智能助手模型配置（ai_config）",
+		Enabled:     true,
+	}
+}
+
+// qaGuessLLMProvider 从 URL 猜测 provider（仅用于展示，不影响调用）
+func qaGuessLLMProvider(url string) string {
+	u := strings.ToLower(url)
+	switch {
+	case strings.Contains(u, "generativelanguage.googleapis.com"):
+		return "gemini"
+	case strings.Contains(u, "anthropic.com"):
+		return "anthropic"
+	default:
+		return "openai"
+	}
 }
 
 // qaAIVerify 对 aiNMs 中本次未通过的规则逐条做 AI 误判判断。
@@ -675,7 +717,7 @@ func qaAIVerify(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt s
 	}
 	cfg := qaPickLLMModel()
 	if cfg == nil {
-		return out, "", "未配置可用的大模型（llm_models 中无已启用的 llm 模型）"
+		return out, "", "未配置可用的大模型（llm_models 中无已启用的 llm 模型，且「智能助手」未配置模型）"
 	}
 	modelName := strings.TrimSpace(cfg.Model)
 	if modelName == "" {
