@@ -2090,7 +2090,17 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 	}
 
 	addPara("")
-	addParaStyled("一、规则明细", styles.Section)
+	cnSec := []string{"一", "二", "三", "四", "五", "六", "七", "八"}
+	secIdx := 0
+	nextSection := func(name string) {
+		label := "、" + name
+		if secIdx < len(cnSec) {
+			label = cnSec[secIdx] + "、" + name
+		}
+		secIdx++
+		addParaStyled(label, styles.Section)
+	}
+	nextSection("规则明细")
 	rules, _ := audit["rules"].([]interface{})
 	for i, x := range rules {
 		row, _ := x.(map[string]interface{})
@@ -2136,8 +2146,50 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		}
 	}
 
+	// AI 校核结论：仅当规则行里带 AI 结果（ai_reason/ai_misjudged）时输出
+	aiRows := make([]map[string]interface{}, 0)
+	for _, x := range rules {
+		row, _ := x.(map[string]interface{})
+		if row == nil {
+			continue
+		}
+		_, hasReason := row["ai_reason"]
+		_, hasMis := row["ai_misjudged"]
+		if !hasReason && !hasMis {
+			continue
+		}
+		aiRows = append(aiRows, row)
+	}
+	if len(aiRows) > 0 {
+		addPara("")
+		nextSection("AI 校核（误判判定）")
+		if m, _ := audit["ai_model"].(string); strings.TrimSpace(m) != "" {
+			addPara("AI 模型：" + strings.TrimSpace(m))
+		}
+		for _, row := range aiRows {
+			addPara(fmt.Sprintf("%v（%v）", row["name"], row["nm"]))
+			mis := "否"
+			if b, _ := row["ai_misjudged"].(bool); b {
+				mis = "是（疑似规则过严导致的误判）"
+			}
+			conf := ""
+			if c, ok := row["ai_confidence"]; ok && c != nil {
+				if f, ok2 := c.(float64); ok2 {
+					conf = fmt.Sprintf("   置信度：%.2f", f)
+				}
+			}
+			addPara("是否误判：" + mis + conf)
+			if r, _ := row["ai_reason"].(string); strings.TrimSpace(r) != "" {
+				addPara("理由：" + r)
+			}
+			if sg, _ := row["ai_suggestion"].(string); strings.TrimSpace(sg) != "" {
+				addPara("建议：" + sg)
+			}
+		}
+	}
+
 	addPara("")
-	addParaStyled("二、项填报率", styles.Section)
+	nextSection("项填报率")
 	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
@@ -2146,7 +2198,7 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		addPara(fmt.Sprintf("表 %v 字段 %v：填报率 %v%%", m["table_name"], m["field_name"], m["rate_percent"]))
 	}
 	addPara("")
-	addParaStyled("三、记录填报率", styles.Section)
+	nextSection("记录填报率")
 	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {

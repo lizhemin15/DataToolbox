@@ -569,6 +569,7 @@ func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, str
 			"database_type": dbConfig.Type,
 			"dialect":       dialect,
 			"started_at":    startedAt.Format(time.RFC3339),
+			"ai_model":      aiModel,
 			"rules":         ruleResults,
 			"summary": map[string]interface{}{
 				"total_rules": passed + failed,
