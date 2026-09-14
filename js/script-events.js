@@ -336,6 +336,9 @@ function initEventListeners() {
     // 设置面板按钮。
     const settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) settingsBtn.addEventListener('click', showSettingsModal);
+    // 嵌入模式下的浮动设置按钮（标题栏隐藏后仍可进入设置）
+    const embedSettingsBtn = document.getElementById('embedSettingsBtn');
+    if (embedSettingsBtn) embedSettingsBtn.addEventListener('click', showSettingsModal);
     const closeSettingsModalEl = document.getElementById('closeSettingsModal');
     if (closeSettingsModalEl) closeSettingsModalEl.addEventListener('click', hideSettingsModal);
     const settingsModalEl = document.getElementById('settingsModal');

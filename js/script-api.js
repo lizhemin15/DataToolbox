@@ -1486,7 +1486,23 @@ function autoFillSqlEditor() {
     if (!dbInfo || !tableName) return;
     
     const quoted = quoteTableName(tableName, dbInfo.type);
-    editor.value = `SELECT * FROM ${quoted} LIMIT 50;`;
+    editor.value = buildDefaultSqlSelect(quoted, dbInfo.type);
+}
+
+// 根据不同数据库方言生成默认查询语句（标识符引用符 + 行数限制语法）
+function buildDefaultSqlSelect(quoted, dbType) {
+    switch (dbType) {
+        case 'sqlserver':
+            return `SELECT TOP 50 * FROM ${quoted};`;
+        case 'dm': case 'dameng':
+            // 达梦不支持 LIMIT，使用 TOP
+            return `SELECT TOP 50 * FROM ${quoted};`;
+        case 'oracle':
+            // Oracle 11g+ 支持 FETCH FIRST
+            return `SELECT * FROM ${quoted} FETCH FIRST 50 ROWS ONLY;`;
+        default:
+            return `SELECT * FROM ${quoted} LIMIT 50;`;
+    }
 }
 
 function quoteTableName(name, dbType) {
@@ -1495,6 +1511,9 @@ function quoteTableName(name, dbType) {
             return `"${name}"`;
         case 'sqlserver':
             return `[${name}]`;
+        case 'oracle': case 'dm': case 'dameng':
+            // Oracle/达梦 标识符不加引用符（与后端 quoteIdentifier 一致）
+            return String(name).toUpperCase();
         case 'clickhouse':
             return `\`${name}\``;
         default:
