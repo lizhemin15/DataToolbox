@@ -243,6 +243,10 @@
         return qaShared.formatCellVal ? qaShared.formatCellVal(v) : (v === null || v === undefined ? '' : escapeHtml(String(v)));
     }
 
+    function qaHex6FromCssColor(s) {
+        return qaShared.qaHex6FromCssColor ? qaShared.qaHex6FromCssColor(s) : (String(s || '').trim() || '#000000');
+    }
+
     function renderSampleRowsTable(sampleRows) {
         if (!sampleRows || !sampleRows.length) return '';
         var keys = Object.keys(sampleRows[0] || {});
