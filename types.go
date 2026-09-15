@@ -526,7 +526,7 @@ type GovernanceTaskLog struct {
 	ResultFiles []string `json:"result_files,omitempty"` // 输出文件列表（文件名）
 }
 
-// 数据本体池存储
+// 数据工具箱存储
 
 var (
 	dataOntologyUsers          = make(map[string]*User)

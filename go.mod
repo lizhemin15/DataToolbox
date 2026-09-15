@@ -1,6 +1,6 @@
 module github.com/YOUR_USERNAME/DataToolbox
 
-go 1.24
+go 1.25.0
 
 require (
 	gitee.com/chunanyong/dm v1.8.23
@@ -10,16 +10,20 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.6
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/creack/pty v1.1.24
+	github.com/denisenkom/go-mssqldb v0.12.3
 	github.com/github/copilot-sdk/go v0.3.0
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gomarkdown/markdown v0.0.0-20260417124207-7d523f7318df
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/h2non/filetype v1.1.3
+	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/openai/openai-go/v3 v3.35.0
 	github.com/pkg/sftp v1.13.6
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/rs/zerolog v1.35.1
+	github.com/sijms/go-ora/v2 v2.8.0
 	go.mongodb.org/mongo-driver v1.13.1
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
@@ -27,6 +31,11 @@ require (
 	golang.org/x/term v0.41.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/golang-sql/civil v0.0.0-20190719163853-cb61b32ac6fe // indirect
+	github.com/golang-sql/sqlexp v0.1.0 // indirect
 )
 
 require (
@@ -50,7 +59,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.2
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/kr/fs v0.1.0 // indirect
@@ -80,7 +89,6 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

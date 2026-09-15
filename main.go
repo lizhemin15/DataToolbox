@@ -37,7 +37,7 @@ func main() {
 	mcpLoopbackAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
 	govRunnerAPIBase = mcpLoopbackAddr
 
-	// 初始化数据本体池
+	// 初始化数据工具箱
 	initDataOntology()
 	// 加载预制组件库
 	if err := components.LoadComponents("components"); err != nil {

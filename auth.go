@@ -653,7 +653,7 @@ main().catch(e => {
 	}
 	dataOntologyMu.Unlock()
 
-	log.Printf("数据本体池初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
+	log.Printf("数据工具箱初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
 		len(dataOntologyUsers), len(dataOntologyDatabases), len(governanceTasks))
 
 	initQualityAuditDB()

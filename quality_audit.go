@@ -800,7 +800,7 @@ func buildRuleTree(list []qaRule) []*qaRuleTree {
 	return roots
 }
 
-// qaRespondSuccess 返回与数据本体池其它接口一致的成功 JSON（含 success: true）。
+// qaRespondSuccess 返回与数据工具箱其它接口一致的成功 JSON（含 success: true）。
 // jsonSuccess 仅序列化传入 map，历史上未写入 success，前端按 !d.success 会误判为失败。
 func qaRespondSuccess(w http.ResponseWriter, data map[string]interface{}) {
 	if data == nil {

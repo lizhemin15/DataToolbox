@@ -283,6 +283,6 @@ func (c *Client) writePump() {
 	}
 }
 
-// 数据本体池相关结构
+// 数据工具箱相关结构
 
 // TokenEntry 带时间戳的 token（支持过期清理）

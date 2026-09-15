@@ -2642,7 +2642,7 @@ func initMCPHTTPHandler() {
 		}, nil)
 
 		// 注册所有 18 个工具
-		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据本体池中已配置的数据库（不含密码）"}, mcpListDatabases)
+		mcp.AddTool(server, &mcp.Tool{Name: "list_databases", Description: "列出数据工具箱中已配置的数据库（不含密码）"}, mcpListDatabases)
 		mcp.AddTool(server, &mcp.Tool{Name: "get_tables", Description: "获取指定数据库的表列表及连接状态"}, mcpGetTables)
 		mcp.AddTool(server, &mcp.Tool{Name: "describe_table", Description: "获取表的列结构（字段名、类型、键信息）"}, mcpDescribeTable)
 		mcp.AddTool(server, &mcp.Tool{Name: "profile_table", Description: "获取表的数据概览：行数、空值率、数值统计、高频值等"}, mcpProfileTable)

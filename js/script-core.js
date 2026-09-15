@@ -1,4 +1,4 @@
-// 数据本体池主脚本
+// 数据工具箱主脚本
 let currentUser = null;
 let databases = [];
 let currentDb = null;
