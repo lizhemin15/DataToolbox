@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091503">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091504">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
@@ -1033,14 +1033,14 @@
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
                                 <label style="font-weight:bold;"><input type="checkbox" id="qaTreeSelectAll" style="margin-right:6px;">规则树</label>
                                 <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-                                    <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别）">下载模板</button>
+                                    <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别, 参数）">下载模板</button>
                                     <button type="button" class="btn btn-sm" id="qaPasteExcel" title="从 Excel 复制多行后粘贴导入（批量）">粘贴导入</button>
                                     <label class="btn btn-sm cursor-pointer" title="选择 .xlsx/.xls 文件批量导入规则" style="margin:0;">Excel 文件导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
                                     <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
                                     <button type="button" class="btn btn-sm btn-danger" id="qaBatchDelete" style="background:#dc3545;color:#fff;">批量删除</button>
                                 </div>
                             </div>
-                            <div class="qa-import-hint">批量导入：一次可导入多条规则，列顺序固定为 <b>NM / XH / 名称 / SQL / 类别</b>，首行表头会被自动跳过。先点「下载模板」看列格式。</div>
+                            <div class="qa-import-hint">批量导入：一次可导入多条规则，列顺序固定为 <b>NM / XH / 名称 / SQL / 类别 / 参数</b>（参数列可选，填 SQL 中 <code>{{占位符}}</code> 的实际值），首行表头会被自动跳过。先点「下载模板」看列格式。</div>
                             <div id="qaTree" class="qa-tree"></div>
                         </div>
                         <div>
@@ -1057,6 +1057,9 @@
                                     <input type="text" id="qaCategory">
                                     <label>SQL（Oracle 方言，将自动转换）</label>
                                     <textarea id="qaSql" placeholder="SELECT ..."></textarea>
+                                    <label>规则参数（SQL 里写 {{表名}}、{{字段名}} 等占位符，会自动列出待填项）</label>
+                                    <div id="qaParamList" class="qa-param-list"><span class="qa-form-hint">当前 SQL 中暂无占位符</span></div>
+                                    <div class="qa-form-hint">执行时用参数替换占位符后再转方言。参数没填的规则会直接报错「参数未配置」，不会再有 -2007 那种看不懂的语法错误。</div>
                                     <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                                         <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
                                         <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>

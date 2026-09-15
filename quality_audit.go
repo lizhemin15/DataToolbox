@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS rules (
   NAME TEXT NOT NULL,
   SQL TEXT,
   CATEGORY TEXT,
+  PARAMS TEXT DEFAULT '',
   UPDATED_AT TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rule_versions (
@@ -237,6 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_qa_runs_time ON qa_runs(started_at);
 		}
 		migrateQualityAuditFillChecked(db)
 		migrateQualityAuditReportTemplates(db)
+		migrateQualityAuditRuleParams(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -423,13 +425,13 @@ func seedQualityAuditSampleData(db *sql.DB) {
 		sql      interface{}
 	}{
 		{"01", "完整性规则", nil},
-		{"0101", "主键非空检查", `SELECT * FROM  WHERE  IS NULL`},
-		{"0102", "外键完整性检查", `SELECT a.* FROM  a LEFT JOIN  b ON a.=b. WHERE b. IS NULL`},
+		{"0101", "主键非空检查", `SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL`},
+		{"0102", "外键完整性检查", `SELECT a.* FROM {{表名}} a LEFT JOIN {{关联表}} b ON a.{{字段名}} = b.{{关联字段}} WHERE b.{{关联字段}} IS NULL`},
 		{"02", "唯一性规则", nil},
-		{"0201", "重复记录检查", `SELECT , COUNT(*) as cnt FROM  GROUP BY  HAVING COUNT(*) > 1`},
+		{"0201", "重复记录检查", `SELECT {{字段名}}, COUNT(*) AS cnt FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1`},
 		{"03", "值域规则", nil},
-		{"0301", "空值率检查", `SELECT COUNT(*) as null_count FROM  WHERE  IS NULL`},
-		{"0302", "枚举值检查", `SELECT * FROM  WHERE  NOT IN ()`},
+		{"0301", "空值率检查", `SELECT COUNT(*) AS null_count FROM {{表名}} WHERE {{字段名}} IS NULL`},
+		{"0302", "枚举值检查", `SELECT * FROM {{表名}} WHERE {{字段名}} NOT IN ({{枚举值}})`},
 	}
 	for _, r := range ruleRows {
 		nm := nmFromXH(r.xh)
@@ -470,6 +472,74 @@ func seedQualityAuditSampleData(db *sql.DB) {
 		rollback()
 		log.Printf("quality-audit 示例数据提交失败: %v", err)
 	}
+}
+
+// qaLegacyRuleTemplates 是历史版本里「表名/字段名为空」的空壳模板 → 带占位符的新模板。
+// 迁移时逐字节精确匹配才替换，避免误伤用户已经填好的规则。
+var qaLegacyRuleTemplates = map[string]string{
+	`SELECT * FROM  WHERE  IS NULL`:                             `SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL`,
+	`SELECT a.* FROM  a LEFT JOIN  b ON a.=b. WHERE b. IS NULL`: `SELECT a.* FROM {{表名}} a LEFT JOIN {{关联表}} b ON a.{{字段名}} = b.{{关联字段}} WHERE b.{{关联字段}} IS NULL`,
+	`SELECT , COUNT(*) as cnt FROM  GROUP BY  HAVING COUNT(*) > 1`: `SELECT {{字段名}}, COUNT(*) AS cnt FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1`,
+	`SELECT COUNT(*) as null_count FROM  WHERE  IS NULL`:        `SELECT COUNT(*) AS null_count FROM {{表名}} WHERE {{字段名}} IS NULL`,
+	`SELECT * FROM  WHERE  NOT IN ()`:                           `SELECT * FROM {{表名}} WHERE {{字段名}} NOT IN ({{枚举值}})`,
+}
+
+// migrateQualityAuditRuleParams 幂等迁移：
+//  1. rules 表补 PARAMS 列（老库）
+//  2. 把历史空壳模板改写成带占位符的版本（只改精确匹配的内置模板）
+func migrateQualityAuditRuleParams(db *sql.DB) {
+	if !qaTableHasColumn(db, "rules", "params") {
+		if _, err := db.Exec(`ALTER TABLE rules ADD COLUMN PARAMS TEXT DEFAULT ''`); err != nil {
+			log.Printf("quality-audit migrate rules.PARAMS: %v", err)
+		}
+	}
+	rows, err := db.Query(`SELECT NM, COALESCE(SQL,'') FROM rules WHERE COALESCE(PARAMS,'') = ''`)
+	if err != nil {
+		log.Printf("quality-audit 迁移规则模板查询失败: %v", err)
+		return
+	}
+	type pending struct{ nm, sql string }
+	var todo []pending
+	for rows.Next() {
+		var nm, s string
+		if err := rows.Scan(&nm, &s); err != nil {
+			continue
+		}
+		if _, ok := qaLegacyRuleTemplates[strings.TrimSpace(s)]; ok {
+			todo = append(todo, pending{nm, strings.TrimSpace(s)})
+		}
+	}
+	_ = rows.Close()
+	for _, p := range todo {
+		if _, err := db.Exec(`UPDATE rules SET SQL=?, UPDATED_AT=? WHERE NM=?`,
+			qaLegacyRuleTemplates[p.sql], time.Now().Format(time.RFC3339), p.nm); err != nil {
+			log.Printf("quality-audit 迁移规则模板 %s 失败: %v", p.nm, err)
+			continue
+		}
+		log.Printf("quality-audit 规则模板已升级为占位符版本: %s", p.nm)
+	}
+}
+
+// qaTableHasColumn 判断表是否已有某列（SQLite：PRAGMA table_info）
+func qaTableHasColumn(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		if strings.EqualFold(name, column) {
+			return true
+		}
+	}
+	return false
 }
 
 func migrateQualityAuditFillChecked(db *sql.DB) {
@@ -613,12 +683,13 @@ func hasTopLevelLimit(s string) bool {
 }
 
 type qaRule struct {
-	NM        string `json:"nm"`
-	XH        string `json:"xh"`
-	Name      string `json:"name"`
-	SQL       string `json:"sql"`
-	Category  string `json:"category"`
-	UpdatedAt string `json:"updated_at"`
+	NM        string            `json:"nm"`
+	XH        string            `json:"xh"`
+	Name      string            `json:"name"`
+	SQL       string            `json:"sql"`
+	Category  string            `json:"category"`
+	Params    map[string]string `json:"params,omitempty"`
+	UpdatedAt string            `json:"updated_at"`
 }
 
 // qaRuleTree 规则树节点，用于构建层级结构的规则显示
@@ -631,6 +702,9 @@ type qaRuleTree struct {
 func (n *qaRuleTree) MarshalJSON() ([]byte, error) {
 	m := map[string]interface{}{
 		"nm": n.NM, "xh": n.XH, "name": n.Name, "sql": n.SQL, "category": n.Category, "updated_at": n.UpdatedAt,
+	}
+	if len(n.Params) > 0 {
+		m["params"] = n.Params
 	}
 	if len(n.Children) > 0 {
 		m["children"] = n.Children
@@ -669,7 +743,7 @@ func loadRulesFlat() ([]qaRule, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT NM, XH, NAME, COALESCE(SQL,''), CATEGORY, UPDATED_AT FROM rules ORDER BY XH`)
+	rows, err := db.Query(`SELECT NM, XH, NAME, COALESCE(SQL,''), CATEGORY, COALESCE(PARAMS,''), UPDATED_AT FROM rules ORDER BY XH`)
 	if err != nil {
 		return nil, err
 	}
@@ -677,8 +751,15 @@ func loadRulesFlat() ([]qaRule, error) {
 	var list []qaRule
 	for rows.Next() {
 		var r qaRule
-		if err := rows.Scan(&r.NM, &r.XH, &r.Name, &r.SQL, &r.Category, &r.UpdatedAt); err != nil {
+		var paramsJSON string
+		if err := rows.Scan(&r.NM, &r.XH, &r.Name, &r.SQL, &r.Category, &paramsJSON, &r.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if strings.TrimSpace(paramsJSON) != "" {
+			var p map[string]string
+			if err := json.Unmarshal([]byte(paramsJSON), &p); err == nil && len(p) > 0 {
+				r.Params = p
+			}
 		}
 		list = append(list, r)
 	}
@@ -826,12 +907,13 @@ func qaRulesGET(w http.ResponseWriter, username string) {
 
 func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	var body struct {
-		NM           string `json:"nm"`
-		XH           string `json:"xh"`
-		Name         string `json:"name"`
-		SQL          string `json:"sql"`
-		Category     string `json:"category"`
-		ChangeReason string `json:"change_reason"`
+		NM           string            `json:"nm"`
+		XH           string            `json:"xh"`
+		Name         string            `json:"name"`
+		SQL          string            `json:"sql"`
+		Category     string            `json:"category"`
+		Params       map[string]string `json:"params"`
+		ChangeReason string            `json:"change_reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		apiBadRequest(w, "JSON 解析失败")
@@ -841,6 +923,21 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	if body.NM == "" || strings.TrimSpace(body.XH) == "" || strings.TrimSpace(body.Name) == "" {
 		apiInvalidInput(w, "nm、xh、name 不能为空")
 		return
+	}
+	// 参数与 SQL 占位符必须匹配：缺参数直接拒绝保存，别等执行时才炸
+	if missing, verr := qaValidateRuleParams(body.SQL, body.Params); verr != nil {
+		apiInvalidInput(w, verr.Error())
+		return
+	} else if len(missing) > 0 {
+		apiInvalidInput(w, fmt.Sprintf("SQL 中的占位符未填参数：%s（在「规则参数」里填写）", "{{"+strings.Join(missing, "}}、{{")+"}}"))
+		return
+	}
+	params := qaPruneRuleParams(body.SQL, body.Params)
+	paramsJSON := "{}"
+	if len(params) > 0 {
+		if b, err := json.Marshal(params); err == nil {
+			paramsJSON = string(b)
+		}
 	}
 	now := time.Now().Format(time.RFC3339)
 	db, err := openQualityAuditDB()
@@ -864,9 +961,9 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	// 保存规则
-	_, err = db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, UPDATED_AT) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, UPDATED_AT=excluded.UPDATED_AT`,
-		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), now)
+	_, err = db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, UPDATED_AT) VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, UPDATED_AT=excluded.UPDATED_AT`,
+		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), paramsJSON, now)
 	if err != nil {
 		log.Printf("保存规则失败: %v", err)
 		apiInternalError(w, "保存规则失败")
@@ -909,11 +1006,12 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	var body struct {
 		Rules []struct {
-			NM       string `json:"nm"`
-			XH       string `json:"xh"`
-			Name     string `json:"name"`
-			SQL      string `json:"sql"`
-			Category string `json:"category"`
+			NM       string            `json:"nm"`
+			XH       string            `json:"xh"`
+			Name     string            `json:"name"`
+			SQL      string            `json:"sql"`
+			Category string            `json:"category"`
+			Params   map[string]string `json:"params"`
 		} `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Rules) == 0 {
@@ -938,9 +1036,21 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 		if nm == "" || strings.TrimSpace(row.XH) == "" || strings.TrimSpace(row.Name) == "" {
 			continue
 		}
-		_, err = tx.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, UPDATED_AT) VALUES (?,?,?,?,?,?)
-ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, UPDATED_AT=excluded.UPDATED_AT`,
-			nm, strings.TrimSpace(row.XH), strings.TrimSpace(row.Name), row.SQL, strings.TrimSpace(row.Category), now)
+		if _, verr := qaValidateRuleParams(row.SQL, row.Params); verr != nil {
+			_ = tx.Rollback()
+			apiInvalidInput(w, fmt.Sprintf("规则 %s：%s", nm, verr.Error()))
+			return
+		}
+		params := qaPruneRuleParams(row.SQL, row.Params)
+		paramsJSON := "{}"
+		if len(params) > 0 {
+			if b, jerr := json.Marshal(params); jerr == nil {
+				paramsJSON = string(b)
+			}
+		}
+		_, err = tx.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, UPDATED_AT) VALUES (?,?,?,?,?,?,?)
+ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, UPDATED_AT=excluded.UPDATED_AT`,
+			nm, strings.TrimSpace(row.XH), strings.TrimSpace(row.Name), row.SQL, strings.TrimSpace(row.Category), paramsJSON, now)
 		if err != nil {
 			_ = tx.Rollback()
 			apiInternalError(w, err.Error())
@@ -1115,21 +1225,22 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 				return
 			}
 
-			// SQL 安全校验
-			safeSQL, sqlErr := sanitizeSQLForQA(orig)
-			if sqlErr != nil {
+			// 渲染参数（占位符）→ 安全校验 → 方言转换；任一步失败都给出可读报错，
+			// 不把空壳 SQL 丢给数据库（旧行为会换来一条 -2007 语法错误）
+			execSQL, prepErr := qaPrepareRuleExecutionSQL(r, dialect)
+			if prepErr != nil {
 				entry := map[string]interface{}{
-					"nm": r.NM, "xh": r.XH, "name": r.Name, "error": sqlErr.Error(), "passed": false,
+					"nm": r.NM, "xh": r.XH, "name": r.Name, "category": r.Category,
+					"sql_original": orig, "error": prepErr.Error(), "passed": false,
+					"violation_count": 0,
 				}
 				if metaDB != nil {
 					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-						databaseID, r.NM, r.Name, sqlErr.Error(), t0.Format(time.RFC3339), username)
+						databaseID, r.NM, r.Name, prepErr.Error(), t0.Format(time.RFC3339), username)
 				}
 				resultChan <- ruleResult{nm: r.NM, entry: entry}
 				return
 			}
-
-			execSQL := convertOracleSQLForDialect(safeSQL, dialect)
 			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
 			entry := map[string]interface{}{
 				"nm":              r.NM,

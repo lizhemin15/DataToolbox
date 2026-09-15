@@ -999,3 +999,10 @@ body.embed-mode .embed-settings-btn {
 .qa-badge-ok { background: #c6f6d5; color: #22543d; }
 .qa-badge-warn { background: #feebc8; color: #7b341e; }
 
+
+/* 规则参数（占位符）配置 */
+.qa-param-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.qa-param-row { display: flex; align-items: center; gap: 8px; }
+.qa-param-label { min-width: 96px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #f1f3f5; border-radius: 4px; padding: 4px 8px; color: #495057; }
+.qa-param-row input[type="text"] { flex: 1; }
+.qa-param-warn { font-size: 12px; color: #b35c00; background: #fff4e5; border: 1px solid #ffe0b2; border-radius: 4px; padding: 1px 6px; }

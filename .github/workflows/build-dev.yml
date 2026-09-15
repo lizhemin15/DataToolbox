@@ -41,6 +41,14 @@ jobs:
           go mod tidy
           go mod download
 
+      - name: Run Go unit tests (linux-amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: go test ./... -count=1
+
+      - name: Run JS parser tests (linux-amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: node tests/js/qa_shared_params.test.js
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}

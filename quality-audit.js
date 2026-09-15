@@ -468,6 +468,8 @@
                 var c = document.createElement('code');
                 c.textContent = n.nm + ' / ' + n.xh;
                 line.appendChild(c);
+                var pb1 = qaParamBadge(n);
+                if (pb1) line.appendChild(pb1);
                 sum.appendChild(line);
                 sum.addEventListener('click', function (e) {
                     if (e.target.tagName === 'INPUT') return;
@@ -496,6 +498,8 @@
                 var c2 = document.createElement('code');
                 c2.textContent = n.nm + ' / ' + n.xh;
                 div.appendChild(c2);
+                var pb2 = qaParamBadge(n);
+                if (pb2) div.appendChild(pb2);
                 div.addEventListener('click', function (e) {
                     if (e.target.tagName === 'INPUT') return;
                     fillEditor(n);
@@ -505,12 +509,94 @@
         });
     }
 
+    // qaParamBadge 规则树上的参数状态标记：缺参数时提醒，避免带着空壳规则去执行
+    function qaParamBadge(n) {
+        var miss = qaMissingParams(n && n.sql, n && n.params);
+        if (!miss.length) return null;
+        var sp = document.createElement('span');
+        sp.className = 'qa-param-warn';
+        sp.textContent = '⚠ 参数未配置：' + miss.join('、');
+        return sp;
+    }
+
     function fillEditor(rule) {
         document.getElementById('qaNm').value = rule.nm || '';
         document.getElementById('qaXh').value = rule.xh || '';
         document.getElementById('qaName').value = rule.name || '';
         document.getElementById('qaCategory').value = rule.category || '';
         document.getElementById('qaSql').value = rule.sql || '';
+        qaCurrentRuleParams = rule.params || {};
+        qaRenderRuleParams();
+    }
+
+    // ===== 规则参数（占位符 {{xxx}}）=====
+    var qaCurrentRuleParams = {};
+
+    // qaExtractPlaceholders 取出 SQL 里的占位符名（去重、保持顺序），与后端 qaRulePlaceholders 对齐
+    function qaExtractPlaceholders(sql) {
+        var out = [], seen = {};
+        String(sql || '').replace(/\{\{\s*([^{}]+?)\s*\}\}/g, function (m, name) {
+            name = String(name || '').trim();
+            if (!name || seen[name]) return '';
+            seen[name] = true;
+            out.push(name);
+            return '';
+        });
+        return out;
+    }
+
+    // qaRenderRuleParams 按 SQL 中的占位符渲染参数输入框，保留已填内容
+    function qaRenderRuleParams() {
+        var box = document.getElementById('qaParamList');
+        if (!box) return;
+        var names = qaExtractPlaceholders(document.getElementById('qaSql').value);
+        var prev = {};
+        box.querySelectorAll('input[data-param]').forEach(function (inp) { prev[inp.getAttribute('data-param')] = inp.value; });
+        box.innerHTML = '';
+        if (!names.length) {
+            var hint = document.createElement('span');
+            hint.className = 'qa-form-hint';
+            hint.textContent = '当前 SQL 中暂无占位符';
+            box.appendChild(hint);
+            return;
+        }
+        names.forEach(function (name) {
+            var row = document.createElement('div');
+            row.className = 'qa-param-row';
+            var lb = document.createElement('span');
+            lb.className = 'qa-param-label';
+            lb.textContent = '{{' + name + '}}';
+            var inp = document.createElement('input');
+            inp.type = 'text';
+            inp.setAttribute('data-param', name);
+            inp.placeholder = '填写实际' + name;
+            var v = qaCurrentRuleParams[name];
+            if (v === undefined || v === null || v === '') v = prev[name];
+            inp.value = v || '';
+            row.appendChild(lb);
+            row.appendChild(inp);
+            box.appendChild(row);
+        });
+    }
+
+    // qaCollectRuleParams 收集参数输入框的值
+    function qaCollectRuleParams() {
+        var out = {};
+        var box = document.getElementById('qaParamList');
+        if (!box) return out;
+        box.querySelectorAll('input[data-param]').forEach(function (inp) {
+            var name = inp.getAttribute('data-param');
+            var v = String(inp.value || '').trim();
+            if (v) out[name] = v;
+        });
+        return out;
+    }
+
+    // qaMissingParams 返回 SQL 中未填值的占位符名
+    function qaMissingParams(sql, params) {
+        return qaExtractPlaceholders(sql).filter(function (name) {
+            return !(params && String(params[name] || '').trim());
+        });
     }
 
     function loadRules() {
@@ -1580,8 +1666,14 @@
                 xh: document.getElementById('qaXh').value.trim(),
                 name: document.getElementById('qaName').value.trim(),
                 category: document.getElementById('qaCategory').value.trim(),
-                sql: document.getElementById('qaSql').value
+                sql: document.getElementById('qaSql').value,
+                params: qaCollectRuleParams()
             };
+            var miss = qaMissingParams(body.sql, body.params);
+            if (miss.length) {
+                showMsg('SQL 里的占位符还没填参数：' + miss.map(function (m) { return '{{' + m + '}}'; }).join('、'), true);
+                return;
+            }
             fetchWithAuth(PREFIX + 'rules', { method: 'POST', body: JSON.stringify(body) })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
@@ -1592,9 +1684,12 @@
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
+        var qaSqlInput = document.getElementById('qaSql');
+        if (qaSqlInput) qaSqlInput.addEventListener('input', function () { qaRenderRuleParams(); });
+        qaRenderRuleParams();
+
         var qaDelRule = document.getElementById('qaDelRule');
-        if (qaDelRule) qaDelRule.addEventListener('click', function () {
-            var nm = padNm(document.getElementById('qaNm').value);
+        if (qaDelRule) qaDelRule.addEventListener('click', function () {            var nm = padNm(document.getElementById('qaNm').value);
             if (!nm || !confirm('确定删除 ' + nm + ' ?')) return;
             fetchWithAuth(PREFIX + 'rules/' + encodeURIComponent(nm), { method: 'DELETE' })
                 .then(function (r) { return r.json(); })
@@ -1608,7 +1703,7 @@
 
         var qaPasteExcel = document.getElementById('qaPasteExcel');
         if (qaPasteExcel) qaPasteExcel.addEventListener('click', function () {
-            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别），粘贴到此处：\n批量导入，一次多行；列格式见「下载模板」。');
+            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别, 参数），粘贴到此处：\n参数列可选，填写 SQL 中 {{占位符}} 的实际值（JSON 或 表名=xxx;字段名=yyy）。\n批量导入，一次多行；列格式见「下载模板」。');
             if (!raw) return;
             var rules = parseExcelPasteRules(raw);
             if (!rules.length) { showMsg('未解析到有效行', true); return; }
@@ -1626,23 +1721,25 @@
         if (qaDownloadTemplate) qaDownloadTemplate.addEventListener('click', function () {
             try {
                 if (typeof XLSX === 'undefined') { showMsg('XLSX 库未加载，无法生成模板', true); return; }
-                var header = ['NM', 'XH', '名称', 'SQL', '类别'];
+                var header = ['NM', 'XH', '名称', 'SQL', '类别', '参数'];
                 var rows = [
-                    ['010000', '01', '表数据量校验', 'SELECT COUNT(*) FROM 表名', '基础校验'],
-                    ['010100', '0101', '主键唯一性', 'SELECT 主键字段 FROM 表名 GROUP BY 主键字段 HAVING COUNT(*) > 1', '完整性'],
-                    ['010200', '0102', '手机号格式', "SELECT 手机号字段 FROM 表名 WHERE 手机号字段 NOT LIKE '1%'", '规范性']
+                    ['010100', '0101', '主键唯一性', 'SELECT {{字段名}} FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1', '完整性', '{"表名":"T_ORDER","字段名":"ORDER_ID"}'],
+                    ['010200', '0102', '手机号格式', "SELECT * FROM {{表名}} WHERE {{字段名}} NOT LIKE '1%'", '规范性', '{"表名":"T_USER","字段名":"PHONE"}'],
+                    ['010000', '01', '表数据量校验', 'SELECT COUNT(*) FROM T_COUNT', '基础校验', '']
                 ];
                 var wb = XLSX.utils.book_new();
                 var ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
-                ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 64 }, { wch: 12 }];
+                ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 64 }, { wch: 12 }, { wch: 40 }];
                 XLSX.utils.book_append_sheet(wb, ws, '规则导入模板');
                 var notes = [
                     ['列名', '是否必填', '说明'],
                     ['NM', '是', '6 位数字编号，不足 6 位前补 0（如 010000）。同一 NM 重复导入会覆盖原规则'],
                     ['XH', '是', '层级编码，每两位一级（01 / 0101 / 010101），用于规则树分组'],
                     ['名称', '是', '规则名称'],
-                    ['SQL', '是', '审核用 SQL，按 Oracle 方言书写，执行时自动转换为目标库方言'],
-                    ['类别', '否', '自由文本分类，如 完整性 / 规范性 / 基础校验']
+                    ['SQL', '是', '审核用 SQL，按 Oracle 方言书写，执行时自动转换为目标库方言。可变部分写成 {{名称}} 占位符，例如 SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL'],
+                    ['类别', '否', '自由文本分类，如 完整性 / 规范性 / 基础校验'],
+                    ['参数', '占位符存在时必填', 'JSON 对象，键为占位符名：{"表名":"T_ORDER","字段名":"ORDER_ID"}。也支持 表名=T_ORDER;字段名=ORDER_ID 写法'],
+                    ['', '', '占位符没填参数时规则无法执行（会提示「参数未配置」），保存时即会被拦下']
                 ];
                 var ws2 = XLSX.utils.aoa_to_sheet(notes);
                 ws2['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 72 }];

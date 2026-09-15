@@ -76,6 +76,42 @@
         return /^\d{1,6}$/.test(s);
     }
 
+    // parseRuleParamsCell 解析导入表的「参数」列。
+    // 兼容三种写法：
+    //   1) 标准 JSON：{"表名":"T","字段名":"C"}
+    //   2) 被 TSV/Excel 引号解析吞掉引号的 JSON：{表名:T,字段名:C}
+    //   3) 键值对：表名=T;字段名=C
+    function parseRuleParamsCell(v) {
+        var raw = String(v == null ? '' : v).trim();
+        if (!raw) return {};
+        var out = {};
+        var assign = function (k, val) {
+            k = String(k == null ? '' : k).trim().replace(/^["']|["']$/g, '');
+            val = String(val == null ? '' : val).trim().replace(/^["']|["']$/g, '');
+            if (k && val) out[k] = val;
+        };
+        if (raw.charAt(0) === '{') {
+            try {
+                var obj = JSON.parse(raw);
+                Object.keys(obj || {}).forEach(function (k) {
+                    var val = obj[k];
+                    if (val !== null && val !== undefined && String(val).trim() !== '') assign(k, val);
+                });
+                return out;
+            } catch (e) { /* 落回宽松解析 */ }
+            raw.replace(/^\{/, '').replace(/\}$/, '').split(/[;,\n]/).forEach(function (pair) {
+                var m = pair.match(/^\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/);
+                if (m) assign(m[1], m[2]);
+            });
+            return out;
+        }
+        raw.split(/[;,\n]/).forEach(function (pair) {
+            var m = pair.match(/^\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/);
+            if (m) assign(m[1], m[2]);
+        });
+        return out;
+    }
+
     function mergeRuleContinuationRows(parsedRows) {
         var out = [];
         var cur = null;
@@ -88,7 +124,8 @@
                     xh: (p[1] || '').trim(),
                     name: (p[2] || '').trim(),
                     sql: p[3] != null ? String(p[3]) : '',
-                    category: p[4] != null ? String(p[4]).trim() : ''
+                    category: p[4] != null ? String(p[4]).trim() : '',
+                    params: parseRuleParamsCell(p[5])
                 };
             } else if (cur) {
                 cur.sql += '\n' + p.join('\t');
@@ -111,7 +148,8 @@
                     xh: (p[1] || '').trim(),
                     name: (p[2] || '').trim(),
                     sql: p[3] != null ? String(p[3]) : '',
-                    category: (p[4] || '').trim()
+                    category: (p[4] || '').trim(),
+                    params: parseRuleParamsCell(p[5])
                 };
             } else if (cur) {
                 cur.sql += '\n' + line;
@@ -293,6 +331,7 @@
         escapeHtml: escapeHtml,
         parseExcelTSVWithQuotes: parseExcelTSVWithQuotes,
         mergeRuleContinuationRows: mergeRuleContinuationRows,
+        parseRuleParamsCell: parseRuleParamsCell,
         parseExcelPasteRules: parseExcelPasteRules,
         mergeFillContinuationRows: mergeFillContinuationRows,
         parseExcelPasteFillRates: parseExcelPasteFillRates,
