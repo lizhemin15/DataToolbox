@@ -43,7 +43,7 @@ jobs:
 
       - name: Run Go unit tests (linux-amd64 only)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: go test ./... -count=1
+        run: go test -tags=nogov ./... -count=1
 
       - name: Run JS parser tests (linux-amd64 only)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
