@@ -66,6 +66,9 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "progress":
 			handleGovernanceTaskProgress(w, r, taskID)
 			return
+		case "code-versions":
+			handleGovernanceTaskCodeVersions(w, r, taskID, pathParts)
+			return
 		case "share":
 			// 分享相关操作
 			if len(pathParts) >= 3 {
@@ -592,6 +595,235 @@ func handleGovernanceTaskRun(w http.ResponseWriter, r *http.Request, taskID stri
 			"message": "任务队列已满，请稍后重试",
 		})
 	}
+}
+
+// ==================== 治理任务：代码版本管理（AI 代码编辑器） ====================
+
+const (
+	govCodeVersionsMax = 50 // 每个任务保留的版本上限（超出丢弃最旧的）
+	govAIChatMax       = 60 // 对话消息上限
+)
+
+func govCodeVersionsOrEmpty(v []GovernanceCodeVersion) []GovernanceCodeVersion {
+	if v == nil {
+		return []GovernanceCodeVersion{}
+	}
+	return v
+}
+
+func govAIChatOrEmpty(v []GovernanceChatMessage) []GovernanceChatMessage {
+	if v == nil {
+		return []GovernanceChatMessage{}
+	}
+	return v
+}
+
+func govTrimChat(in []GovernanceChatMessage) []GovernanceChatMessage {
+	out := make([]GovernanceChatMessage, 0, len(in))
+	for _, m := range in {
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		if m.Role != "user" && m.Role != "assistant" {
+			m.Role = "assistant"
+		}
+		out = append(out, m)
+	}
+	if len(out) > govAIChatMax {
+		out = out[len(out)-govAIChatMax:]
+	}
+	return out
+}
+
+// handleGovernanceTaskCodeVersions 治理任务代码版本管理
+//   GET    /api/v1/gov/tasks/{id}/code-versions                 列出版本 + 对话 + 当前代码
+//   POST   /api/v1/gov/tasks/{id}/code-versions                 追加版本（body: code, note, source, chat）
+//   POST   /api/v1/gov/tasks/{id}/code-versions/restore         回滚到指定版本（body: version_id）
+//   DELETE /api/v1/gov/tasks/{id}/code-versions/{version_id}    删除指定版本
+func handleGovernanceTaskCodeVersions(w http.ResponseWriter, r *http.Request, taskID string, parts []string) {
+	w.Header().Set("Content-Type", "application/json")
+	writeErr := func(msg string) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": msg})
+	}
+
+	username, authOK := getDataOntologyUserFromRequest(r)
+	if !authOK {
+		writeErr("未授权")
+		return
+	}
+
+	sub := ""
+	if len(parts) >= 3 {
+		sub = parts[2]
+	}
+
+	// ---------- 读：列出版本 ----------
+	if r.Method == http.MethodGet {
+		dataOntologyMu.RLock()
+		task := governanceTasks[taskID]
+		var payload map[string]interface{}
+		if task == nil || !dataOntologyResourceVisible(task.Owner, username) {
+			payload = map[string]interface{}{"success": false, "message": "任务不存在"}
+		} else {
+			payload = map[string]interface{}{
+				"success":      true,
+				"versions":     govCodeVersionsOrEmpty(task.CodeVersions),
+				"chat":         govAIChatOrEmpty(task.AIChat),
+				"current_code": task.JsCode,
+			}
+		}
+		dataOntologyMu.RUnlock()
+		json.NewEncoder(w).Encode(payload)
+		return
+	}
+
+	// ---------- 删：删除某个版本 ----------
+	if r.Method == http.MethodDelete {
+		if sub == "" {
+			writeErr("缺少版本 ID")
+			return
+		}
+		dataOntologyMu.Lock()
+		task := governanceTasks[taskID]
+		if task == nil || !dataOntologyResourceVisible(task.Owner, username) {
+			dataOntologyMu.Unlock()
+			writeErr("任务不存在")
+			return
+		}
+		kept := make([]GovernanceCodeVersion, 0, len(task.CodeVersions))
+		found := false
+		for _, v := range task.CodeVersions {
+			if v.ID == sub {
+				found = true
+				continue
+			}
+			kept = append(kept, v)
+		}
+		if !found {
+			dataOntologyMu.Unlock()
+			writeErr("版本不存在")
+			return
+		}
+		task.CodeVersions = kept
+		task.UpdatedAt = time.Now().Format(time.RFC3339)
+		saveErr := saveDataOntologyStoreNoLock()
+		versions := govCodeVersionsOrEmpty(task.CodeVersions)
+		dataOntologyMu.Unlock()
+		if saveErr != nil {
+			writeErr("保存失败: " + saveErr.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "versions": versions})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeErr("不支持的方法")
+		return
+	}
+
+	var req struct {
+		Code      string                  `json:"code"`
+		Note      string                  `json:"note"`
+		Source    string                  `json:"source"`
+		VersionID string                  `json:"version_id"`
+		Chat      []GovernanceChatMessage `json:"chat"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr("请求格式错误")
+		return
+	}
+
+	// ---------- 回滚到指定版本 ----------
+	if sub == "restore" {
+		if req.VersionID == "" {
+			writeErr("缺少 version_id")
+			return
+		}
+		dataOntologyMu.Lock()
+		task := governanceTasks[taskID]
+		if task == nil || !dataOntologyResourceVisible(task.Owner, username) {
+			dataOntologyMu.Unlock()
+			writeErr("任务不存在")
+			return
+		}
+		var target *GovernanceCodeVersion
+		for i := range task.CodeVersions {
+			if task.CodeVersions[i].ID == req.VersionID {
+				target = &task.CodeVersions[i]
+				break
+			}
+		}
+		if target == nil {
+			dataOntologyMu.Unlock()
+			writeErr("版本不存在")
+			return
+		}
+		task.JsCode = target.Code
+		task.UpdatedAt = time.Now().Format(time.RFC3339)
+		if len(req.Chat) > 0 {
+			task.AIChat = govTrimChat(req.Chat)
+		}
+		saveErr := saveDataOntologyStoreNoLock()
+		code := task.JsCode
+		versions := govCodeVersionsOrEmpty(task.CodeVersions)
+		chat := govAIChatOrEmpty(task.AIChat)
+		dataOntologyMu.Unlock()
+		if saveErr != nil {
+			writeErr("保存失败: " + saveErr.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true, "code": code, "versions": versions, "chat": chat,
+			"restored_version_id": req.VersionID,
+		})
+		return
+	}
+
+	// ---------- 追加新版本 ----------
+	if strings.TrimSpace(req.Code) == "" {
+		writeErr("代码不能为空")
+		return
+	}
+	source := strings.TrimSpace(req.Source)
+	if source == "" {
+		source = "manual"
+	}
+	dataOntologyMu.Lock()
+	task := governanceTasks[taskID]
+	if task == nil || !dataOntologyResourceVisible(task.Owner, username) {
+		dataOntologyMu.Unlock()
+		writeErr("任务不存在")
+		return
+	}
+	now := time.Now().Format(time.RFC3339)
+	ver := GovernanceCodeVersion{
+		ID:        uuid.New().String(),
+		Code:      req.Code,
+		Source:    source,
+		Note:      req.Note,
+		CreatedAt: now,
+	}
+	task.CodeVersions = append(task.CodeVersions, ver)
+	if len(task.CodeVersions) > govCodeVersionsMax {
+		task.CodeVersions = task.CodeVersions[len(task.CodeVersions)-govCodeVersionsMax:]
+	}
+	task.JsCode = req.Code
+	task.UpdatedAt = now
+	if len(req.Chat) > 0 {
+		task.AIChat = govTrimChat(req.Chat)
+	}
+	saveErr := saveDataOntologyStoreNoLock()
+	versions := govCodeVersionsOrEmpty(task.CodeVersions)
+	chat := govAIChatOrEmpty(task.AIChat)
+	dataOntologyMu.Unlock()
+	if saveErr != nil {
+		writeErr("保存失败: " + saveErr.Error())
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true, "version": ver, "versions": versions, "chat": chat,
+	})
 }
 
 // handleGovernanceTaskProgress 获取任务执行进度

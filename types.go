@@ -470,6 +470,22 @@ type GovernanceExampleFile struct {
 	Path string `json:"path"`
 }
 
+// GovernanceCodeVersion 治理任务代码版本快照（AI 代码编辑器用）
+type GovernanceCodeVersion struct {
+	ID        string `json:"id"`
+	Code      string `json:"code"`
+	Source    string `json:"source"` // seed | ai | manual
+	Note      string `json:"note,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// GovernanceChatMessage AI 代码编辑器的对话消息
+type GovernanceChatMessage struct {
+	Role    string `json:"role"` // user | assistant
+	Content string `json:"content"`
+	At      string `json:"at,omitempty"`
+}
+
 // GovernanceTask 数据治理任务
 
 type GovernanceTask struct {
@@ -505,6 +521,9 @@ type GovernanceTask struct {
 	Percent        int    `json:"percent,omitempty"`         // 进度百分比
 	CurrentFile    string `json:"current_file,omitempty"`    // 当前处理的文件
 	StartedAt      string `json:"started_at,omitempty"`      // 开始时间
+	// AI 代码编辑器：代码版本快照与对话记录（仅经 /code-versions 子资源暴露，不随任务列表下发）
+	CodeVersions []GovernanceCodeVersion `json:"-"`
+	AIChat       []GovernanceChatMessage `json:"-"`
 	// 分享功能
 	ShareEnabled bool   `json:"share_enabled"` // 是否开启分享
 	ShareToken   string `json:"share_token"`   // 分享token（UUID）

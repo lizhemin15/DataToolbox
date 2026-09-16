@@ -275,7 +275,9 @@ func saveDataOntologyStore() error {
 // SQLite 模式下 sqlSaveAll 内部有自己的锁，所以这里直接调用
 func saveDataOntologyStoreNoLock() error {
 	if storeDB != nil {
-		return sqlSaveAll()
+		// 真正的无锁版本：调用方已持有 dataOntologyMu 写锁。
+		// （原先这里调 sqlSaveAll() 会再取 RLock → 与写锁死锁，导致整个服务假死）
+		return sqlSaveAllNoLock()
 	}
 	return saveDataOntologyStoreJSONNoLock()
 }

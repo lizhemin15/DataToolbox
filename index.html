@@ -2285,6 +2285,7 @@
                         <span>📝 任务代码 (JavaScript)</span>
                         <span class="gov-collapsible-arrow">▶</span>
                         <button type="button" class="btn btn-sm" onclick="event.stopPropagation();openGovApiHelp()" style="font-size:12px;margin-left:auto;">📖 API 参考</button>
+                        <button type="button" class="btn btn-sm gov-ai-edit-btn" id="govAiEditBtn" onclick="event.stopPropagation();GovCodeStudio.open()" title="版本管理 + AI 辅助编写（系统提示词内置 API 参考）">✨ AI 编辑</button>
                     </div>
                     <div class="gov-collapsible-body">
                         <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
@@ -2676,6 +2677,7 @@
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
     <script src="/js/script-governance.js?v=2026061002" defer></script>
     <script src="/js/script-ontology.js?v=2026061002" defer></script>
+    <script src="/js/gov-code-studio.js?v=2026091623" defer></script>
     <script src="/js/script-relations.js?v=2026061002" defer></script>
     <script src="/js/script-api-detail.js?v=2026061002" defer></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->

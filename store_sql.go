@@ -809,6 +809,9 @@ type governanceTaskConfig struct {
 	Percent       int    `json:"percent,omitempty"`
 	CurrentFile   string `json:"current_file,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
+	// AI 代码编辑器：版本快照 + 对话记录（与运行时状态同存于 config 列，避免加表迁移）
+	CodeVersions []GovernanceCodeVersion `json:"code_versions,omitempty"`
+	AIChat       []GovernanceChatMessage `json:"ai_chat,omitempty"`
 }
 
 func sqlSaveGovernanceTasks(tasks map[string]*GovernanceTask) error {
@@ -853,6 +856,8 @@ func sqlSaveGovernanceTasks(tasks map[string]*GovernanceTask) error {
 			Percent:       t.Percent,
 			CurrentFile:   t.CurrentFile,
 			StartedAt:     t.StartedAt,
+			CodeVersions:  t.CodeVersions,
+			AIChat:        t.AIChat,
 		}
 
 		_, err := tx.Exec(`INSERT OR REPLACE INTO governance_tasks (id, owner, name, type, description, database_id, cron_expr, enabled, input_type, accept_exts, register_as_api, api_path, api_method, file_batch_mode, runtime, run_mode, execution_mode, example_files, js_code, config, created_at, updated_at, share_enabled, share_token) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -912,6 +917,8 @@ func sqlLoadGovernanceTasks() (map[string]*GovernanceTask, error) {
 				t.Percent = config.Percent
 				t.CurrentFile = config.CurrentFile
 				t.StartedAt = config.StartedAt
+				t.CodeVersions = config.CodeVersions
+				t.AIChat = config.AIChat
 			}
 		}
 		result[t.ID] = t
@@ -1044,9 +1051,24 @@ func sqlSaveAll() error {
 	if storeDB == nil {
 		return fmt.Errorf("[存储] SQLite 未初始化")
 	}
+	return sqlSaveAllWithLocks(true)
+}
 
-	dataOntologyMu.RLock()
-	governanceShareRunsMu.RLock()
+// sqlSaveAllNoLock 与 sqlSaveAll 行为一致，但**不取内部锁**：
+// 供已经持有 dataOntologyMu 写锁的调用方使用（取名 NoLock 即此意）。
+// Go 的 sync.RWMutex 不可重入，若此处再取 RLock 会与调用方的写锁互相死锁。
+func sqlSaveAllNoLock() error {
+	if storeDB == nil {
+		return fmt.Errorf("[存储] SQLite 未初始化")
+	}
+	return sqlSaveAllWithLocks(false)
+}
+
+func sqlSaveAllWithLocks(useLocks bool) error {
+	if useLocks {
+		dataOntologyMu.RLock()
+		governanceShareRunsMu.RLock()
+	}
 
 	// 快照当前内存数据
 	users := dataOntologyUsers
@@ -1062,8 +1084,10 @@ func sqlSaveAll() error {
 	sms := smallModels
 	shareRuns := governanceShareRuns
 
-	governanceShareRunsMu.RUnlock()
-	dataOntologyMu.RUnlock()
+	if useLocks {
+		governanceShareRunsMu.RUnlock()
+		dataOntologyMu.RUnlock()
+	}
 
 	// 依次写入各表（每个表内部有自己的锁和事务）
 	if err := sqlSaveUsers(users); err != nil {
