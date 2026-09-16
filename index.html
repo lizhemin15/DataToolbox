@@ -1019,33 +1019,41 @@
             <div class="tab-content-wrap">
                 <div class="qa-page">
                     <div class="qa-subtabs" id="qaSubtabs">
-                        <button type="button" class="qa-subtab active" data-qa-sub="rules">规则配置</button>
-                        <button type="button" class="qa-subtab" data-qa-sub="schedules">定时任务</button>
-                        <button type="button" class="qa-subtab" data-qa-sub="runs">执行记录</button>
+                        <div class="qa-subtabs-tabs">
+                            <button type="button" class="qa-subtab active" data-qa-sub="rules">规则配置</button>
+                            <button type="button" class="qa-subtab" data-qa-sub="schedules">定时任务</button>
+                            <button type="button" class="qa-subtab" data-qa-sub="runs">执行记录</button>
+                        </div>
+                        <div class="qa-subtabs-actions">
+                            <button type="button" class="btn btn-sm qa-tpl-open-btn" id="qaOpenReportTpl" title="配置报告样式与页眉页脚">报告模板</button>
+                        </div>
                     </div>
                     <div id="qaSubRules" class="qa-subpanel">
                     <div id="qaMsg" class="qa-msg"></div>
-                    <div class="qa-topbar">
-                        <button type="button" class="btn btn-sm qa-tpl-open-btn" id="qaOpenReportTpl" title="配置报告样式与页眉页脚">报告模板</button>
-                    </div>
                     <div class="qa-layout">
-                        <div class="qa-panel">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
-                                <label style="font-weight:bold;"><input type="checkbox" id="qaTreeSelectAll" style="margin-right:6px;">规则树</label>
-                                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-                                    <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别, 参数）">下载模板</button>
-                                    <button type="button" class="btn btn-sm" id="qaPasteExcel" title="从 Excel 复制多行后粘贴导入（批量）">粘贴导入</button>
-                                    <label class="btn btn-sm cursor-pointer" title="选择 .xlsx/.xls 文件批量导入规则" style="margin:0;">Excel 文件导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
-                                    <button type="button" class="btn btn-sm" id="qaExpandAll">展开全部</button>
-                                    <button type="button" class="btn btn-sm btn-danger" id="qaBatchDelete" style="background:#dc3545;color:#fff;">批量删除</button>
-                                </div>
+                        <div class="qa-panel qa-panel-tree">
+                            <div class="qa-panel-head">
+                                <label class="qa-tree-title"><input type="checkbox" id="qaTreeSelectAll"> 规则树</label>
+                                <button type="button" class="btn btn-sm" id="qaToggleExpand">展开/收起</button>
+                            </div>
+                            <div class="qa-tree-toolbar">
+                                <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别, 参数）">下载模板</button>
+                                <button type="button" class="btn btn-sm" id="qaPasteExcel" title="从 Excel 复制多行后粘贴导入（批量）">粘贴导入</button>
+                                <label class="btn btn-sm cursor-pointer" title="选择 .xlsx/.xls 文件批量导入规则" style="margin:0;">Excel 导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
+                                <button type="button" class="btn btn-sm qa-btn-danger" id="qaBatchDelete">批量删除</button>
                             </div>
                             <div class="qa-import-hint">批量导入：一次可导入多条规则，列顺序固定为 <b>NM / XH / 名称 / SQL / 类别 / 参数</b>（参数列可选，填 SQL 中 <code>{{占位符}}</code> 的实际值），首行表头会被自动跳过。先点「下载模板」看列格式。</div>
                             <div id="qaTree" class="qa-tree"></div>
                         </div>
-                        <div>
-                            <div class="qa-panel" style="margin-bottom:12px;">
-                                <strong>规则编辑</strong>
+                        <div class="qa-layout-side">
+                            <div class="qa-panel">
+                                <div class="qa-panel-head">
+                                    <strong>规则编辑</strong>
+                                    <div class="qa-panel-actions">
+                                        <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>
+                                        <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
+                                    </div>
+                                </div>
                                 <div class="qa-form">
                                     <label>NM（6位）</label>
                                     <input type="text" id="qaNm" maxlength="6" placeholder="010000">
@@ -1059,43 +1067,56 @@
                                     <textarea id="qaSql" placeholder="SELECT ..."></textarea>
                                     <label>规则参数（SQL 里写 {{表名}}、{{字段名}} 等占位符，会自动列出待填项）</label>
                                     <div id="qaParamList" class="qa-param-list"><span class="qa-form-hint">当前 SQL 中暂无占位符</span></div>
-                                    <div class="qa-form-hint">执行时用参数替换占位符后再转方言。参数没填的规则会直接报错「参数未配置」，不会再有 -2007 那种看不懂的语法错误。</div>
-                                    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-                                        <button type="button" class="btn btn-primary btn-sm" id="qaSaveRule">保存规则</button>
-                                        <button type="button" class="btn btn-sm" id="qaDelRule">删除当前</button>
-                                        <span class="qa-form-hint">批量导入多条规则请用左侧规则树上的「下载模板 / 粘贴导入 / Excel 文件导入」。</span>
-                                    </div>
+                                    <div class="qa-form-hint">执行时用参数替换占位符后再转方言。参数没填的规则会直接报错「参数未配置」，不会再有 -2007 那种看不懂的语法错误。批量导入多条规则请用左侧规则树上的「下载模板 / 粘贴导入 / Excel 导入」。</div>
                                 </div>
                             </div>
                             <div class="qa-panel">
-                                <strong>填报率配置</strong>
+                                <div class="qa-panel-head">
+                                    <strong>填报率配置</strong>
+                                    <div class="qa-panel-actions">
+                                        <button type="button" class="btn btn-sm" id="qaPasteFill" title="从 Excel 粘贴 表名/字段名/分子/分母 多行导入">粘贴导入</button>
+                                        <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>
+                                    </div>
+                                </div>
                                 <div class="qa-tabs">
                                     <button type="button" class="qa-tab active" data-fr="item">项填报率</button>
                                     <button type="button" class="qa-tab" data-fr="record">记录填报率</button>
                                 </div>
                                 <div id="qaFillItem">
-                                    <div class="qa-fill-header qa-fill-table-header">
-                                        <span class="qa-fill-th w-60"><label class="cursor-pointer"><input type="checkbox" id="qaFillItemAll"> 全选</label></span>
-                                        <span class="qa-fill-th">表名</span>
-                                        <span class="qa-fill-th">分子</span>
-                                        <span class="qa-fill-th">分母</span>
+                                    <div class="qa-fill-toolbar">
+                                        <button type="button" class="btn btn-sm" id="qaAddRowItem">+ 添加一行</button>
+                                        <button type="button" class="btn btn-sm qa-btn-danger-outline" id="qaDelRowsItem">删除选中</button>
+                                        <span class="qa-fill-tip">表名为空的行保存时会被忽略；分子/分母支持多行 SQL</span>
                                     </div>
-                                    <div id="qaFillItemTree" class="qa-fill-list"></div>
-                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowItem">+ 行</button>
+                                    <div class="qa-fill-grid">
+                                        <div class="qa-fill-row-head">
+                                            <span class="qa-fill-c qa-fill-c-cb"><label class="qa-fill-all"><input type="checkbox" id="qaFillItemAll" title="全选"> 全选</label></span>
+                                            <span class="qa-fill-c">表名</span>
+                                            <span class="qa-fill-c">字段名</span>
+                                            <span class="qa-fill-c">分子</span>
+                                            <span class="qa-fill-c">分母</span>
+                                            <span class="qa-fill-c qa-fill-c-act">操作</span>
+                                        </div>
+                                        <div id="qaFillItemTree" class="qa-fill-list"></div>
+                                    </div>
                                 </div>
                                 <div id="qaFillRecord" style="display:none;">
-                                    <div class="qa-fill-header qa-fill-table-header">
-                                        <span class="qa-fill-th w-60"><label class="cursor-pointer"><input type="checkbox" id="qaFillRecordAll"> 全选</label></span>
-                                        <span class="qa-fill-th">表名</span>
-                                        <span class="qa-fill-th">分子</span>
-                                        <span class="qa-fill-th">分母</span>
+                                    <div class="qa-fill-toolbar">
+                                        <button type="button" class="btn btn-sm" id="qaAddRowRecord">+ 添加一行</button>
+                                        <button type="button" class="btn btn-sm qa-btn-danger-outline" id="qaDelRowsRecord">删除选中</button>
+                                        <span class="qa-fill-tip">表名为空的行保存时会被忽略；分子/分母支持多行 SQL</span>
                                     </div>
-                                    <div id="qaFillRecordTree" class="qa-fill-list"></div>
-                                    <button type="button" class="btn btn-sm qa-fill-add" id="qaAddRowRecord">+ 行</button>
-                                </div>
-                                <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
-                                    <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>
-                                    <button type="button" class="btn btn-sm" id="qaPasteFill">粘贴导入</button>
+                                    <div class="qa-fill-grid">
+                                        <div class="qa-fill-row-head">
+                                            <span class="qa-fill-c qa-fill-c-cb"><label class="qa-fill-all"><input type="checkbox" id="qaFillRecordAll" title="全选"> 全选</label></span>
+                                            <span class="qa-fill-c">表名</span>
+                                            <span class="qa-fill-c">字段名</span>
+                                            <span class="qa-fill-c">分子</span>
+                                            <span class="qa-fill-c">分母</span>
+                                            <span class="qa-fill-c qa-fill-c-act">操作</span>
+                                        </div>
+                                        <div id="qaFillRecordTree" class="qa-fill-list"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -707,10 +707,13 @@
         adjustQaFillTextarea(taD);
         rm.addEventListener('click', function () {
             var root = wrap.parentNode;
-            if (root && root.querySelectorAll('.qa-fill-row').length > 1) {
-                wrap.remove();
-                updateFillSelectAll();
+            if (!root) return;
+            wrap.remove();
+            // 删空了补一行空白，保证列表始终至少有一行可编辑
+            if (!root.querySelector('.qa-fill-node')) {
+                root.appendChild(createFillNode({ checked: true }));
             }
+            updateFillSelectAll();
         });
         return wrap;
     }
@@ -752,6 +755,24 @@
             cb.checked = val;
         });
         updateFillSelectAll();
+    }
+
+    // 删除勾选行；删空后补一行空白，避免出现「整块空白、没法再新增」的死状态
+    function deleteCheckedFillRows(treeId) {
+        var root = document.getElementById(treeId);
+        if (!root) return;
+        var nodes = Array.prototype.slice.call(root.querySelectorAll('.qa-fill-node'));
+        var targets = nodes.filter(function (n) {
+            var cb = n.querySelector('.qa-fill-cb');
+            return cb && cb.checked;
+        });
+        if (!targets.length) { showMsg('请先勾选要删除的行', true); return; }
+        targets.forEach(function (n) { n.remove(); });
+        if (!root.querySelector('.qa-fill-node')) {
+            root.appendChild(createFillNode({ checked: true }));
+        }
+        updateFillSelectAll();
+        showMsg('已删除 ' + targets.length + ' 行，记得点「保存填报率」生效', false);
     }
 
     function loadFillRates() {
@@ -1824,6 +1845,15 @@
                 root.appendChild(createFillNode({ table_name: '', numerator: '', denominator: '', checked: true }));
                 updateFillSelectAll();
             }
+        });
+
+        var qaDelRowsItem = document.getElementById('qaDelRowsItem');
+        if (qaDelRowsItem) qaDelRowsItem.addEventListener('click', function () {
+            deleteCheckedFillRows('qaFillItemTree');
+        });
+        var qaDelRowsRecord = document.getElementById('qaDelRowsRecord');
+        if (qaDelRowsRecord) qaDelRowsRecord.addEventListener('click', function () {
+            deleteCheckedFillRows('qaFillRecordTree');
         });
 
         var qaSaveFill = document.getElementById('qaSaveFill');
