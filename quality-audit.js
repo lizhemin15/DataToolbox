@@ -453,7 +453,7 @@
                 var det = document.createElement('details');
                 var nmKey = String(n.nm);
                 det.dataset.treeNm = nmKey;
-                det.open = openState[nmKey] !== undefined ? !!openState[nmKey] : true;
+                det.open = openState[nmKey] !== undefined ? !!openState[nmKey] : false;
                 var sum = document.createElement('summary');
                 var line = document.createElement('div');
                 line.className = 'rule-line';
@@ -708,6 +708,8 @@
         rm.addEventListener('click', function () {
             var root = wrap.parentNode;
             if (!root) return;
+            var tName = nameIn.value || '（未命名）';
+            if (!confirm('确定删除这条填报率配置？\n表名：' + tName)) return;
             wrap.remove();
             // 删空了补一行空白，保证列表始终至少有一行可编辑
             if (!root.querySelector('.qa-fill-node')) {
@@ -767,6 +769,7 @@
             return cb && cb.checked;
         });
         if (!targets.length) { showMsg('请先勾选要删除的行', true); return; }
+        if (!confirm('确定删除选中的 ' + targets.length + ' 行填报率配置？\n删除后还需点「保存填报率」才会生效。')) return;
         targets.forEach(function (n) { n.remove(); });
         if (!root.querySelector('.qa-fill-node')) {
             root.appendChild(createFillNode({ checked: true }));
@@ -1104,13 +1107,13 @@
             var cbRule = document.createElement('input');
             cbRule.type = 'checkbox';
             cbRule.className = 'qa-sched-cb-rule';
-            cbRule.title = '审核项';
+            cbRule.title = '执行范围：勾选后该规则参与本次审核';
             cbRule.disabled = !hasSql;
             cbRule.checked = !!qaSchedRuleNms[n.nm];
             var cbAi = document.createElement('input');
             cbAi.type = 'checkbox';
             cbAi.className = 'qa-sched-cb-ai';
-            cbAi.title = 'AI 校核项';
+            cbAi.title = 'AI 核验：审核不通过时交由 AI 复核是否误判（勾选会自动加入执行范围）';
             cbAi.disabled = !hasSql;
             cbAi.checked = !!qaSchedAiNms[n.nm];
             cbRule.addEventListener('change', function () {
@@ -1714,7 +1717,9 @@
 
         var qaDelRule = document.getElementById('qaDelRule');
         if (qaDelRule) qaDelRule.addEventListener('click', function () {            var nm = padNm(document.getElementById('qaNm').value);
-            if (!nm || !confirm('确定删除 ' + nm + ' ?')) return;
+            var nmName = (document.getElementById('qaName').value || '').trim();
+            if (!nm) return;
+            if (!confirm('确定删除规则 ' + nm + (nmName ? '「' + nmName + '」' : '') + '？\n此操作不可恢复，且引用该规则的定时任务会同步失效。')) return;
             fetchWithAuth(PREFIX + 'rules/' + encodeURIComponent(nm), { method: 'DELETE' })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {

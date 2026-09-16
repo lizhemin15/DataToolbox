@@ -1438,6 +1438,36 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			CreatedAt: now,
 			Status:    "idle",
 		},
+		"公文Word转Excel（正则抽取）": {
+			Owner:         "admin",
+			Name:          "公文Word转Excel（正则抽取）",
+			Type:          "interactive",
+			Description:   "上传「省-市-区-县」四级公文的 Word，用正则逐段抽取人口/经济/工业/教育，直接生成 8 列结构化 Excel（纯规则、不调用 AI）",
+			JsCode:        loadGovernancePresetJS("gov-doc-to-excel-regex.js"),
+			InputType:     "file",
+			AcceptExts:    []string{".docx", ".doc", ".wps"},
+			FileBatchMode: "single",
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "区市县经济社会发展情况通报.docx", Path: "区市县经济社会发展情况通报.docx"},
+			},
+			CreatedAt: now,
+			Status:    "idle",
+		},
+		"公文Word转Excel（AI抽取）": {
+			Owner:         "admin",
+			Name:          "公文Word转Excel（AI抽取）",
+			Type:          "interactive",
+			Description:   "上传同一份公文 Word，交给 AI 理解正文后抽取各县的人口/经济/工业/教育情况，生成 8 列结构化 Excel（AI 使用「AI助手」的 URL/Key/模型）",
+			JsCode:        loadGovernancePresetJS("gov-doc-to-excel-ai.js"),
+			InputType:     "file",
+			AcceptExts:    []string{".docx", ".doc", ".wps"},
+			FileBatchMode: "single",
+			ExampleFiles: []GovernanceExampleFile{
+				{Name: "区市县经济社会发展情况通报.docx", Path: "区市县经济社会发展情况通报.docx"},
+			},
+			CreatedAt: now,
+			Status:    "idle",
+		},
 		"国际新闻入库": {
 			Owner:         "admin",
 			Name:          "国际新闻入库",
@@ -1456,6 +1486,42 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			Status:    "idle",
 		},
 	}
+}
+
+// createMissingGovernancePresets 按内置预置定义，创建「当前还不存在」的预置任务（按名称判重）。
+//
+// 为什么需要它：预置任务只在首次初始化（store 为空）时写入，之后新增内置示例任务时，
+// 已在运行的实例拿不到。这里提供一条幂等的补齐通道，仅由管理员显式调用
+// （/api/governance/examples/reload 的 create_missing=true），不在启动时自动执行，
+// 以免把用户主动删掉的预置任务又“复活”。
+func createMissingGovernancePresets() int {
+	now := time.Now().Format(time.RFC3339)
+	existing := make(map[string]bool, len(governanceTasks))
+	for _, t := range governanceTasks {
+		if t != nil {
+			existing[t.Name] = true
+		}
+	}
+	created := 0
+	for _, def := range governancePresetDefinitions() {
+		if existing[def.Name] {
+			continue
+		}
+		task := def
+		task.ID = uuid.New().String()
+		task.Owner = "admin"
+		if task.CreatedAt == "" {
+			task.CreatedAt = now
+		}
+		if task.Status == "" {
+			task.Status = "idle"
+		}
+		task.Enabled = false // 新增的定时类预置不自动启用
+		governanceTasks[task.ID] = &task
+		created++
+		log.Printf("已创建缺失的预置治理任务: %s", task.Name)
+	}
+	return created
 }
 
 // syncGovernancePresetExamplesFromEmbed 将 embed 中的预置示例元数据同步到内存中的任务并写入 data-store。

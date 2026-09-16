@@ -935,3 +935,39 @@ body.embed-mode .embed-settings-btn {
 .qa-btn-danger:hover { background: #c82333; }
 .qa-btn-danger-outline { color: #dc3545; border-color: #f5c2c7; background: #fff; }
 .qa-btn-danger-outline:hover { background: #fff5f5; border-color: #dc3545; }
+
+/* ===== 定时任务弹窗：审核项两列复选框明确化（执行 / AI 核验）===== */
+.qa-sched-tree-header {
+    display: grid;
+    grid-template-columns: 38px 58px minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    margin-top: 6px;
+}
+.qa-sched-tree-header span:nth-child(1),
+.qa-sched-tree-header span:nth-child(2) { text-align: center; }
+.qa-sched-tree { border-radius: 0 0 6px 6px; }
+.qa-sched-rule-row {
+    display: grid;
+    grid-template-columns: 38px 58px minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    padding: 3px 0;
+}
+.qa-sched-cb-rule,
+.qa-sched-cb-ai { flex-shrink: initial; margin: 0; justify-self: center; cursor: pointer; }
+.qa-sched-rule-label { display: flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; }
+.qa-sched-group { margin-left: 0; }
+.qa-sched-group-body { margin-left: 0; }
+.qa-sched-group-body .qa-sched-rule-label { padding-left: 16px; }
+.qa-sched-group > summary { cursor: pointer; user-select: none; }
+/* 覆盖 .qa-tree details 的缩进，否则定时任务树的行会整体右移，与表头列错开 */
+.qa-sched-tree details { margin-left: 0; }

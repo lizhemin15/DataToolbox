@@ -988,13 +988,18 @@ func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		IncludeJS bool `json:"include_js"`
+		IncludeJS     bool `json:"include_js"`
+		CreateMissing bool `json:"create_missing"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	dataOntologyMu.Lock()
+	created := 0
+	if body.CreateMissing {
+		created = createMissingGovernancePresets()
+	}
 	n := syncGovernancePresetExamplesFromEmbed(body.IncludeJS)
-	if n > 0 {
+	if n > 0 || created > 0 {
 		if err := saveDataOntologyStore(); err != nil {
 			dataOntologyMu.Unlock()
 			log.Printf("保存治理预置示例同步失败: %v", err)
@@ -1004,7 +1009,7 @@ func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
 	}
 	dataOntologyMu.Unlock()
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n, "created_tasks": created})
 }
 
 // handleGovernanceExecuteSQL 治理任务执行SQL（供前端JS调用）

@@ -2524,10 +2524,13 @@
                         <div class="qa-cron-preview" id="qaSchedCronPreview"></div>
                     </div>
                     <div class="qa-sched-field">
-                        <label>审核项（第一列勾选执行范围，第二列勾选 AI 校核）</label>
+                        <label>审核项</label>
                         <div class="qa-sched-tree-head">
-                            <label class="cursor-pointer"><input type="checkbox" id="qaSchedRuleAll"> 全选审核项</label>
-                            <span class="qa-form-hint">AI 校核项应为审核项的子集</span>
+                            <label class="cursor-pointer"><input type="checkbox" id="qaSchedRuleAll"> 全选</label>
+                            <span class="qa-form-hint">左列「执行」= 该规则参与本次审核；右列「AI 核验」= 审核不通过时交由 AI 复核是否误判（勾了会自动补上「执行」）</span>
+                        </div>
+                        <div class="qa-sched-tree-header" aria-hidden="true">
+                            <span>执行</span><span>AI 核验</span><span>规则名称</span>
                         </div>
                         <div id="qaSchedRuleTree" class="qa-tree qa-sched-tree"></div>
                     </div>
