@@ -127,6 +127,18 @@ if [[ -e "$TMP_DIR/apps" ]]; then
     ok "已更新: apps/"
 fi
 
+# 3b. 更新根级前端文件（关键！）
+# 根级 .js / .html 由静态服务直接从安装目录根读取（static_local.go 以可执行文件目录为根），
+# 之前这里只更新了 index.html/css/js/lib，导致 quality-audit.js、qa-shared.js、gov-*.js
+# 等根级文件永远是新包里的旧版 —— 曾引发「改了前端但线上没生效」类问题。
+for item in quality-audit.js qa-shared.js gov-api.js gov-shared.js governance.js \
+            app-editor.html quality-audit.html share.html; do
+    if [[ -f "$TMP_DIR/$item" ]]; then
+        cp "$TMP_DIR/$item" "$INSTALL_DIR/"
+        ok "已更新: $item"
+    fi
+done
+
 # 4. 更新启动脚本（可选）
 if [[ -f "$TMP_DIR/start.sh" ]]; then
     cp "$TMP_DIR/start.sh" "$INSTALL_DIR/"
