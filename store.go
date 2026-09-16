@@ -1446,7 +1446,9 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			JsCode:        loadGovernancePresetJS("gov-doc-to-excel-regex.js"),
 			InputType:     "file",
 			AcceptExts:    []string{".docx", ".doc", ".wps"},
-			FileBatchMode: "single",
+			FileBatchMode: "per_file",
+			RunMode:       "frontend",
+			ExecutionMode: "frontend",
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "区市县经济社会发展情况通报.docx", Path: "区市县经济社会发展情况通报.docx"},
 			},
@@ -1461,7 +1463,9 @@ func governancePresetDefinitions() map[string]GovernanceTask {
 			JsCode:        loadGovernancePresetJS("gov-doc-to-excel-ai.js"),
 			InputType:     "file",
 			AcceptExts:    []string{".docx", ".doc", ".wps"},
-			FileBatchMode: "single",
+			FileBatchMode: "per_file",
+			RunMode:       "frontend",
+			ExecutionMode: "frontend",
 			ExampleFiles: []GovernanceExampleFile{
 				{Name: "区市县经济社会发展情况通报.docx", Path: "区市县经济社会发展情况通报.docx"},
 			},
