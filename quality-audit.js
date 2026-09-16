@@ -231,6 +231,9 @@
     }
 
     var qaShared = window.QA_SHARED || globalThis.QA_SHARED || {};
+    if (!qaShared.mergeRuleContinuationRows) {
+        console.error('[quality-audit] qa-shared.js 未加载，规则/填报率导入与报告模板解析会失效；请检查 ensureQualityAuditScriptLoaded() 是否同时加载了 qa-shared.js');
+    }
     function escapeHtml(s) {
         return qaShared.escapeHtml ? qaShared.escapeHtml(s) : String(s == null ? '' : s)
             .replace(/&/g, '&amp;')

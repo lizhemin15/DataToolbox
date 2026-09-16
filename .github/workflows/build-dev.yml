@@ -47,7 +47,11 @@ jobs:
 
       - name: Run JS parser tests (linux-amd64 only)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: node tests/js/qa_shared_params.test.js
+        run: |
+          for f in tests/js/*.test.js; do
+            echo "== $f"
+            node "$f"
+          done
 
       - name: Build
         env:
