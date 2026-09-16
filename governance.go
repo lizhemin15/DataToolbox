@@ -292,8 +292,10 @@ func handleGovernanceTaskLogs(w http.ResponseWriter, r *http.Request, taskID str
 			}
 		}
 		governanceTaskLogs[taskID] = newLogs
-		saveDataOntologyStore()
 		dataOntologyMu.Unlock()
+		// 注意：saveDataOntologyStore → sqlSaveAll 内部会取 dataOntologyMu 读锁，
+		// 必须在释放写锁之后调用，否则同 goroutine 重入 RWMutex 会永久死锁（服务卡死）。
+		_ = saveDataOntologyStore()
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "日志已删除"})
 		return
 	}
@@ -999,15 +1001,17 @@ func handleGovernanceExamplesReload(w http.ResponseWriter, r *http.Request) {
 		created = createMissingGovernancePresets()
 	}
 	n := syncGovernancePresetExamplesFromEmbed(body.IncludeJS)
+	dataOntologyMu.Unlock()
+
 	if n > 0 || created > 0 {
+		// 必须在释放写锁后保存：saveDataOntologyStore → sqlSaveAll 内部会取读锁，
+		// 持写锁时调用会重入 RWMutex 死锁（曾导致整个服务卡死、Cloudflare 524）。
 		if err := saveDataOntologyStore(); err != nil {
-			dataOntologyMu.Unlock()
 			log.Printf("保存治理预置示例同步失败: %v", err)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "保存失败"})
 			return
 		}
 	}
-	dataOntologyMu.Unlock()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "updated_tasks": n, "created_tasks": created})
 }
