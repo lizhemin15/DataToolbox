@@ -84,6 +84,82 @@ t('prompt 在 API 参考缺失时仍可生成', () => {
     assert.ok(p.includes('// (空)'));
 });
 
+// ---------- API 参考拍平（历史 bug：分区结构直接喂给 AI = 一条 API 都没有）----------
+t('flattenApiDocs 把分区结构拍平成条目', () => {
+    const sections = [
+        { category: 'gov 对象', items: [{ name: 'gov.log', desc: '日志' }, { name: 'gov.readWord', desc: '读 Word' }] },
+        { category: '其它', items: [{ name: 'gov.writeExcel' }] }
+    ];
+    const flat = studio.flattenApiDocs(sections);
+    assert.strictEqual(flat.length, 3, '应拍平成 3 条');
+    assert.ok(studio.formatApiReference(flat).includes('gov.readWord'), '拍平后能渲染出 API');
+    assert.ok(!studio.formatApiReference(sections).includes('gov.readWord'), '未拍平时渲染不出来（这正是要修的 bug）');
+});
+
+t('flattenApiDocs 兼容直接给条目数组 / {items}/{sections}', () => {
+    assert.strictEqual(studio.flattenApiDocs([{ name: 'gov.a' }]).length, 1);
+    assert.strictEqual(studio.flattenApiDocs({ items: [{ name: 'gov.b' }] }).length, 1);
+    assert.strictEqual(studio.flattenApiDocs({ sections: [{ items: [{ name: 'gov.c' }] }] }).length, 1);
+    assert.deepStrictEqual(studio.flattenApiDocs(null), []);
+});
+
+t('真实 gov-shared.js 的 API 参考能被完整拍平（含 readWord/writeExcel/callAI）', () => {
+    const raw = require(path.join(root, 'gov-shared.js'));
+    const flat = studio.flattenApiDocs(globalThis.GOV_API_SECTIONS || globalThis.GOV_API_DOCS || []);
+    assert.ok(flat.length >= 15, 'API 条目数应 >= 15，实际 ' + flat.length);
+    const names = flat.map((x) => studio.apiMethodName(x));
+    ['log', 'readWord', 'readExcel', 'writeExcel', 'parseWordStructure', 'callAI', 'querySQL', 'executeSQL'].forEach((n) => {
+        assert.ok(names.indexOf(n) >= 0, '缺少 API: gov.' + n);
+    });
+});
+
+// ---------- 产出自检 ----------
+t('validateCode 能抓出不存在的 gov 方法', () => {
+    const docs = [{ name: 'gov.log' }, { name: 'gov.readWord', signature: 'await gov.readWord(file)' }];
+    const v = studio.validateCode("const f = gov.readFile();\nconst t = gov.readDocxText('a');\ngov.log(t);", docs);
+    assert.deepStrictEqual(v.unknown.sort(), ['readDocxText', 'readFile']);
+    assert.strictEqual(v.ok, false);
+});
+
+t('validateCode 通过合法代码，并提示漏 await', () => {
+    const docs = [{ name: 'gov.log' }, { name: 'gov.readWord', signature: 'await gov.readWord(file)' }];
+    const good = studio.validateCode('const r = await gov.readWord(INPUT_FILE);\ngov.log(r.value);', docs);
+    assert.deepStrictEqual(good, { unknown: [], missingAwait: [], ok: true });
+    const leak = studio.validateCode('const r = gov.readWord(INPUT_FILE);\ngov.log(r.value);', docs);
+    assert.deepStrictEqual(leak.unknown, []);
+    assert.deepStrictEqual(leak.missingAwait, ['readWord']);
+});
+
+t('prompt 告诉 AI 有哪些全局变量、别自己造 readFile', () => {
+    const p = studio.buildPrompt({ task: {}, docs: [{ name: 'gov.log' }], code: '', chat: [], userText: 'x' });
+    assert.ok(p.includes('INPUT_FILE'), '注入 INPUT_FILE');
+    assert.ok(p.includes('INPUT_FILES'), '注入 INPUT_FILES');
+    assert.ok(p.includes('mammoth'), '注入可用库');
+    assert.ok(/不要杜撰/.test(p), '明确禁止杜撰方法');
+});
+
+t('prompt 带上样例文件名与样例正文节选', () => {
+    const p = studio.buildPrompt({
+        task: { name: 'T', example_files: [{ name: '区市县经济社会发展情况通报.docx' }] },
+        docs: [{ name: 'gov.log' }], code: '', chat: [], userText: '抽表格',
+        exampleText: '北京市概况\n一、人口情况\n常住人口 2185 万人'
+    });
+    assert.ok(p.includes('区市县经济社会发展情况通报.docx'), '样例文件名');
+    assert.ok(p.includes('常住人口 2185 万人'), '样例正文节选');
+});
+
+t('prompt 支持把「自检驳回」原因带回去', () => {
+    const p = studio.buildPrompt({ task: {}, docs: [], code: '', chat: [], userText: 'x', repairNotes: '用到了不存在的 gov 方法：gov.readFile' });
+    assert.ok(/自动校验驳回/.test(p));
+    assert.ok(p.includes('gov.readFile'));
+});
+
+t('exampleFileNames 兼容对象/字符串两种写法', () => {
+    assert.deepStrictEqual(studio.exampleFileNames({ example_files: [{ name: 'a.docx' }, 'b.docx'] }), ['a.docx', 'b.docx']);
+    assert.deepStrictEqual(studio.exampleFileNames({ exampleFiles: ['c.docx'] }), ['c.docx']);
+    assert.deepStrictEqual(studio.exampleFileNames({}), []);
+});
+
 // ---------- 接线 ----------
 t('index.html 里有「✨ AI 编辑」按钮且调用 GovCodeStudio.open', () => {
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');

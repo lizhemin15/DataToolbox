@@ -49,20 +49,20 @@ func initDataOntology() {
 			dataOntologyMu.Lock()
 		}
 	}
-	
+
 	// 设置默认 AI 配置（如果未配置）
 	if dataOntologyAIConfig == nil {
 		trueVal := true
 		falseVal := false
 		dataOntologyAIConfig = &AIConfig{
-			URL:               "https://api.siliconflow.cn/v1",
-			APIKey:            "", // 用户需要自行配置
-			Model:             "Qwen/Qwen3-32B",
-			Timeout:           180,
+			URL:                "https://api.siliconflow.cn/v1",
+			APIKey:             "", // 用户需要自行配置
+			Model:              "Qwen/Qwen3-32B",
+			Timeout:            180,
 			EnableFunctionCall: &trueVal,
-			EnableThinking:    &trueVal,
-			EnableStreaming:   &trueVal,
-			EnableJSONMode:    &falseVal,
+			EnableThinking:     &trueVal,
+			EnableStreaming:    &trueVal,
+			EnableJSONMode:     &falseVal,
 		}
 		log.Println("已设置默认 Agent 服务模型配置:")
 		log.Printf("  URL: %s", dataOntologyAIConfig.URL)
@@ -644,6 +644,13 @@ main().catch(e => {
 		}
 
 		log.Printf("已创建 %d 个示例治理任务", len(governanceTasks))
+
+		// 上面是历史硬编码的 7 个示例；后面新增的内置示例（如「公文Word转Excel」两个）
+		// 只在 governancePresetDefinitions 里维护，这里统一兜底补上，避免全新安装缺示例。
+		// 只在「store 为空」这条分支调用：不会复活用户主动删掉的预置任务。
+		if n := createMissingGovernancePresets(); n > 0 {
+			log.Printf("已补齐 %d 个内置示例治理任务", n)
+		}
 
 		dataOntologyMu.Unlock()
 		if err := saveDataOntologyStore(); err != nil {
