@@ -88,6 +88,17 @@ for item in index.html css js lib; do
     fi
 done
 
+# 3.1 更新根目录前端入口与模块
+# 注意：quality-audit.js / qa-shared.js / governance.js 等是根目录下的独立模块文件，
+# 不在 js/ 目录里，早期版本漏拷会导致「更新成功但页面还是旧代码」。
+for f in quality-audit.html share.html app-editor.html favicon.ico \
+         governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js; do
+    if [[ -e "$TMP_DIR/$f" ]]; then
+        cp -f "$TMP_DIR/$f" "$INSTALL_DIR/$f"
+        ok "已更新: $f"
+    fi
+done
+
 # apps 目录特殊处理：保留运行时配置文件和数据库
 if [[ -e "$TMP_DIR/apps" ]]; then
     # 备份运行时配置
