@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/pkg/sftp"
+	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"log"
 	"net/http"
@@ -20,7 +21,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	gossh "golang.org/x/crypto/ssh"
 )
 
 func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
@@ -636,10 +636,11 @@ func govTrimChat(in []GovernanceChatMessage) []GovernanceChatMessage {
 }
 
 // handleGovernanceTaskCodeVersions 治理任务代码版本管理
-//   GET    /api/v1/gov/tasks/{id}/code-versions                 列出版本 + 对话 + 当前代码
-//   POST   /api/v1/gov/tasks/{id}/code-versions                 追加版本（body: code, note, source, chat）
-//   POST   /api/v1/gov/tasks/{id}/code-versions/restore         回滚到指定版本（body: version_id）
-//   DELETE /api/v1/gov/tasks/{id}/code-versions/{version_id}    删除指定版本
+//
+//	GET    /api/v1/gov/tasks/{id}/code-versions                 列出版本 + 对话 + 当前代码
+//	POST   /api/v1/gov/tasks/{id}/code-versions                 追加版本（body: code, note, source, chat）
+//	POST   /api/v1/gov/tasks/{id}/code-versions/restore         回滚到指定版本（body: version_id）
+//	DELETE /api/v1/gov/tasks/{id}/code-versions/{version_id}    删除指定版本
 func handleGovernanceTaskCodeVersions(w http.ResponseWriter, r *http.Request, taskID string, parts []string) {
 	w.Header().Set("Content-Type", "application/json")
 	writeErr := func(msg string) {
@@ -810,7 +811,9 @@ func handleGovernanceTaskCodeVersions(w http.ResponseWriter, r *http.Request, ta
 	}
 	task.JsCode = req.Code
 	task.UpdatedAt = now
-	if len(req.Chat) > 0 {
+	// chat 传了空数组（[]）表示「清空对话」：JSON 里 [] 解出来是非 nil 空切片，
+	// 而字段缺失是 nil —— 用 != nil 区分，否则工作室的「清空对话」按钮永远清不掉服务端记录。
+	if req.Chat != nil {
 		task.AIChat = govTrimChat(req.Chat)
 	}
 	saveErr := saveDataOntologyStoreNoLock()
@@ -1531,7 +1534,7 @@ func governanceAppendRunningLog(taskID string, job *GovernanceJob, startedAt str
 
 func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, taskID string) {
 	log.Printf("[DEBUG] handleGovernanceTaskFrontendRun called: taskID=%s", taskID)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
@@ -1617,14 +1620,14 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 	// 如果没有上传文件，解析 JSON 请求体获取文件名
 	if len(inputFileNames) == 0 {
 		var req struct {
-			RunID       string   `json:"run_id"`
-			Status      string   `json:"status"`
-			Output      string   `json:"output"`
-			Error       string   `json:"error"`
-			InputText   string   `json:"input_text"`
-			InputFiles  []string `json:"input_files"`
-			ShareEnabled bool    `json:"share_enabled"`
-			ShareToken  string   `json:"share_token"`
+			RunID        string   `json:"run_id"`
+			Status       string   `json:"status"`
+			Output       string   `json:"output"`
+			Error        string   `json:"error"`
+			InputText    string   `json:"input_text"`
+			InputFiles   []string `json:"input_files"`
+			ShareEnabled bool     `json:"share_enabled"`
+			ShareToken   string   `json:"share_token"`
 		}
 		// 重新构造请求体（因为上面可能已经读取了 multipart）
 		if err := json.NewDecoder(r.Body).Decode(&req); err == nil {
@@ -1634,22 +1637,22 @@ func handleGovernanceTaskFrontendRun(w http.ResponseWriter, r *http.Request, tas
 			}
 			inputFileNames = req.InputFiles
 
-		// 优先使用请求中的分享配置
-		if req.ShareEnabled {
-			shareEnabledFromReq = true
-		}
-		if req.ShareToken != "" {
-			shareTokenFromReq = req.ShareToken
-		} else if req.ShareEnabled {
-			// 前端传了 share_enabled=true 但没有 share_token，用任务配置的
-			shareTokenFromReq = task.ShareToken
-		}
+			// 优先使用请求中的分享配置
+			if req.ShareEnabled {
+				shareEnabledFromReq = true
+			}
+			if req.ShareToken != "" {
+				shareTokenFromReq = req.ShareToken
+			} else if req.ShareEnabled {
+				// 前端传了 share_enabled=true 但没有 share_token，用任务配置的
+				shareTokenFromReq = task.ShareToken
+			}
 
-		// 如果请求参数没有提供分享配置，使用任务配置
-		if !shareEnabledFromReq && shareTokenFromReq == "" {
-			shareEnabledFromReq = task.ShareEnabled
-			shareTokenFromReq = task.ShareToken
-		}
+			// 如果请求参数没有提供分享配置，使用任务配置
+			if !shareEnabledFromReq && shareTokenFromReq == "" {
+				shareEnabledFromReq = task.ShareEnabled
+				shareTokenFromReq = task.ShareToken
+			}
 
 			// 更新任务状态
 			dataOntologyMu.Lock()
@@ -1833,13 +1836,13 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 		}
 	}
 	dataOntologyMu.RUnlock()
-	
+
 	// 提取输入文件名（不含路径）
 	var inputFileNames []string
 	for _, f := range inputFiles {
 		inputFileNames = append(inputFileNames, filepath.Base(f))
 	}
-	
+
 	// 扫描输出文件（如果有分享 token）
 	var resultFileNames []string
 	if shareToken != "" {
@@ -1848,7 +1851,7 @@ func governanceFinalizeRunLogFromTaskWithShare(taskID, runID string, inputFiles 
 			resultFileNames = append(resultFileNames, filepath.Base(f))
 		}
 	}
-	
+
 	if status == "success" {
 		governanceFinalizeRunLogWithFiles(taskID, runID, "success", outStr, "", inputFileNames, resultFileNames)
 	} else {
@@ -1954,7 +1957,7 @@ func executeGovernanceTaskForAPI(task *GovernanceTask, params map[string]interfa
 		"database_id": dbID,
 		"db_type":     dbType,
 		"databases":   databases,
-		"input_text":  "", // 默认空，下面会根据参数填充
+		"input_text":  "",     // 默认空，下面会根据参数填充
 		"api_params":  params, // 传入 API 参数
 	}
 
@@ -2224,9 +2227,9 @@ func executeGovernanceJob(job *GovernanceJob) {
 				if err != nil {
 					log.Printf("读取文件失败: %v", err)
 					errMsg := "读取文件失败: " + err.Error()
-				if isShare {
-					updateShareRun(runID, "failed", 100, errMsg, nil, nil)
-				} else {
+					if isShare {
+						updateShareRun(runID, "failed", 100, errMsg, nil, nil)
+					} else {
 						dataOntologyMu.Lock()
 						if t, ok := governanceTasks[taskID]; ok {
 							t.Status = "error"
@@ -2285,74 +2288,74 @@ func executeGovernanceJob(job *GovernanceJob) {
 				log.Printf("任务 %s 合并执行成功", taskID)
 			}
 
-		if isShare {
-			var resultFiles []string
-			for _, f := range result.OutputFiles {
-				resultFiles = append(resultFiles, f.Name)
-			}
-			status := "completed"
-			output := strings.Join(result.Output, "\n")
-			if len(extraLines) > 0 {
-				output += "\n" + strings.Join(extraLines, "\n")
-			}
-			if !result.Success {
-				status = "failed"
-				output = result.Error + "\n" + output
-			}
-			updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
-			// 分享任务也要更新任务本身的状态
-			dataOntologyMu.Lock()
-			if t, ok := governanceTasks[taskID]; ok {
-				if result.Success {
-					t.Status = "success"
-					out := strings.Join(result.Output, "\n")
-					if len(extraLines) > 0 {
-						out += "\n" + strings.Join(extraLines, "\n")
-					}
-					t.LastOutput = out
-				} else {
-					t.Status = "error"
-					t.LastError = result.Error
-					if len(result.Output) > 0 {
-						t.LastOutput = strings.Join(result.Output, "\n")
-					}
+			if isShare {
+				var resultFiles []string
+				for _, f := range result.OutputFiles {
+					resultFiles = append(resultFiles, f.Name)
 				}
-				t.LastRunAt = time.Now().Format(time.RFC3339)
-				t.ProcessedFiles = len(job.InputFiles)
-				t.Percent = 100
-				t.CurrentFile = ""
+				status := "completed"
+				output := strings.Join(result.Output, "\n")
+				if len(extraLines) > 0 {
+					output += "\n" + strings.Join(extraLines, "\n")
+				}
+				if !result.Success {
+					status = "failed"
+					output = result.Error + "\n" + output
+				}
+				updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
+				// 分享任务也要更新任务本身的状态
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					if result.Success {
+						t.Status = "success"
+						out := strings.Join(result.Output, "\n")
+						if len(extraLines) > 0 {
+							out += "\n" + strings.Join(extraLines, "\n")
+						}
+						t.LastOutput = out
+					} else {
+						t.Status = "error"
+						t.LastError = result.Error
+						if len(result.Output) > 0 {
+							t.LastOutput = strings.Join(result.Output, "\n")
+						}
+					}
+					t.LastRunAt = time.Now().Format(time.RFC3339)
+					t.ProcessedFiles = len(job.InputFiles)
+					t.Percent = 100
+					t.CurrentFile = ""
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+				// 分享任务也要更新日志记录
+				governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
+			} else {
+				dataOntologyMu.Lock()
+				if t, ok := governanceTasks[taskID]; ok {
+					if result.Success {
+						t.Status = "success"
+						out := strings.Join(result.Output, "\n")
+						if len(extraLines) > 0 {
+							out += "\n" + strings.Join(extraLines, "\n")
+						}
+						t.LastOutput = out
+					} else {
+						t.Status = "error"
+						t.LastError = result.Error
+						if len(result.Output) > 0 {
+							t.LastOutput = strings.Join(result.Output, "\n")
+						}
+					}
+					t.LastRunAt = time.Now().Format(time.RFC3339)
+					t.ProcessedFiles = len(job.InputFiles)
+					t.Percent = 100
+					t.CurrentFile = ""
+				}
+				dataOntologyMu.Unlock()
+				saveDataOntologyStore()
+				governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 			}
-			dataOntologyMu.Unlock()
-			saveDataOntologyStore()
-			// 分享任务也要更新日志记录
-			governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
 		} else {
-			dataOntologyMu.Lock()
-			if t, ok := governanceTasks[taskID]; ok {
-				if result.Success {
-					t.Status = "success"
-					out := strings.Join(result.Output, "\n")
-					if len(extraLines) > 0 {
-						out += "\n" + strings.Join(extraLines, "\n")
-					}
-					t.LastOutput = out
-				} else {
-					t.Status = "error"
-					t.LastError = result.Error
-					if len(result.Output) > 0 {
-						t.LastOutput = strings.Join(result.Output, "\n")
-					}
-				}
-				t.LastRunAt = time.Now().Format(time.RFC3339)
-				t.ProcessedFiles = len(job.InputFiles)
-				t.Percent = 100
-				t.CurrentFile = ""
-			}
-			dataOntologyMu.Unlock()
-			saveDataOntologyStore()
-			governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
-		}
-	} else {
 			var allOutput []string
 			var lastError string
 
@@ -2367,10 +2370,10 @@ func executeGovernanceJob(job *GovernanceJob) {
 				taskData["file_name"] = filepath.Base(filePath)
 
 				// 更新进度
-			progress := (i * 100) / len(job.InputFiles)
-			if isShare {
-				updateShareRun(runID, "running", progress, fmt.Sprintf("处理文件: %s", filepath.Base(filePath)), nil, nil)
-			} else {
+				progress := (i * 100) / len(job.InputFiles)
+				if isShare {
+					updateShareRun(runID, "running", progress, fmt.Sprintf("处理文件: %s", filepath.Base(filePath)), nil, nil)
+				} else {
 					dataOntologyMu.Lock()
 					if t, ok := governanceTasks[taskID]; ok {
 						t.ProcessedFiles = i
@@ -2443,12 +2446,12 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 				status := "completed"
 				output := strings.Join(allOutput, "\n")
-			if lastError != "" {
-				status = "failed"
-				output = lastError + "\n" + output
-			}
-			updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
-		} else {
+				if lastError != "" {
+					status = "failed"
+					output = lastError + "\n" + output
+				}
+				updateShareRun(runID, status, 100, output, job.InputFiles, resultFiles)
+			} else {
 				dataOntologyMu.Lock()
 				if t, ok := governanceTasks[taskID]; ok {
 					if lastError == "" {
@@ -2488,18 +2491,18 @@ func executeGovernanceJob(job *GovernanceJob) {
 				for _, f := range result.OutputFiles {
 					resultFiles = append(resultFiles, f.Name)
 				}
-		}
-		status := "completed"
-		output := strings.Join(result.Output, "\n")
-		if len(extraLines) > 0 {
-			output += "\n" + strings.Join(extraLines, "\n")
-		}
-		if !result.Success {
-			status = "failed"
-			output = result.Error + "\n" + output
-		}
-		updateShareRun(runID, status, 100, output, nil, resultFiles)
-	} else {
+			}
+			status := "completed"
+			output := strings.Join(result.Output, "\n")
+			if len(extraLines) > 0 {
+				output += "\n" + strings.Join(extraLines, "\n")
+			}
+			if !result.Success {
+				status = "failed"
+				output = result.Error + "\n" + output
+			}
+			updateShareRun(runID, status, 100, output, nil, resultFiles)
+		} else {
 			dataOntologyMu.Lock()
 			if t, ok := governanceTasks[taskID]; ok {
 				if result.Success {
@@ -2728,17 +2731,17 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	
+
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	
+
 	if r.Method != http.MethodPost {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "只支持POST"})
 		return
 	}
-	
+
 	// 提取 api_path
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/gov/task-api/"), "/")
 	if len(pathParts) == 0 || pathParts[0] == "" {
@@ -2746,7 +2749,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiPath := pathParts[0]
-	
+
 	// 根据 api_path 查找任务
 	dataOntologyMu.RLock()
 	var matchedTask *GovernanceTask
@@ -2757,18 +2760,18 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	dataOntologyMu.RUnlock()
-	
+
 	if matchedTask == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "API不存在"})
 		return
 	}
-	
+
 	// 检查任务是否启用
 	if !matchedTask.Enabled {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该任务已禁用", "error_code": "FORBIDDEN"})
 		return
 	}
-	
+
 	// 复用 handleGovernanceTaskRun 的逻辑
 	// 但 API 调用可能不需要鉴权（根据任务配置）
 	token := ""
@@ -2783,11 +2786,11 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 			token = "internal-api-call"
 		}
 	}
-	
+
 	// 解析请求
 	var inputText string
 	var filePaths []string
-	
+
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
 		maxSize := int64(100 * 1024 * 1024)
@@ -2797,7 +2800,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inputText = r.FormValue("input_text")
-		
+
 		files := r.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			safeFilename, err := sanitizeFilename(fileHeader.Filename)
@@ -2831,7 +2834,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&req)
 		inputText = req.InputText
 	}
-	
+
 	// 创建任务
 	runID := uuid.New().String()
 	startedAt := time.Now().Format(time.RFC3339)
@@ -2843,7 +2846,7 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 		InputText:  inputText,
 		ShareToken: matchedTask.ShareToken,
 	}
-	
+
 	// 更新任务状态
 	dataOntologyMu.Lock()
 	matchedTask.Status = "running"
@@ -2853,10 +2856,10 @@ func handleGovernanceTaskAPI(w http.ResponseWriter, r *http.Request) {
 	matchedTask.ProcessedFiles = 0
 	matchedTask.Percent = 0
 	dataOntologyMu.Unlock()
-	
+
 	// 写入运行中日志
 	governanceAppendRunningLog(matchedTask.ID, job, startedAt)
-	
+
 	// 入队
 	select {
 	case governanceJobQueue <- job:
