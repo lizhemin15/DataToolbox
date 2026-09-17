@@ -923,6 +923,100 @@ body.embed-mode .embed-settings-btn {
 .qa-badge-ok { background: #c6f6d5; color: #22543d; }
 .qa-badge-warn { background: #feebc8; color: #7b341e; }
 
+/* ---------- 后台执行进度 ---------- */
+.qa-progress-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 0 10px;
+}
+.qa-progress-card {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #3182ce;
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+.qa-progress-card.is-done { border-left-color: #38a169; }
+.qa-progress-card.is-failed { border-left-color: #e53e3e; }
+.qa-progress-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.qa-progress-title { font-size: 13px; color: #2d3748; }
+.qa-progress-title .qa-progress-phase {
+    margin-left: 6px;
+    font-size: 12px;
+    color: #2b6cb0;
+}
+.qa-progress-eta { font-size: 12px; color: #4a5568; white-space: nowrap; }
+.qa-progress-bar {
+    position: relative;
+    height: 10px;
+    border-radius: 6px;
+    background: #e2e8f0;
+    overflow: hidden;
+}
+.qa-progress-bar-inner {
+    height: 100%;
+    width: 0;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #4299e1, #3182ce);
+    transition: width .4s ease;
+}
+.qa-progress-card.is-done .qa-progress-bar-inner { background: linear-gradient(90deg, #68d391, #38a169); }
+.qa-progress-card.is-failed .qa-progress-bar-inner { background: linear-gradient(90deg, #fc8181, #e53e3e); }
+.qa-progress-bar-inner.is-indeterminate {
+    width: 35% !important;
+    animation: qa-progress-slide 1.4s ease-in-out infinite;
+}
+@keyframes qa-progress-slide {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+}
+.qa-progress-meta {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #718096;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.qa-progress-meta .qa-progress-current {
+    color: #4a5568;
+    max-width: 46ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.qa-progress-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #3182ce;
+    margin-right: 6px;
+    vertical-align: middle;
+    animation: qa-progress-pulse 1.2s ease-in-out infinite;
+}
+@keyframes qa-progress-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .25; }
+}
+.qa-run-progress-cell {
+    min-width: 120px;
+}
+.qa-run-progress-cell .qa-progress-bar { height: 6px; }
+.qa-run-progress-cell .qa-progress-text {
+    font-size: 11px;
+    color: #718096;
+    margin-top: 2px;
+}
+
 
 /* 规则参数（占位符）配置 */
 .qa-param-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }

@@ -461,6 +461,8 @@ func qaScheduleDELETE(w http.ResponseWriter, id string, username string) {
 	qaRespondSuccess(w, map[string]interface{}{"id": id})
 }
 
+// qaScheduleRun 「立即执行」接口：立刻返回 run_id，真正的执行放到后台 goroutine，
+// 因此前端不需要再提示「请勿离开页面」，离开后可用 /progress 接口继续看进度。
 func qaScheduleRun(w http.ResponseWriter, r *http.Request, id string, username string) {
 	_ = r
 	s, err := qaLoadSchedule(id)
@@ -472,42 +474,64 @@ func qaScheduleRun(w http.ResponseWriter, r *http.Request, id string, username s
 		apiNotFound(w, "定时任务不存在")
 		return
 	}
-	runID, status, runErr := qaRunSchedule(s, "manual", username)
-	if errors.Is(runErr, errQAScheduleBusy) {
+	if !qaTryLockSchedule(s.ID) {
 		apiBadRequest(w, "该任务正在执行中，请稍后再试")
 		return
 	}
-	if runID == "" {
-		apiInternalError(w, "执行失败")
-		return
-	}
-	resp := map[string]interface{}{
-		"run_id": runID,
-		"status": status,
-	}
-	if runErr != nil {
-		resp["error"] = runErr.Error()
-	}
-	qaRespondSuccess(w, resp)
+
+	runID := uuid.New().String()
+	pr := qaProgressStart(runID, s.ID, s.Name, "manual")
+
+	go func() {
+		defer qaUnlockSchedule(s.ID)
+		_, status, runErr := qaRunScheduleCoreWithProgress(s, "manual", username, runID, pr)
+		if runErr != nil {
+			pr.finish("failed", runErr.Error())
+			log.Printf("qa 定时任务「%s」手动执行失败: %v", s.Name, runErr)
+			return
+		}
+		pr.finish(status, "")
+		log.Printf("qa 定时任务「%s」手动执行完成（run=%s）", s.Name, runID)
+	}()
+
+	qaRespondSuccess(w, map[string]interface{}{
+		"run_id":     runID,
+		"status":     "running",
+		"background": true,
+		"message":    "任务已在后台执行，可离开页面",
+	})
 }
 
 // ---------------------------------------------------------------------------
 // 执行（§2.4）
 // ---------------------------------------------------------------------------
 
+// qaRunSchedule 同步执行（调度器内部使用），带进度登记。
 func qaRunSchedule(s *qaSchedule, triggerType, username string) (string, string, error) {
 	if !qaTryLockSchedule(s.ID) {
 		return "", "", errQAScheduleBusy
 	}
 	defer qaUnlockSchedule(s.ID)
-	return qaRunScheduleCore(s, triggerType, username)
+	runID := uuid.New().String()
+	pr := qaProgressStart(runID, s.ID, s.Name, triggerType)
+	_, status, err := qaRunScheduleCoreWithProgress(s, triggerType, username, runID, pr)
+	if err != nil {
+		pr.finish("failed", err.Error())
+	} else {
+		pr.finish(status, "")
+	}
+	return runID, status, err
 }
 
-// qaRunScheduleCore 执行一次审核：跑规则 → 生成报告落盘 → AI 校核 → 写 qa_runs。
-// 无论成功失败都会写入执行记录。
 func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, string, error) {
-	runID := uuid.New().String()
+	return qaRunSchedule(s, triggerType, username)
+}
+
+// qaRunScheduleCoreWithProgress 执行一次审核：跑规则 → 填报率 → AI 校核 → 报告落盘 → 写 qa_runs。
+// 无论成功失败都会写入执行记录。pr 可为 nil（不关心进度时）。
+func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID string, pr *qaRunProgress) (string, string, error) {
 	startedAt := time.Now()
+	pr.setPhase("prepare", "准备执行")
 
 	status := "success"
 	runErrMsg := ""
@@ -524,26 +548,47 @@ func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, str
 	case !dbOK:
 		status = "failed"
 		runErrMsg = "目标数据库不存在"
+		pr.setPhase("rules", "执行审核规则")
 	default:
 		dialect := normalizeQualityDialect(dbConfig.Type)
+		pr.setPhase("connect", "连接数据库")
+		// 先把规则条数报上去：数据库连接慢的时候进度条不至于一直显示 0/0
+		pr.addTotal(len(s.RuleNMs))
 		targetDB, derr := getDBFromPool(dbConfig)
 		if derr != nil {
 			status = "failed"
 			runErrMsg = "连接失败: " + derr.Error()
 			break
 		}
-		ruleResults, p, f, exErr := qaExecuteRules(s.DatabaseID, targetDB, dialect, s.RuleNMs, username, startedAt)
+		pr.setPhase("rules", "执行审核规则")
+		ruleResults, p, f, exErr := qaExecuteRules(s.DatabaseID, targetDB, dialect, s.RuleNMs, username, startedAt, func(nm, name string) {
+			if name == "" {
+				name = nm
+			}
+			pr.tick(name)
+		})
 		passed, failed = p, f
 		if exErr != nil {
 			status = "failed"
 			runErrMsg = exErr.Error()
+			pr.fail(exErr.Error())
 		}
 		if ruleResults == nil {
 			ruleResults = []map[string]interface{}{}
 		}
 
+		// 填报率统计（与手动审核保持一致，报告里才会有项/记录填报率）
+		metaDB, _ := openQualityAuditDB()
+		itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
+		recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
+		pr.setPhase("fill", "统计填报率")
+		pr.addTotal(len(itemRows) + len(recRows))
+		itemStats := runFillStatsWithProgress(targetDB, dialect, itemRows, func() { pr.tick("") })
+		recStats := runFillStatsWithProgress(targetDB, dialect, recRows, func() { pr.tick("") })
+
 		// AI 校核：只对勾选项中本次未通过的规则
-		aiMap, aiModel, aiSkipReason := qaAIVerify(ruleResults, s.AICheckNMs, s.AIPrompt)
+		pr.setPhase("ai", "AI 校核")
+		aiMap, aiModel, aiSkipReason := qaAIVerifyWithProgress(ruleResults, s.AICheckNMs, s.AIPrompt, pr)
 		for _, row := range ruleResults {
 			nm, _ := row["nm"].(string)
 			ai, ok := aiMap[nm]
@@ -564,13 +609,17 @@ func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, str
 		}
 
 		// 生成报告并落盘
+		pr.setPhase("report", "生成报告")
+		pr.addTotal(1)
 		if doc, err := qaBuildReportDocx(qaNormalizeAuditJSON(map[string]interface{}{
-			"database_id":   s.DatabaseID,
-			"database_type": dbConfig.Type,
-			"dialect":       dialect,
-			"started_at":    startedAt.Format(time.RFC3339),
-			"ai_model":      aiModel,
-			"rules":         ruleResults,
+			"database_id":       s.DatabaseID,
+			"database_type":     dbConfig.Type,
+			"dialect":           dialect,
+			"started_at":        startedAt.Format(time.RFC3339),
+			"ai_model":          aiModel,
+			"rules":             ruleResults,
+			"item_fill_rates":   itemStats,
+			"record_fill_rates": recStats,
 			"summary": map[string]interface{}{
 				"total_rules": passed + failed,
 				"passed":      passed,
@@ -584,6 +633,7 @@ func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, str
 				}
 			}
 		}
+		pr.tick("报告已生成")
 
 		summaryMap = map[string]interface{}{
 			"total_rules": passed + failed,
@@ -712,6 +762,11 @@ func qaGuessLLMProvider(url string) string {
 // qaAIVerify 对 aiNMs 中本次未通过的规则逐条做 AI 误判判断。
 // 返回 nm → {misjudged,confidence,reason,suggestion}、使用的模型名、跳过原因（空=未跳过）。
 func qaAIVerify(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt string) (map[string]map[string]interface{}, string, string) {
+	return qaAIVerifyWithProgress(ruleResults, aiNMs, aiPrompt, nil)
+}
+
+// qaAIVerifyWithProgress 与 qaAIVerify 相同，额外登记进度（AI 逐条校核比较慢，进度条上要能看到）。
+func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt string, pr *qaRunProgress) (map[string]map[string]interface{}, string, string) {
 	out := map[string]map[string]interface{}{}
 	if len(aiNMs) == 0 {
 		return out, "", "未配置 AI 校核项"
@@ -730,6 +785,20 @@ func qaAIVerify(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt s
 		want[padNM(nm)] = true
 	}
 
+	// 先把「本次要校核的条数」算出来告诉进度条
+	targets := 0
+	for _, row := range ruleResults {
+		nm, _ := row["nm"].(string)
+		if !want[nm] {
+			continue
+		}
+		if p, ok := row["passed"].(bool); ok && p {
+			continue
+		}
+		targets++
+	}
+	pr.addTotal(targets)
+
 	const systemPrompt = "你是数据质量审核专家。判断给定 SQL 审核规则的失败结果是否属于『规则本身过严导致的误判』，给出结论与修改建议。"
 	first := true
 	for _, row := range ruleResults {
@@ -744,6 +813,12 @@ func qaAIVerify(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt s
 			time.Sleep(300 * time.Millisecond)
 		}
 		first = false
+
+		name, _ := row["name"].(string)
+		if name == "" {
+			name = nm
+		}
+		pr.tick("AI 校核：" + name)
 
 		content, err := qaCallLLMChat(cfg, systemPrompt, qaBuildAIVerifyPrompt(row, aiPrompt), 30*time.Second)
 		if err != nil {
@@ -973,7 +1048,78 @@ func qaRunsGET(w http.ResponseWriter, r *http.Request, username string) {
 		apiInternalError(w, err.Error())
 		return
 	}
+
+	// 正在后台执行的任务还没写 qa_runs，这里补在列表最前面，界面上显示「进行中 + 进度」。
+	// 只在没有按状态过滤（或过滤 running）时补。
+	if statusFilter == "" || statusFilter == "running" {
+		active := qaProgressActive()
+		prepended := []map[string]interface{}{}
+		for _, pr := range active {
+			if scheduleID != "" && asString(pr["schedule_id"]) != scheduleID {
+				continue
+			}
+			prepended = append(prepended, map[string]interface{}{
+				"id":            pr["run_id"],
+				"schedule_id":   pr["schedule_id"],
+				"schedule_name": pr["schedule_name"],
+				"trigger_type":  pr["trigger_type"],
+				"database_id":   "",
+				"started_at":    pr["started_at"],
+				"duration_ms":   pr["elapsed_ms"],
+				"status":        "running",
+				"running":       true,
+				"progress":      pr,
+				"total_rules":   0,
+				"passed":        0,
+				"failed":        0,
+				"ai_flagged":    0,
+				"has_report":    false,
+			})
+		}
+		list = append(prepended, list...)
+	}
+
 	qaRespondSuccess(w, map[string]interface{}{"runs": list})
+}
+
+// qaRunProgressGET 查询某次执行（含后台执行中）的进度。
+func qaRunProgressGET(w http.ResponseWriter, runID, username string) {
+	_ = username
+	if p := qaProgressGet(runID); p != nil {
+		qaRespondSuccess(w, map[string]interface{}{"progress": p.snapshot()})
+		return
+	}
+	// 内存里没有：可能早已结束、或服务重启过 —— 从 qa_runs 兜底返回终态
+	if db, err := openQualityAuditDB(); err == nil {
+		var status, errMsg string
+		var duration int64
+		var startedAt, finishedAt sql.NullString
+		row := db.QueryRow(`SELECT status, COALESCE(error,''), COALESCE(started_at,''), COALESCE(finished_at,''), COALESCE(duration_ms,0) FROM qa_runs WHERE id=?`, runID)
+		if err := row.Scan(&status, &errMsg, &startedAt, &finishedAt, &duration); err == nil {
+			qaRespondSuccess(w, map[string]interface{}{"progress": map[string]interface{}{
+				"run_id":     runID,
+				"status":     status,
+				"finished":   true,
+				"percent":    100.0,
+				"eta_ms":     int64(0),
+				"elapsed_ms": duration,
+				"error":      errMsg,
+				"started_at": startedAt.String,
+			}})
+			return
+		}
+	}
+	apiNotFound(w, "执行记录不存在或进度已过期")
+}
+
+// qaProgressActiveGET 列出当前所有后台执行中的任务（页面刷新后靠它恢复进度条）。
+func qaProgressActiveGET(w http.ResponseWriter, username string) {
+	_ = username
+	items := qaProgressActive()
+	qaRespondSuccess(w, map[string]interface{}{
+		"active": items,
+		"count":  len(items),
+	})
 }
 
 func qaRunGET(w http.ResponseWriter, r *http.Request, id string, username string) {

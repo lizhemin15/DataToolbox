@@ -1025,8 +1025,8 @@
             var el = document.getElementById(pair[1]);
             if (el) el.style.display = (pair[0] === name) ? 'block' : 'none';
         });
-        if (name === 'schedules') loadSchedules();
-        if (name === 'runs') { loadOverview(); loadRuns(qaRunFilterValue()); }
+        if (name === 'schedules') { loadSchedules(); qaResumeProgress(); }
+        if (name === 'runs') { loadOverview(); loadRuns(qaRunFilterValue()); qaResumeProgress(); }
     }
 
     // ---------- 定时任务列表 ----------
@@ -1384,17 +1384,161 @@
             .catch(function (e) { showMsg(e.message || String(e), true); loadSchedules(); });
     }
 
+    // ---------------------------------------------------------------------
+    // 后台执行进度：任务在服务端跑，前端只负责轮询展示，页面可以随便离开
+    // ---------------------------------------------------------------------
+    var qaProgressTimer = null;
+    var qaProgressWatching = false;
+    var qaProgressLastActive = 0;
+    var qaProgressKnown = {}; // run_id -> 任务名，用于在跑完时给个提示
+
+    function qaFmtProgressDuration(ms) {
+        if (ms == null || ms < 0 || !isFinite(ms)) return '';
+        var s = Math.round(ms / 1000);
+        if (s < 60) return s + ' 秒';
+        var m = Math.floor(s / 60);
+        var rs = s % 60;
+        if (m < 60) return m + ' 分' + (rs ? rs + ' 秒' : '');
+        var h = Math.floor(m / 60);
+        return h + ' 小时' + (m % 60) + ' 分';
+    }
+
+    function qaProgressCard(pr) {
+        var running = pr.status === 'running';
+        var cls = 'qa-progress-card' + (running ? '' : (pr.status === 'success' ? ' is-done' : ' is-failed'));
+        var pct = Math.max(0, Math.min(100, Number(pr.percent) || 0));
+        var total = Number(pr.total) || 0;
+        var done = Number(pr.done) || 0;
+        var indeterminate = running && total === 0;
+        var etaText = '';
+        if (running) {
+            if (pr.eta_ms != null && pr.eta_ms >= 0) etaText = '预计剩余 ' + qaFmtProgressDuration(pr.eta_ms);
+            else if (done === 0) etaText = '预计剩余 计算中…';
+        } else if (pr.status === 'success') {
+            etaText = '耗时 ' + qaFmtProgressDuration(pr.elapsed_ms);
+        }
+        var trigger = pr.trigger_type === 'cron' ? '定时触发' : '手动触发';
+        var head = '<div class="qa-progress-top">' +
+            '<span class="qa-progress-title">' +
+            (running ? '<span class="qa-progress-dot"></span>' : '') +
+            escapeHtml(pr.schedule_name || '定时任务') +
+            '<span class="qa-progress-phase">' + escapeHtml(pr.phase_label || '') + ' · ' + escapeHtml(trigger) + '</span></span>' +
+            '<span class="qa-progress-eta">' + escapeHtml(etaText) + '</span>' +
+            '</div>';
+        var bar = '<div class="qa-progress-bar"><div class="qa-progress-bar-inner' + (indeterminate ? ' is-indeterminate' : '') +
+            '" style="width:' + pct.toFixed(1) + '%"></div></div>';
+        var meta = '<div class="qa-progress-meta">' +
+            '<span>已完成 <strong>' + done + '</strong> / ' + total + ' 项</span>' +
+            '<span>' + pct.toFixed(0) + '%</span>' +
+            '<span>已用时 ' + qaFmtProgressDuration(pr.elapsed_ms) + '</span>' +
+            (pr.current ? '<span class="qa-progress-current">当前：' + escapeHtml(pr.current) + '</span>' : '') +
+            (pr.error ? '<span class="qa-progress-current" style="color:#c53030;">错误：' + escapeHtml(pr.error) + '</span>' : '') +
+            '</div>';
+        return '<div class="' + cls + '">' + head + bar + meta + '</div>';
+    }
+
+    function qaRenderProgress(activeList) {
+        var wrap = document.getElementById('qaSchedProgressWrap');
+        if (!wrap) return;
+        if (!activeList || !activeList.length) {
+            wrap.style.display = 'none';
+            wrap.innerHTML = '';
+            return;
+        }
+        wrap.style.display = '';
+        wrap.innerHTML = activeList.map(qaProgressCard).join('');
+    }
+
+    // 任务从「进行中」消失后，去查它最终是成功还是失败，给用户一个明确提示
+    function qaAnnounceFinished(prevKnown, activeList) {
+        var alive = {};
+        (activeList || []).forEach(function (p) { alive[p.run_id] = true; });
+        Object.keys(prevKnown).forEach(function (rid) {
+            if (alive[rid]) return;
+            var name = prevKnown[rid] || '定时任务';
+            delete prevKnown[rid];
+            fetchWithAuth(PREFIX + 'runs/' + encodeURIComponent(rid) + '/progress', { method: 'GET' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var pr = (d && d.success && d.progress) || {};
+                    if (pr.status === 'failed') {
+                        showMsg('后台任务「' + name + '」执行失败' + (pr.error ? ('：' + pr.error) : ''), true);
+                    } else {
+                        showMsg('后台任务「' + name + '」执行完成，可到「执行记录」查看报告', false);
+                    }
+                })
+                .catch(function () { });
+        });
+    }
+
+    function qaProgressTick() {
+        fetchWithAuth(PREFIX + 'progress/active', { method: 'GET' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) return;
+                var list = d.active || [];
+                var prevKnown = qaProgressKnown;
+                list.forEach(function (p) { qaProgressKnown[p.run_id] = p.schedule_name || '定时任务'; });
+                qaRenderProgress(list);
+                // 有任务刚刚跑完 → 查最终状态 + 刷新列表，让结果落到「执行记录」里
+                if (list.length < qaProgressLastActive) {
+                    qaAnnounceFinished(prevKnown, list);
+                    loadSchedules();
+                    if (qaCurrentSub === 'runs') { loadOverview(); loadRuns(qaRunFilterValue()); }
+                } else if (list.length && qaCurrentSub === 'runs') {
+                    loadRuns(qaRunFilterValue());
+                }
+                qaProgressLastActive = list.length;
+                if (!list.length) qaStopProgressWatch();
+            })
+            .catch(function () { });
+    }
+
+    function qaStartProgressWatch() {
+        if (qaProgressWatching) return;
+        qaProgressWatching = true;
+        qaProgressLastActive = 0;
+        qaProgressTick();
+        qaProgressTimer = setInterval(qaProgressTick, 1500);
+    }
+
+    function qaStopProgressWatch() {
+        qaProgressWatching = false;
+        if (qaProgressTimer) { clearInterval(qaProgressTimer); qaProgressTimer = null; }
+        qaProgressLastActive = 0;
+        qaProgressKnown = {};
+        qaRenderProgress([]);
+    }
+
+    // 打开页面/切到质量审核时：把服务端正在跑的任务进度接回来
+    function qaResumeProgress() {
+        fetchWithAuth(PREFIX + 'progress/active', { method: 'GET' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.success) return;
+                var list = d.active || [];
+                if (list.length) {
+                    qaProgressLastActive = list.length;
+                    list.forEach(function (p) { qaProgressKnown[p.run_id] = p.schedule_name || '定时任务'; });
+                    qaRenderProgress(list);
+                    if (!qaProgressWatching) {
+                        qaProgressWatching = true;
+                        qaProgressTimer = setInterval(qaProgressTick, 1500);
+                    }
+                }
+            })
+            .catch(function () { });
+    }
+
     function qaRunScheduleNow(id) {
-        if (!confirm('立即执行该定时任务？执行期间请勿关闭页面。')) return;
-        showMsg('任务执行中…', false);
+        if (!confirm('立即在后台执行该定时任务？提交后可以离开页面，进度会一直保留。')) return;
         fetchWithAuth(PREFIX + 'schedules/' + encodeURIComponent(id) + '/run', { method: 'POST', body: '{}' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d.success) throw new Error(d.message || '执行失败');
-                showMsg('执行完成：' + (d.status === 'success' ? '成功' : '失败') + (d.error ? ('（' + d.error + '）') : ''), d.status !== 'success');
-                return loadSchedules();
+                showMsg('任务已在后台执行，可离开页面', false);
+                qaStartProgressWatch();
             })
-            .then(function () { if (qaCurrentSub === 'runs') { loadOverview(); loadRuns(qaRunFilterValue()); } })
             .catch(function (e) { showMsg(e.message || String(e), true); });
     }
 
@@ -1491,6 +1635,29 @@
         empty.style.display = 'none';
         runs.forEach(function (ru) {
             var tr = document.createElement('tr');
+            if (ru.running) {
+                // 后台执行中：还没写 qa_runs，把进度直接画在这一行
+                var pr = ru.progress || {};
+                var pct = Math.max(0, Math.min(100, Number(pr.percent) || 0));
+                var indeterminate = !(Number(pr.total) > 0);
+                tr.innerHTML =
+                    '<td>' + escapeHtml(qaFmtTime(ru.started_at)) + '</td>' +
+                    '<td>' + escapeHtml(ru.schedule_name || '（手动）') + '</td>' +
+                    '<td>' + (ru.trigger_type === 'manual' ? '手动' : '定时') + '</td>' +
+                    '<td class="qa-muted">-</td>' +
+                    '<td class="qa-muted">-</td>' +
+                    '<td class="qa-muted">-</td>' +
+                    '<td class="qa-run-progress-cell">' +
+                        '<div class="qa-progress-bar"><div class="qa-progress-bar-inner' + (indeterminate ? ' is-indeterminate' : '') +
+                        '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+                        '<div class="qa-progress-text">已完成 ' + (Number(pr.done) || 0) + '/' + (Number(pr.total) || 0) + ' 项' +
+                        (pr.eta_ms != null && pr.eta_ms >= 0 ? (' · 预计剩余 ' + qaFmtProgressDuration(pr.eta_ms)) : '') + '</div>' +
+                    '</td>' +
+                    '<td><span class="qa-badge qa-badge-ai"><span class="qa-progress-dot"></span>进行中</span></td>' +
+                    '<td class="qa-row-actions"><span class="qa-muted">' + escapeHtml(pr.phase_label || '') + '</span></td>';
+                body.appendChild(tr);
+                return;
+            }
             var trigger = ru.trigger_type === 'manual' ? '手动' : '定时';
             var status = ru.status === 'success' ? '<span class="qa-badge qa-badge-pass">成功</span>'
                 : (ru.status === 'failed' ? '<span class="qa-badge qa-badge-fail">失败</span>' : escapeHtml(ru.status || ''));
@@ -2055,6 +2222,8 @@
             return syncQaReportTemplateIdFromServer();
         }).then(function () {
             qaSwitchSub(qaCurrentSub);
+            // 载入时把后台正在跑的任务进度接回来（用户可能刚刷新过页面）
+            qaResumeProgress();
         }).catch(function (e) {
             if (needLoadRules) {
                 window._qualityAuditRulesLoaded = false;

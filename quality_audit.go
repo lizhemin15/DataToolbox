@@ -27,9 +27,9 @@ var (
 	qualityAuditErr  error
 
 	// 审核结果缓存
-	qaCacheMu    sync.RWMutex
-	qaCache      = make(map[string]qaCacheEntry)
-	qaCacheTTL   = 10 * time.Minute // 缓存有效期
+	qaCacheMu  sync.RWMutex
+	qaCache    = make(map[string]qaCacheEntry)
+	qaCacheTTL = 10 * time.Minute // 缓存有效期
 
 	// 审核取消控制
 	qaCancelMu    sync.Mutex
@@ -330,7 +330,7 @@ func defaultQATemplateContentJSON() string {
 		"doc_title": "数据质量审核报告",
 		// 页面设置（公文格式）
 		"page": map[string]string{
-			"paper_size": "A4",
+			"paper_size":    "A4",
 			"margin_top":    "3.7cm",
 			"margin_bottom": "3.5cm",
 			"margin_left":   "2.8cm",
@@ -377,12 +377,12 @@ func defaultQATemplateContentJSON() string {
 		},
 		// 表格样式
 		"table": map[string]string{
-			"border":        "1px solid #000000",
+			"border":          "1px solid #000000",
 			"border_collapse": "collapse",
-			"header_bg":     "#f0f0f0",
-			"header_weight": "bold",
-			"row_alt":       "#fafafa",
-			"cell_padding":  "8px",
+			"header_bg":       "#f0f0f0",
+			"header_weight":   "bold",
+			"row_alt":         "#fafafa",
+			"cell_padding":    "8px",
 		},
 		// 页眉页脚（宋体，小五号）
 		"header_footer": map[string]string{
@@ -477,11 +477,11 @@ func seedQualityAuditSampleData(db *sql.DB) {
 // qaLegacyRuleTemplates 是历史版本里「表名/字段名为空」的空壳模板 → 带占位符的新模板。
 // 迁移时逐字节精确匹配才替换，避免误伤用户已经填好的规则。
 var qaLegacyRuleTemplates = map[string]string{
-	`SELECT * FROM  WHERE  IS NULL`:                             `SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL`,
-	`SELECT a.* FROM  a LEFT JOIN  b ON a.=b. WHERE b. IS NULL`: `SELECT a.* FROM {{表名}} a LEFT JOIN {{关联表}} b ON a.{{字段名}} = b.{{关联字段}} WHERE b.{{关联字段}} IS NULL`,
+	`SELECT * FROM  WHERE  IS NULL`:                                `SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL`,
+	`SELECT a.* FROM  a LEFT JOIN  b ON a.=b. WHERE b. IS NULL`:    `SELECT a.* FROM {{表名}} a LEFT JOIN {{关联表}} b ON a.{{字段名}} = b.{{关联字段}} WHERE b.{{关联字段}} IS NULL`,
 	`SELECT , COUNT(*) as cnt FROM  GROUP BY  HAVING COUNT(*) > 1`: `SELECT {{字段名}}, COUNT(*) AS cnt FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1`,
-	`SELECT COUNT(*) as null_count FROM  WHERE  IS NULL`:        `SELECT COUNT(*) AS null_count FROM {{表名}} WHERE {{字段名}} IS NULL`,
-	`SELECT * FROM  WHERE  NOT IN ()`:                           `SELECT * FROM {{表名}} WHERE {{字段名}} NOT IN ({{枚举值}})`,
+	`SELECT COUNT(*) as null_count FROM  WHERE  IS NULL`:           `SELECT COUNT(*) AS null_count FROM {{表名}} WHERE {{字段名}} IS NULL`,
+	`SELECT * FROM  WHERE  NOT IN ()`:                              `SELECT * FROM {{表名}} WHERE {{字段名}} NOT IN ({{枚举值}})`,
 }
 
 // migrateQualityAuditRuleParams 幂等迁移：
@@ -865,6 +865,10 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaRunGET(w, r, parts[1], username)
 	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "report" && r.Method == http.MethodGet:
 		qaRunReportGET(w, r, parts[1], username)
+	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "progress" && r.Method == http.MethodGet:
+		qaRunProgressGET(w, parts[1], username)
+	case path == "progress/active" && r.Method == http.MethodGet:
+		qaProgressActiveGET(w, username)
 	case path == "overview" && r.Method == http.MethodGet:
 		qaOverviewGET(w, r, username)
 	case path == "schedule":
@@ -1181,7 +1185,7 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 
 // qaExecuteRules 并行执行指定规则的审核查询，供 qaExecute 与定时任务复用。
 // 返回每条规则的结果、通过数、不通过数；执行错误会写入 audit_errors。
-func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time) ([]map[string]interface{}, int, int, error) {
+func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string)) ([]map[string]interface{}, int, int, error) {
 	flat, err := loadRulesFlat()
 	if err != nil {
 		return nil, 0, 0, err
@@ -1284,6 +1288,10 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 			}
 		}
 		ruleResults = append(ruleResults, result.entry)
+		if onDone != nil {
+			name, _ := result.entry["name"].(string)
+			onDone(result.nm, name)
+		}
 	}
 	return ruleResults, passed, failed, nil
 }
@@ -1338,7 +1346,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 
 	t0 := time.Now()
 
-	ruleResults, passed, failed, err := qaExecuteRules(req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0)
+	ruleResults, passed, failed, err := qaExecuteRules(req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0, nil)
 	if err != nil {
 		apiInternalError(w, err.Error())
 		return
@@ -1429,9 +1437,9 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	sendEvent("start", map[string]interface{}{
-		"database_id":   req.DatabaseID,
-		"total_rules":   len(req.RuleNMs),
-		"started_at":    time.Now().Format(time.RFC3339),
+		"database_id": req.DatabaseID,
+		"total_rules": len(req.RuleNMs),
+		"started_at":  time.Now().Format(time.RFC3339),
 	})
 
 	// 使用连接池获取数据库连接
@@ -1464,10 +1472,10 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 
 		// 发送进度
 		sendEvent("progress", map[string]interface{}{
-			"current":    i + 1,
-			"total":      len(req.RuleNMs),
-			"rule_nm":    nm,
-			"rule_name":  rule.Name,
+			"current":   i + 1,
+			"total":     len(req.RuleNMs),
+			"rule_nm":   nm,
+			"rule_name": rule.Name,
 		})
 
 		orig := strings.TrimSpace(rule.SQL)
@@ -1648,13 +1656,13 @@ func qaStats(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":        true,
-		"database_id":    databaseID,
-		"days":           daysInt,
-		"total_audits":   totalAudits,
-		"total_errors":   totalErrors,
+		"success":         true,
+		"database_id":     databaseID,
+		"days":            daysInt,
+		"total_audits":    totalAudits,
+		"total_errors":    totalErrors,
 		"avg_duration_ms": avgDuration,
-		"daily_stats":    dailyStats,
+		"daily_stats":     dailyStats,
 		"top_error_rules": topErrorRules,
 	})
 }
@@ -1710,23 +1718,23 @@ func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
 			var ruleNm, ruleName, errorMsg, errTime string
 			if err := errorRows.Scan(&ruleNm, &ruleName, &errorMsg, &errTime); err == nil {
 				errors = append(errors, map[string]interface{}{
-					"rule_nm":      ruleNm,
-					"rule_name":    ruleName,
-					"error":        errorMsg,
-					"executed_at":  errTime,
+					"rule_nm":     ruleNm,
+					"rule_name":   ruleName,
+					"error":       errorMsg,
+					"executed_at": errTime,
 				})
 			}
 		}
 	}
 
 	report := map[string]interface{}{
-		"database_id":   databaseID,
-		"executed_at":   executedAt,
-		"duration_ms":   durationMs,
-		"summary":       summary,
-		"errors":        errors,
-		"exported_at":   time.Now().Format(time.RFC3339),
-		"exported_by":   username,
+		"database_id": databaseID,
+		"executed_at": executedAt,
+		"duration_ms": durationMs,
+		"summary":     summary,
+		"errors":      errors,
+		"exported_at": time.Now().Format(time.RFC3339),
+		"exported_by": username,
 	}
 
 	switch format {
@@ -1762,6 +1770,11 @@ func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
 }
 
 func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]interface{} {
+	return runFillStatsWithProgress(db, dialect, rows, nil)
+}
+
+// runFillStatsWithProgress 与 runFillStats 相同，额外在每行算完后回调 onDone（用于进度条）。
+func runFillStatsWithProgress(db *sql.DB, dialect string, rows []fillRow, onDone func()) []map[string]interface{} {
 	type fillResult struct {
 		idx   int
 		entry map[string]interface{}
@@ -1834,6 +1847,9 @@ func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]inter
 	results := make([]map[string]interface{}, len(rows))
 	for res := range resultChan {
 		results[res.idx] = res.entry
+		if onDone != nil {
+			onDone()
+		}
 	}
 	return results
 }
@@ -1973,7 +1989,7 @@ func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{},
 		if err := rows.Scan(ptr...); err != nil {
 			return n - 1, sample, err
 		}
-		if len(sample) < 100 {  // 增加到 100 行示例数据
+		if len(sample) < 100 { // 增加到 100 行示例数据
 			rowMap := map[string]interface{}{}
 			for i, col := range cols {
 				val := raw[i]
@@ -2063,14 +2079,14 @@ type qaTemplateStyles struct {
 
 type qaTemplateTextSt struct {
 	FontFamily string `json:"font_family"`
-	FontSize    string `json:"font_size"`
-	Color       string `json:"color"`
+	FontSize   string `json:"font_size"`
+	Color      string `json:"color"`
 }
 
 type qaTemplateTableSt struct {
-	Border    string `json:"border"`
-	HeaderBg  string `json:"header_bg"`
-	RowAlt    string `json:"row_alt"`
+	Border   string `json:"border"`
+	HeaderBg string `json:"header_bg"`
+	RowAlt   string `json:"row_alt"`
 }
 
 func parseQATemplateContent(raw string) *qaTemplateStyles {
