@@ -1782,14 +1782,14 @@ func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]inter
 			numSQL, e0 := sanitizeSQLForQA(numSQLRaw)
 			if e0 != nil {
 				resultChan <- fillResult{idx: idx, entry: map[string]interface{}{
-					"table_name": r.TableName, "numerator_error": e0.Error(),
+					"table_name": r.TableName, "field_name": r.FieldName, "numerator_error": e0.Error(),
 				}}
 				return
 			}
 			denSQL, e0 := sanitizeSQLForQA(denSQLRaw)
 			if e0 != nil {
 				resultChan <- fillResult{idx: idx, entry: map[string]interface{}{
-					"table_name": r.TableName, "denominator_error": e0.Error(),
+					"table_name": r.TableName, "field_name": r.FieldName, "denominator_error": e0.Error(),
 				}}
 				return
 			}
@@ -1801,6 +1801,7 @@ func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]inter
 
 			m := map[string]interface{}{
 				"table_name":  r.TableName,
+				"field_name":  r.FieldName,
 				"numerator":   n,
 				"denominator": d,
 			}
@@ -1809,6 +1810,12 @@ func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]inter
 			}
 			if e2 != nil {
 				m["denominator_error"] = e2.Error()
+			}
+			// 表不存在时单独标记：报告里直接写「没有这个表」，不再显示分子/分母的原始报错
+			if qaFillMissingTableError(e1) || qaFillMissingTableError(e2) {
+				m["no_such_table"] = true
+				delete(m, "numerator_error")
+				delete(m, "denominator_error")
 			}
 			if e1 == nil && e2 == nil && d != 0 {
 				m["rate_percent"] = (n / d) * 100
@@ -1829,6 +1836,79 @@ func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]inter
 		results[res.idx] = res.entry
 	}
 	return results
+}
+
+// qaFillMissingTableError 判断填报率 SQL 的执行错误是否为「表不存在」。
+// 覆盖 MySQL / PostgreSQL / SQLite / SQLServer / Oracle / 达梦 等常见方言的报错文案。
+// 注意：泛化的 "does not exist" 也可能是「列不存在」，这类不算表不存在，避免误报。
+func qaFillMissingTableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	strong := []string{
+		"no such table", "unknown table", "invalid object name", "undefined table",
+		"ora-00942", "sqlstate 42p01", "42p01",
+		"无效的表", "表或视图不存在", "关系不存在", "表不存在",
+	}
+	for _, kw := range strong {
+		if strings.Contains(msg, kw) {
+			return true
+		}
+	}
+	if strings.Contains(msg, "doesn't exist") || strings.Contains(msg, "does not exist") || strings.Contains(msg, "不存在") {
+		if strings.Contains(msg, "column") || strings.Contains(msg, "字段") || strings.Contains(msg, "列") {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+// qaFillCellText 取填报率行的单元格文本；nil / <nil> 统一返回空串，避免报告里出现 <nil>。
+func qaFillCellText(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "<nil>" {
+		return ""
+	}
+	return s
+}
+
+// qaFillRateText 填报率文案：表不存在 → 「没有这个表」；算不出 → 「—」。
+func qaFillRateText(m map[string]interface{}) string {
+	if b, _ := m["no_such_table"].(bool); b {
+		return "没有这个表"
+	}
+	if v, ok := m["rate_percent"]; ok && v != nil {
+		if f, err := ifaceToFloat(v); err == nil {
+			return fmt.Sprintf("%.2f%%", f)
+		}
+	}
+	return "—"
+}
+
+// qaFillDocxLine 生成一条填报率文字。
+// withField=true（项填报率）：表 X 字段 Y：填报率 Z%；字段为空时退化成「表 X：填报率 Z%」。
+// withField=false（记录填报率）：表 X：填报率 Z%，不带字段项。
+// 表不存在时统一输出「表 X：没有这个表」。
+func qaFillDocxLine(m map[string]interface{}, withField bool) string {
+	table := qaFillCellText(m["table_name"])
+	if table == "" {
+		table = "（未填写表名）"
+	}
+	if b, _ := m["no_such_table"].(bool); b {
+		return fmt.Sprintf("表 %s：没有这个表", table)
+	}
+	rate := qaFillRateText(m)
+	if withField {
+		if f := qaFillCellText(m["field_name"]); f != "" {
+			return fmt.Sprintf("表 %s 字段 %s：填报率 %s", table, f, rate)
+		}
+	}
+	return fmt.Sprintf("表 %s：填报率 %s", table, rate)
 }
 
 func execScalarFloat(db *sql.DB, sqlStr string) (float64, error) {
@@ -2306,7 +2386,7 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		if m == nil {
 			continue
 		}
-		addPara(fmt.Sprintf("表 %v 字段 %v：填报率 %v%%", m["table_name"], m["field_name"], m["rate_percent"]))
+		addPara(qaFillDocxLine(m, true))
 	}
 	addPara("")
 	nextSection("记录填报率")
@@ -2315,7 +2395,8 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		if m == nil {
 			continue
 		}
-		addPara(fmt.Sprintf("表 %v 字段 %v：填报率 %v%%", m["table_name"], m["field_name"], m["rate_percent"]))
+		// 记录填报率按表统计整行，不涉及具体字段，报告里不再输出字段项
+		addPara(qaFillDocxLine(m, false))
 	}
 
 	if strings.TrimSpace(styles.PageFooter) != "" {
@@ -2674,40 +2755,27 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		if m == nil {
 			continue
 		}
-		rate := "—"
-		if v, ok := m["rate_percent"]; ok && v != nil {
-			if f, err := ifaceToFloat(v); err == nil {
-				rate = fmt.Sprintf("%.2f%%", f)
-			}
-		}
 		b.WriteString(`<tr><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
+		b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
 		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["field_name"])))
+		b.WriteString(html.EscapeString(qaFillCellText(m["field_name"])))
 		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(rate))
+		b.WriteString(html.EscapeString(qaFillRateText(m)))
 		b.WriteString(`</td></tr>`)
 	}
 	b.WriteString(`</tbody></table>`)
 	b.WriteString(`<h2 class="qa-sec">三、记录填报率</h2>`)
-	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
+	// 记录填报率按表统计整行，不涉及具体字段，表头不再输出「字段名」列
+	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>填报率</th></tr></thead><tbody>`)
 	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
 		m, _ := x.(map[string]interface{})
 		if m == nil {
 			continue
 		}
-		rate := "—"
-		if v, ok := m["rate_percent"]; ok && v != nil {
-			if f, err := ifaceToFloat(v); err == nil {
-				rate = fmt.Sprintf("%.2f%%", f)
-			}
-		}
 		b.WriteString(`<tr><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["table_name"])))
+		b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
 		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(fmt.Sprint(m["field_name"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(rate))
+		b.WriteString(html.EscapeString(qaFillRateText(m)))
 		b.WriteString(`</td></tr>`)
 	}
 	b.WriteString(`</tbody></table>`)

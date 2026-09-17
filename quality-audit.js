@@ -313,20 +313,30 @@
         }).join('');
 
         var fillBlocks = '';
-        function fillSection(title, rows) {
+        function fillSection(title, rows, withField) {
             if (!rows || !rows.length) return '';
-            var thead = '<thead><tr><th>表名</th><th>字段名</th><th>填报率</th><th>备注</th></tr></thead>';
+            var thead = withField
+                ? '<thead><tr><th>表名</th><th>字段名</th><th>填报率</th><th>备注</th></tr></thead>'
+                : '<thead><tr><th>表名</th><th>填报率</th><th>备注</th></tr></thead>';
             var body = '<tbody>' + rows.map(function (x) {
-                var rate = x.rate_percent != null ? (Number(x.rate_percent).toFixed(2) + '%') : '—';
+                var noTable = x.no_such_table === true;
+                var rate = noTable
+                    ? '没有这个表'
+                    : (x.rate_percent != null ? (Number(x.rate_percent).toFixed(2) + '%') : '—');
                 var note = '';
-                if (x.numerator_error) note += '分子: ' + x.numerator_error + ' ';
-                if (x.denominator_error) note += '分母: ' + x.denominator_error;
-                return '<tr><td>' + escapeHtml(x.table_name || '') + '</td><td>' + escapeHtml(x.field_name || '') + '</td><td>' + escapeHtml(rate) + '</td><td>' + escapeHtml(note.trim()) + '</td></tr>';
+                if (!noTable) {
+                    if (x.numerator_error) note += '分子: ' + x.numerator_error + ' ';
+                    if (x.denominator_error) note += '分母: ' + x.denominator_error;
+                }
+                var cells = '<td>' + escapeHtml(x.table_name || '') + '</td>';
+                if (withField) cells += '<td>' + escapeHtml(x.field_name || '') + '</td>';
+                cells += '<td>' + escapeHtml(rate) + '</td><td>' + escapeHtml(note.trim()) + '</td>';
+                return '<tr>' + cells + '</tr>';
             }).join('') + '</tbody>';
             return '<div class="qa-fill-section"><strong>' + escapeHtml(title) + '</strong><table class="qa-result-table qa-fill-rate-table">' + thead + body + '</table></div>';
         }
-        fillBlocks += fillSection('项填报率', audit.item_fill_rates);
-        fillBlocks += fillSection('记录填报率', audit.record_fill_rates);
+        fillBlocks += fillSection('项填报率', audit.item_fill_rates, true);
+        fillBlocks += fillSection('记录填报率', audit.record_fill_rates, false);
 
         var rulesTable = hasRules
             ? '<table class="qa-result-table"><thead><tr><th>规则 NM</th><th>名称</th><th>结果</th><th>详情</th></tr></thead><tbody>' +
@@ -367,17 +377,22 @@
         return qaShared.parseExcelPasteRules ? qaShared.parseExcelPasteRules(raw) : [];
     }
 
-    /** 填报率：列顺序 表名、字段名、分子、分母。多行单元格应用 Excel 引号粘贴，由 parseExcelTSVWithQuotes 解析；无引号续行时首列为空则按列并入分子/分母 */
-    function mergeFillContinuationRows(parsedRows) {
-        return qaShared.mergeFillContinuationRows ? qaShared.mergeFillContinuationRows(parsedRows) : [];
+    /**
+     * 填报率粘贴导入。
+     * withField=true（项填报率）：列顺序 表名、字段名、分子、分母。
+     * withField=false（记录填报率）：列顺序 表名、分子、分母，字段名列不参与统计。
+     * 多行单元格应用 Excel 引号粘贴，由 parseExcelTSVWithQuotes 解析；无引号续行时首列为空则按列并入分子/分母。
+     */
+    function mergeFillContinuationRows(parsedRows, withField) {
+        return qaShared.mergeFillContinuationRows ? qaShared.mergeFillContinuationRows(parsedRows, withField) : [];
     }
 
-    function parseExcelPasteMergedLinesFill(raw) {
-        return qaShared.parseExcelPasteMergedLinesFill ? qaShared.parseExcelPasteMergedLinesFill(raw) : [];
+    function parseExcelPasteMergedLinesFill(raw, withField) {
+        return qaShared.parseExcelPasteMergedLinesFill ? qaShared.parseExcelPasteMergedLinesFill(raw, withField) : [];
     }
 
-    function parseExcelPasteFillRates(raw) {
-        return qaShared.parseExcelPasteFillRates ? qaShared.parseExcelPasteFillRates(raw) : [];
+    function parseExcelPasteFillRates(raw, withField) {
+        return qaShared.parseExcelPasteFillRates ? qaShared.parseExcelPasteFillRates(raw, withField) : [];
     }
 
     function collectSubtreeNms(node, out) {
@@ -658,10 +673,13 @@
         };
     }
 
-    function createFillNode(row) {
+    function createFillNode(row, withField) {
         row = normalizeFillRow(row);
+        if (withField === undefined) withField = true;
         var wrap = document.createElement('div');
         wrap.className = 'qa-fill-node';
+        // 记录填报率不展示字段名，但保留已配置的值，保存时不丢
+        wrap.setAttribute('data-field-name', row.field_name || '');
         var cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'qa-fill-cb';
@@ -697,7 +715,7 @@
         rm.title = '删除';
         wrap.appendChild(cb);
         wrap.appendChild(nameIn);
-        wrap.appendChild(fieldIn);
+        if (withField) wrap.appendChild(fieldIn);
         wrap.appendChild(taN);
         wrap.appendChild(taD);
         wrap.appendChild(rm);
@@ -737,15 +755,21 @@
         }
     }
 
+    // 项填报率按「表+字段」统计，记录填报率按整表统计 —— 后者不展示字段名列
+    function qaFillTreeHasField(treeId) {
+        return treeId !== 'qaFillRecordTree';
+    }
+
     function renderFillTree(treeId, rows) {
         var root = document.getElementById(treeId);
         if (!root) return;
+        var withField = qaFillTreeHasField(treeId);
         root.innerHTML = '';
         if (!rows || !rows.length) {
             rows = [{ table_name: '', field_name: '', numerator: '', denominator: '', checked: true }];
         }
         rows.forEach(function (r) {
-            root.appendChild(createFillNode(r));
+            root.appendChild(createFillNode(r, withField));
         });
         updateFillSelectAll();
     }
@@ -772,7 +796,7 @@
         if (!confirm('确定删除选中的 ' + targets.length + ' 行填报率配置？\n删除后还需点「保存填报率」才会生效。')) return;
         targets.forEach(function (n) { n.remove(); });
         if (!root.querySelector('.qa-fill-node')) {
-            root.appendChild(createFillNode({ checked: true }));
+            root.appendChild(createFillNode({ checked: true }, qaFillTreeHasField(treeId)));
         }
         updateFillSelectAll();
         showMsg('已删除 ' + targets.length + ' 行，记得点「保存填报率」生效', false);
@@ -800,7 +824,8 @@
             var d = node.querySelector('textarea[data-k="d"]');
             rows.push({
                 table_name: t,
-                field_name: fIn ? String(fIn.value || '').trim() : '',
+                // 记录填报率没有字段输入框：沿用行上留存的原值，不要凭空清空
+                field_name: fIn ? String(fIn.value || '').trim() : String(node.getAttribute('data-field-name') || ''),
                 numerator: n ? n.value : '',
                 denominator: d ? d.value : '',
                 checked: !!(cb && cb.checked)
@@ -1878,11 +1903,13 @@
 
         var qaPasteFill = document.getElementById('qaPasteFill');
         if (qaPasteFill) qaPasteFill.addEventListener('click', function () {
-            var raw = prompt('请从 Excel 复制多行（列顺序：表名, 字段名, 分子, 分母），粘贴到此处：');
-            if (!raw) return;
-            var parsed = parseExcelPasteFillRates(raw);
-            if (!parsed.length) { showMsg('未解析到有效行', true); return; }
             var itemVisible = document.getElementById('qaFillItem').style.display !== 'none';
+            var raw = prompt(itemVisible
+                ? '请从 Excel 复制多行（列顺序：表名, 字段名, 分子, 分母），粘贴到此处：'
+                : '请从 Excel 复制多行（列顺序：表名, 分子, 分母），粘贴到此处：');
+            if (!raw) return;
+            var parsed = parseExcelPasteFillRates(raw, itemVisible);
+            if (!parsed.length) { showMsg('未解析到有效行', true); return; }
             var treeId = itemVisible ? 'qaFillItemTree' : 'qaFillRecordTree';
             var withChecked = parsed.map(function (p) {
                 return normalizeFillRow(p);

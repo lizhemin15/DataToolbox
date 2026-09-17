@@ -95,6 +95,11 @@
     align-items: start;
     padding: 8px 10px;
 }
+/* 记录填报率按整表统计，没有字段名列：列宽比项填报率少一列，保证表头与数据行对齐 */
+.qa-fill-grid-record .qa-fill-row-head,
+.qa-fill-grid-record .qa-fill-node {
+    grid-template-columns: 84px 150px minmax(140px, 1fr) minmax(140px, 1fr) 68px;
+}
 .qa-fill-row-head {
     background: #f1f5f9;
     border-bottom: 1px solid #e2e8f0;
@@ -157,6 +162,8 @@
 @media (max-width: 1200px) {
     .qa-fill-row-head,
     .qa-fill-node { grid-template-columns: 72px 130px 130px minmax(110px, 1fr) minmax(110px, 1fr) 60px; }
+    .qa-fill-grid-record .qa-fill-row-head,
+    .qa-fill-grid-record .qa-fill-node { grid-template-columns: 72px 130px minmax(110px, 1fr) minmax(110px, 1fr) 60px; }
 }
 @media (max-width: 860px) {
     .qa-fill-row-head { display: none; }

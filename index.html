@@ -1074,7 +1074,7 @@
                                 <div class="qa-panel-head">
                                     <strong>填报率配置</strong>
                                     <div class="qa-panel-actions">
-                                        <button type="button" class="btn btn-sm" id="qaPasteFill" title="从 Excel 粘贴 表名/字段名/分子/分母 多行导入">粘贴导入</button>
+                                        <button type="button" class="btn btn-sm" id="qaPasteFill" title="从 Excel 粘贴多行导入：项填报率为 表名/字段名/分子/分母，记录填报率为 表名/分子/分母">粘贴导入</button>
                                         <button type="button" class="btn btn-primary btn-sm" id="qaSaveFill">保存填报率</button>
                                     </div>
                                 </div>
@@ -1106,11 +1106,10 @@
                                         <button type="button" class="btn btn-sm qa-btn-danger-outline" id="qaDelRowsRecord">删除选中</button>
                                         <span class="qa-fill-tip">表名为空的行保存时会被忽略；分子/分母支持多行 SQL</span>
                                     </div>
-                                    <div class="qa-fill-grid">
+                                    <div class="qa-fill-grid qa-fill-grid-record">
                                         <div class="qa-fill-row-head">
                                             <span class="qa-fill-c qa-fill-c-cb"><label class="qa-fill-all"><input type="checkbox" id="qaFillRecordAll" title="全选"> 全选</label></span>
                                             <span class="qa-fill-c">表名</span>
-                                            <span class="qa-fill-c">字段名</span>
                                             <span class="qa-fill-c">分子</span>
                                             <span class="qa-fill-c">分母</span>
                                             <span class="qa-fill-c qa-fill-c-act">操作</span>

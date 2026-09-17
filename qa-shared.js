@@ -173,7 +173,14 @@
         });
     }
 
-    function mergeFillContinuationRows(parsedRows) {
+    /**
+     * 填报率粘贴/导入的续行合并。
+     * withField=true（项填报率）：列顺序 表名、字段名、分子、分母。
+     * withField=false（记录填报率）：不涉及字段，列顺序 表名、分子、分母；
+     *   若仍按老的 4 列格式（表名、字段名、分子、分母）粘贴，则忽略第 2 列字段名。
+     */
+    function mergeFillContinuationRows(parsedRows, withField) {
+        if (withField === undefined) withField = true;
         var out = [];
         var cur = null;
         var lastTableName = '';
@@ -185,13 +192,25 @@
             var numerator = '';
             var denominator = '';
 
-            if (colCount >= 4) {
-                fieldName = String(p[1] || '').trim();
-                numerator = p[2] != null ? String(p[2]) : '';
-                denominator = p[3] != null ? String(p[3]) : '';
-            } else if (colCount >= 3) {
-                numerator = p[1] != null ? String(p[1]) : '';
-                denominator = p[2] != null ? String(p[2]) : '';
+            if (withField) {
+                if (colCount >= 4) {
+                    fieldName = String(p[1] || '').trim();
+                    numerator = p[2] != null ? String(p[2]) : '';
+                    denominator = p[3] != null ? String(p[3]) : '';
+                } else if (colCount >= 3) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                    denominator = p[2] != null ? String(p[2]) : '';
+                }
+            } else {
+                if (colCount >= 4) {
+                    numerator = p[2] != null ? String(p[2]) : '';
+                    denominator = p[3] != null ? String(p[3]) : '';
+                } else if (colCount >= 3) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                    denominator = p[2] != null ? String(p[2]) : '';
+                } else if (colCount >= 2) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                }
             }
 
             if (tableName === '' && lastTableName !== '') {
@@ -216,7 +235,8 @@
         return out;
     }
 
-    function parseExcelPasteMergedLinesFill(raw) {
+    function parseExcelPasteMergedLinesFill(raw, withField) {
+        if (withField === undefined) withField = true;
         var lines = String(raw || '').split('\n');
         var rows = [];
         var cur = null;
@@ -229,13 +249,25 @@
             var numerator = '';
             var denominator = '';
 
-            if (colCount >= 4) {
-                fieldName = String(p[1] || '').trim();
-                numerator = p[2] != null ? String(p[2]) : '';
-                denominator = p[3] != null ? String(p[3]) : '';
-            } else if (colCount >= 3) {
-                numerator = p[1] != null ? String(p[1]) : '';
-                denominator = p[2] != null ? String(p[2]) : '';
+            if (withField) {
+                if (colCount >= 4) {
+                    fieldName = String(p[1] || '').trim();
+                    numerator = p[2] != null ? String(p[2]) : '';
+                    denominator = p[3] != null ? String(p[3]) : '';
+                } else if (colCount >= 3) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                    denominator = p[2] != null ? String(p[2]) : '';
+                }
+            } else {
+                if (colCount >= 4) {
+                    numerator = p[2] != null ? String(p[2]) : '';
+                    denominator = p[3] != null ? String(p[3]) : '';
+                } else if (colCount >= 3) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                    denominator = p[2] != null ? String(p[2]) : '';
+                } else if (colCount >= 2) {
+                    numerator = p[1] != null ? String(p[1]) : '';
+                }
             }
 
             if (tableName === '' && lastTableName !== '') {
@@ -260,16 +292,17 @@
         return rows;
     }
 
-    function parseExcelPasteFillRates(raw) {
+    function parseExcelPasteFillRates(raw, withField) {
+        if (withField === undefined) withField = true;
         var trimmed = String(raw || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         var parsedRows = parseExcelTSVWithQuotes(trimmed);
-        var rows = mergeFillContinuationRows(parsedRows);
+        var rows = mergeFillContinuationRows(parsedRows, withField);
         rows = rows.filter(function (r) {
             var h = String(r.table_name || '').trim().toLowerCase();
             if (h === '表名' || h === 'table_name' || h === 'table' || h === '') return false;
             return !!r.table_name;
         });
-        return rows.length ? rows : mergeFillContinuationRows(trimmed.split('\n').map(function (line) { return line.split('\t'); })).filter(function (r) {
+        return rows.length ? rows : mergeFillContinuationRows(trimmed.split('\n').map(function (line) { return line.split('\t'); }), withField).filter(function (r) {
             var h = String(r.table_name || '').trim().toLowerCase();
             if (h === '表名' || h === 'table_name' || h === 'table' || h === '') return false;
             return !!r.table_name;
