@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // 内置示例（预置任务）定义必须包含两个「公文Word转Excel」，否则全新安装看不到它们。
 func TestGovernancePresetDefinitionsIncludeDocxToExcel(t *testing.T) {
@@ -32,19 +36,24 @@ func TestCreateMissingGovernancePresetsFillsNewExamples(t *testing.T) {
 		governanceTasks["id-"+n] = &GovernanceTask{ID: "id-" + n, Name: n, Owner: "admin"}
 	}
 
-	if n := createMissingGovernancePresets(); n != 2 {
-		t.Fatalf("应补齐 2 个新内置示例，实际 %d", n)
+	if n := createMissingGovernancePresets(); n != 3 {
+		t.Fatalf("应补齐 3 个新内置示例，实际 %d", n)
 	}
 	if again := createMissingGovernancePresets(); again != 0 {
 		t.Fatalf("补齐应幂等，第二次实际创建 %d 个", again)
 	}
 
+	newNames := map[string]bool{
+		"公文Word转Excel（正则抽取）":     true,
+		"公文Word转Excel（AI抽取）":    true,
+		"产品汇总Word生成（套用表格模板）": true,
+	}
 	seen := 0
 	for _, task := range governanceTasks {
 		if task == nil {
 			continue
 		}
-		if task.Name == "公文Word转Excel（正则抽取）" || task.Name == "公文Word转Excel（AI抽取）" {
+		if newNames[task.Name] {
 			seen++
 			if task.Enabled {
 				t.Errorf("新增的预置任务不应自动启用：%s", task.Name)
@@ -57,7 +66,32 @@ func TestCreateMissingGovernancePresetsFillsNewExamples(t *testing.T) {
 			}
 		}
 	}
-	if seen != 2 {
-		t.Fatalf("应创建 2 个公文Word转Excel 任务，实际 %d", seen)
+	if seen != 3 {
+		t.Fatalf("应创建 3 个新增内置示例任务，实际 %d", seen)
+	}
+}
+
+// 「产品汇总Word生成（套用表格模板）」示例：多文件、前端执行、带两个样例文件。
+func TestGovernancePresetDefinitionsIncludeProductWordTables(t *testing.T) {
+	d, ok := governancePresetDefinitions()["产品汇总Word生成（套用表格模板）"]
+	if !ok {
+		t.Fatal("预置定义里缺少 产品汇总Word生成（套用表格模板）")
+	}
+	if d.InputType != "file" || d.FileBatchMode != "multi" {
+		t.Errorf("应为多文件上传，实际 input=%q batch=%q", d.InputType, d.FileBatchMode)
+	}
+	if d.RunMode != "frontend" || d.ExecutionMode != "frontend" {
+		t.Errorf("应为前端执行模式，实际 run=%q exec=%q", d.RunMode, d.ExecutionMode)
+	}
+	if len(d.ExampleFiles) != 2 {
+		t.Errorf("应配 2 个样例文件（模板 + 产品介绍），实际 %d", len(d.ExampleFiles))
+	}
+	if d.JsCode == "" {
+		// go test 下 os.Executable() 不在仓库根，loadGovernancePresetJS 读不到属正常；
+		// 这里直接按仓库相对路径校验脚本文件确实存在且非空。
+		b, err := os.ReadFile(filepath.Join("scripts", "gov-product-word-tables.js"))
+		if err != nil || len(b) == 0 {
+			t.Errorf("scripts/gov-product-word-tables.js 不存在或为空: %v", err)
+		}
 	}
 }

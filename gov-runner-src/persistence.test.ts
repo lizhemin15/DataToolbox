@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const script = readFileSync(new URL('../apps/data-ontology/script.js', import.meta.url), 'utf-8');
+// 前端治理逻辑已拆分为 script-governance.js + script-ontology.js，合并检查
+const script = [
+  readFileSync(new URL('../js/script-governance.js', import.meta.url), 'utf-8'),
+  readFileSync(new URL('../js/script-ontology.js', import.meta.url), 'utf-8'),
+].join('\n');
 
 describe('governance persistence hooks', () => {
   test('save payload includes run_mode and execution_mode', () => {
