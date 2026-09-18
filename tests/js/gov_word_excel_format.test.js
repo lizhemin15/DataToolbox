@@ -18,8 +18,21 @@ const zlib = require('zlib');
 
 const root = path.join(__dirname, '..', '..');
 const EXAMPLE_DOCX = path.join(root, 'apps', 'data-ontology', 'example_files', '2024年4月12日单位B日报.docx');
-const XLSX = require(path.join(root, 'gov-runner-src', 'node_modules', 'xlsx'));
-const PizZip = require(path.join(root, 'gov-runner-src', 'node_modules', 'pizzip'));
+
+/* ---------- 加载浏览器版 XLSX / PizZip ----------
+ * 直接用仓库里前端真正加载的 lib/*.js，放进 vm 沙箱取全局，
+ * 不依赖 gov-runner-src/node_modules —— 否则 CI（未装 bun 依赖）会挂。
+ */
+function loadBrowserGlobal(relFile, name) {
+  const sb = { console, TextEncoder, TextDecoder, Buffer, setTimeout, clearTimeout };
+  sb.window = sb; sb.self = sb; sb.globalThis = sb;
+  vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(path.join(root, relFile), 'utf8'), sb, { filename: relFile });
+  if (!sb[name]) throw new Error('无法从 ' + relFile + ' 取得全局 ' + name);
+  return sb[name];
+}
+const XLSX = loadBrowserGlobal(path.join('lib', 'xlsx.full.min.js'), 'XLSX');
+const PizZip = loadBrowserGlobal(path.join('lib', 'pizzip.js'), 'PizZip');
 
 let failed = 0;
 function check(name, cond, detail) {
@@ -142,7 +155,7 @@ function readZipEntry(buf, target) {
   ws['!autofilter'] = { ref: 'A1:B1' };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  const base = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const base = Buffer.from(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
 
   check('!cols/!merges/!autofilter 已写入基础表', true);
   const styled = sb.govApplyXlsxStyles(PizZip, base, {
