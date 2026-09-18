@@ -42,6 +42,7 @@ type qaSchedule struct {
 	AICheckNMs       []string `json:"ai_check_nms"`
 	AIPrompt         string   `json:"ai_prompt"`
 	ReportTemplateID string   `json:"report_template_id"`
+	FillEnabled      bool     `json:"fill_enabled"`
 	LastRunAt        string   `json:"last_run_at"`
 	LastRunStatus    string   `json:"last_run_status"`
 	NextRunAt        string   `json:"next_run_at"`
@@ -180,7 +181,7 @@ func qaLoadSchedules(enabledOnly bool) ([]qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules`
+	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules`
 	if enabledOnly {
 		q += ` WHERE enabled=1`
 	}
@@ -206,7 +207,7 @@ func qaLoadSchedule(id string) (*qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules WHERE id=?`, id)
+	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules WHERE id=?`, id)
 	s, err := qaScanSchedule(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -224,11 +225,14 @@ type qaRowScanner interface {
 func qaScanSchedule(sc qaRowScanner) (*qaSchedule, error) {
 	var s qaSchedule
 	var enabled int
+	var fillEnabled sql.NullInt64
 	var ruleNMs, aiNMs string
-	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
+	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &fillEnabled, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
 		return nil, err
 	}
 	s.Enabled = enabled != 0
+	// 老库补列后可能为 NULL，按默认开启处理
+	s.FillEnabled = !fillEnabled.Valid || fillEnabled.Int64 != 0
 	s.RuleNMs = qaDecodeNMs(ruleNMs)
 	s.AICheckNMs = qaDecodeNMs(aiNMs)
 	return &s, nil
@@ -262,6 +266,7 @@ func qaScheduleToMap(s qaSchedule) map[string]interface{} {
 		"ai_check_nms":       aiNMs,
 		"ai_prompt":          s.AIPrompt,
 		"report_template_id": s.ReportTemplateID,
+		"fill_enabled":       s.FillEnabled,
 		"last_run_at":        s.LastRunAt,
 		"last_run_status":    s.LastRunStatus,
 		"next_run_at":        nextRun,
@@ -300,6 +305,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		AICheckNMs       []string `json:"ai_check_nms"`
 		AIPrompt         string   `json:"ai_prompt"`
 		ReportTemplateID string   `json:"report_template_id"`
+		FillEnabled      *bool    `json:"fill_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apiBadRequest(w, "JSON 解析失败")
@@ -391,8 +397,16 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		if enabled {
 			en = 1
 		}
-		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, next_run_at=?, updated_at=? WHERE id=?`,
-			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), nextRun, now, req.ID); err != nil {
+		fillEnabled := existing.FillEnabled
+		if req.FillEnabled != nil {
+			fillEnabled = *req.FillEnabled
+		}
+		fe := 0
+		if fillEnabled {
+			fe = 1
+		}
+		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, fill_enabled=?, next_run_at=?, updated_at=? WHERE id=?`,
+			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, nextRun, now, req.ID); err != nil {
 			apiInternalError(w, err.Error())
 			return
 		}
@@ -405,6 +419,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		out.AICheckNMs = aiNMs
 		out.AIPrompt = req.AIPrompt
 		out.ReportTemplateID = strings.TrimSpace(req.ReportTemplateID)
+		out.FillEnabled = fillEnabled
 		out.NextRunAt = nextRun
 		out.UpdatedAt = now
 		qaRespondSuccess(w, map[string]interface{}{"schedule": qaScheduleToMap(out)})
@@ -420,8 +435,16 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	if enabled {
 		en = 1
 	}
-	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), "", "", nextRun, username, now, now); err != nil {
+	fillEnabled := true
+	if req.FillEnabled != nil {
+		fillEnabled = *req.FillEnabled
+	}
+	fe := 0
+	if fillEnabled {
+		fe = 1
+	}
+	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, "", "", nextRun, username, now, now); err != nil {
 		apiInternalError(w, err.Error())
 		return
 	}
@@ -435,6 +458,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		AICheckNMs:       aiNMs,
 		AIPrompt:         req.AIPrompt,
 		ReportTemplateID: strings.TrimSpace(req.ReportTemplateID),
+		FillEnabled:      fillEnabled,
 		NextRunAt:        nextRun,
 		CreatedBy:        username,
 		CreatedAt:        now,
@@ -577,14 +601,19 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			ruleResults = []map[string]interface{}{}
 		}
 
-		// 填报率统计（与手动审核保持一致，报告里才会有项/记录填报率）
-		metaDB, _ := openQualityAuditDB()
-		itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
-		recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
-		pr.setPhase("fill", "统计填报率")
-		pr.addTotal(len(itemRows) + len(recRows))
-		itemStats := runFillStatsWithProgress(targetDB, dialect, itemRows, func() { pr.tick("") })
-		recStats := runFillStatsWithProgress(targetDB, dialect, recRows, func() { pr.tick("") })
+		// 填报率统计（与手动审核保持一致，报告里才会有项/记录填报率）。
+		// fill_enabled=0 的定时任务跳过统计，报告里会标注「本次未执行填报率审核」。
+		itemStats := []map[string]interface{}{}
+		recStats := []map[string]interface{}{}
+		if s.FillEnabled {
+			metaDB, _ := openQualityAuditDB()
+			itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
+			recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
+			pr.setPhase("fill", "统计填报率")
+			pr.addTotal(len(itemRows) + len(recRows))
+			itemStats = runFillStatsWithProgress(targetDB, dialect, itemRows, func() { pr.tick("") })
+			recStats = runFillStatsWithProgress(targetDB, dialect, recRows, func() { pr.tick("") })
+		}
 
 		// AI 校核：只对勾选项中本次未通过的规则
 		pr.setPhase("ai", "AI 校核")
@@ -620,6 +649,7 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			"rules":             ruleResults,
 			"item_fill_rates":   itemStats,
 			"record_fill_rates": recStats,
+			"fill_skipped":      !s.FillEnabled,
 			"summary": map[string]interface{}{
 				"total_rules": passed + failed,
 				"passed":      passed,

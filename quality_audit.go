@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS qa_schedules (
   ai_check_nms TEXT DEFAULT '[]',
   ai_prompt TEXT DEFAULT '',
   report_template_id TEXT DEFAULT '',
+  fill_enabled INTEGER DEFAULT 1,
   last_run_at TEXT DEFAULT '',
   last_run_status TEXT DEFAULT '',
   next_run_at TEXT DEFAULT '',
@@ -239,6 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_qa_runs_time ON qa_runs(started_at);
 		migrateQualityAuditFillChecked(db)
 		migrateQualityAuditReportTemplates(db)
 		migrateQualityAuditRuleParams(db)
+		migrateQualityAuditScheduleFillEnabled(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -548,6 +550,17 @@ func migrateQualityAuditFillChecked(db *sql.DB) {
 		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 			log.Printf("quality-audit migrate %s CHECKED: %v", t, err)
 		}
+	}
+}
+
+// migrateQualityAuditScheduleFillEnabled 给老库的 qa_schedules 补 fill_enabled 列（默认 1=执行填报率审核）
+func migrateQualityAuditScheduleFillEnabled(db *sql.DB) {
+	if qaTableHasColumn(db, "qa_schedules", "fill_enabled") {
+		return
+	}
+	if _, err := db.Exec(`ALTER TABLE qa_schedules ADD COLUMN fill_enabled INTEGER DEFAULT 1`); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		log.Printf("quality-audit migrate qa_schedules.fill_enabled: %v", err)
 	}
 }
 
@@ -2397,22 +2410,39 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 
 	addPara("")
 	nextSection("项填报率")
-	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
-		m, _ := x.(map[string]interface{})
-		if m == nil {
-			continue
+	itemFillRates := ifaceSlice(audit["item_fill_rates"])
+	recordFillRates := ifaceSlice(audit["record_fill_rates"])
+	fillSkipped, _ := audit["fill_skipped"].(bool)
+	fillNote := ""
+	if fillSkipped {
+		fillNote = "本次未执行填报率审核"
+	} else if len(itemFillRates) == 0 && len(recordFillRates) == 0 {
+		fillNote = "未配置填报率"
+	}
+	if fillNote != "" {
+		addPara(fillNote)
+	} else {
+		for _, x := range itemFillRates {
+			m, _ := x.(map[string]interface{})
+			if m == nil {
+				continue
+			}
+			addPara(qaFillDocxLine(m, true))
 		}
-		addPara(qaFillDocxLine(m, true))
 	}
 	addPara("")
 	nextSection("记录填报率")
-	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
-		m, _ := x.(map[string]interface{})
-		if m == nil {
-			continue
+	if fillNote != "" {
+		addPara(fillNote)
+	} else {
+		for _, x := range recordFillRates {
+			m, _ := x.(map[string]interface{})
+			if m == nil {
+				continue
+			}
+			// 记录填报率按表统计整行，不涉及具体字段，报告里不再输出字段项
+			addPara(qaFillDocxLine(m, false))
 		}
-		// 记录填报率按表统计整行，不涉及具体字段，报告里不再输出字段项
-		addPara(qaFillDocxLine(m, false))
 	}
 
 	if strings.TrimSpace(styles.PageFooter) != "" {
@@ -2712,6 +2742,7 @@ table.qa-tbl th,table.qa-tbl td{border:` + tbBorder + `;padding:8px;text-align:l
 table.qa-tbl thead th{background:` + tbHead + `;}
 table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 .qa-rule{margin:10px 0;padding-left:12px;border-left:3px solid #e2e8f0;}
+.qa-empty{color:#64748b;font-size:13px;padding:4px 0;}
 .qa-mono{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;background:#f8fafc;padding:8px;border-radius:4px;}
 </style></head><body>`)
 	if strings.TrimSpace(styles.PageHeader) != "" {
@@ -2764,37 +2795,54 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		}
 		b.WriteString(`</div>`)
 	}
+	itemFillRates := ifaceSlice(audit["item_fill_rates"])
+	recordFillRates := ifaceSlice(audit["record_fill_rates"])
+	fillSkipped, _ := audit["fill_skipped"].(bool)
+	fillNote := ""
+	if fillSkipped {
+		fillNote = "本次未执行填报率审核"
+	} else if len(itemFillRates) == 0 && len(recordFillRates) == 0 {
+		fillNote = "未配置填报率"
+	}
 	b.WriteString(`<h2 class="qa-sec">二、项填报率</h2>`)
-	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
-	for _, x := range ifaceSlice(audit["item_fill_rates"]) {
-		m, _ := x.(map[string]interface{})
-		if m == nil {
-			continue
+	if fillNote != "" {
+		b.WriteString(`<div class="qa-empty">` + html.EscapeString(fillNote) + `</div>`)
+	} else {
+		b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
+		for _, x := range itemFillRates {
+			m, _ := x.(map[string]interface{})
+			if m == nil {
+				continue
+			}
+			b.WriteString(`<tr><td>`)
+			b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
+			b.WriteString(`</td><td>`)
+			b.WriteString(html.EscapeString(qaFillCellText(m["field_name"])))
+			b.WriteString(`</td><td>`)
+			b.WriteString(html.EscapeString(qaFillRateText(m)))
+			b.WriteString(`</td></tr>`)
 		}
-		b.WriteString(`<tr><td>`)
-		b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(qaFillCellText(m["field_name"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(qaFillRateText(m)))
-		b.WriteString(`</td></tr>`)
+		b.WriteString(`</tbody></table>`)
 	}
-	b.WriteString(`</tbody></table>`)
 	b.WriteString(`<h2 class="qa-sec">三、记录填报率</h2>`)
-	// 记录填报率按表统计整行，不涉及具体字段，表头不再输出「字段名」列
-	b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>填报率</th></tr></thead><tbody>`)
-	for _, x := range ifaceSlice(audit["record_fill_rates"]) {
-		m, _ := x.(map[string]interface{})
-		if m == nil {
-			continue
+	if fillNote != "" {
+		b.WriteString(`<div class="qa-empty">` + html.EscapeString(fillNote) + `</div>`)
+	} else {
+		// 记录填报率按表统计整行，不涉及具体字段，表头不再输出「字段名」列
+		b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>填报率</th></tr></thead><tbody>`)
+		for _, x := range recordFillRates {
+			m, _ := x.(map[string]interface{})
+			if m == nil {
+				continue
+			}
+			b.WriteString(`<tr><td>`)
+			b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
+			b.WriteString(`</td><td>`)
+			b.WriteString(html.EscapeString(qaFillRateText(m)))
+			b.WriteString(`</td></tr>`)
 		}
-		b.WriteString(`<tr><td>`)
-		b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
-		b.WriteString(`</td><td>`)
-		b.WriteString(html.EscapeString(qaFillRateText(m)))
-		b.WriteString(`</td></tr>`)
+		b.WriteString(`</tbody></table>`)
 	}
-	b.WriteString(`</tbody></table>`)
 	if strings.TrimSpace(styles.PageFooter) != "" {
 		b.WriteString(`<div class="qa-ph" style="margin-top:32px;">`)
 		b.WriteString(html.EscapeString(styles.PageFooter))
