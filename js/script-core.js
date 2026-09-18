@@ -515,9 +515,9 @@ function loadLazyScript(src) {
 }
 
 async function ensureGovernanceScriptsLoaded() {
-    await loadLazyScript('gov-shared.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('gov-api.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('governance.js?v=1.3.79.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-shared.js?v=1.3.80.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('gov-api.js?v=1.3.80.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('governance.js?v=1.3.80.1706.1706.1249.1249.1450.1450');
 }
 
 async function ensureQualityAuditScriptLoaded() {

@@ -8,7 +8,11 @@ import * as Papa from 'papaparse';
 import mammoth from 'mammoth';
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
-import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure } from './gov-shared';
+import * as docxLib from 'docx';
+import {
+  govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govParseFilename, govParseWordStructure,
+  govParseDocxTables, govApplyXlsxStyles, govParseRichLine, govNormalizeDocxColor, govCreateWordBuilder,
+} from './gov-shared';
 
 /**
  * 检查数据中是否包含格式标记（与前端 _hasFormatMarkers 一致）
@@ -16,94 +20,42 @@ import { govApplyCellMapToSheet, govCsvEscapeCell, govDataIsFlatCellMap, govPars
 function hasFormatMarkers(data: any): boolean {
   if (!data || typeof data !== 'object') return false;
   for (const value of Object.values(data)) {
-    if (typeof value === 'string') {
-      if (value.includes('**') || value.startsWith('>') || value.includes('[f:')) {
-        return true;
-      }
-    }
+    if (hasRichMarkers(value)) return true;
   }
   return false;
 }
 
 /**
- * 解析单行格式化文本
+ * 解析单行格式化文本（委托共享实现，保证前后端一致）
+ * 支持：**加粗**、*斜体*、__下划线__、>首行缩进、[f:字体,s:字号]、[c:颜色]
  */
-function parseSingleLine(line: string, defaultFont: { name: string; size: number }): {
-  text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]>;
-} {
-  let indent = false;
-  let text = line;
+export interface ParsedFormatLine {
+  text: string;
+  bold: Array<[number, number]>;
+  italic: Array<[number, number]>;
+  underline: Array<[number, number]>;
+  colors: Array<[number, number, string]>;
+  indent: boolean;
+  fonts: Array<[number, number, string, number]>;
+}
 
-  // 检测首行缩进语法（行首的 >）
-  if (text.startsWith('>')) {
-    indent = true;
-    text = text.slice(1);
-  }
+function parseSingleLine(line: string, defaultFont: { name: string; size: number }): ParsedFormatLine {
+  const p = govParseRichLine(line, defaultFont);
+  return {
+    text: p.text,
+    bold: p.bold,
+    italic: p.italic,
+    underline: p.underline,
+    colors: p.colors,
+    indent: p.indent,
+    fonts: p.fonts,
+  };
+}
 
-  // 解析字体字号标记 [f:字体,s:字号]
-  const fontMarkers: Array<{ markerStart: number; markerLength: number; fontName: string; fontSize: number; contentLength: number }> = [];
-  const fontRegex = /\[f:([^,\]]+),s:(\d+)\]/g;
-  let fontMatch;
-  while ((fontMatch = fontRegex.exec(text)) !== null) {
-    const fontName = fontMatch[1].trim();
-    const fontSize = parseInt(fontMatch[2], 10);
-    const markerStart = fontMatch.index;
-    const markerLength = fontMatch[0].length;
-    const afterMarker = text.slice(markerStart + markerLength);
-    const nextMarker = afterMarker.search(/\[f:|$/);
-    const contentLength = nextMarker === -1 ? afterMarker.length : nextMarker;
-    fontMarkers.push({ markerStart, markerLength, fontName, fontSize, contentLength });
-  }
-
-  // 移除字体标记
-  let textWithoutFontMarkers = text.replace(fontRegex, '');
-
-  // 计算字体位置
-  const fonts: Array<[number, number, string, number]> = [];
-  let offsetAdjustment = 0;
-  for (const marker of fontMarkers) {
-    const adjustedStart = marker.markerStart - offsetAdjustment;
-    fonts.push([adjustedStart, adjustedStart + marker.contentLength, marker.fontName, marker.fontSize]);
-    offsetAdjustment += marker.markerLength;
-  }
-
-  // 解析加粗语法 **文字**
-  const bold: Array<[number, number]> = [];
-  const result: string[] = [];
-  let idx = 0;
-  text = textWithoutFontMarkers;
-  while (idx < text.length) {
-    if (text[idx] === '*' && text[idx + 1] === '*') {
-      const end = text.indexOf('**', idx + 2);
-      if (end !== -1) {
-        const boldText = text.slice(idx + 2, end);
-        const startOffset = result.join('').length;
-        result.push(boldText);
-        bold.push([startOffset, startOffset + boldText.length]);
-        idx = end + 2;
-      } else {
-        // 未配对的 ** — 直接去掉（跨行加粗不合法，去掉比残留更合理）
-        idx += 2;
-      }
-    } else {
-      result.push(text[idx]);
-      idx++;
-    }
-  }
-
-  const finalText = result.join('');
-
-  // 调整字体位置
-  const adjustedFonts = fonts.map(([start, end, name, size]) => {
-    let boldAdjustment = 0;
-    for (const [boldStart, boldEnd] of bold) {
-      if (boldStart <= start) boldAdjustment += 2;
-      if (boldEnd <= end) boldAdjustment += 2;
-    }
-    return [start - boldAdjustment, end - boldAdjustment, name, size] as [number, number, string, number];
-  });
-
-  return { text: finalText, bold, indent, fonts: adjustedFonts };
+/** 是否包含富文本标记 */
+function hasRichMarkers(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  return value.includes('*') || value.startsWith('>') || value.includes('[f:') || value.includes('[c:') || value.includes('__');
 }
 
 /**
@@ -126,18 +78,24 @@ function parseSingleLine(line: string, defaultFont: { name: string; size: number
 function parseFormatText(str: string, defaultFont: { name: string; size: number } | null = null): {
   text: string; bold: Array<[number, number]>; indent: boolean;
   fonts: Array<[number, number, string, number]>;
-  lines: Array<{ text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]> }>;
+  italic: Array<[number, number]>;
+  underline: Array<[number, number]>;
+  colors: Array<[number, number, string]>;
+  lines: ParsedFormatLine[];
   defaultFont: { name: string; size: number };
 } {
   const df = defaultFont || { name: '仿宋_GB2312', size: 16 };
-  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], lines: [], defaultFont: df };
+  if (typeof str !== 'string') return { text: String(str ?? ''), bold: [], indent: false, fonts: [], italic: [], underline: [], colors: [], lines: [], defaultFont: df };
 
   // 逐行解析（与前端 parseFormatText 一致）
   const rawLines = str.split('\n');
-  const lines: Array<{ text: string; bold: Array<[number, number]>; indent: boolean; fonts: Array<[number, number, string, number]> }> = [];
+  const lines: ParsedFormatLine[] = [];
   const allTextParts: string[] = [];
   const allBold: Array<[number, number]> = [];
   const allFonts: Array<[number, number, string, number]> = [];
+  const allItalic: Array<[number, number]> = [];
+  const allUnderline: Array<[number, number]> = [];
+  const allColors: Array<[number, number, string]> = [];
   let textOffset = 0;
 
   for (const rawLine of rawLines) {
@@ -149,6 +107,15 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
     for (const [bs, be] of lineResult.bold) {
       allBold.push([textOffset + bs, textOffset + be]);
     }
+    for (const [is, ie] of lineResult.italic) {
+      allItalic.push([textOffset + is, textOffset + ie]);
+    }
+    for (const [us, ue] of lineResult.underline) {
+      allUnderline.push([textOffset + us, textOffset + ue]);
+    }
+    for (const [cs, ce, col] of lineResult.colors) {
+      allColors.push([textOffset + cs, textOffset + ce, col]);
+    }
     for (const [fs, fe, fn, fz] of lineResult.fonts) {
       allFonts.push([textOffset + fs, textOffset + fe, fn, fz]);
     }
@@ -158,7 +125,7 @@ function parseFormatText(str: string, defaultFont: { name: string; size: number 
   const finalText = allTextParts.join('\n');
   const firstIndent = lines.length > 0 && lines[0].indent;
 
-  return { text: finalText, bold: allBold, indent: firstIndent, fonts: allFonts, lines, defaultFont: df };
+  return { text: finalText, bold: allBold, indent: firstIndent, fonts: allFonts, italic: allItalic, underline: allUnderline, colors: allColors, lines, defaultFont: df };
 }
 
 /**
@@ -172,15 +139,8 @@ function processFormatData(data: any, defaultFont: { name: string; size: number 
   const processedData: Record<string, any> = {};
 
   for (const [key, value] of Object.entries(data)) {
-    if (typeof value === 'string' && (value.includes('**') || value.startsWith('>') || value.includes('[f:'))) {
-      const parsed = parseFormatText(value, defaultFont);
-      if (key === 'tomorrow_plan') {
-        // debug output moved to stderr to avoid polluting stdout JSON
-        process.stderr.write('[DEBUG-FORMAT] tomorrow_plan parsed.text:\n');
-        for (const line of parsed.lines) {
-          process.stderr.write(`  line: text="${line.text}" bold=${JSON.stringify(line.bold)} indent=${line.indent}\n`);
-        }
-      }
+    if (hasRichMarkers(value)) {
+      const parsed = parseFormatText(value as string, defaultFont);
       processedData[key] = parsed.text;
       formatMap[key] = parsed;
     } else {
@@ -194,8 +154,8 @@ function processFormatData(data: any, defaultFont: { name: string; size: number 
 /**
  * 根据格式信息拆分文本（与前端 _splitTextByFormat 一致）
  */
-function splitTextByFormat(text: string, format: any): Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> {
-  const segments: Array<{ text: string; bold: boolean; fontName: string; fontSize: number }> = [];
+function splitTextByFormat(text: string, format: any): Array<{ text: string; bold: boolean; italic: boolean; underline: boolean; color: string; fontName: string; fontSize: number }> {
+  const segments: Array<{ text: string; bold: boolean; italic: boolean; underline: boolean; color: string; fontName: string; fontSize: number }> = [];
   const defaultFont = format.defaultFont || { name: '仿宋_GB2312', size: 16 };
 
   // 创建文本位置到格式的映射
@@ -208,48 +168,62 @@ function splitTextByFormat(text: string, format: any): Array<{ text: string; bol
     }
   }
 
-  // 映射加粗信息（跳过超出文本长度的偏移，防止格式错位）
-  const boldSet = new Set<number>();
-  if (format.bold && format.bold.length > 0) {
-    for (const [start, end] of format.bold as Array<[number, number]>) {
+  const rangeSet = (ranges: Array<[number, number]> | undefined): Set<number> => {
+    const set = new Set<number>();
+    if (ranges && ranges.length > 0) {
+      for (const [start, end] of ranges) {
+        for (let i = start; i < Math.min(end, text.length); i++) {
+          if (i >= 0) set.add(i);
+        }
+      }
+    }
+    return set;
+  };
+  const colorPosMap = new Map<number, string>();
+  if (format.colors && format.colors.length > 0) {
+    for (const [start, end, color] of format.colors as Array<[number, number, string]>) {
       for (let i = start; i < Math.min(end, text.length); i++) {
-        if (i >= 0) boldSet.add(i);
+        if (i >= 0) colorPosMap.set(i, color);
       }
     }
   }
+
+  // 映射加粗/斜体/下划线信息（跳过超出文本长度的偏移，防止格式错位）
+  const boldSet = rangeSet(format.bold);
+  const italicSet = rangeSet(format.italic);
+  const underlineSet = rangeSet(format.underline);
 
   if (text.length === 0) return segments;
 
-  let currentSegment = {
-    text: '',
-    bold: boldSet.has(0),
-    fontName: formatPosMap.has(0) ? formatPosMap.get(0)!.fontName : defaultFont.name,
-    fontSize: formatPosMap.has(0) ? formatPosMap.get(0)!.fontSize : defaultFont.size
+  const segAt = (i: number) => {
+    const charFont = formatPosMap.has(i) ? formatPosMap.get(i)! : defaultFont;
+    return {
+      bold: boldSet.has(i),
+      italic: italicSet.has(i),
+      underline: underlineSet.has(i),
+      color: colorPosMap.get(i) || '',
+      fontName: charFont.fontName,
+      fontSize: charFont.fontSize,
+    };
   };
 
-  for (let i = 0; i < text.length; i++) {
-    const charBold = boldSet.has(i);
-    const charFont = formatPosMap.has(i) ? formatPosMap.get(i)! : defaultFont;
+  let current = { text: '', ...segAt(0) };
 
-    if (charBold !== currentSegment.bold ||
-        charFont.fontName !== currentSegment.fontName ||
-        charFont.fontSize !== currentSegment.fontSize) {
-      if (currentSegment.text.length > 0) {
-        segments.push(currentSegment);
+  for (let i = 0; i < text.length; i++) {
+    const s = segAt(i);
+    if (s.bold !== current.bold || s.italic !== current.italic || s.underline !== current.underline ||
+        s.color !== current.color || s.fontName !== current.fontName || s.fontSize !== current.fontSize) {
+      if (current.text.length > 0) {
+        segments.push(current);
       }
-      currentSegment = {
-        text: text[i],
-        bold: charBold,
-        fontName: charFont.fontName,
-        fontSize: charFont.fontSize
-      };
+      current = { text: text[i], ...s };
     } else {
-      currentSegment.text += text[i];
+      current.text += text[i];
     }
   }
 
-  if (currentSegment.text.length > 0) {
-    segments.push(currentSegment);
+  if (current.text.length > 0) {
+    segments.push(current);
   }
 
   return segments;
@@ -276,15 +250,9 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
 
   // 查找匹配的格式规则（优先逐行匹配，降级到整体 includes）
   const findMatchedFormat = (textContent: string): any | null => {
-    // 从 XML 中取出的文本可能含 Markdown 标记（**加粗**、>缩进、[f:,s:]字体），
-    // 需要先去掉这些标记再匹配（因为 lineMatchIndex 的 key 是已去掉标记的纯文本）
-    let cleanText = textContent;
-    // 去掉 > 缩进前缀
-    while (cleanText.startsWith('>')) cleanText = cleanText.slice(1);
-    // 去掉 [f:xxx,s:nnn] 字体标签
-    cleanText = cleanText.replace(/\[f:[^,\]]+,s:\d+\]/g, '');
-    // 去掉 ** 加粗标记
-    cleanText = cleanText.replace(/\*\*/g, '');
+    // 从 XML 中取出的文本可能含富文本标记（**加粗**、*斜体*、__下划线__、>缩进、[f:]/[c:]），
+    // 用与解析数据时相同的解析器去掉标记再匹配（lineMatchIndex 的 key 即去标记后的纯文本）
+    const cleanText = govParseRichLine(textContent).text;
 
     // 优先：逐行精确匹配
     if (lineMatchIndex.has(cleanText)) {
@@ -323,17 +291,17 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
         indentApplied = true;
       }
 
-      // 从 rawText 中去掉 Markdown 标记（**加粗**、>缩进、[f:,s:]字体）
+      // 从 rawText 中去掉富文本标记（与解析数据时一致：**加粗**、*斜体*、__下划线__、>缩进、[f:]/[c:]）
       // 因为 formatData 的偏移是基于去掉标记后的纯文本
-      let cleanRaw = rawText;
-      while (cleanRaw.startsWith('>')) cleanRaw = cleanRaw.slice(1);
-      cleanRaw = cleanRaw.replace(/\[f:[^,\]]+,s:\d+\]/g, '');
-      cleanRaw = cleanRaw.replace(/\*\*/g, '');
+      const cleanRaw = govParseRichLine(rawText, defaultFont).text;
 
       const hasBold = effectiveFormat.bold && effectiveFormat.bold.length > 0;
       const hasFonts = effectiveFormat.fonts && effectiveFormat.fonts.length > 0;
+      const hasItalic = effectiveFormat.italic && effectiveFormat.italic.length > 0;
+      const hasUnderline = effectiveFormat.underline && effectiveFormat.underline.length > 0;
+      const hasColors = effectiveFormat.colors && effectiveFormat.colors.length > 0;
 
-      if (hasBold || hasFonts) {
+      if (hasBold || hasFonts || hasItalic || hasUnderline || hasColors) {
         // 拆分成多个 <w:r> 节点（使用去掉标记后的文本）
         const segments = splitTextByFormat(cleanRaw, effectiveFormat);
         const runs = segments.map(seg => {
@@ -348,6 +316,18 @@ function applyDocxFormatting(xmlContent: string, formatMap: Record<string, any>)
           // 加粗
           if (seg.bold) {
             runXml += '<w:b/>';
+          }
+          // 斜体
+          if (seg.italic) {
+            runXml += '<w:i/>';
+          }
+          // 下划线
+          if (seg.underline) {
+            runXml += '<w:u w:val="single"/>';
+          }
+          // 颜色
+          if (seg.color) {
+            runXml += `<w:color w:val="${seg.color}"/>`;
           }
           runXml += '</w:rPr>';
           // 文本
@@ -605,13 +585,24 @@ export interface GovHelper {
   readExcel(file: FileLike): Promise<XLSX.WorkBook>;
   readCSV(text: string): Promise<any[][]>;
   readWord(file: FileLike): Promise<{ value: string }>;
+  readWordTables(file: FileLike): Promise<Array<{ rows: string[][]; colWidths?: number[]; style?: any }>>;
+  word(): import('./gov-shared').GovWordBuilder;
+  buildWordTables(filename: string, opts: any): Promise<string>;
   querySQL(sql: string, params?: any[]): Promise<any[]>;
   executeSQL(sql: string, params?: any[]): Promise<number>;
   querySQLForDb(databaseId: string, sql: string, params?: any[]): Promise<any[]>;
   executeSQLForDb(databaseId: string, sql: string, params?: any[]): Promise<number>;
   callAI(prompt: string): Promise<string>;
   fillWordTemplate(templateFile: FileLike | string, data: any, outputFilename: string, defaultFont?: { name: string; size: number } | null): Promise<void>;
-  writeExcel(filename: string, data: any, options?: { sheetName?: string }): void;
+  writeExcel(filename: string, data: any, options?: {
+    sheetName?: string;
+    columnWidths?: number[] | Record<string, number>;
+    rowHeights?: number[] | Record<string, number>;
+    merges?: string[];
+    freeze?: string;
+    autofilter?: string;
+    styles?: Record<string, any>;
+  }): void;
   fillExcelTemplate(templateFile: FileLike | string, data: any, outputFilename: string): Promise<void>;
   writeCSV(filename: string, data: any[][]): void;
   writeText(filename: string, content: string): void;
@@ -814,6 +805,88 @@ export function createGovHelper(
       }
     },
 
+    /**
+     * 读取 docx 中所有表格：单元格文本、列宽、可复用样式（边框/底纹/字体/对齐/表头）
+     * 与前端 script-ontology.js readWordTables 行为一致
+     */
+    async readWordTables(file: FileLike): Promise<Array<{ rows: string[][]; colWidths?: number[]; style?: any }>> {
+      if (!file) throw new Error('未提供文件');
+      const filename = (file.name || '').toLowerCase();
+      const isDoc = filename.endsWith('.doc') || filename.endsWith('.wps');
+      const buf = Buffer.from(await file.arrayBuffer());
+      let docxBuf: Buffer = buf;
+      if (isDoc) {
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+        const { execSync } = await import('child_process');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-convert-'));
+        const inputFile = path.join(tmpDir, file.name);
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const outputFile = path.join(tmpDir, `${baseName}.docx`);
+        try {
+          fs.writeFileSync(inputFile, buf);
+          execSync(`soffice --headless --convert-to docx "${inputFile}" --outdir "${tmpDir}"`, { timeout: 30000, stdio: 'pipe' });
+          docxBuf = fs.readFileSync(outputFile);
+        } finally {
+          try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+        }
+      }
+      const zip = new PizZip(docxBuf);
+      const docXml = zip.file('word/document.xml')?.asText() || '';
+      return govParseDocxTables(docXml);
+    },
+
+    /** 创建链式 Word 文档构建器（与前端 gov.word() 行为一致） */
+    word() {
+      return govCreateWordBuilder(docxLib, {
+        pack: (d: any) => docxLib.Packer.toBuffer(d),
+        sink: (name: string, bytes: any) => {
+          outputFiles.push({ name, content_base64: Buffer.from(bytes).toString('base64') });
+        },
+        log: (msg: string) => logLines.push(msg),
+      });
+    },
+
+    /**
+     * 便捷封装：按模板表格样式把多个 section 生成为 Word。
+     * opts: { templateFile?, templateTables?, sections: [{title?, paragraphs?, table?}], defaultFont }
+     */
+    async buildWordTables(filename: string, opts: any): Promise<string> {
+      const o = opts || {};
+      let templateStyle: any = null;
+      if (o.templateTables && Array.isArray(o.templateTables) && o.templateTables.length) {
+        const withStyle = o.templateTables.find((t: any) => t && t.style);
+        templateStyle = (withStyle || o.templateTables[0]).style || null;
+      } else if (o.templateFile) {
+        const tables = await this.readWordTables(_resolveGovTemplateFile(o.templateFile));
+        const withStyle = tables.find((t) => t && t.style);
+        templateStyle = (withStyle || tables[0] || ({} as any)).style || null;
+      }
+      const defaultFont = o.defaultFont || null;
+      const builder = this.word();
+      const sections = Array.isArray(o.sections) ? o.sections : [];
+      for (const sec of sections) {
+        const s = sec || {};
+        if (s.title) builder.heading(s.title, s.titleLevel || 1);
+        const paras = Array.isArray(s.paragraphs) ? s.paragraphs : (s.paragraphs ? [s.paragraphs] : []);
+        for (const p of paras) {
+          if (p && typeof p === 'object' && !Array.isArray(p)) {
+            builder.paragraph(p.text, Object.assign({}, defaultFont ? { font: defaultFont } : {}, p.opts || {}));
+          } else {
+            builder.paragraph(p, defaultFont ? { font: defaultFont } : {});
+          }
+        }
+        if (s.table) {
+          const rows = Array.isArray(s.table) ? s.table : (s.table.rows || []);
+          const tableOpts = Object.assign({}, templateStyle || {}, (Array.isArray(s.table) ? (s.tableOpts || {}) : (s.table.opts || {})));
+          if (templateStyle) builder.tableFromTemplate(templateStyle, rows);
+          else builder.table(rows, tableOpts);
+        }
+      }
+      return builder.save(filename);
+    },
+
     async querySQL(sql: string, params?: any[]): Promise<any[]> {
       if (!databaseId) throw new Error('未关联数据库');
       const result = await _runSQL(databaseId, sql, params || []);
@@ -905,9 +978,17 @@ export function createGovHelper(
       logLines.push(`已生成输出文件: ${name}`);
     },
 
-    writeExcel(filename: string, data: any, options?: { sheetName?: string }) {
+    writeExcel(filename: string, data: any, options?: {
+      sheetName?: string;
+      columnWidths?: number[] | Record<string, number>;
+      rowHeights?: number[] | Record<string, number>;
+      merges?: string[];
+      freeze?: string;
+      autofilter?: string;
+      styles?: Record<string, any>;
+    }) {
       if (!filename) throw new Error('未提供文件名');
-      const opts = options || {};
+      const opts: any = options || {};
       const sheetName = String(opts.sheetName || 'Sheet1').slice(0, 31);
       let ws: XLSX.WorkSheet;
       if (!data || !data.length) {
@@ -917,11 +998,70 @@ export function createGovHelper(
       } else {
         ws = XLSX.utils.json_to_sheet(data);
       }
+
+      // 列宽：数组（按列序）或对象（列字母 → 宽度）
+      if (opts.columnWidths) {
+        const cols: Array<{ wch: number }> = [];
+        const put = (idx: number, w: any) => {
+          const n = Number(w);
+          if (!isNaN(n)) cols[idx] = { wch: n };
+        };
+        if (Array.isArray(opts.columnWidths)) {
+          opts.columnWidths.forEach((w: any, i: number) => put(i, w));
+        } else if (typeof opts.columnWidths === 'object') {
+          for (const [col, w] of Object.entries(opts.columnWidths)) {
+            const m = String(col).toUpperCase().match(/^([A-Z]+)$/);
+            if (!m) continue;
+            let c = 0;
+            for (const ch of m[1]) c = c * 26 + (ch.charCodeAt(0) - 64);
+            put(c - 1, w);
+          }
+        }
+        if (cols.length) ws['!cols'] = cols;
+      }
+      // 行高：数组（按行序，0 基）或对象（行号 → 高度，0 基）
+      if (opts.rowHeights) {
+        const rows: Array<{ hpt: number }> = [];
+        const put = (idx: number, h: any) => {
+          const n = Number(h);
+          if (!isNaN(n)) rows[idx] = { hpt: n };
+        };
+        if (Array.isArray(opts.rowHeights)) {
+          opts.rowHeights.forEach((h: any, i: number) => put(i, h));
+        } else if (typeof opts.rowHeights === 'object') {
+          for (const [r, h] of Object.entries(opts.rowHeights)) {
+            const n = parseInt(String(r), 10);
+            if (!isNaN(n)) put(n, h);
+          }
+        }
+        if (rows.length) ws['!rows'] = rows;
+      }
+      // 合并单元格
+      if (Array.isArray(opts.merges) && opts.merges.length) {
+        ws['!merges'] = opts.merges
+          .map((ref: string) => { try { return XLSX.utils.decode_range(ref); } catch { return null; } })
+          .filter(Boolean);
+      }
+      // 自动筛选
+      if (opts.autofilter) ws['!autofilter'] = { ref: String(opts.autofilter) };
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
       const base = filename;
       const outName = /\.xlsx?$/i.test(base) ? base : `${base}.xlsx`;
-      const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      let out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+      // 单元格样式 + 冻结窗格：SheetJS CE 写盘时忽略 s/!freeze，需后处理 styles.xml 与 sheetN.xml
+      if (opts.styles || opts.freeze) {
+        try {
+          out = Buffer.from(govApplyXlsxStyles(PizZip, out, {
+            sheets: { [sheetName]: { freeze: opts.freeze, cells: opts.styles } },
+          }));
+        } catch (e: any) {
+          logLines.push(`样式应用失败（已保留基础表格）: ${e && e.message ? e.message : e}`);
+        }
+      }
+
       outputFiles.push({ name: outName, content_base64: out.toString('base64') });
       logLines.push(`已生成输出文件: ${outName}`);
     },

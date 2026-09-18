@@ -170,7 +170,8 @@
         '- INPUT_TEXT：文本输入的内容（字符串）',
         '- INPUT_FILES：本批次的文件数组（File[]，批量模式）',
         '- currentGovTask：当前任务对象（id/name/database_id/execution_mode 等）',
-        '- 已加载的第三方库：XLSX（SheetJS）、Papa（CSV）、mammoth（docx 文本）、PizZip、Docxtemplater',
+        '- 已加载的第三方库：XLSX（SheetJS）、Papa（CSV）、mammoth（docx 文本）、PizZip、Docxtemplater、docx（生成 .docx）',
+        '- 生成带样式的 Word 用 gov.word()（链式：heading/paragraph/table/tableFromTemplate/save）；先从模板 Word 用 gov.readWordTables() 提取表格样式，再 tableFromTemplate(style, rows) 复用；也可用 gov.buildWordTables(filename, {templateTables, sections}) 一步到位。',
         '- 不要使用浏览器里不存在的 API（如 fetch 外部网络、Node 的 fs）；也不要杜撰 gov.* 方法，下面列出的就是全部。'
     ].join('\n');
 

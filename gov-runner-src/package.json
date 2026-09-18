@@ -14,6 +14,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "docx": "^9.7.1",
     "docxtemplater": "^3.68.4",
     "mammoth": "^1.12.0",
     "papaparse": "^5.5.3",
