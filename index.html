@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091504">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091821">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
@@ -2529,7 +2529,9 @@
                         <label>审核项</label>
                         <div class="qa-sched-tree-head">
                             <label class="cursor-pointer"><input type="checkbox" id="qaSchedRuleAll"> 全选</label>
-                            <span class="qa-form-hint">左列「执行」= 该规则参与本次审核；右列「AI 核验」= 审核不通过时交由 AI 复核是否误判（勾了会自动补上「执行」）</span>
+                            <button type="button" class="btn btn-sm qa-sched-tree-btn" id="qaSchedExpandAll">展开全部</button>
+                            <button type="button" class="btn btn-sm qa-sched-tree-btn" id="qaSchedCollapseAll">收起全部</button>
+                            <span class="qa-form-hint">左列「执行」= 该规则参与本次审核；右列「AI 核验」= 审核不通过时交由 AI 复核是否误判（勾了会自动补上「执行」）；分组左侧复选框可整组勾选/取消</span>
                         </div>
                         <div class="qa-sched-tree-header" aria-hidden="true">
                             <span>执行</span><span>AI 核验</span><span>规则名称</span>
@@ -2545,7 +2547,13 @@
                         <label for="qaSchedTpl">报告模板</label>
                         <select id="qaSchedTpl"><option value="">默认模板</option></select>
                     </div>
-                    <label class="qa-sched-enable"><input type="checkbox" id="qaSchedEnabled" checked> 启用该任务</label>
+                    <div class="qa-sched-field">
+                        <div class="qa-sched-switch-row">
+                            <label class="qa-sched-enable"><input type="checkbox" id="qaSchedFillEnabled" checked> 填报率审核</label>
+                            <span class="qa-form-hint">勾选后每次执行都会统计项 / 记录填报率并写入报告；未配置填报率时报告会标注「未配置填报率」。</span>
+                        </div>
+                        <label class="qa-sched-enable"><input type="checkbox" id="qaSchedEnabled" checked> 启用该任务</label>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -2677,8 +2685,8 @@
     <script src="/js/script-settings.js?v=2026061002" defer></script>
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
     <script src="/js/script-governance.js?v=2026061002" defer></script>
-    <script src="/js/script-ontology.js?v=2026061002" defer></script>
-    <script src="/js/gov-code-studio.js?v=2026091623" defer></script>
+    <script src="/js/script-ontology.js?v=2026091821" defer></script>
+    <script src="/js/gov-code-studio.js?v=2026091821" defer></script>
     <script src="/js/script-relations.js?v=2026061002" defer></script>
     <script src="/js/script-api-detail.js?v=2026061002" defer></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->

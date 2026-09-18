@@ -37,6 +37,17 @@ if (missing.length) {
   console.log(`✓ quality-audit.js 引用的 ${used.size} 个 DOM id 全部存在`);
 }
 
+// 反向校验：定时任务弹窗新增的控件必须真的被 JS 引用，否则点了没反应（同上面的 bug 类）。
+const mustBeWired = ['qaSchedFillEnabled', 'qaSchedExpandAll', 'qaSchedCollapseAll'];
+const unwired = mustBeWired.filter(id => ids.has(id) && !used.has(id));
+if (unwired.length) {
+  failed++;
+  console.error('✗ 以下控件在 HTML 里存在，但 JS 从未通过 getElementById 引用（点了不会有反应）：');
+  unwired.forEach(id => console.error(`   - ${id}`));
+} else {
+  console.log(`✓ 定时任务新增控件（${mustBeWired.join('、')}）均已接线`);
+}
+
 // class 名一致性：填充行的元素 class 必须在 JS 与 CSS 里都存在
 const css = fs.readFileSync(path.join(root, 'css', 'style-models-quality.css'), 'utf8');
 const badCls = [];

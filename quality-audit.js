@@ -840,6 +840,8 @@
     var qaSchedEditingId = '';
     var qaSchedRuleNms = {};
     var qaSchedAiNms = {};
+    // 分组展开状态：nm -> false 表示收起；缺省展开。整组勾选/收起互不影响。
+    var qaSchedGroupOpen = {};
     var qaSchedBound = false;
     var qaRunDetailRow = null;
     var qaCurrentSub = 'rules';
@@ -1100,35 +1102,128 @@
         return (flatRules || []).filter(function (r) { return r && r.sql && String(r.sql).trim(); });
     }
 
+    /** 递归收集子树下所有「有 SQL、可选」的叶子规则编号。 */
+    function qaSchedCollectLeafNms(nodes, out) {
+        out = out || [];
+        (nodes || []).forEach(function (n) {
+            if (n.children && n.children.length) {
+                qaSchedCollectLeafNms(n.children, out);
+                return;
+            }
+            if (n.sql && String(n.sql).trim() && out.indexOf(n.nm) < 0) out.push(n.nm);
+        });
+        return out;
+    }
+
     function qaSyncSchedTreeState() {
         var all = document.getElementById('qaSchedRuleAll');
-        if (!all) return;
-        var leaves = qaLeafRules();
-        var sel = 0;
-        leaves.forEach(function (r) { if (qaSchedRuleNms[r.nm]) sel++; });
-        all.checked = leaves.length > 0 && sel === leaves.length;
+        if (all) {
+            var leaves = qaLeafRules();
+            var sel = 0;
+            leaves.forEach(function (r) { if (qaSchedRuleNms[r.nm]) sel++; });
+            all.checked = leaves.length > 0 && sel === leaves.length;
+        }
+        qaSyncSchedGroupState();
+    }
+
+    /** 分组复选框三态：全选 / 半选 / 未选，随叶子勾选变化实时重算。 */
+    function qaSyncSchedGroupState() {
+        var root = document.getElementById('qaSchedRuleTree');
+        if (!root) return;
+        var groups = root.querySelectorAll('.qa-sched-cb-group');
+        for (var i = 0; i < groups.length; i++) {
+            var cb = groups[i];
+            var nms = String(cb.getAttribute('data-nms') || '').split(',').filter(function (x) { return !!x; });
+            if (!nms.length) { cb.checked = false; cb.indeterminate = false; cb.disabled = true; continue; }
+            var sel = 0;
+            nms.forEach(function (nm) { if (qaSchedRuleNms[nm]) sel++; });
+            cb.checked = sel === nms.length;
+            cb.indeterminate = sel > 0 && sel < nms.length;
+        }
+    }
+
+    /** 把分组内所有叶子行的复选框状态与内存中的勾选状态对齐。 */
+    function qaSyncSchedGroupRows(groupEl) {
+        var rows = groupEl.querySelectorAll('.qa-sched-rule-row[data-nm]');
+        for (var i = 0; i < rows.length; i++) {
+            var nm = rows[i].getAttribute('data-nm');
+            var cr = rows[i].querySelector('.qa-sched-cb-rule');
+            var ca = rows[i].querySelector('.qa-sched-cb-ai');
+            if (cr) cr.checked = !!qaSchedRuleNms[nm];
+            if (ca) ca.checked = !!qaSchedAiNms[nm];
+        }
+    }
+
+    /** 展开 / 收起全部分组。 */
+    function qaSetAllSchedGroups(open) {
+        var root = document.getElementById('qaSchedRuleTree');
+        if (!root) return;
+        var groups = root.querySelectorAll('.qa-sched-group');
+        for (var i = 0; i < groups.length; i++) {
+            var nm = groups[i].getAttribute('data-group-nm') || '';
+            qaSchedGroupOpen[nm] = !!open;
+            groups[i].classList.toggle('qa-collapsed', !open);
+        }
     }
 
     function qaRenderSchedTreeNodes(nodes, container) {
         (nodes || []).forEach(function (n) {
             var hasKids = n.children && n.children.length;
             if (hasKids) {
-                var det = document.createElement('details');
-                det.open = true;
-                det.className = 'qa-sched-group';
-                var sum = document.createElement('summary');
-                sum.innerHTML = escapeHtml(n.name || '') + ' <code>' + escapeHtml(n.nm || '') + '</code>';
-                det.appendChild(sum);
+                var leafNms = qaSchedCollectLeafNms(n.children);
+                var group = document.createElement('div');
+                group.className = 'qa-sched-group';
+                group.setAttribute('data-group-nm', n.nm || '');
+                if (qaSchedGroupOpen[n.nm] === false) group.classList.add('qa-collapsed');
+
+                var head = document.createElement('div');
+                head.className = 'qa-sched-group-head';
+                // 三态复选框：对齐表头「执行」列，一键勾选/取消整组
+                var gcb = document.createElement('input');
+                gcb.type = 'checkbox';
+                gcb.className = 'qa-sched-cb-group';
+                gcb.title = '整组执行范围：勾选/取消该分组下全部规则';
+                gcb.disabled = !leafNms.length;
+                gcb.setAttribute('data-nms', leafNms.join(','));
+                gcb.addEventListener('change', function () {
+                    leafNms.forEach(function (nm) {
+                        if (gcb.checked) qaSchedRuleNms[nm] = true;
+                        else { delete qaSchedRuleNms[nm]; delete qaSchedAiNms[nm]; }
+                    });
+                    qaSyncSchedGroupRows(group);
+                    qaSyncSchedTreeState();
+                });
+                head.appendChild(gcb);
+
+                // 第二列（AI 核验）留空，保持与表头/叶子行严格同列对齐
+                var spacer = document.createElement('span');
+                spacer.className = 'qa-sched-group-spacer';
+                head.appendChild(spacer);
+
+                var toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'qa-sched-group-toggle';
+                toggle.innerHTML = '<span class="qa-sched-caret" aria-hidden="true">▾</span>' +
+                    escapeHtml(n.name || '') + ' <code>' + escapeHtml(n.nm || '') + '</code>' +
+                    '<span class="qa-sched-group-count">' + leafNms.length + ' 项</span>';
+                toggle.addEventListener('click', function () {
+                    var collapsed = group.classList.toggle('qa-collapsed');
+                    qaSchedGroupOpen[n.nm] = !collapsed;
+                });
+                head.appendChild(toggle);
+
                 var inner = document.createElement('div');
                 inner.className = 'qa-sched-group-body';
                 qaRenderSchedTreeNodes(n.children, inner);
-                det.appendChild(inner);
-                container.appendChild(det);
+                group.appendChild(head);
+                group.appendChild(inner);
+                container.appendChild(group);
                 return;
             }
             var hasSql = !!(n.sql && String(n.sql).trim());
             var row = document.createElement('div');
             row.className = 'qa-sched-rule-row' + (hasSql ? '' : ' qa-sched-rule-nosql');
+            row.setAttribute('data-nm', n.nm || '');
             var cbRule = document.createElement('input');
             cbRule.type = 'checkbox';
             cbRule.className = 'qa-sched-cb-rule';
@@ -1296,6 +1391,16 @@
         }).catch(function () {});
     }
 
+    // 定时任务的填报率开关：老库/旧接口没有该字段时按默认开启处理
+    function qaSchedFillEnabledOf(s) {
+        return (s && s.fill_enabled !== undefined && s.fill_enabled !== null) ? !!s.fill_enabled : true;
+    }
+
+    function qaReadSchedFillEnabled() {
+        var el = document.getElementById('qaSchedFillEnabled');
+        return el ? !!el.checked : true;
+    }
+
     function qaOpenSchedModal(sch) {
         qaSchedRuleNms = {};
         qaSchedAiNms = {};
@@ -1308,6 +1413,8 @@
         (sch && sch.ai_check_nms || []).forEach(function (nm) { qaSchedAiNms[padNm(nm)] = true; });
         document.getElementById('qaSchedAiPrompt').value = sch ? (sch.ai_prompt || '') : '';
         document.getElementById('qaSchedEnabled').checked = sch ? !!sch.enabled : true;
+        var fillEl = document.getElementById('qaSchedFillEnabled');
+        if (fillEl) fillEl.checked = qaSchedFillEnabledOf(sch);
         qaLoadTplOptions(sch ? (sch.report_template_id || '') : '');
         var freqSel = document.getElementById('qaSchedFreq');
         var cronInput = document.getElementById('qaSchedCron');
@@ -1340,7 +1447,8 @@
             rule_nms: ruleNms,
             ai_check_nms: qaSchedCollectAiNms(),
             ai_prompt: String(document.getElementById('qaSchedAiPrompt').value || '').trim(),
-            report_template_id: document.getElementById('qaSchedTpl').value
+            report_template_id: document.getElementById('qaSchedTpl').value,
+            fill_enabled: qaReadSchedFillEnabled()
         };
         if (qaSchedEditingId) body.id = qaSchedEditingId;
         fetchWithAuth(PREFIX + 'schedules', { method: 'POST', body: JSON.stringify(body) })
@@ -1372,7 +1480,8 @@
         var body = {
             id: id, name: s.name, database_id: s.database_id, cron_expr: s.cron_expr,
             enabled: enabled, rule_nms: s.rule_nms || [], ai_check_nms: s.ai_check_nms || [],
-            ai_prompt: s.ai_prompt || '', report_template_id: s.report_template_id || ''
+            ai_prompt: s.ai_prompt || '', report_template_id: s.report_template_id || '',
+            fill_enabled: qaSchedFillEnabledOf(s)
         };
         fetchWithAuth(PREFIX + 'schedules', { method: 'POST', body: JSON.stringify(body) })
             .then(function (r) { return r.json(); })
@@ -1816,6 +1925,11 @@
             if (!v) qaSchedAiNms = {};
             qaRenderSchedTree();
         });
+
+        var expandAll = document.getElementById('qaSchedExpandAll');
+        if (expandAll) expandAll.addEventListener('click', function () { qaSetAllSchedGroups(true); });
+        var collapseAll = document.getElementById('qaSchedCollapseAll');
+        if (collapseAll) collapseAll.addEventListener('click', function () { qaSetAllSchedGroups(false); });
 
         var schedBody = document.getElementById('qaSchedBody');
         if (schedBody) schedBody.addEventListener('click', function (e) {

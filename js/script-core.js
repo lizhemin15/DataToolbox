@@ -524,7 +524,7 @@ async function ensureQualityAuditScriptLoaded() {
     // qa-shared.js 必须先于 quality-audit.js 加载：后者所有解析函数（Excel/粘贴导入、
     // 填报率、报告模板）都依赖 window.QA_SHARED，缺失时会静默退化成空实现。
     await loadLazyScript('qa-shared.js?v=1.3.83.1706.1706.1249.1249.1450.1450');
-    await loadLazyScript('quality-audit.js?v=1.3.83.1706.1706.1249.1249.1450.1450');
+    await loadLazyScript('quality-audit.js?v=1.3.83.1706.1706.1249.1249.1450.1450.2026091821');
 }
 
 

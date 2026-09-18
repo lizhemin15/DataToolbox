@@ -881,11 +881,14 @@ body.embed-mode .embed-settings-btn {
 .qa-sched-tree-head {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 10px;
     font-size: 12px;
     color: #718096;
     margin-bottom: 6px;
 }
+/* 提示文字占据剩余宽度，按钮换行时也不会把树挤变形 */
+.qa-sched-tree-head .qa-form-hint { flex: 1; min-width: 180px; }
 .qa-sched-group { margin-left: 6px; }
 .qa-sched-group-body { margin-left: 16px; }
 .qa-sched-rule-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
@@ -1069,6 +1072,48 @@ body.embed-mode .embed-settings-btn {
 .qa-sched-group { margin-left: 0; }
 .qa-sched-group-body { margin-left: 0; }
 .qa-sched-group-body .qa-sched-rule-label { padding-left: 16px; }
-.qa-sched-group > summary { cursor: pointer; user-select: none; }
-/* 覆盖 .qa-tree details 的缩进，否则定时任务树的行会整体右移，与表头列错开 */
-.qa-sched-tree details { margin-left: 0; }
+/* 分组头与叶子行共用三列网格，保证「执行 / AI 核验 / 规则名称」严格对齐 */
+.qa-sched-group-head {
+    display: grid;
+    grid-template-columns: 38px 58px minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    padding: 4px 0;
+}
+.qa-sched-cb-group { justify-self: center; margin: 0; cursor: pointer; }
+.qa-sched-cb-group:indeterminate { accent-color: #3b82f6; }
+.qa-sched-group-spacer { display: block; }
+.qa-sched-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    color: #334155;
+    text-align: left;
+    cursor: pointer;
+}
+.qa-sched-group-toggle:hover { color: #1d4ed8; }
+.qa-sched-group-toggle .qa-sched-caret {
+    display: inline-block;
+    width: 10px;
+    color: #94a3b8;
+    transition: transform .15s ease;
+}
+.qa-sched-group.qa-collapsed .qa-sched-caret { transform: rotate(-90deg); }
+.qa-sched-group.qa-collapsed > .qa-sched-group-body { display: none; }
+.qa-sched-group-count {
+    font-weight: 400;
+    font-size: 11px;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+/* 二级分组再缩进一层，层次更清楚 */
+.qa-sched-group-body .qa-sched-group { border-left: 2px solid #e2e8f0; padding-left: 8px; }
+.qa-sched-group-body .qa-sched-group-body .qa-sched-rule-label { padding-left: 24px; }
+.qa-sched-tree-btn { padding: 2px 8px; font-size: 12px; line-height: 1.4; }
+.qa-sched-switch-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
