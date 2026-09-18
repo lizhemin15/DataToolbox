@@ -97,6 +97,7 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent/export-query", handleExportQuery)
 	mux.HandleFunc("/api/v1/agent/codegen", handleAICodegen)
 	mux.HandleFunc("/api/v1/agent/completion", handleAICompletion)
+	mux.HandleFunc("/api/v1/agent/completion/stream", handleAICompletionStream)
 	
 	// HITL
 	mux.HandleFunc("/api/v1/agent/hitl/respond", handleHITLRespond)

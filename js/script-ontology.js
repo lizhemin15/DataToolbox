@@ -1068,17 +1068,52 @@ function createGovHelper(logLines, uploadedFiles) {
             const result = await _runSQL(databaseId, sql, params || []);
             return result.rows_affected || 0;
         },
-        // 调用 AI 接口；会自动携带 AI 配置的 URL/API Key/超时等参数
+        // 调用 AI 接口（流式）；内部累计增量拼成完整字符串，避免长生成被整段超时掐断
         async callAI(prompt) {
-            // AI 生成可能较慢，给180秒超时（与后端runner一致）
-            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion`, {
+            const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
-            }, 180000);
-            const data = await resp.json();
-            if (!data.success) throw new Error(data.message || 'AI 调用失败');
-            return data.content || '';
+            }, 16 * 60 * 1000);
+            if (!resp.ok) throw new Error(`AI 调用失败（HTTP ${resp.status}）`);
+            // 浏览器不支持 ReadableStream：退化为一次性解析
+            if (!resp.body || typeof resp.body.getReader !== 'function') {
+                const text = await resp.text();
+                let full = '';
+                for (const raw of text.split('\n')) {
+                    const line = raw.trim();
+                    if (!line.startsWith('data:')) continue;
+                    const payload = line.slice(5).trim();
+                    if (!payload || payload === '[DONE]') continue;
+                    let obj;
+                    try { obj = JSON.parse(payload); } catch (e) { continue; }
+                    if (obj.error) throw new Error(obj.error);
+                    if (obj.delta) full += obj.delta;
+                }
+                return full;
+            }
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let full = '';
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, idx).replace(/\r$/, '').trim();
+                    buffer = buffer.slice(idx + 1);
+                    if (!line.startsWith('data:')) continue;
+                    const payload = line.slice(5).trim();
+                    if (!payload || payload === '[DONE]') continue;
+                    let obj;
+                    try { obj = JSON.parse(payload); } catch (e) { continue; }
+                    if (obj.error) throw new Error(obj.error);
+                    if (obj.delta) full += obj.delta;
+                }
+            }
+            return full;
         },
         async fillWordTemplate(templateFile, data, outputFilename, defaultFont = null) {
             await ensureGovLibsLoaded();

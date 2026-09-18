@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/YOUR_USERNAME/DataToolbox/agent"
 	"github.com/google/uuid"
@@ -349,6 +351,242 @@ func handleAICompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "content": content})
+}
+
+// friendlyAIStreamError 把底层网络错误转成用户能看懂的中文提示，
+// 避免把 context deadline exceeded 之类的原始报错直接抛给前端。
+func friendlyAIStreamError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "Client.Timeout") {
+		return "AI 响应超时，可重试或换更快的模型"
+	}
+	if errors.Is(err, context.Canceled) || strings.Contains(msg, "context canceled") {
+		return "AI 调用已取消"
+	}
+	return "AI 调用失败: " + msg
+}
+
+// handleAICompletionStream 通用 AI 补全的流式版本（SSE）。
+// 与 handleAICompletion 的区别：向上游请求 stream=true，边收边转发增量内容，
+// 避免整段生成耗时超过客户端/网关超时。事件 data 为 JSON：
+//
+//	{"delta":"..."}  增量文本
+//	{"done":true}    正常结束
+//	{"error":"..."}  失败（中文可读）
+//
+// 超时策略：不使用 http.Client.Timeout（会掐断长生成），改为「空闲超时」（90s 无新
+// 数据才失败）+ 整体上限（15 分钟）；客户端断开时通过 r.Context() 取消上游请求。
+func handleAICompletionStream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	sendEvent := func(payload map[string]interface{}) {
+		data, _ := json.Marshal(payload)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	sendErr := func(msg string) { sendEvent(map[string]interface{}{"error": msg}) }
+
+	if !verifyToken(r) {
+		sendErr("未授权")
+		return
+	}
+	if r.Method != http.MethodPost {
+		sendErr("只支持 POST")
+		return
+	}
+	if _, ok := w.(http.Flusher); !ok {
+		sendErr("不支持流式传输")
+		return
+	}
+
+	var req AICompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendErr("请求格式错误")
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		sendErr("prompt 不能为空")
+		return
+	}
+
+	dataOntologyMu.RLock()
+	aiConfig := dataOntologyAIConfig
+	dataOntologyMu.RUnlock()
+	if aiConfig == nil || aiConfig.URL == "" || aiConfig.APIKey == "" || aiConfig.Model == "" {
+		sendErr("请先在 AI 助手中配置 AI 设置（URL、API Key、模型）")
+		return
+	}
+
+	// 与 callAIServiceWithCapabilities 保持一致的请求构造，仅额外打开 stream
+	requestBody := map[string]interface{}{
+		"model": aiConfig.Model,
+		"messages": []map[string]string{
+			{"role": "user", "content": req.Prompt},
+		},
+		"temperature": 0.1,
+		// chat_type=normal 确保思考模型（如 Qwen3.5 via SiliconFlow）正常返回 content
+		"chat_type": "normal",
+		"stream":    true,
+	}
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		sendErr("构建请求失败")
+		return
+	}
+
+	// 绑定客户端请求上下文：浏览器断开连接时自动取消上游
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, getAIEndpoint(aiConfig.URL), bytes.NewBuffer(jsonData))
+	if err != nil {
+		sendErr("创建请求失败")
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+aiConfig.APIKey)
+
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		sendErr(friendlyAIStreamError(err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var errResult map[string]interface{}
+		if json.Unmarshal(bodyBytes, &errResult) == nil {
+			if errMsg, ok := errResult["error"].(map[string]interface{}); ok {
+				if msg, ok := errMsg["message"].(string); ok && msg != "" {
+					sendErr("AI 服务错误: " + msg)
+					return
+				}
+			}
+		}
+		sendErr(fmt.Sprintf("AI 服务返回错误状态: %d", resp.StatusCode))
+		return
+	}
+
+	// 解析上游 SSE：逐行读取 data: 负载，抽出 choices[0].delta.content
+	type streamChunk struct {
+		delta string
+		done  bool
+		err   error
+	}
+	ch := make(chan streamChunk, 64)
+	go func() {
+		defer close(ch)
+		emit := func(c streamChunk) bool {
+			select {
+			case ch <- c:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		sawDone := false
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "[DONE]" {
+				sawDone = true
+				emit(streamChunk{done: true})
+				return
+			}
+			var parsed struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+				Error *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if json.Unmarshal([]byte(payload), &parsed) != nil {
+				continue
+			}
+			if parsed.Error != nil && parsed.Error.Message != "" {
+				emit(streamChunk{err: fmt.Errorf("AI 服务错误: %s", parsed.Error.Message)})
+				return
+			}
+			if len(parsed.Choices) > 0 && parsed.Choices[0].Delta.Content != "" {
+				if !emit(streamChunk{delta: parsed.Choices[0].Delta.Content}) {
+					return
+				}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			emit(streamChunk{err: err})
+			return
+		}
+		if !sawDone {
+			emit(streamChunk{done: true})
+		}
+	}()
+
+	const (
+		idleTimeout    = 90 * time.Second
+		overallTimeout = 15 * time.Minute
+	)
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+	overallTimer := time.NewTimer(overallTimeout)
+	defer overallTimer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// 客户端已断开，无需再写响应
+			return
+		case <-overallTimer.C:
+			sendErr("AI 生成时间过长已停止，可重试或换更快的模型")
+			return
+		case <-idleTimer.C:
+			sendErr("AI 响应超时，可重试或换更快的模型")
+			return
+		case c, ok := <-ch:
+			if !ok {
+				sendEvent(map[string]interface{}{"done": true})
+				return
+			}
+			// 收到任何上游数据都重置空闲计时
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(idleTimeout)
+			if c.err != nil {
+				sendErr(friendlyAIStreamError(c.err))
+				return
+			}
+			if c.done {
+				sendEvent(map[string]interface{}{"done": true})
+				return
+			}
+			if c.delta != "" {
+				sendEvent(map[string]interface{}{"delta": c.delta})
+			}
+		}
+	}
 }
 
 // ==================== 集群模式（Agent）Handler ====================

@@ -643,21 +643,129 @@
         renderChat();
     }
 
-    function callAI(prompt) {
-        // 长脚本生成常见 30~90 秒，前端默认 60 秒会直接掐断
-        var to = 300000;
-        if (typeof fetchWithAuth === 'function') {
-            return fetchWithAuth('/api/v1/agent/completion', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: prompt })
-            }, to).then(function (r) { return r.json(); });
+    // ---- 流式读取 SSE：data 为 JSON，{"delta":"…"} / {"done":true} / {"error":"…"} ----
+    function readSSEStream(reader, onDelta) {
+        var decoder = (typeof TextDecoder !== 'undefined') ? new TextDecoder('utf-8') : null;
+        var buffer = '';
+        var full = '';
+        var t0 = Date.now();
+
+        function consume(line) {
+            line = String(line || '').replace(/\r$/, '').trim();
+            if (!line || line.indexOf('data:') !== 0) return;
+            var payload = line.slice(5).trim();
+            if (!payload || payload === '[DONE]') return;
+            var obj;
+            try { obj = JSON.parse(payload); } catch (e) { return; }
+            if (obj && obj.error) throw new Error(obj.error);
+            if (obj && obj.delta) {
+                full += obj.delta;
+                var secs = ((Date.now() - t0) / 1000).toFixed(1);
+                setStatus('AI 正在生成… 已生成 ' + full.length + ' 字 · 用时 ' + secs + 's', 'busy');
+                if (onDelta) onDelta(full);
+            }
         }
-        return fetch('/api/v1/agent/completion', {
+
+        function pump() {
+            return reader.read().then(function (res) {
+                if (res.done) {
+                    if (buffer) consume(buffer);
+                    return { success: true, content: full };
+                }
+                var chunk = res.value;
+                if (decoder) {
+                    buffer += decoder.decode(chunk, { stream: true });
+                } else {
+                    for (var i = 0; i < chunk.length; i++) buffer += String.fromCharCode(chunk[i]);
+                }
+                var idx;
+                while ((idx = buffer.indexOf('\n')) >= 0) {
+                    consume(buffer.slice(0, idx));
+                    buffer = buffer.slice(idx + 1);
+                }
+                return pump();
+            });
+        }
+        return pump();
+    }
+
+    // 非 fetchWithAuth 场景（理论上只有老页面）自行补认证头
+    function withAuthInit(url, init) {
+        var headers = {};
+        var src = (init && init.headers) || {};
+        Object.keys(src).forEach(function (k) { headers[k] = src[k]; });
+        try { var t = localStorage.getItem('dataOntologyToken'); if (t) headers['Authorization'] = 'Bearer ' + t; } catch (e) {}
+        return fetch(url, Object.assign({}, init, { headers: headers }));
+    }
+
+    // 调 AI：走流式端点，边收边回调，避免长脚本被整段超时掐断
+    function callAI(prompt, onDelta) {
+        var url = (typeof API_BASE !== 'undefined' ? API_BASE : '') + '/api/v1/agent/completion/stream';
+        var init = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: prompt })
-        }).then(function (r) { return r.json(); });
+        };
+        // 整体上限 16 分钟，仅作用于建立连接阶段；生成过程中的卡死由后端空闲超时兜底
+        var req = (typeof fetchWithAuth === 'function')
+            ? fetchWithAuth(url, init, 16 * 60 * 1000)
+            : withAuthInit(url, init);
+        return req.then(function (r) {
+            if (!r || !r.ok) {
+                if (r && r.status === 401) throw new Error('登录已过期，请重新登录');
+                if (r && typeof r.json === 'function') {
+                    return r.json().then(function (d) {
+                        throw new Error((d && d.message) || ('AI 调用失败（HTTP ' + (r.status || 0) + '）'));
+                    }).catch(function (e) {
+                        throw (e instanceof Error) ? e : new Error('AI 调用失败（HTTP ' + (r.status || 0) + '）');
+                    });
+                }
+                throw new Error('AI 调用失败');
+            }
+            if (!r.body || typeof r.body.getReader !== 'function') {
+                // 浏览器不支持 ReadableStream：退化成一次性解析
+                return r.text().then(function (text) {
+                    var full = '';
+                    var errMsg = '';
+                    String(text).split('\n').forEach(function (line) {
+                        line = line.trim();
+                        if (line.indexOf('data:') !== 0) return;
+                        var p = line.slice(5).trim();
+                        if (!p || p === '[DONE]') return;
+                        var o;
+                        try { o = JSON.parse(p); } catch (e) { return; }
+                        if (o && o.error) errMsg = o.error;
+                        if (o && o.delta) full += o.delta;
+                    });
+                    if (errMsg) throw new Error(errMsg);
+                    if (onDelta) onDelta(full);
+                    return { success: true, content: full };
+                });
+            }
+            return readSSEStream(r.body.getReader(), onDelta);
+        });
+    }
+
+    // 在对话末尾放一个「正在生成」的气泡，流式增量直接改它的 DOM，避免每次整段重渲染
+    function startStreamBubble() {
+        var msg = { role: 'assistant', content: '', at: new Date().toISOString() };
+        state.chat = state.chat.concat([msg]);
+        renderChat();
+        var nodes = el.gcsChatLog.querySelectorAll('.gcs-msg-assistant .gcs-msg-body');
+        var node = nodes[nodes.length - 1];
+        if (node) node.textContent = '正在生成…';
+        return {
+            update: function (text) {
+                msg.content = text || '';
+                if (node) { node.textContent = msg.content; }
+                el.gcsChatLog.scrollTop = el.gcsChatLog.scrollHeight;
+            },
+            hasText: function () { return !!msg.content; },
+            drop: function () {
+                state.chat = state.chat.filter(function (m) { return m !== msg; });
+                renderChat();
+            }
+        };
     }
 
     function send() {
@@ -681,7 +789,7 @@
         };
         var code = el.gcsCode.value || '';
 
-        setStatus('AI 正在生成…（长脚本可能要 30~90 秒）', 'busy');
+        setStatus('AI 正在生成…', 'busy');
         askAI(baseOpts, code, text, 0, docs, t0);
     }
 
@@ -693,8 +801,10 @@
         });
         if (round > 0) opts.chat = state.chat.slice(0, -1);  // 别把上一轮的驳回提示再喂回去
         var prompt = buildPrompt(opts);
+        var bubble = startStreamBubble();
 
-        callAI(prompt).then(function (d) {
+        callAI(prompt, function (full) { bubble.update(full); }).then(function (d) {
+            bubble.drop();
             var secs = ((Date.now() - t0) / 1000).toFixed(1);
             if (!d || !d.success) throw new Error((d && d.message) || 'AI 调用失败');
             var reply = d.content || '';
@@ -742,6 +852,8 @@
                 }
             });
         }).catch(function (e) {
+            // 已经流出来的部分保留在对话里，方便用户复制；一个字都没出就直接撤掉气泡
+            if (!bubble.hasText()) bubble.drop();
             state.chat = state.chat.concat([{ role: 'assistant', content: '⚠️ ' + e.message, at: new Date().toISOString() }]);
             renderChat();
             setStatus(e.message, 'err');
