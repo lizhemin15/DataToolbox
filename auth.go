@@ -658,6 +658,17 @@ main().catch(e => {
 		}
 		dataOntologyMu.Lock()
 	}
+
+	// 老库升级：把后来新增、但库里还没有的内置示例任务补上（只按名字补缺，不改动已有任务）。
+	// 之前只在「store 为空」的全新安装分支里补，导致已有安装看不到后续版本新增的示例。
+	if n := createMissingGovernancePresets(); n > 0 {
+		log.Printf("已补齐 %d 个新增的内置示例治理任务", n)
+		dataOntologyMu.Unlock()
+		if err := saveDataOntologyStore(); err != nil {
+			log.Printf("保存补齐的内置示例任务失败: %v", err)
+		}
+		dataOntologyMu.Lock()
+	}
 	dataOntologyMu.Unlock()
 
 	log.Printf("数据工具箱初始化完成 - 用户数: %d, 数据库配置数: %d, 治理任务数: %d",
