@@ -2190,3 +2190,334 @@ function closeGovApiHelp() {
 function filterGovApiHelp(query) {
     renderGovApiDocs(query.trim().toLowerCase());
 }
+
+// ============================================================================
+// 模板任务 → 派生新任务（「复制」/「AI 新建」）
+//
+// 1) 复制：把当前任务的代码 + 配置整体拷贝成一条新任务（不复制运行记录/分享/API 注册）。
+// 2) AI 新建：先让 AI 读完模板任务，针对这个模板向用户提问（不同任务需要的输入不一样），
+//    用户回答后再生成新任务的名称/说明/代码，确认后保存为新任务。
+// ============================================================================
+
+// ---------- 通用：AI 流式调用（前端拼 prompt，走已有流式端点） ----------
+async function govAiStreamPrompt(prompt, onDelta) {
+    const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/completion/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+    }, 16 * 60 * 1000);
+    if (!resp.ok) throw new Error(`AI 调用失败（HTTP ${resp.status}）`);
+
+    let full = '';
+    const consume = (rawLine) => {
+        const line = String(rawLine).replace(/\r$/, '').trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        let obj;
+        try { obj = JSON.parse(payload); } catch (e) { return; }
+        if (obj.error) throw new Error(obj.error);
+        if (obj.delta) { full += obj.delta; if (typeof onDelta === 'function') onDelta(full); }
+    };
+
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+        const text = await resp.text();
+        for (const line of text.split('\n')) consume(line);
+        return full;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 1);
+            consume(line);
+        }
+    }
+    if (buffer) consume(buffer);
+    return full;
+}
+
+// ---------- 通用：从模型输出里抠出 JSON（容忍 ```json 包裹与前后废话） ----------
+function govExtractJson(text) {
+    if (!text) return null;
+    const cleaned = String(text).replace(/```(?:json)?/gi, '').trim();
+    try { return JSON.parse(cleaned); } catch (e) { /* 继续尝试截取 */ }
+    const pairs = [['[', ']'], ['{', '}']];
+    for (const [open, close] of pairs) {
+        const i = cleaned.indexOf(open);
+        const j = cleaned.lastIndexOf(close);
+        if (i >= 0 && j > i) {
+            try { return JSON.parse(cleaned.slice(i, j + 1)); } catch (e) { /* 下一个 */ }
+        }
+    }
+    return null;
+}
+
+// ---------- 通用：模板任务摘要（喂给 AI） ----------
+function govTemplateBrief(task) {
+    const code = String(task.js_code || '');
+    const clipped = code.length > 8000 ? code.slice(0, 8000) + '\n// ...（模板代码过长，已截断）' : code;
+    return [
+        '【模板任务名称】' + (task.name || ''),
+        '【任务类型】' + (task.type || ''),
+        '【模板说明】' + (task.description || '（无）'),
+        '【输入类型】' + (task.input_type || '（无）'),
+        '【允许扩展名】' + ((task.accept_exts || []).join(', ') || '（无）'),
+        '【多文件模式】' + (task.file_batch_mode || '（无）'),
+        '【运行环境】' + (task.run_mode || task.execution_mode || task.runtime || 'backend'),
+        '【模板代码】',
+        '```javascript',
+        clipped,
+        '```'
+    ].join('\n');
+}
+
+// ---------- 复制为副本 ----------
+function govDupShowError(msg) {
+    const el = document.getElementById('govDupError');
+    if (!el) return;
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.style.display = '';
+    el.textContent = msg;
+}
+
+function duplicateGovTask() {
+    if (!currentGovTask) return;
+    document.getElementById('govDupSourceName').value = currentGovTask.name || '';
+    const inp = document.getElementById('govDupNameInput');
+    inp.value = (currentGovTask.name || '任务') + ' 副本';
+    govDupShowError('');
+    document.getElementById('govDuplicateModal').classList.add('show');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
+function hideGovDuplicateModal() {
+    document.getElementById('govDuplicateModal').classList.remove('show');
+}
+
+async function confirmGovDuplicate() {
+    if (!currentGovTask) return;
+    const name = (document.getElementById('govDupNameInput').value || '').trim();
+    if (!name) { govDupShowError('请填写新任务名称'); return; }
+    const btn = document.getElementById('govDupConfirmBtn');
+    const srcId = currentGovTask.id;
+    btn.disabled = true;
+    btn.textContent = '创建中…';
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${srcId}/duplicate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || '复制失败');
+        hideGovDuplicateModal();
+        await loadGovernanceTasks();
+        selectGovTask(data.task.id);
+        showToast('已创建副本：' + data.task.name, 'success');
+    } catch (e) {
+        govDupShowError(e.message || '复制失败');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '创建副本';
+    }
+}
+
+// ---------- AI 新建 ----------
+let _govAiCloneQuestions = [];
+let _govAiClonePayload = null;
+
+function govAiCloneShowError(msg) {
+    const el = document.getElementById('govAiCloneError');
+    if (!el) return;
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.style.display = '';
+    el.textContent = msg;
+}
+
+function govAiCloneMarkStep(n) {
+    [1, 2, 3].forEach((i) => {
+        const el = document.getElementById('govAiStep' + i + 'Badge');
+        if (!el) return;
+        el.style.opacity = i === n ? '1' : '0.45';
+        el.style.fontWeight = i === n ? '600' : '400';
+    });
+}
+
+function openGovAiClone() {
+    if (!currentGovTask) return;
+    _govAiCloneQuestions = [];
+    _govAiClonePayload = null;
+    document.getElementById('govAiCloneSource').value = currentGovTask.name || '';
+    document.getElementById('govAiQuestionsForm').innerHTML = '';
+    document.getElementById('govAiCloneStep1').style.display = '';
+    document.getElementById('govAiCloneStep2').style.display = 'none';
+    document.getElementById('govAiCloneStep3').style.display = 'none';
+    const stream = document.getElementById('govAiCloneStream');
+    stream.style.display = 'none';
+    stream.textContent = '';
+    document.getElementById('govAiCloneName').value = (currentGovTask.name || '任务') + '（AI 定制）';
+    document.getElementById('govAiCloneDesc').value = '';
+    document.getElementById('govAiCloneCode').textContent = '';
+    govAiCloneShowError('');
+    govAiCloneMarkStep(1);
+    document.getElementById('govAiCloneModal').classList.add('show');
+}
+
+function closeGovAiClone() {
+    document.getElementById('govAiCloneModal').classList.remove('show');
+}
+
+async function govAiCloneGenerateQuestions() {
+    if (!currentGovTask) return;
+    const btn = document.getElementById('govAiGenQuestionsBtn');
+    btn.disabled = true;
+    btn.textContent = 'AI 正在阅读模板…';
+    govAiCloneShowError('');
+    try {
+        const prompt = [
+            '你是数据治理任务设计助手。下面给你一个「模板任务」，用户想基于它派生一个同类但需求不同的新任务。',
+            '现在请你先向用户提问，把这个新任务和模板的差异问清楚。',
+            '要求：',
+            '1) 只输出一个 JSON 数组，不要任何解释、不要 markdown 代码块。',
+            '2) 每个元素形如：{"id":"q1","label":"问题","hint":"输入框提示文字","why":"为什么必须问"}。',
+            '3) 提 3~6 个最关键的问题，必须结合这个模板的具体细节（数据来源、要抽取的字段/列、输出文件名与格式、层级与口径、是单文件还是多文件、是否需要调用 AI、运行在前端还是后端等）。',
+            '4) 不要问与模板无关的通用问题（例如“任务叫什么名字”）。',
+            '',
+            govTemplateBrief(currentGovTask)
+        ].join('\n');
+        const text = await govAiStreamPrompt(prompt, null);
+        const arr = govExtractJson(text);
+        if (!Array.isArray(arr) || !arr.length) throw new Error('AI 没返回可解析的问题列表，请重试');
+        _govAiCloneQuestions = arr;
+        document.getElementById('govAiQuestionsForm').innerHTML = arr.map((q, i) => {
+            const inputId = 'govAiQ' + i;
+            const label = escapeHtml(q.label || ('问题 ' + (i + 1)));
+            const hint = escapeHtml(q.hint || '');
+            const why = q.why ? `<small>${escapeHtml(q.why)}</small>` : '';
+            return `<div class="form-group">` +
+                `<label for="${inputId}">${label}</label>` +
+                `<input type="text" id="${inputId}" placeholder="${hint}">` +
+                why +
+                `</div>`;
+        }).join('');
+        document.getElementById('govAiCloneStep1').style.display = 'none';
+        document.getElementById('govAiCloneStep2').style.display = '';
+        govAiCloneMarkStep(2);
+    } catch (e) {
+        govAiCloneShowError(e.message || '生成问题失败');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '生成问题';
+    }
+}
+
+async function govAiCloneGenerateTask() {
+    if (!currentGovTask) return;
+    const answers = _govAiCloneQuestions.map((q, i) => {
+        const el = document.getElementById('govAiQ' + i);
+        return { question: q.label || ('问题 ' + (i + 1)), answer: el ? (el.value || '').trim() : '' };
+    }).filter((a) => a.answer);
+    if (!answers.length) {
+        govAiCloneShowError('至少回答一个问题，AI 才有依据生成任务');
+        return;
+    }
+    const btn = document.getElementById('govAiGenTaskBtn');
+    btn.disabled = true;
+    btn.textContent = 'AI 生成中…';
+    govAiCloneShowError('');
+    const streamEl = document.getElementById('govAiCloneStream');
+    streamEl.style.display = '';
+    streamEl.textContent = 'AI 生成中…';
+    try {
+        const prompt = [
+            '你是数据治理任务代码生成助手。请基于下面的「模板任务」和「用户的需求回答」，生成一个新任务的完整实现。',
+            '硬性要求：',
+            '1) 只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块。字段如下：',
+            '   {"name":"任务名称","description":"一句话说明","js_code":"完整 JS 代码","type":"scheduled|interactive","input_type":"file|text|both","accept_exts":[".docx"],"file_batch_mode":"per_file|single","run_mode":"frontend|backend"}',
+            '2) js_code 必须是可直接运行的治理任务代码：沿用模板的 API 习惯（gov.log / gov.readWord / gov.writeExcel / gov.word 等），不要引入模板里没用过的依赖或库。',
+            '3) run_mode 沿用模板；若为 frontend（浏览器内执行），只能用模板同款的浏览器 API。',
+            '4) js_code 里的换行必须转义成 \\n，保证整个 JSON 合法可解析。',
+            '',
+            govTemplateBrief(currentGovTask),
+            '',
+            '【用户的需求回答】',
+            answers.map((a) => '- ' + a.question + ' → ' + a.answer).join('\n')
+        ].join('\n');
+        const text = await govAiStreamPrompt(prompt, (full) => {
+            streamEl.textContent = 'AI 生成中…（已收到 ' + full.length + ' 字符）\n' + full.slice(-1500);
+        });
+        const obj = govExtractJson(text);
+        if (!obj || typeof obj !== 'object' || !obj.js_code) {
+            throw new Error('AI 返回的内容无法解析成任务，请重试');
+        }
+        _govAiClonePayload = obj;
+        if (obj.name) document.getElementById('govAiCloneName').value = obj.name;
+        document.getElementById('govAiCloneDesc').value = obj.description || '';
+        document.getElementById('govAiCloneCode').textContent = obj.js_code;
+        document.getElementById('govAiCloneStep2').style.display = 'none';
+        document.getElementById('govAiCloneStep3').style.display = '';
+        govAiCloneMarkStep(3);
+    } catch (e) {
+        govAiCloneShowError(e.message || '生成任务失败');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '生成任务';
+    }
+}
+
+async function govAiCloneSave() {
+    const payload = _govAiClonePayload;
+    if (!payload) return;
+    const name = (document.getElementById('govAiCloneName').value || '').trim();
+    const desc = (document.getElementById('govAiCloneDesc').value || '').trim();
+    if (!name) { govAiCloneShowError('请填写任务名称'); return; }
+    const src = currentGovTask || {};
+    const type = payload.type || src.type || 'interactive';
+    const runMode = payload.run_mode || src.run_mode || src.execution_mode || '';
+    const taskData = {
+        name: name,
+        type: type,
+        description: desc,
+        js_code: payload.js_code,
+        database_id: src.database_id || '',
+        cron_expr: type === 'scheduled' ? (src.cron_expr || '0 0 * * *') : '',
+        enabled: false,
+        input_type: payload.input_type || src.input_type || '',
+        accept_exts: Array.isArray(payload.accept_exts) && payload.accept_exts.length
+            ? payload.accept_exts
+            : (src.accept_exts || []),
+        file_batch_mode: payload.file_batch_mode || src.file_batch_mode || '',
+        run_mode: runMode,
+        execution_mode: runMode,
+        runtime: runMode
+    };
+    const btn = document.getElementById('govAiCloneSaveBtn');
+    btn.disabled = true;
+    btn.textContent = '保存中…';
+    govAiCloneShowError('');
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(taskData)
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || '保存失败');
+        closeGovAiClone();
+        await loadGovernanceTasks();
+        selectGovTask(data.task.id);
+        showToast('已创建任务：' + data.task.name, 'success');
+    } catch (e) {
+        govAiCloneShowError(e.message || '保存失败');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '保存为新任务';
+    }
+}

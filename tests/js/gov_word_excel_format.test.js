@@ -207,7 +207,7 @@ function readZipEntry(buf, target) {
 
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   check('index.html 已 bump script-ontology/gov-code-studio 版本',
-    /script-ontology\.js\?v=2026091907/.test(html) && /gov-code-studio\.js\?v=2026091907/.test(html));
+    /script-ontology\.js\?v=2026091908/.test(html) && /gov-code-studio\.js\?v=2026091908/.test(html));
 
   console.log(failed ? `\n${failed} 项失败` : '\n全部通过');
   process.exit(failed ? 1 : 0);

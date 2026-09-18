@@ -314,6 +314,8 @@
                                 <button id="editGovTaskBtn" class="btn btn-sm" onclick="editGovTask()">✏️ 编辑</button>
                                 <button id="runGovTaskBtn" class="btn btn-sm btn-primary" onclick="runGovTask()">▶️ 运行</button>
                                 <button id="shareGovTaskBtn" class="btn btn-sm" onclick="toggleShareGovTask()">🔗 分享</button>
+                                <button id="duplicateGovTaskBtn" class="btn btn-sm" onclick="duplicateGovTask()" title="复制这个任务的配置与代码，生成一个同类新任务">📄 复制</button>
+                                <button id="aiCloneGovTaskBtn" class="btn btn-sm" onclick="openGovAiClone()" title="让 AI 先问清需求，再基于这个模板生成一个新任务">✨ AI 新建</button>
                                 <button id="deleteGovTaskBtn" class="btn btn-sm btn-danger" onclick="deleteGovTask()">删除</button>
                             </div>
                         </div>
@@ -2337,6 +2339,89 @@
     </div>
 
     <!-- gov API 帮助模态框 -->
+    <div id="govDuplicateModal" class="modal" onclick="if(event.target===this)hideGovDuplicateModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📄 复制为同类任务</h2>
+                <button class="modal-close" onclick="hideGovDuplicateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>来源任务</label>
+                    <input type="text" id="govDupSourceName" readonly style="background:#f5f6f8;color:#666;">
+                </div>
+                <div class="form-group">
+                    <label for="govDupNameInput">新任务名称</label>
+                    <input type="text" id="govDupNameInput" placeholder="例如: 产品汇总Word生成（华东区）">
+                    <small>会完整复制来源任务的代码与配置；运行记录、分享链接、API 注册不会复制。</small>
+                </div>
+                <div id="govDupError" class="gov-form-error" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideGovDuplicateModal()">取消</button>
+                <button class="btn btn-primary" id="govDupConfirmBtn" onclick="confirmGovDuplicate()">创建副本</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="govAiCloneModal" class="modal" onclick="if(event.target===this)closeGovAiClone()">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>✨ AI 基于模板新建任务</h2>
+                <button class="modal-close" onclick="closeGovAiClone()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:#888;margin-bottom:10px;">
+                    <span id="govAiStep1Badge"><b>1</b> AI 提问</span>
+                    <span>→</span>
+                    <span id="govAiStep2Badge"><b>2</b> 填写需求</span>
+                    <span>→</span>
+                    <span id="govAiStep3Badge"><b>3</b> 生成并保存</span>
+                </div>
+                <div class="form-group">
+                    <label>模板任务</label>
+                    <input type="text" id="govAiCloneSource" readonly style="background:#f5f6f8;color:#666;">
+                </div>
+
+                <div id="govAiCloneStep1">
+                    <p style="color:#666;font-size:13px;line-height:1.6;">
+                        先让 AI 读一遍这个模板任务的说明和代码，再由它向你提问。<br>
+                        不同任务需要的输入不一样（数据从哪来、要什么字段、输出成什么格式……），
+                        所以这里的问题由 AI 针对这个模板现场生成。
+                    </p>
+                    <button class="btn btn-primary mt-12" id="govAiGenQuestionsBtn" onclick="govAiCloneGenerateQuestions()">生成问题</button>
+                </div>
+
+                <div id="govAiCloneStep2" style="display:none;">
+                    <div id="govAiQuestionsForm"></div>
+                    <button class="btn btn-primary mt-12" id="govAiGenTaskBtn" onclick="govAiCloneGenerateTask()">生成任务</button>
+                </div>
+
+                <div id="govAiCloneStep3" style="display:none;">
+                    <pre id="govAiCloneStream" style="max-height:160px;overflow:auto;background:#0f1116;color:#c8d3f5;padding:10px;border-radius:6px;font-size:12px;white-space:pre-wrap;display:none;"></pre>
+                    <div class="form-group">
+                        <label for="govAiCloneName">新任务名称</label>
+                        <input type="text" id="govAiCloneName">
+                    </div>
+                    <div class="form-group">
+                        <label for="govAiCloneDesc">任务说明</label>
+                        <textarea id="govAiCloneDesc" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>任务代码预览（可保存后再用「编辑」微调）</label>
+                        <pre id="govAiCloneCode" style="max-height:220px;overflow:auto;background:#f5f6f8;padding:10px;border-radius:6px;font-size:12px;white-space:pre-wrap;"></pre>
+                    </div>
+                    <button class="btn btn-primary" id="govAiCloneSaveBtn" onclick="govAiCloneSave()">保存为新任务</button>
+                </div>
+
+                <div id="govAiCloneError" class="gov-form-error" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeGovAiClone()">取消</button>
+            </div>
+        </div>
+    </div>
+
     <div id="govApiHelpModal" class="modal" style="display:none;" onclick="if(event.target===this)closeGovApiHelp()">
         <div class="modal-content modal-large gov-api-modal">
             <div class="modal-header">
@@ -2685,8 +2770,8 @@
     <script src="/js/script-settings.js?v=2026061002" defer></script>
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
     <script src="/js/script-governance.js?v=2026061002" defer></script>
-    <script src="/js/script-ontology.js?v=2026091907" defer></script>
-    <script src="/js/gov-code-studio.js?v=2026091907" defer></script>
+    <script src="/js/script-ontology.js?v=2026091908" defer></script>
+    <script src="/js/gov-code-studio.js?v=2026091908" defer></script>
     <script src="/js/script-relations.js?v=2026061002" defer></script>
     <script src="/js/script-api-detail.js?v=2026061002" defer></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->

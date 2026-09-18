@@ -42,6 +42,9 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "toggle":
 			handleGovernanceTaskToggle(w, r, taskID)
 			return
+		case "duplicate":
+			handleGovernanceTaskDuplicate(w, r, taskID)
+			return
 		case "logs":
 			if len(pathParts) > 2 {
 				// DELETE /api/governance/tasks/{taskID}/logs/{logID}
@@ -233,6 +236,73 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 	default:
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
 	}
+}
+
+// handleGovernanceTaskDuplicate 基于现有任务复制一份新任务（模板 → 同类任务）
+//
+//	POST /api/v1/gov/tasks/{id}/duplicate  body: { "name": "新任务名（可选）" }
+//
+// 只继承「配置 + 代码」，不继承运行态：状态重置为 idle，日志/进度/分享/API 注册一律清空，
+// 内置示例文件也不复制（示例文件属于内置示例任务本身）。
+func handleGovernanceTaskDuplicate(w http.ResponseWriter, r *http.Request, taskID string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "不支持的方法"})
+		return
+	}
+
+	_, username, ok := requireGovernanceTaskAccess(w, r, taskID)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	dataOntologyMu.Lock()
+	src := governanceTasks[taskID]
+	if src == nil {
+		dataOntologyMu.Unlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "任务不存在"})
+		return
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = src.Name + " 副本"
+	}
+
+	dup := &GovernanceTask{
+		ID:            uuid.New().String(),
+		Owner:         username,
+		Name:          name,
+		Type:          src.Type,
+		Description:   src.Description,
+		JsCode:        src.JsCode,
+		DatabaseID:    src.DatabaseID,
+		CronExpr:      src.CronExpr,
+		Enabled:       src.Enabled,
+		InputType:     src.InputType,
+		AcceptExts:    append([]string(nil), src.AcceptExts...),
+		FileBatchMode: src.FileBatchMode,
+		Runtime:       src.Runtime,
+		RunMode:       src.RunMode,
+		ExecutionMode: src.ExecutionMode,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Status:        "idle",
+	}
+	governanceTasks[dup.ID] = dup
+	dataOntologyMu.Unlock()
+
+	if err := saveDataOntologyStore(); err != nil {
+		log.Printf("保存复制任务失败: %v", err)
+	}
+	log.Printf("[治理任务] 复制任务 %s → %s（%s）", src.Name, dup.Name, dup.ID)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "task": dup})
 }
 
 // handleGovernanceTaskToggle 启用/禁用定时任务
