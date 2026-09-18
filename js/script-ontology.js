@@ -118,6 +118,14 @@ function getGovTaskRunMode(task) {
 async function runGovTask() {
     if (!currentGovTask) return;
 
+    // 交互任务若带输入（文件/文本），「运行」按钮要和「执行任务」一致：
+    // 带上已选择的文件与文本框内容，避免误报「请上传文件」。
+    const inputType = currentGovTask.input_type || '';
+    if (currentGovTask.type === 'interactive' && (inputType === 'file' || inputType === 'both' || inputType === 'text')) {
+        await executeInteractiveTask();
+        return;
+    }
+
     const runMode = getGovTaskRunMode(currentGovTask);
     if (runMode === 'frontend') {
         await executeGovTaskInBrowser(currentGovTask.js_code, null, '', []);
