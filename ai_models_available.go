@@ -47,8 +47,11 @@ func handleAIModelsAvailable(w http.ResponseWriter, r *http.Request) {
 
 	rawURL := strings.TrimSpace(body.URL)
 	apiKey := strings.TrimSpace(body.APIKey)
-	if rawURL == "" && dataOntologyAIConfig != nil {
-		rawURL = strings.TrimSpace(dataOntologyAIConfig.URL)
+	// 没传的字段回退到已保存的 AI 配置（例如向量模型留空 Key 时沿用主 Key）
+	if dataOntologyAIConfig != nil {
+		if rawURL == "" {
+			rawURL = strings.TrimSpace(dataOntologyAIConfig.URL)
+		}
 		if apiKey == "" {
 			apiKey = strings.TrimSpace(dataOntologyAIConfig.APIKey)
 		}
