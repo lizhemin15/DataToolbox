@@ -749,6 +749,10 @@ func (n *qaRuleTree) MarshalJSON() ([]byte, error) {
 	if len(n.Params) > 0 {
 		m["params"] = n.Params
 	}
+	// 规则级 AI 复核原则要带给前端（规则树上的「AI 复核」标识靠它判断）
+	if strings.TrimSpace(n.AIReviewPrompt) != "" {
+		m["ai_review_prompt"] = n.AIReviewPrompt
+	}
 	if len(n.Children) > 0 {
 		m["children"] = n.Children
 	}

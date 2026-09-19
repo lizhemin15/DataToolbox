@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -235,5 +236,23 @@ func TestQABuildRuleTreeKeepsDuplicateXH(t *testing.T) {
 	}
 	if group == nil || len(group.Children) != 2 {
 		t.Errorf("分组 010000 应有 2 个子节点，实际 %v", group)
+	}
+}
+
+// 规则树的 JSON 必须带上 ai_review_prompt：否则前端「AI 复核」标识永远不显示。
+func TestQARuleTreeJSONCarriesAIReviewPrompt(t *testing.T) {
+	tree := buildRuleTree([]qaRule{
+		{NM: "010100", XH: "0101", Name: "有原则", SQL: "SELECT 1", AIReviewPrompt: "允许为空则属误判"},
+		{NM: "010200", XH: "0102", Name: "无原则", SQL: "SELECT 1"},
+	})
+	b, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	if !strings.Contains(string(b), `"ai_review_prompt":"允许为空则属误判"`) {
+		t.Errorf("规则树 JSON 缺少 ai_review_prompt：%s", string(b))
+	}
+	if strings.Count(string(b), "ai_review_prompt") != 1 {
+		t.Errorf("未填写原则的规则不应输出该字段：%s", string(b))
 	}
 }
