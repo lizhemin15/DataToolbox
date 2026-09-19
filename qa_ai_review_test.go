@@ -168,3 +168,33 @@ func TestQACountAIFlagged(t *testing.T) {
 		t.Errorf("疑似误判统计应为 1，实际 %d", n)
 	}
 }
+
+// 缓存只能存纯 SQL 审核结果：否则关掉 AI 开关后，缓存命中还会显示上一轮的 AI 结论。
+func TestQAStripAIRowsRemovesStaleAI(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"nm": "010100", "name": "规则甲", "passed": false, "violation_count": 1,
+			"ai_misjudged": true, "ai_confidence": 0.9, "ai_reason": "旧结论", "ai_suggestion": "旧建议", "ai_need_human": true},
+	}
+	clean := qaStripAIRows(rows)
+	if len(clean) != 1 {
+		t.Fatalf("条数不对：%d", len(clean))
+	}
+	for _, k := range []string{"ai_misjudged", "ai_confidence", "ai_reason", "ai_suggestion", "ai_need_human"} {
+		if _, ok := clean[0][k]; ok {
+			t.Errorf("缓存副本不应包含 %s", k)
+		}
+	}
+	// 纯 SQL 字段必须原样保留
+	if clean[0]["nm"] != "010100" || clean[0]["violation_count"] != 1 {
+		t.Errorf("纯 SQL 结果被破坏：%v", clean[0])
+	}
+	// 不得改动原行（响应里仍要用 AI 结论）
+	if _, ok := rows[0]["ai_reason"]; !ok {
+		t.Error("剥副本不应影响原行")
+	}
+	// 剥完再跑一次：关闭开关时不应产生任何 AI 字段
+	out, model, reason := qaAIVerifyWithProgress(clean, false, nil)
+	if len(out) != 0 || model != "" || reason == "" {
+		t.Errorf("关闭开关应零调用：out=%v model=%q reason=%q", out, model, reason)
+	}
+}

@@ -1230,6 +1230,24 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 
 // qaExecuteRules 并行执行指定规则的审核查询，供 qaExecute 与定时任务复用。
 // 返回每条规则的结果、通过数、不通过数；执行错误会写入 audit_errors。
+// qaStripAIRows 返回去掉 AI 复核字段的结果副本：用于写缓存，
+// 以及读取旧缓存时清掉上一轮残留的 AI 结论（避免关掉开关后仍显示旧结论）。
+func qaStripAIRows(rows []map[string]interface{}) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		cp := make(map[string]interface{}, len(row))
+		for k, v := range row {
+			switch k {
+			case "ai_misjudged", "ai_confidence", "ai_reason", "ai_suggestion", "ai_need_human":
+				continue
+			}
+			cp[k] = v
+		}
+		out = append(out, cp)
+	}
+	return out
+}
+
 // qaCountAIFlagged 统计本次 AI 复核里被判为「疑似误判」的规则条数。
 func qaCountAIFlagged(ruleResults []map[string]interface{}) int {
 	n := 0
@@ -1399,6 +1417,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	// 检查缓存（缓存只存纯 SQL 审核结果，AI 复核每次现场跑，避免过期结论被复用）
 	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
 	if cached, hit := qaCacheGet(cacheKey); hit {
+		// 缓存里可能残留上一轮的 AI 字段（旧版本写入的），先剥掉再按本次开关重新复核
+		cached = qaStripAIRows(cached)
 		reviewed, aiModel, aiSkipReason := qaAttachAIReview(cached, aiEnabled)
 		resp := map[string]interface{}{
 			"cached":      true,
@@ -1429,7 +1449,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	metaDB, _ := openQualityAuditDB()
 
 	// 写入缓存
-	qaCacheSet(cacheKey, ruleResults)
+	// 只缓存纯 SQL 审核结果：AI 复核结论是「本次现场结论」，不能被复用（否则关掉开关还会看到旧结论）
+	qaCacheSet(cacheKey, qaStripAIRows(ruleResults))
 
 	itemRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM item_fill_rate WHERE CHECKED = 1`)
 	recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
