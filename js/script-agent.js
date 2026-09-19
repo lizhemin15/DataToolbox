@@ -39,6 +39,51 @@ let embeddingConfig = null;
 // 显示表检索配置弹窗
 
 // 加载表检索配置
+// 自动获取上游模型列表，填充到模型名称输入框的 datalist（可下拉选择，也可继续手动输入）
+// kind: 默认 'llm'（智能助手 LLM）；'embedding' 用于向量模型
+async function fetchAiModels(kind, btnEl) {
+    const isEmb = kind === 'embedding';
+    const btn = btnEl || document.getElementById(isEmb ? 'fetchAiEmbModelsBtn' : 'fetchAiModelsBtn');
+    const input = document.getElementById(isEmb ? 'aiEmbModel' : 'aiModelInput');
+    const datalist = document.getElementById(isEmb ? 'aiEmbModelOptions' : 'aiModelOptions');
+    const hint = isEmb ? null : document.getElementById('aiModelFetchHint');
+    const urlInputId = isEmb ? 'aiEmbUrl' : 'aiUrlInput';
+    const keyInputId = isEmb ? 'aiEmbApiKey' : 'aiApiKeyInput';
+
+    // 向量地址（.../v1/embeddings）与对话地址都能推导出 /models
+    const url = (document.getElementById(urlInputId) || {}).value || '';
+    let apiKey = (document.getElementById(keyInputId) || {}).value || '';
+    if (isEmb && !apiKey.trim()) apiKey = (document.getElementById('aiApiKeyInput') || {}).value || '';
+
+    if (!String(url).trim()) {
+        showToast('请先填写 AI 服务 URL', 'warning');
+        return;
+    }
+
+    const originalText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '获取中…'; }
+    if (hint) hint.textContent = '正在从上游拉取…';
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/agent/models/available`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url.trim(), api_key: apiKey.trim() })
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || '获取失败');
+        const models = Array.isArray(data.models) ? data.models : [];
+        if (!models.length) throw new Error('上游没有返回可用模型');
+        if (datalist) datalist.innerHTML = models.map((m) => `<option value="${escapeHtml(m)}"></option>`).join('');
+        if (hint) hint.textContent = `已获取 ${models.length} 个模型，点击输入框选择或继续手输`;
+        showToast(`已获取 ${models.length} 个模型`, 'success');
+    } catch (e) {
+        if (hint) hint.textContent = '';
+        showToast('获取模型列表失败：' + (e.message || e), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = originalText || '🔄 获取'; }
+    }
+}
+
 // 预设模型快速填充
 function applyModelPreset(value) {
     if (!value) return;

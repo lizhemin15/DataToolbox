@@ -98,6 +98,8 @@ func registerAPIV1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent/codegen", handleAICodegen)
 	mux.HandleFunc("/api/v1/agent/completion", handleAICompletion)
 	mux.HandleFunc("/api/v1/agent/completion/stream", handleAICompletionStream)
+	// POST /api/v1/agent/models/available → 拉取上游模型清单（配置界面「自动获取模型」用）
+	mux.HandleFunc("/api/v1/agent/models/available", handleAIModelsAvailable)
 	
 	// HITL
 	mux.HandleFunc("/api/v1/agent/hitl/respond", handleHITLRespond)

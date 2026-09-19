@@ -1685,7 +1685,12 @@
                             </div>
                             <div>
                                 <label for="aiModelInput">模型名称</label>
-                                <input type="text" id="aiModelInput" placeholder="例如: gpt-3.5-turbo" required>
+                                <input type="text" id="aiModelInput" list="aiModelOptions" placeholder="例如: gpt-3.5-turbo" required>
+                                <datalist id="aiModelOptions"></datalist>
+                                <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                                    <button type="button" id="fetchAiModelsBtn" class="btn btn-sm" onclick="fetchAiModels()">🔄 自动获取模型列表</button>
+                                    <small id="aiModelFetchHint" style="color:#667085;"></small>
+                                </div>
                                 <select id="aiModelPreset" onchange="applyModelPreset(this.value)" style="margin-top:4px;font-size:12px;padding:4px 8px;border:1px solid #d0d5dd;border-radius:4px;width:100%;color:#344054;background:#fff;">
                                     <option value="">-- 快速选择预设模型 --</option>
                                     <optgroup label="OpenAI">
@@ -1791,7 +1796,9 @@
                         </div>
                         <div class="flex-center-gap">
                             <label class="label-sm">模型名称</label>
-                            <input type="text" id="aiEmbModel" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
+                            <input type="text" id="aiEmbModel" list="aiEmbModelOptions" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
+                            <datalist id="aiEmbModelOptions"></datalist>
+                            <button type="button" class="btn btn-sm" onclick="fetchAiModels('embedding', this)">🔄 获取</button>
                         </div>
                         <div class="flex-center-gap">
                             <label class="label-sm">向量维度</label>
@@ -2762,7 +2769,7 @@
     <script src="/lib/docxtemplater.js" defer></script>
     <script src="/lib/xlsx.full.min.js" defer></script>
     <script src="/js/script-core.js?v=2026061006" defer></script>
-    <script src="/js/script-agent.js?v=2026061002" defer></script>
+    <script src="/js/script-agent.js?v=2026091910" defer></script>
     <script src="/js/script-events.js?v=2026091501" defer></script>
     <script src="/js/script-platform.js?v=2026061002" defer></script>
     <script src="/js/script-tables.js?v=2026061002" defer></script>
