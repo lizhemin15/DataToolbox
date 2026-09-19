@@ -192,6 +192,17 @@ jobs:
             echo "Copied assets directory"
           fi
 
+          # 复制使用说明书（公文格式 Word，随包发布；功能更新后由 docs/manual/build_manual.py 重新生成）
+          if [ -f "docs/使用说明书.docx" ]; then
+            cp "docs/使用说明书.docx" package/
+            echo "Copied 使用说明书.docx"
+          else
+            echo "Warning: docs/使用说明书.docx not found, trying to rebuild"
+            python3 -m pip install --quiet python-docx || true
+            python3 docs/manual/build_manual.py || true
+            [ -f "docs/使用说明书.docx" ] && cp "docs/使用说明书.docx" package/ || echo "Warning: manual still missing"
+          fi
+
           VERSION="${GITHUB_REF_NAME#v}"
           if [ -n "$VERSION" ]; then
             for f in package/index.html package/js/*.js package/css/*.css; do

@@ -53,6 +53,16 @@ jobs:
             node "$f"
           done
 
+      - name: Check user manual is up to date (linux-amd64 only)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        continue-on-error: true
+        run: |
+          python3 -m pip install --quiet python-docx
+          python3 docs/manual/build_manual.py || true
+          if ! git diff --quiet -- docs/使用说明书.docx; then
+            echo "::warning::docs/使用说明书.docx 与 docs/manual/build_manual.py 不一致，请重新生成并提交（功能更新后说明书要同步更新）"
+          fi
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
