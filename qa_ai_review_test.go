@@ -256,3 +256,46 @@ func TestQARuleTreeJSONCarriesAIReviewPrompt(t *testing.T) {
 		t.Errorf("未填写原则的规则不应输出该字段：%s", string(b))
 	}
 }
+
+// 缓存 key 必须随规则内容变化：否则改了规则 SQL 后，TTL 内重新审核仍命中旧结果。
+func TestQACacheKeyChangesWithRuleContent(t *testing.T) {
+	base := qaRule{NM: "010100", Name: "非空检查", SQL: "SELECT 1 FROM DUAL", Params: map[string]string{"表名": "T"}, UpdatedAt: "2026-09-19T10:00:00+08:00"}
+	k1 := qaCacheKey("db1", []qaRule{base})
+
+	// 1) 改 SQL → key 必须变
+	changedSQL := base
+	changedSQL.SQL = "SELECT 1 FROM DUAL WHERE 1=2"
+	if k2 := qaCacheKey("db1", []qaRule{changedSQL}); k2 == k1 {
+		t.Error("改了 SQL 后缓存 key 未变化")
+	}
+	// 2) 改参数 → key 必须变
+	changedParams := base
+	changedParams.Params = map[string]string{"表名": "T2"}
+	if k := qaCacheKey("db1", []qaRule{changedParams}); k == k1 {
+		t.Error("改了参数后缓存 key 未变化")
+	}
+	// 3) 参数顺序不影响 key
+	reordered := base
+	reordered.Params = map[string]string{"字段名": "C", "表名": "T"}
+	k3 := qaCacheKey("db1", []qaRule{reordered})
+	if k3 == k1 {
+		t.Error("参数集合变了，key 应该变")
+	}
+	sameSet := base
+	sameSet.Params = map[string]string{"表名": "T"}
+	if k := qaCacheKey("db1", []qaRule{sameSet}); k != k1 {
+		t.Error("规则内容未变时 key 不应变化（会导致缓存形同失效）")
+	}
+	// 4) 内容完全不变 → key 稳定（缓存仍可用）
+	if k := qaCacheKey("db1", []qaRule{base}); k != k1 {
+		t.Error("规则未变但 key 不稳定")
+	}
+	// 5) 换库或换规则集合 → key 必须变
+	if qaCacheKey("db2", []qaRule{base}) == k1 {
+		t.Error("换库后 key 未变化")
+	}
+	mix := []qaRule{base, {NM: "010200", Name: "唯一性", SQL: "SELECT 1"}}
+	if qaCacheKey("db1", mix) == k1 {
+		t.Error("规则集合变化后 key 未变化")
+	}
+}

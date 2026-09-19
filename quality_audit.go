@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"html"
 	"io"
 	"log"
@@ -65,11 +66,38 @@ type qaCacheEntry struct {
 	timestamp time.Time
 }
 
-// 生成缓存 key: database_id + 规则列表 hash
-func qaCacheKey(databaseID string, ruleNMs []string) string {
+// qaCacheFingerprint 规则内容指纹：SQL + 名称 + 参数 + 更新时间。
+// 改了规则内容必须让缓存失效，否则 TTL 内重新审核会拿到旧结果。
+func qaCacheFingerprint(r qaRule) string {
+	var sb strings.Builder
+	sb.WriteString(r.SQL)
+	sb.WriteString("\x1f")
+	sb.WriteString(r.Name)
+	sb.WriteString("\x1f")
+	sb.WriteString(r.UpdatedAt)
+	if len(r.Params) > 0 {
+		keys := make([]string, 0, len(r.Params))
+		for k := range r.Params {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			sb.WriteString("\x1f")
+			sb.WriteString(k)
+			sb.WriteString("=")
+			sb.WriteString(r.Params[k])
+		}
+	}
+	return sb.String()
+}
+
+// qaCacheKey 生成缓存 key：database_id + 每条规则的 NM 与「规则内容指纹」。
+// 只带 NM 是不够的——规则 SQL 改了但 NM 没变，会在 TTL（10 分钟）内命中旧结果。
+func qaCacheKey(databaseID string, rules []qaRule) string {
 	h := databaseID + "|"
-	for _, nm := range ruleNMs {
-		h += nm + ","
+	for _, r := range rules {
+		sum := crc32.ChecksumIEEE([]byte(qaCacheFingerprint(r)))
+		h += r.NM + ":" + strconv.FormatUint(uint64(sum), 36) + ","
 	}
 	return h
 }
@@ -1386,6 +1414,25 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 	return ruleResults, passed, failed, nil
 }
 
+// qaRulesByNMs 按请求顺序取规则（取不到的跳过）；供缓存 key 与执行共用。
+func qaRulesByNMs(nms []string) []qaRule {
+	flat, err := loadRulesFlat()
+	if err != nil {
+		return nil
+	}
+	byNM := make(map[string]qaRule, len(flat))
+	for _, x := range flat {
+		byNM[x.NM] = x
+	}
+	out := make([]qaRule, 0, len(nms))
+	for _, nm := range nms {
+		if r, ok := byNM[nm]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
 		DatabaseID string   `json:"database_id"`
@@ -1429,8 +1476,9 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	// 注意：不关闭连接，由连接池管理
 
-	// 检查缓存（缓存只存纯 SQL 审核结果，AI 复核每次现场跑，避免过期结论被复用）
-	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
+	// 缓存 key 带上规则内容：规则改了就不该复用旧结果（缓存只存纯 SQL 审核结果，
+	// AI 复核结论每次现场跑，避免过期结论被复用）
+	cacheKey := qaCacheKey(req.DatabaseID, qaRulesByNMs(req.RuleNMs))
 	if cached, hit := qaCacheGet(cacheKey); hit {
 		// 缓存里可能残留上一轮的 AI 字段（旧版本写入的），先剥掉再按本次开关重新复核
 		cached = qaStripAIRows(cached)
