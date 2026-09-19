@@ -53,7 +53,7 @@ check('后端实现 handleGovernanceTaskDuplicate', /func handleGovernanceTaskDu
 check('复制时重置运行态（状态 idle）', /Status:\s+"idle"/.test(governance));
 
 // 6) 缓存版本已 bump
-check('index.html 已 bump script-ontology 版本', /script-ontology\.js\?v=2026091908/.test(html));
+check('index.html 已 bump script-ontology 版本', /script-ontology\.js\?v=2026091909/.test(html));
 
 if (failed) {
   console.error('\n失败 ' + failed + ' 项');

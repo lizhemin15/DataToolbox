@@ -2243,18 +2243,59 @@ async function govAiStreamPrompt(prompt, onDelta) {
     return full;
 }
 
-// ---------- 通用：从模型输出里抠出 JSON（容忍 ```json 包裹与前后废话） ----------
+// ---------- 通用：从模型输出里抠出 JSON（容忍 ```json 包裹、前后废话、字符串里的裸换行） ----------
+function govRepairJsonString(text) {
+    // 模型常把 js_code 里的换行写成真实换行，导致 JSON 非法 —— 逐字符扫描，仅修复字符串内部的控制字符
+    const s = String(text || '');
+    let out = '';
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) {
+            if (esc) { out += ch; esc = false; continue; }
+            if (ch === '\\') { out += ch; esc = true; continue; }
+            if (ch === '"') { out += ch; inStr = false; continue; }
+            const code = ch.charCodeAt(0);
+            if (code < 0x20) {
+                if (ch === '\n') out += '\\n';
+                else if (ch === '\r') out += '\\r';
+                else if (ch === '\t') out += '\\t';
+                else out += '\\u' + code.toString(16).padStart(4, '0');
+                continue;
+            }
+            out += ch;
+            continue;
+        }
+        if (ch === '"') inStr = true;
+        out += ch;
+    }
+    return out;
+}
+
+function govTryParseJson(text) {
+    try {
+        const v = JSON.parse(text);
+        return (v === undefined) ? undefined : v;
+    } catch (e) {
+        return undefined;
+    }
+}
+
 function govExtractJson(text) {
     if (!text) return null;
     const cleaned = String(text).replace(/```(?:json)?/gi, '').trim();
-    try { return JSON.parse(cleaned); } catch (e) { /* 继续尝试截取 */ }
-    const pairs = [['[', ']'], ['{', '}']];
-    for (const [open, close] of pairs) {
+    const candidates = [cleaned];
+    for (const [open, close] of [['[', ']'], ['{', '}']]) {
         const i = cleaned.indexOf(open);
         const j = cleaned.lastIndexOf(close);
-        if (i >= 0 && j > i) {
-            try { return JSON.parse(cleaned.slice(i, j + 1)); } catch (e) { /* 下一个 */ }
-        }
+        if (i >= 0 && j > i) candidates.push(cleaned.slice(i, j + 1));
+    }
+    for (const c of candidates) {
+        const direct = govTryParseJson(c);
+        if (direct !== undefined) return direct;
+        const fixed = govTryParseJson(govRepairJsonString(c));
+        if (fixed !== undefined) return fixed;
     }
     return null;
 }
@@ -2436,31 +2477,54 @@ async function govAiCloneGenerateTask() {
     streamEl.style.display = '';
     streamEl.textContent = 'AI 生成中…';
     try {
-        const prompt = [
+        const basePrompt = [
             '你是数据治理任务代码生成助手。请基于下面的「模板任务」和「用户的需求回答」，生成一个新任务的完整实现。',
             '硬性要求：',
             '1) 只输出一个 JSON 对象，不要任何解释、不要 markdown 代码块。字段如下：',
             '   {"name":"任务名称","description":"一句话说明","js_code":"完整 JS 代码","type":"scheduled|interactive","input_type":"file|text|both","accept_exts":[".docx"],"file_batch_mode":"per_file|single","run_mode":"frontend|backend"}',
             '2) js_code 必须是可直接运行的治理任务代码：沿用模板的 API 习惯（gov.log / gov.readWord / gov.writeExcel / gov.word 等），不要引入模板里没用过的依赖或库。',
             '3) run_mode 沿用模板；若为 frontend（浏览器内执行），只能用模板同款的浏览器 API。',
-            '4) js_code 里的换行必须转义成 \\n，保证整个 JSON 合法可解析。',
+            '4) js_code 里的换行必须写成 \\n（转义），字符串内部不要出现真实换行，保证整个 JSON 合法可解析。',
             '',
             govTemplateBrief(currentGovTask),
             '',
             '【用户的需求回答】',
             answers.map((a) => '- ' + a.question + ' → ' + a.answer).join('\n')
         ].join('\n');
-        const text = await govAiStreamPrompt(prompt, (full) => {
-            streamEl.textContent = 'AI 生成中…（已收到 ' + full.length + ' 字符）\n' + full.slice(-1500);
-        });
-        const obj = govExtractJson(text);
-        if (!obj || typeof obj !== 'object' || !obj.js_code) {
-            throw new Error('AI 返回的内容无法解析成任务，请重试');
+
+        let obj = null;
+        let lastRaw = '';
+        let lastParseErr = '';
+        for (let attempt = 1; attempt <= 2 && !obj; attempt++) {
+            const prompt = attempt === 1 ? basePrompt : (basePrompt +
+                '\n\n【重要】上一次你的输出不是合法 JSON，解析报错：' + lastParseErr +
+                '。请重新输出，且严格只输出一个合法 JSON 对象；js_code 里的换行必须写成 \\n。');
+            const startedAt = Date.now();
+            const text = await govAiStreamPrompt(prompt, (full) => {
+                const secs = Math.round((Date.now() - startedAt) / 1000);
+                streamEl.textContent = 'AI 生成中…（' + secs + 's / 已收到 ' + full.length + ' 字符）\n' + full.slice(-1500);
+            });
+            lastRaw = text;
+            obj = govExtractJson(text);
+            if (obj && typeof obj === 'object' && obj.js_code) break;
+            obj = null;
+            lastParseErr = '解析不出任务 JSON（长度 ' + text.length + '）';
+        }
+        if (!obj) {
+            const tail = String(lastRaw || '').slice(-400);
+            throw new Error('AI 没能给出可解析的任务 JSON，请重试。原始输出结尾：' + tail);
         }
         _govAiClonePayload = obj;
         if (obj.name) document.getElementById('govAiCloneName').value = obj.name;
         document.getElementById('govAiCloneDesc').value = obj.description || '';
         document.getElementById('govAiCloneCode').textContent = obj.js_code;
+        // 软校验：代码能不能编译（治理任务以 async function 包裹，故按 AsyncFunction 检查）
+        try {
+            const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+            new AsyncFunction(obj.js_code);
+        } catch (e) {
+            govAiCloneShowError('提示：生成的代码未通过语法检查（' + (e.message || e) + '），保存后可用「编辑」再改。');
+        }
         document.getElementById('govAiCloneStep2').style.display = 'none';
         document.getElementById('govAiCloneStep3').style.display = '';
         govAiCloneMarkStep(3);
