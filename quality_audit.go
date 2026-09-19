@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS rules (
   SQL TEXT,
   CATEGORY TEXT,
   PARAMS TEXT DEFAULT '',
+  AI_REVIEW_PROMPT TEXT DEFAULT '',
   UPDATED_AT TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rule_versions (
@@ -203,6 +204,7 @@ CREATE TABLE IF NOT EXISTS qa_schedules (
   ai_prompt TEXT DEFAULT '',
   report_template_id TEXT DEFAULT '',
   fill_enabled INTEGER DEFAULT 1,
+  ai_check_enabled INTEGER DEFAULT 1,
   last_run_at TEXT DEFAULT '',
   last_run_status TEXT DEFAULT '',
   next_run_at TEXT DEFAULT '',
@@ -241,6 +243,8 @@ CREATE INDEX IF NOT EXISTS idx_qa_runs_time ON qa_runs(started_at);
 		migrateQualityAuditReportTemplates(db)
 		migrateQualityAuditRuleParams(db)
 		migrateQualityAuditScheduleFillEnabled(db)
+		migrateQualityAuditRuleAiReview(db)
+		migrateQualityAuditScheduleAiEnabled(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -564,6 +568,29 @@ func migrateQualityAuditScheduleFillEnabled(db *sql.DB) {
 	}
 }
 
+// migrateQualityAuditRuleAiReview 规则新增「AI 复核原则」列（空 = 不做 AI 复核）。
+func migrateQualityAuditRuleAiReview(db *sql.DB) {
+	if qaTableHasColumn(db, "rules", "ai_review_prompt") {
+		return
+	}
+	if _, err := db.Exec(`ALTER TABLE rules ADD COLUMN ai_review_prompt TEXT DEFAULT ''`); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		log.Printf("quality-audit migrate rules.ai_review_prompt: %v", err)
+	}
+}
+
+// migrateQualityAuditScheduleAiEnabled 定时任务新增「启用 AI 校核」开关：
+// 默认 1（勾选），但真正是否调用 AI 由规则自身是否填了复核原则决定，不会产生额外开销。
+func migrateQualityAuditScheduleAiEnabled(db *sql.DB) {
+	if qaTableHasColumn(db, "qa_schedules", "ai_check_enabled") {
+		return
+	}
+	if _, err := db.Exec(`ALTER TABLE qa_schedules ADD COLUMN ai_check_enabled INTEGER DEFAULT 1`); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		log.Printf("quality-audit migrate qa_schedules.ai_check_enabled: %v", err)
+	}
+}
+
 // --- SQL 安全校验（只允许 SELECT 查询） ---
 
 var qaAllowedSQLPrefixes = []string{"SELECT", "WITH"}
@@ -703,6 +730,9 @@ type qaRule struct {
 	Category  string            `json:"category"`
 	Params    map[string]string `json:"params,omitempty"`
 	UpdatedAt string            `json:"updated_at"`
+	// AIReviewPrompt 该规则的 AI 复核原则（可选）：
+	// 填了 → 审核不通过时按这段文字让 AI 复核；留空 → 以 SQL 审核结果为最终结果，不调用 AI。
+	AIReviewPrompt string `json:"ai_review_prompt,omitempty"`
 }
 
 // qaRuleTree 规则树节点，用于构建层级结构的规则显示
@@ -756,7 +786,7 @@ func loadRulesFlat() ([]qaRule, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT NM, XH, NAME, COALESCE(SQL,''), CATEGORY, COALESCE(PARAMS,''), UPDATED_AT FROM rules ORDER BY XH`)
+	rows, err := db.Query(`SELECT NM, XH, NAME, COALESCE(SQL,''), CATEGORY, COALESCE(PARAMS,''), UPDATED_AT, COALESCE(ai_review_prompt,'') FROM rules ORDER BY XH`)
 	if err != nil {
 		return nil, err
 	}
@@ -765,7 +795,7 @@ func loadRulesFlat() ([]qaRule, error) {
 	for rows.Next() {
 		var r qaRule
 		var paramsJSON string
-		if err := rows.Scan(&r.NM, &r.XH, &r.Name, &r.SQL, &r.Category, &paramsJSON, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.NM, &r.XH, &r.Name, &r.SQL, &r.Category, &paramsJSON, &r.UpdatedAt, &r.AIReviewPrompt); err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(paramsJSON) != "" {
@@ -930,6 +960,7 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		SQL          string            `json:"sql"`
 		Category     string            `json:"category"`
 		Params       map[string]string `json:"params"`
+		AIReview     string            `json:"ai_review_prompt"`
 		ChangeReason string            `json:"change_reason"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -978,9 +1009,9 @@ func qaRulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	}
 
 	// 保存规则
-	_, err = db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, UPDATED_AT) VALUES (?,?,?,?,?,?,?)
-    ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, UPDATED_AT=excluded.UPDATED_AT`,
-		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), paramsJSON, now)
+	_, err = db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, AI_REVIEW_PROMPT, UPDATED_AT) VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, AI_REVIEW_PROMPT=excluded.AI_REVIEW_PROMPT, UPDATED_AT=excluded.UPDATED_AT`,
+		body.NM, strings.TrimSpace(body.XH), strings.TrimSpace(body.Name), body.SQL, strings.TrimSpace(body.Category), paramsJSON, strings.TrimSpace(body.AIReview), now)
 	if err != nil {
 		log.Printf("保存规则失败: %v", err)
 		apiInternalError(w, "保存规则失败")
@@ -1023,12 +1054,13 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	var body struct {
 		Rules []struct {
-			NM       string            `json:"nm"`
-			XH       string            `json:"xh"`
-			Name     string            `json:"name"`
-			SQL      string            `json:"sql"`
-			Category string            `json:"category"`
-			Params   map[string]string `json:"params"`
+			NM         string            `json:"nm"`
+			XH         string            `json:"xh"`
+			Name       string            `json:"name"`
+			SQL        string            `json:"sql"`
+			Category   string            `json:"category"`
+			Params     map[string]string `json:"params"`
+			AIReview   string            `json:"ai_review_prompt"`
 		} `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Rules) == 0 {
@@ -1065,9 +1097,9 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 				paramsJSON = string(b)
 			}
 		}
-		_, err = tx.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, UPDATED_AT) VALUES (?,?,?,?,?,?,?)
-ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, UPDATED_AT=excluded.UPDATED_AT`,
-			nm, strings.TrimSpace(row.XH), strings.TrimSpace(row.Name), row.SQL, strings.TrimSpace(row.Category), paramsJSON, now)
+		_, err = tx.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, AI_REVIEW_PROMPT, UPDATED_AT) VALUES (?,?,?,?,?,?,?,?)
+ON CONFLICT(NM) DO UPDATE SET XH=excluded.XH, NAME=excluded.NAME, SQL=excluded.SQL, CATEGORY=excluded.CATEGORY, PARAMS=excluded.PARAMS, AI_REVIEW_PROMPT=excluded.AI_REVIEW_PROMPT, UPDATED_AT=excluded.UPDATED_AT`,
+			nm, strings.TrimSpace(row.XH), strings.TrimSpace(row.Name), row.SQL, strings.TrimSpace(row.Category), paramsJSON, strings.TrimSpace(row.AIReview), now)
 		if err != nil {
 			_ = tx.Rollback()
 			apiInternalError(w, err.Error())
@@ -1198,6 +1230,17 @@ func scanFillTable(db *sql.DB, q string) ([]fillRow, error) {
 
 // qaExecuteRules 并行执行指定规则的审核查询，供 qaExecute 与定时任务复用。
 // 返回每条规则的结果、通过数、不通过数；执行错误会写入 audit_errors。
+// qaCountAIFlagged 统计本次 AI 复核里被判为「疑似误判」的规则条数。
+func qaCountAIFlagged(ruleResults []map[string]interface{}) int {
+	n := 0
+	for _, row := range ruleResults {
+		if mis, _ := row["ai_misjudged"].(bool); mis {
+			n++
+		}
+	}
+	return n
+}
+
 func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string)) ([]map[string]interface{}, int, int, error) {
 	flat, err := loadRulesFlat()
 	if err != nil {
@@ -1249,7 +1292,7 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 				entry := map[string]interface{}{
 					"nm": r.NM, "xh": r.XH, "name": r.Name, "category": r.Category,
 					"sql_original": orig, "error": prepErr.Error(), "passed": false,
-					"violation_count": 0,
+					"violation_count": 0, "ai_review_prompt": r.AIReviewPrompt,
 				}
 				if metaDB != nil {
 					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
@@ -1260,14 +1303,15 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 			}
 			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
 			entry := map[string]interface{}{
-				"nm":              r.NM,
-				"xh":              r.XH,
-				"name":            r.Name,
-				"category":        r.Category,
-				"sql_original":    orig,
-				"sql_executed":    execSQL,
-				"violation_count": cnt,
-				"sample_rows":     sample,
+				"nm":               r.NM,
+				"xh":               r.XH,
+				"name":             r.Name,
+				"category":         r.Category,
+				"sql_original":     orig,
+				"sql_executed":     execSQL,
+				"violation_count":  cnt,
+				"sample_rows":      sample,
+				"ai_review_prompt": r.AIReviewPrompt,
 			}
 			if errExec != nil {
 				entry["error"] = errExec.Error()
@@ -1313,6 +1357,9 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
 		DatabaseID string   `json:"database_id"`
 		RuleNMs    []string `json:"rule_nms"`
+		// AICheckEnabled 本次是否启用 AI 复核（nil = 默认启用）。
+		// 真正是否调用 AI 由规则自身是否填了「AI 复核原则」决定。
+		AICheckEnabled *bool `json:"ai_check_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apiBadRequest(w, "JSON 解析失败")
@@ -1321,6 +1368,10 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	if req.DatabaseID == "" || len(req.RuleNMs) == 0 {
 		apiInvalidInput(w, "database_id 与 rule_nms 必填")
 		return
+	}
+	aiEnabled := true
+	if req.AICheckEnabled != nil {
+		aiEnabled = *req.AICheckEnabled
 	}
 	dataOntologyMu.RLock()
 	dbConfig, ok := dataOntologyDatabases[req.DatabaseID]
@@ -1345,15 +1396,25 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	// 注意：不关闭连接，由连接池管理
 
-	// 检查缓存
+	// 检查缓存（缓存只存纯 SQL 审核结果，AI 复核每次现场跑，避免过期结论被复用）
 	cacheKey := qaCacheKey(req.DatabaseID, req.RuleNMs)
 	if cached, hit := qaCacheGet(cacheKey); hit {
-		qaRespondSuccess(w, map[string]interface{}{
+		reviewed, aiModel, aiSkipReason := qaAttachAIReview(cached, aiEnabled)
+		resp := map[string]interface{}{
 			"cached":      true,
 			"message":     "结果来自缓存 (10分钟内有效)",
 			"rules":       cached,
 			"database_id": req.DatabaseID,
-		})
+			"summary": map[string]interface{}{
+				"total_rules":  len(cached),
+				"ai_reviewed":  reviewed,
+				"ai_flagged":   qaCountAIFlagged(cached),
+				"ai_model":     aiModel,
+				"ai_skipped":   aiSkipReason != "",
+				"ai_skip_reason": aiSkipReason,
+			},
+		}
+		qaRespondSuccess(w, resp)
 		return
 	}
 
@@ -1388,6 +1449,25 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 			req.DatabaseID, dbConfig.Type, t0.Format(time.RFC3339), duration, string(summaryJSON), username)
 	}
 
+	// AI 复核（默认启用；只有填了复核原则的未通过规则才会真正调用模型）
+	aiReviewed, aiModel, aiSkipReason := qaAttachAIReview(ruleResults, aiEnabled)
+	summaryOut := map[string]interface{}{
+		"total_rules": passed + failed,
+		"passed":      passed,
+		"failed":      failed,
+		"ai_reviewed": aiReviewed,
+		"ai_flagged":  qaCountAIFlagged(ruleResults),
+	}
+	if aiModel != "" {
+		summaryOut["ai_model"] = aiModel
+	}
+	if aiSkipReason != "" {
+		summaryOut["ai_skipped"] = true
+		summaryOut["ai_skip_reason"] = aiSkipReason
+	} else {
+		summaryOut["ai_skipped"] = false
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":           true,
 		"database_id":       req.DatabaseID,
@@ -1399,11 +1479,8 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 		"rules":             ruleResults,
 		"item_fill_rates":   itemStats,
 		"record_fill_rates": recStats,
-		"summary": map[string]interface{}{
-			"total_rules": passed + failed,
-			"passed":      passed,
-			"failed":      failed,
-		},
+		"ai_model":          aiModel,
+		"summary":           summaryOut,
 	})
 }
 
@@ -2306,7 +2383,11 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 
 	summary, _ := audit["summary"].(map[string]interface{})
 	if summary != nil {
-		addPara(fmt.Sprintf("总规则数：%v   通过：%v   不通过：%v", summary["total_rules"], summary["passed"], summary["failed"]))
+		summaryLine := fmt.Sprintf("总规则数：%v   通过：%v   不通过：%v", summary["total_rules"], summary["passed"], summary["failed"])
+		if n, ok := summary["ai_reviewed"]; ok && n != nil && fmt.Sprint(n) != "0" && fmt.Sprint(n) != "" {
+			summaryLine += fmt.Sprintf("   AI 复核：%v 条（须人类专家最终校核）", n)
+		}
+		addPara(summaryLine)
 	}
 
 	addPara("")
@@ -2366,7 +2447,8 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 		}
 	}
 
-	// AI 校核结论：仅当规则行里带 AI 结果（ai_reason/ai_misjudged）时输出
+	// AI 复核结论：仅当规则行里带 AI 结果（ai_reason/ai_misjudged）时输出。
+	// 纯 SQL 审核的规则不在此段出现，其报告内容与旧版本保持一致。
 	aiRows := make([]map[string]interface{}, 0)
 	for _, x := range rules {
 		row, _ := x.(map[string]interface{})
@@ -2382,12 +2464,23 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 	}
 	if len(aiRows) > 0 {
 		addPara("")
-		nextSection("AI 校核（误判判定）")
+		nextSection("AI 复核（仅供参考，须人类专家最终校核）")
+		addPara("说明：以下规则在执行 SQL 审核不通过后，按其自带的复核原则交由 AI 复核。AI 结论仅供参考，不构成最终判定，须由人类专家最终校核确认。")
 		if m, _ := audit["ai_model"].(string); strings.TrimSpace(m) != "" {
 			addPara("AI 模型：" + strings.TrimSpace(m))
 		}
 		for _, row := range aiRows {
 			addPara(fmt.Sprintf("%v（%v）", row["name"], row["nm"]))
+			// 先给 SQL 审核结果，再给 AI 复核结论，两者并列供人类专家对照
+			if e, _ := row["error"].(string); strings.TrimSpace(e) != "" {
+				addPara(fmt.Sprintf("SQL 审核结果：执行错误 —— %s", e))
+			} else {
+				passedText := "不通过"
+				if b, _ := row["passed"].(bool); b {
+					passedText = "通过"
+				}
+				addPara(fmt.Sprintf("SQL 审核结果：%s（违规行数 %v）", passedText, row["violation_count"]))
+			}
 			mis := "否"
 			if b, _ := row["ai_misjudged"].(bool); b {
 				mis = "是（疑似规则过严导致的误判）"
@@ -2398,13 +2491,14 @@ func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyle
 					conf = fmt.Sprintf("   置信度：%.2f", f)
 				}
 			}
-			addPara("是否误判：" + mis + conf)
+			addPara("AI 复核结论：是否误判 —— " + mis + conf)
 			if r, _ := row["ai_reason"].(string); strings.TrimSpace(r) != "" {
 				addPara("理由：" + r)
 			}
 			if sg, _ := row["ai_suggestion"].(string); strings.TrimSpace(sg) != "" {
 				addPara("建议：" + sg)
 			}
+			addPara("※ 本条须由人类专家最终校核。")
 		}
 	}
 
@@ -2762,6 +2856,11 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 		b.WriteString(html.EscapeString(fmt.Sprint(summary["passed"])))
 		b.WriteString(`　不通过：`)
 		b.WriteString(html.EscapeString(fmt.Sprint(summary["failed"])))
+		if n, ok := summary["ai_reviewed"]; ok && n != nil && fmt.Sprint(n) != "0" && fmt.Sprint(n) != "" {
+			b.WriteString(`　AI 复核：`)
+			b.WriteString(html.EscapeString(fmt.Sprint(n)))
+			b.WriteString(` 条（须人类专家最终校核）`)
+		}
 		b.WriteString(`</p>`)
 	}
 	b.WriteString(`<h2 class="qa-sec">一、规则明细</h2>`)
@@ -2842,6 +2941,39 @@ table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
 			b.WriteString(`</td></tr>`)
 		}
 		b.WriteString(`</tbody></table>`)
+	}
+	// AI 复核段：只有真正跑过 AI 复核的规则才出现（纯 SQL 审核的报告保持不变）
+	aiRows := make([]map[string]interface{}, 0)
+	for _, x := range rules {
+		row, _ := x.(map[string]interface{})
+		if row == nil {
+			continue
+		}
+		if _, ok := row["ai_reason"]; !ok {
+			if _, ok2 := row["ai_misjudged"]; !ok2 {
+				continue
+			}
+		}
+		aiRows = append(aiRows, row)
+	}
+	if len(aiRows) > 0 {
+		b.WriteString(`<h2 class="qa-sec">四、AI 复核（仅供参考，须人类专家最终校核）</h2>`)
+		b.WriteString(`<div class="qa-empty">AI 结论仅作参考，不构成最终判定，须由人类专家最终校核确认。</div>`)
+		for _, row := range aiRows {
+			b.WriteString(`<div class="qa-rule"><strong>`)
+			b.WriteString(html.EscapeString(fmt.Sprintf("%v（%v）", row["name"], row["nm"])))
+			b.WriteString(`</strong><div>SQL 审核结果：违规数 `)
+			b.WriteString(html.EscapeString(fmt.Sprint(row["violation_count"])))
+			b.WriteString(`　通过：`)
+			b.WriteString(html.EscapeString(fmt.Sprint(row["passed"])))
+			b.WriteString(`</div><div>AI 复核结论：是否误判 ——  `)
+			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_misjudged"])))
+			b.WriteString(`</div><div>理由：`)
+			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_reason"])))
+			b.WriteString(`</div><div>建议：`)
+			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_suggestion"])))
+			b.WriteString(`</div><div>※ 本条须由人类专家最终校核。</div></div>`)
+		}
 	}
 	if strings.TrimSpace(styles.PageFooter) != "" {
 		b.WriteString(`<div class="qa-ph" style="margin-top:32px;">`)

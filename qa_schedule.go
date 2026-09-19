@@ -41,6 +41,7 @@ type qaSchedule struct {
 	RuleNMs          []string `json:"rule_nms"`
 	AICheckNMs       []string `json:"ai_check_nms"`
 	AIPrompt         string   `json:"ai_prompt"`
+	AICheckEnabled   bool     `json:"ai_check_enabled"`
 	ReportTemplateID string   `json:"report_template_id"`
 	FillEnabled      bool     `json:"fill_enabled"`
 	LastRunAt        string   `json:"last_run_at"`
@@ -181,7 +182,7 @@ func qaLoadSchedules(enabledOnly bool) ([]qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules`
+	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules`
 	if enabledOnly {
 		q += ` WHERE enabled=1`
 	}
@@ -207,7 +208,7 @@ func qaLoadSchedule(id string) (*qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules WHERE id=?`, id)
+	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules WHERE id=?`, id)
 	s, err := qaScanSchedule(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -226,13 +227,16 @@ func qaScanSchedule(sc qaRowScanner) (*qaSchedule, error) {
 	var s qaSchedule
 	var enabled int
 	var fillEnabled sql.NullInt64
+	var aiEnabled sql.NullInt64
 	var ruleNMs, aiNMs string
-	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &fillEnabled, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
+	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &fillEnabled, &aiEnabled, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
 		return nil, err
 	}
 	s.Enabled = enabled != 0
 	// 老库补列后可能为 NULL，按默认开启处理
 	s.FillEnabled = !fillEnabled.Valid || fillEnabled.Int64 != 0
+	// AI 校核总开关默认开启：真正是否调用 AI 由规则自身是否填了复核原则决定
+	s.AICheckEnabled = !aiEnabled.Valid || aiEnabled.Int64 != 0
 	s.RuleNMs = qaDecodeNMs(ruleNMs)
 	s.AICheckNMs = qaDecodeNMs(aiNMs)
 	return &s, nil
@@ -265,6 +269,7 @@ func qaScheduleToMap(s qaSchedule) map[string]interface{} {
 		"rule_nms":           rules,
 		"ai_check_nms":       aiNMs,
 		"ai_prompt":          s.AIPrompt,
+		"ai_check_enabled":   s.AICheckEnabled,
 		"report_template_id": s.ReportTemplateID,
 		"fill_enabled":       s.FillEnabled,
 		"last_run_at":        s.LastRunAt,
@@ -304,6 +309,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		RuleNMs          []string `json:"rule_nms"`
 		AICheckNMs       []string `json:"ai_check_nms"`
 		AIPrompt         string   `json:"ai_prompt"`
+		AICheckEnabled   *bool    `json:"ai_check_enabled"`
 		ReportTemplateID string   `json:"report_template_id"`
 		FillEnabled      *bool    `json:"fill_enabled"`
 	}
@@ -405,8 +411,16 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		if fillEnabled {
 			fe = 1
 		}
-		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, fill_enabled=?, next_run_at=?, updated_at=? WHERE id=?`,
-			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, nextRun, now, req.ID); err != nil {
+		aiEnabled := existing.AICheckEnabled
+		if req.AICheckEnabled != nil {
+			aiEnabled = *req.AICheckEnabled
+		}
+		ae := 0
+		if aiEnabled {
+			ae = 1
+		}
+		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, fill_enabled=?, ai_check_enabled=?, next_run_at=?, updated_at=? WHERE id=?`,
+			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, nextRun, now, req.ID); err != nil {
 			apiInternalError(w, err.Error())
 			return
 		}
@@ -418,6 +432,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		out.RuleNMs = ruleNMs
 		out.AICheckNMs = aiNMs
 		out.AIPrompt = req.AIPrompt
+		out.AICheckEnabled = aiEnabled
 		out.ReportTemplateID = strings.TrimSpace(req.ReportTemplateID)
 		out.FillEnabled = fillEnabled
 		out.NextRunAt = nextRun
@@ -443,8 +458,16 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	if fillEnabled {
 		fe = 1
 	}
-	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, "", "", nextRun, username, now, now); err != nil {
+	aiEnabled := true
+	if req.AICheckEnabled != nil {
+		aiEnabled = *req.AICheckEnabled
+	}
+	ae := 0
+	if aiEnabled {
+		ae = 1
+	}
+	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, "", "", nextRun, username, now, now); err != nil {
 		apiInternalError(w, err.Error())
 		return
 	}
@@ -457,6 +480,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		RuleNMs:          ruleNMs,
 		AICheckNMs:       aiNMs,
 		AIPrompt:         req.AIPrompt,
+		AICheckEnabled:   aiEnabled,
 		ReportTemplateID: strings.TrimSpace(req.ReportTemplateID),
 		FillEnabled:      fillEnabled,
 		NextRunAt:        nextRun,
@@ -560,7 +584,7 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 	status := "success"
 	runErrMsg := ""
 	reportFile := ""
-	passed, failed, aiFlagged := 0, 0, 0
+	passed, failed, aiFlagged, aiReviewed := 0, 0, 0, 0
 	summaryMap := map[string]interface{}{"total_rules": 0, "passed": 0, "failed": 0, "ai_flagged": 0}
 	detailJSON := []byte("[]")
 
@@ -615,9 +639,9 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			recStats = runFillStatsWithProgress(targetDB, dialect, recRows, func() { pr.tick("") })
 		}
 
-		// AI 校核：只对勾选项中本次未通过的规则
-		pr.setPhase("ai", "AI 校核")
-		aiMap, aiModel, aiSkipReason := qaAIVerifyWithProgress(ruleResults, s.AICheckNMs, s.AIPrompt, pr)
+		// AI 复核：只对「本次未通过且规则自带复核原则」的规则；总开关在任务上
+		pr.setPhase("ai", "AI 复核")
+		aiMap, aiModel, aiSkipReason := qaAIVerifyWithProgress(ruleResults, s.AICheckEnabled, pr)
 		for _, row := range ruleResults {
 			nm, _ := row["nm"].(string)
 			ai, ok := aiMap[nm]
@@ -628,6 +652,8 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			row["ai_confidence"] = ai["confidence"]
 			row["ai_reason"] = ai["reason"]
 			row["ai_suggestion"] = ai["suggestion"]
+			row["ai_need_human"] = true
+			aiReviewed++
 			if mis, _ := ai["misjudged"].(bool); mis {
 				aiFlagged++
 			}
@@ -670,6 +696,7 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			"passed":      passed,
 			"failed":      failed,
 			"ai_flagged":  aiFlagged,
+			"ai_reviewed": aiReviewed,
 		}
 		if aiModel != "" {
 			summaryMap["ai_model"] = aiModel
@@ -791,15 +818,38 @@ func qaGuessLLMProvider(url string) string {
 
 // qaAIVerify 对 aiNMs 中本次未通过的规则逐条做 AI 误判判断。
 // 返回 nm → {misjudged,confidence,reason,suggestion}、使用的模型名、跳过原因（空=未跳过）。
-func qaAIVerify(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt string) (map[string]map[string]interface{}, string, string) {
-	return qaAIVerifyWithProgress(ruleResults, aiNMs, aiPrompt, nil)
+// qaAIReviewTargets 取「本次需要 AI 复核」的规则：
+// 只有 ①本次未通过 ②规则自带 AI 复核原则（ai_review_prompt 非空）两条都满足才复核。
+func qaAIReviewTargets(ruleResults []map[string]interface{}) []map[string]interface{} {
+	out := []map[string]interface{}{}
+	for _, row := range ruleResults {
+		if p, ok := row["passed"].(bool); ok && p {
+			continue
+		}
+		if strings.TrimSpace(ifaceString(row["ai_review_prompt"])) == "" {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
-// qaAIVerifyWithProgress 与 qaAIVerify 相同，额外登记进度（AI 逐条校核比较慢，进度条上要能看到）。
-func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, aiNMs []string, aiPrompt string, pr *qaRunProgress) (map[string]map[string]interface{}, string, string) {
+func ifaceString(v interface{}) string {
+	s, _ := v.(string)
+	return s
+}
+
+// qaAIVerifyWithProgress 对「未通过且自带复核原则」的规则逐条 AI 复核。
+// enabled=false 时直接跳过（连模型都不挑，避免无谓开销）。
+// 返回：nm → 复核结论、使用的模型名、跳过原因。
+func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, enabled bool, pr *qaRunProgress) (map[string]map[string]interface{}, string, string) {
 	out := map[string]map[string]interface{}{}
-	if len(aiNMs) == 0 {
-		return out, "", "未配置 AI 校核项"
+	if !enabled {
+		return out, "", "本次未启用 AI 校核"
+	}
+	targets := qaAIReviewTargets(ruleResults)
+	if len(targets) == 0 {
+		return out, "", "本次没有需要 AI 复核的规则（规则未填写 AI 复核原则）"
 	}
 	cfg := qaPickLLMModel()
 	if cfg == nil {
@@ -810,33 +860,15 @@ func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, aiNMs []string
 		modelName = cfg.Name
 	}
 
-	want := map[string]bool{}
-	for _, nm := range aiNMs {
-		want[padNM(nm)] = true
+	if pr != nil {
+		pr.addTotal(len(targets))
 	}
 
-	// 先把「本次要校核的条数」算出来告诉进度条
-	targets := 0
-	for _, row := range ruleResults {
-		nm, _ := row["nm"].(string)
-		if !want[nm] {
-			continue
-		}
-		if p, ok := row["passed"].(bool); ok && p {
-			continue
-		}
-		targets++
-	}
-	pr.addTotal(targets)
-
-	const systemPrompt = "你是数据质量审核专家。判断给定 SQL 审核规则的失败结果是否属于『规则本身过严导致的误判』，给出结论与修改建议。"
+	const systemPrompt = "你是数据质量审核专家。请严格按照用户给定的复核原则，判断这条 SQL 审核规则的失败结果是否属于误判，并给出结论与修改建议。"
 	first := true
-	for _, row := range ruleResults {
+	for _, row := range targets {
 		nm, _ := row["nm"].(string)
-		if !want[nm] {
-			continue
-		}
-		if p, ok := row["passed"].(bool); ok && p {
+		if nm == "" {
 			continue
 		}
 		if !first {
@@ -848,9 +880,12 @@ func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, aiNMs []string
 		if name == "" {
 			name = nm
 		}
-		pr.tick("AI 校核：" + name)
+		if pr != nil {
+			pr.tick("AI 复核：" + name)
+		}
 
-		content, err := qaCallLLMChat(cfg, systemPrompt, qaBuildAIVerifyPrompt(row, aiPrompt), 30*time.Second)
+		prompt := ifaceString(row["ai_review_prompt"])
+		content, err := qaCallLLMChat(cfg, systemPrompt, qaBuildAIVerifyPrompt(row, prompt), 30*time.Second)
 		if err != nil {
 			out[nm] = map[string]interface{}{
 				"misjudged":  false,
@@ -869,6 +904,27 @@ func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, aiNMs []string
 		}
 	}
 	return out, modelName, ""
+}
+
+// qaAttachAIReview 把 AI 复核结论写回规则结果行；返回复核条数与模型名、跳过原因。
+func qaAttachAIReview(ruleResults []map[string]interface{}, enabled bool) (int, string, string) {
+	aiMap, aiModel, skipReason := qaAIVerifyWithProgress(ruleResults, enabled, nil)
+	reviewed := 0
+	for _, row := range ruleResults {
+		nm, _ := row["nm"].(string)
+		ai, ok := aiMap[nm]
+		if !ok {
+			continue
+		}
+		row["ai_misjudged"] = ai["misjudged"]
+		row["ai_confidence"] = ai["confidence"]
+		row["ai_reason"] = ai["reason"]
+		row["ai_suggestion"] = ai["suggestion"]
+		// AI 结论只是参考，必须由人类专家最终校核
+		row["ai_need_human"] = true
+		reviewed++
+	}
+	return reviewed, aiModel, skipReason
 }
 
 func qaBuildAIVerifyPrompt(row map[string]interface{}, aiPrompt string) string {
@@ -897,7 +953,7 @@ func qaBuildAIVerifyPrompt(row map[string]interface{}, aiPrompt string) string {
 		}
 	}
 	if strings.TrimSpace(aiPrompt) != "" {
-		sb.WriteString("\n用户自定义校核原则：\n")
+		sb.WriteString("\n复核原则（必须按此原则判断）：\n")
 		sb.WriteString(strings.TrimSpace(aiPrompt))
 		sb.WriteString("\n")
 	}

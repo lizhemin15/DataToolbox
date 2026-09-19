@@ -55,7 +55,17 @@ func TestQABuildReportDocxIncludesAISection(t *testing.T) {
 		t.Fatalf("生成报告失败: %v", err)
 	}
 	txt := docxText(t, doc)
-	for _, want := range []string{"AI 校核（误判判定）", "Qwen/Qwen3-30B-A3B-Instruct-2507", "是否误判：是", "0.95", "规则 SQL 表名/字段名为空", "补全表名与字段名"} {
+	// 需求：AI 复核段必须同时给出 SQL 审核结果 + AI 复核结论，并标注「须人类专家最终校核」
+	for _, want := range []string{
+		"AI 复核（仅供参考，须人类专家最终校核）",
+		"Qwen/Qwen3-30B-A3B-Instruct-2507",
+		"SQL 审核结果：执行错误 —— Error -2007",
+		"AI 复核结论：是否误判 —— 是（疑似规则过严导致的误判）",
+		"0.95",
+		"规则 SQL 表名/字段名为空",
+		"补全表名与字段名",
+		"※ 本条须由人类专家最终校核。",
+	} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("报告缺少 %q\n实际文本：%s", want, txt)
 		}

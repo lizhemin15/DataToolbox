@@ -1,0 +1,170 @@
+package main
+
+import (
+	"database/sql"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// ---------------------------------------------------------------------------
+// 需求：规则级「AI 复核原则」+ 定时任务「启用 AI 校核」总开关
+//
+//	① 老库（无 ai_review_prompt 列）自动补列
+//	② 只有「未通过 + 自带复核原则」的规则才交给 AI 复核
+//	③ 总开关关闭时不挑模型、不产生任何调用
+// ---------------------------------------------------------------------------
+
+func TestQAMigrateRuleAIReviewPromptColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "rules.db"))
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	defer db.Close()
+	// 老库：没有 ai_review_prompt 列
+	if _, err := db.Exec(`CREATE TABLE rules (
+		NM TEXT PRIMARY KEY, XH TEXT NOT NULL, NAME TEXT NOT NULL,
+		SQL TEXT, CATEGORY TEXT, PARAMS TEXT DEFAULT '', UPDATED_AT TEXT NOT NULL);`); err != nil {
+		t.Fatalf("建表失败: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO rules (NM, XH, NAME, SQL, CATEGORY, PARAMS, UPDATED_AT) VALUES ('010100','0101','老规则','SELECT 1','','','2026-01-01T00:00:00+08:00')`); err != nil {
+		t.Fatalf("插入失败: %v", err)
+	}
+
+	migrateQualityAuditRuleAiReview(db)
+
+	if !qaTableHasColumn(db, "rules", "ai_review_prompt") {
+		t.Fatal("ai_review_prompt 列未补上")
+	}
+	// 老数据补列后默认空串 → 不做 AI 复核，行为不倒退
+	var v string
+	if err := db.QueryRow(`SELECT COALESCE(ai_review_prompt,'') FROM rules WHERE NM='010100'`).Scan(&v); err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if strings.TrimSpace(v) != "" {
+		t.Errorf("老规则补列后应为空，实际 %q", v)
+	}
+	// 幂等：重复执行不报错
+	migrateQualityAuditRuleAiReview(db)
+}
+
+func TestQAMigrateScheduleAIEnabledColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "sched.db"))
+	if err != nil {
+		t.Fatalf("打开测试库失败: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE qa_schedules (
+		id TEXT PRIMARY KEY, name TEXT, database_id TEXT, cron_expr TEXT,
+		enabled INTEGER, rule_nms TEXT, ai_check_nms TEXT, ai_prompt TEXT,
+		report_template_id TEXT, fill_enabled INTEGER DEFAULT 1,
+		last_run_at TEXT, last_run_status TEXT, next_run_at TEXT,
+		created_by TEXT, created_at TEXT, updated_at TEXT);`); err != nil {
+		t.Fatalf("建表失败: %v", err)
+	}
+	// 老任务：勾过 AI 校核项、但库里没有新列
+	if _, err := db.Exec(`INSERT INTO qa_schedules (id,name,cron_expr,enabled,rule_nms,ai_check_nms,ai_prompt) VALUES ('s1','老任务','0 8 * * *',1,'["010100"]','["010100"]','老原则')`); err != nil {
+		t.Fatalf("插入失败: %v", err)
+	}
+
+	migrateQualityAuditScheduleAiEnabled(db)
+
+	if !qaTableHasColumn(db, "qa_schedules", "ai_check_enabled") {
+		t.Fatal("ai_check_enabled 列未补上")
+	}
+	var got sql.NullInt64
+	if err := db.QueryRow(`SELECT ai_check_enabled FROM qa_schedules WHERE id='s1'`).Scan(&got); err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	// 默认 1（开启）：真正是否调用 AI 由规则自带原则决定
+	if !got.Valid || got.Int64 != 1 {
+		t.Errorf("老任务补列后应默认开启(1)，实际 %+v", got)
+	}
+	migrateQualityAuditScheduleAiEnabled(db)
+}
+
+func TestQAAIReviewTargetsSelection(t *testing.T) {
+	rules := []map[string]interface{}{
+		{"nm": "010100", "name": "填了原则且没过", "passed": false, "ai_review_prompt": "允许为空则属误判"},
+		{"nm": "010200", "name": "填了原则但通过", "passed": true, "ai_review_prompt": "允许为空则属误判"},
+		{"nm": "010300", "name": "没填原则且没过", "passed": false, "ai_review_prompt": ""},
+		{"nm": "010400", "name": "没填原则且通过", "passed": true, "ai_review_prompt": "   "},
+		{"nm": "010500", "name": "没带该字段", "passed": false},
+	}
+	got := qaAIReviewTargets(rules)
+	if len(got) != 1 {
+		names := make([]string, 0, len(got))
+		for _, r := range got {
+			names = append(names, r["name"].(string))
+		}
+		t.Fatalf("应只命中 1 条（未通过 + 填了原则），实际 %d 条：%v", len(got), names)
+	}
+	if got[0]["nm"] != "010100" {
+		t.Errorf("命中规则错误：%v", got[0]["nm"])
+	}
+
+	// 全部通过 / 都没原则 → 无目标
+	if n := len(qaAIReviewTargets([]map[string]interface{}{
+		{"nm": "020100", "passed": true, "ai_review_prompt": "x"},
+		{"nm": "020200", "passed": false, "ai_review_prompt": ""},
+	})); n != 0 {
+		t.Errorf("不应有复核目标，实际 %d", n)
+	}
+}
+
+func TestQAAIVerifySkippedWhenDisabled(t *testing.T) {
+	rules := []map[string]interface{}{
+		{"nm": "010100", "name": "填了原则且没过", "passed": false, "ai_review_prompt": "允许为空则属误判"},
+	}
+	out, model, reason := qaAIVerifyWithProgress(rules, false, nil)
+	if len(out) != 0 {
+		t.Errorf("关闭总开关时不应产生复核结论，实际 %v", out)
+	}
+	if model != "" {
+		t.Errorf("关闭总开关时不应挑模型，实际 %q", model)
+	}
+	if reason == "" || !strings.Contains(reason, "未启用") {
+		t.Errorf("关闭时应给出跳过原因，实际 %q", reason)
+	}
+
+	// 开启但无目标规则 → 明确说明原因，同样不挑模型
+	rules[0]["passed"] = true
+	out2, model2, reason2 := qaAIVerifyWithProgress(rules, true, nil)
+	if len(out2) != 0 || model2 != "" {
+		t.Errorf("无目标时不应有结论/模型：%v %q", out2, model2)
+	}
+	if !strings.Contains(reason2, "复核原则") {
+		t.Errorf("无目标时应提示规则未填写复核原则，实际 %q", reason2)
+	}
+}
+
+func TestQABuildAIVerifyPromptUsesPerRulePrinciple(t *testing.T) {
+	row := map[string]interface{}{
+		"nm": "010100", "name": "手机号格式", "category": "规范性",
+		"sql_original": "SELECT * FROM {{表名}}", "sql_executed": "SELECT * FROM T_USER",
+		"violation_count": 3,
+	}
+	prompt := qaBuildAIVerifyPrompt(row, "若该字段业务上允许为空，则判定为规则过严")
+	if !strings.Contains(prompt, "复核原则（必须按此原则判断）") {
+		t.Error("提示词应带「按此原则判断」说明")
+	}
+	if !strings.Contains(prompt, "若该字段业务上允许为空，则判定为规则过严") {
+		t.Error("提示词应包含规则级复核原则原文")
+	}
+	if strings.Contains(prompt, "用户自定义校核原则") {
+		t.Error("不应再使用旧的任务级「用户自定义校核原则」文案")
+	}
+}
+
+func TestQACountAIFlagged(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"nm": "1", "ai_misjudged": true},
+		{"nm": "2", "ai_misjudged": false},
+		{"nm": "3"},
+	}
+	if n := qaCountAIFlagged(rows); n != 1 {
+		t.Errorf("疑似误判统计应为 1，实际 %d", n)
+	}
+}

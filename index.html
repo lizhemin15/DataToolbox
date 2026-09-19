@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091821">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
@@ -1041,12 +1041,12 @@
                                 <button type="button" class="btn btn-sm" id="qaToggleExpand">展开/收起</button>
                             </div>
                             <div class="qa-tree-toolbar">
-                                <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别, 参数）">下载模板</button>
+                                <button type="button" class="btn btn-sm" id="qaDownloadTemplate" title="下载批量导入用的 Excel 模板（列：NM, XH, 名称, SQL, 类别, 参数, AI复核原则；第 7 列可选）">下载模板</button>
                                 <button type="button" class="btn btn-sm" id="qaPasteExcel" title="从 Excel 复制多行后粘贴导入（批量）">粘贴导入</button>
                                 <label class="btn btn-sm cursor-pointer" title="选择 .xlsx/.xls 文件批量导入规则" style="margin:0;">Excel 导入<input type="file" id="qaXlsxFile" accept=".xlsx,.xls" style="display:none;"></label>
                                 <button type="button" class="btn btn-sm qa-btn-danger" id="qaBatchDelete">批量删除</button>
                             </div>
-                            <div class="qa-import-hint">批量导入：一次可导入多条规则，列顺序固定为 <b>NM / XH / 名称 / SQL / 类别 / 参数</b>（参数列可选，填 SQL 中 <code>{{占位符}}</code> 的实际值），首行表头会被自动跳过。先点「下载模板」看列格式。</div>
+                            <div class="qa-import-hint">批量导入：一次可导入多条规则，列顺序为 <b>NM / XH / 名称 / SQL / 类别 / 参数 / AI复核原则</b>（后两列可选：参数列填 SQL 中 <code>{{占位符}}</code> 的实际值；<b>AI复核原则</b>留空则该规则以 SQL 审核结果为最终结果、不做 AI 复核），首行表头会被自动跳过。<b>只有前 6 列的老文件同样可以导入</b>。先点「下载模板」看列格式。</div>
                             <div id="qaTree" class="qa-tree"></div>
                         </div>
                         <div class="qa-layout-side">
@@ -1072,6 +1072,9 @@
                                     <label>规则参数（SQL 里写 {{表名}}、{{字段名}} 等占位符，会自动列出待填项）</label>
                                     <div id="qaParamList" class="qa-param-list"><span class="qa-form-hint">当前 SQL 中暂无占位符</span></div>
                                     <div class="qa-form-hint">执行时用参数替换占位符后再转方言。参数没填的规则会直接报错「参数未配置」，不会再有 -2007 那种看不懂的语法错误。批量导入多条规则请用左侧规则树上的「下载模板 / 粘贴导入 / Excel 导入」。</div>
+                                    <label for="qaAiReviewPrompt">AI 复核原则（可选）</label>
+                                    <textarea id="qaAiReviewPrompt" rows="3" placeholder="留空 = 该规则以 SQL 审核结果为最终结果，不做 AI 复核。填写后：该规则审核不通过时，按这段说明交由 AI 复核，结论仅供参考、须人类专家最终校核"></textarea>
+                                    <div class="qa-form-hint">例：「若该字段业务上允许为空，则判定为规则过严」。导入表的第 7 列（表头「AI复核原则」）就是这一项。</div>
                                 </div>
                             </div>
                             <div class="qa-panel">
@@ -1129,6 +1132,7 @@
                         <select id="qaDbSelect" style="min-width:220px;padding:6px;"></select>
                         <button type="button" class="btn btn-primary" id="qaRun">一键审核</button>
                         <button type="button" class="btn btn-sm" id="qaReport">生成报告</button>
+                        <label class="qa-sched-enable" title="开启后，本次不通过且填写了 AI 复核原则的规则会交由 AI 复核（规则上的复核原则在「规则配置」里维护）"><input type="checkbox" id="qaRunAiEnabled" checked> 启用 AI 校核</label>
                     </div>
                     <div id="qaAuditResult" class="qa-audit-result" style="display:none;" aria-live="polite"></div>
                     </div><!-- /qaSubRules -->
@@ -2623,17 +2627,18 @@
                             <label class="cursor-pointer"><input type="checkbox" id="qaSchedRuleAll"> 全选</label>
                             <button type="button" class="btn btn-sm qa-sched-tree-btn" id="qaSchedExpandAll">展开全部</button>
                             <button type="button" class="btn btn-sm qa-sched-tree-btn" id="qaSchedCollapseAll">收起全部</button>
-                            <span class="qa-form-hint">左列「执行」= 该规则参与本次审核；右列「AI 核验」= 审核不通过时交由 AI 复核是否误判（勾了会自动补上「执行」）；分组左侧复选框可整组勾选/取消</span>
+                            <span class="qa-form-hint">「执行」勾选 = 该规则参与本次审核；分组左侧复选框可整组勾选/取消。哪些规则需要 AI 复核，由规则自身填写的「AI 复核原则」决定（在「规则配置」里维护，或导入表的最后一列）</span>
                         </div>
                         <div class="qa-sched-tree-header" aria-hidden="true">
-                            <span>执行</span><span>AI 核验</span><span>规则名称</span>
+                            <span>执行</span><span>规则名称</span>
                         </div>
                         <div id="qaSchedRuleTree" class="qa-tree qa-sched-tree"></div>
                     </div>
                     <div class="qa-sched-field">
-                        <label for="qaSchedAiPrompt">AI 校核原则（可选）</label>
-                        <textarea id="qaSchedAiPrompt" rows="3" placeholder="留空则由 AI 结合字段名、SQL 与常识自行判断"></textarea>
-                        <div class="qa-form-hint">勾选的规则在审核失败时，将交由 AI 判断是否为规则过严误判并给出修改建议；不填原则则让 AI 结合字段名、SQL 与常识自行判断。未单独配置大模型时，自动复用「智能助手」的模型配置。</div>
+                        <div class="qa-sched-switch-row">
+                            <label class="qa-sched-enable"><input type="checkbox" id="qaSchedAiEnabled" checked> 启用 AI 校核</label>
+                            <span class="qa-form-hint">开启后，本次执行中「不通过且填写了 AI 复核原则」的规则会交由 AI 复核（复核原则在规则上维护）。AI 结论仅供参考，报告与页面都会标注「须人类专家最终校核」；未单独配置大模型时自动复用「智能助手」的模型配置。</span>
+                        </div>
                     </div>
                     <div class="qa-sched-field">
                         <label for="qaSchedTpl">报告模板</label>

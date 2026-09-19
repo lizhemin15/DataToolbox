@@ -112,20 +112,74 @@
         return out;
     }
 
-    function mergeRuleContinuationRows(parsedRows) {
+    // ===== 规则导入：AI 复核原则列（可选第 7 列）=====
+    // 列顺序：NM / XH / 名称 / SQL / 类别 / 参数 / AI复核原则
+    // 兼容要求：老文件只有前 6 列（甚至只有前 5 列）也必须能导入，缺列时该规则不跑 AI 复核。
+
+    // looksLikeAiHeaderCell 判断表头单元格是否为「AI 复核原则」列（兼容历史叫法「人工审核规则」）
+    function looksLikeAiHeaderCell(text) {
+        var h = String(text == null ? '' : text).replace(/[\s　]/g, '').toLowerCase();
+        if (!h) return false;
+        return /ai复核|复核原则|ai审核|人工审核|aicheck|airereview/.test(h) || h === 'ai';
+    }
+
+    // detectAiReviewColumn 从前若干行里找表头行，再定位「AI 复核原则」列的下标。
+    // 返回 { headerIdx, aiIdx }；没有表头或没有该列时 aiIdx = -1（表示按位置兜底）。
+    function detectAiReviewColumn(rows) {
+        var headerIdx = -1;
+        for (var i = 0; i < (rows || []).length; i++) {
+            var p = rows[i] || [];
+            var first = String(p[0] == null ? '' : p[0]).trim();
+            if (first.toLowerCase() === 'nm') { headerIdx = i; break; }
+            if (first !== '') break;   // 第一行有内容但不是表头 → 无表头
+        }
+        if (headerIdx < 0) return { headerIdx: -1, aiIdx: -1 };
+        var hdr = rows[headerIdx] || [];
+        for (var j = 0; j < hdr.length; j++) {
+            if (looksLikeAiHeaderCell(hdr[j])) return { headerIdx: headerIdx, aiIdx: j };
+        }
+        return { headerIdx: headerIdx, aiIdx: -1 };
+    }
+
+    // extractAiReviewColumn 把 AI 复核原则列从行里摘出来（列位置不固定也能认）。
+    // 返回 { rows: 摘掉该列后的行, aiVals: 与行一一对应的 AI 原则文本（或 null 表示按第 7 列兜底） }
+    function extractAiReviewColumn(rows) {
+        var det = detectAiReviewColumn(rows);
+        // 表头里没写该列 → 按位置兜底：第 7 列（下标 6）
+        if (det.aiIdx < 0) return { rows: rows, aiVals: null };
+        if (det.aiIdx === 6) return { rows: rows, aiVals: null };
+        var aiVals = [];
+        var out = [];
+        (rows || []).forEach(function (p, i) {
+            p = p || [];
+            if (i === det.headerIdx) { out.push(p); aiVals[i] = ''; return; }
+            var q = p.slice();
+            var v = '';
+            if (q.length > det.aiIdx) v = q.splice(det.aiIdx, 1)[0];
+            aiVals[i] = v;
+            out.push(q);
+        });
+        return { rows: out, aiVals: aiVals };
+    }
+
+    function mergeRuleContinuationRows(parsedRows, aiVals) {
         var out = [];
         var cur = null;
-        (parsedRows || []).forEach(function (p) {
+        (parsedRows || []).forEach(function (p, idx) {
             if (!p || !p.length) return;
             if (p.length >= 3 && looksLikeNmCell(p[0])) {
                 if (cur) out.push(cur);
+                var aiText = '';
+                if (aiVals && aiVals[idx] != null) aiText = String(aiVals[idx]);
+                else if (p[6] != null) aiText = String(p[6]);
                 cur = {
                     nm: String(p[0] || '').trim().padStart(6, '0').slice(0, 6),
                     xh: (p[1] || '').trim(),
                     name: (p[2] || '').trim(),
                     sql: p[3] != null ? String(p[3]) : '',
                     category: p[4] != null ? String(p[4]).trim() : '',
-                    params: parseRuleParamsCell(p[5])
+                    params: parseRuleParamsCell(p[5]),
+                    ai_review_prompt: String(aiText == null ? '' : aiText).trim()
                 };
             } else if (cur) {
                 cur.sql += '\n' + p.join('\t');
@@ -133,6 +187,23 @@
         });
         if (cur) out.push(cur);
         return out;
+    }
+
+    // parseRuleRows 规则导入的统一入口：二维行数组（可含表头）→ 规则对象数组。
+    // 供「粘贴导入」与「Excel 文件导入」共用，保证两条路径行为一致。
+    function parseRuleRows(rows) {
+        var cleaned = [];
+        (rows || []).forEach(function (p) {
+            if (!p || !p.length) return;
+            cleaned.push((Array.isArray(p) ? p : [p]).map(function (c) { return c == null ? '' : String(c); }));
+        });
+        var ex = extractAiReviewColumn(cleaned);
+        var rules = mergeRuleContinuationRows(ex.rows, ex.aiVals);
+        return rules.filter(function (r) {
+            var h = String(r.nm || '').trim().toLowerCase();
+            if (h === 'nm' || h === '') return false;
+            return !!(r.nm && r.xh && r.name);
+        });
     }
 
     function parseExcelPasteMergedLines(raw) {
@@ -161,16 +232,8 @@
 
     function parseExcelPasteRules(raw) {
         var trimmed = String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-        var parsedRows = parseExcelTSVWithQuotes(trimmed);
-        var rules = mergeRuleContinuationRows(parsedRows);
-        rules = rules.filter(function (r) {
-            var h = String(r.nm || '').trim().toLowerCase();
-            if (h === 'nm' || h === '') return false;
-            return !!(r.nm && r.xh && r.name);
-        });
-        return rules.length ? rules : mergeRuleContinuationRows(trimmed.split('\n').map(function (line) { return line.split('\t'); })).filter(function (r) {
-            return !!(r.nm && r.xh && r.name);
-        });
+        var rules = parseRuleRows(parseExcelTSVWithQuotes(trimmed));
+        return rules.length ? rules : parseRuleRows(trimmed.split('\n').map(function (line) { return line.split('\t'); }));
     }
 
     /**
@@ -366,6 +429,9 @@
         mergeRuleContinuationRows: mergeRuleContinuationRows,
         parseRuleParamsCell: parseRuleParamsCell,
         parseExcelPasteRules: parseExcelPasteRules,
+        parseRuleRows: parseRuleRows,
+        detectAiReviewColumn: detectAiReviewColumn,
+        looksLikeAiHeaderCell: looksLikeAiHeaderCell,
         mergeFillContinuationRows: mergeFillContinuationRows,
         parseExcelPasteFillRates: parseExcelPasteFillRates,
         formatCellVal: formatCellVal,

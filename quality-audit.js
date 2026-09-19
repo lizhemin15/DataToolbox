@@ -343,7 +343,32 @@
                 ruleRows +
                 '</tbody></table>'
             : '';
-        wrap.innerHTML = head + rulesTable + fillBlocks;
+        // AI 复核段：只对填了复核原则的规则出现；结论仅供参考，须人类专家最终校核
+        var aiRows = (audit.rules || []).filter(function (r) {
+            return r && (r.ai_reason !== undefined || r.ai_misjudged !== undefined);
+        });
+        var aiBlock = '';
+        if (aiRows.length) {
+            var aiHead = '<div class="qa-ai-review-hd">AI 复核（仅供参考，须人类专家最终校核）' +
+                (audit.ai_model ? ' <span class="qa-muted">模型 ' + escapeHtml(audit.ai_model) + '</span>' : '') + '</div>';
+            var aiBody = aiRows.map(function (r) {
+                var sqlRes = r.error ? ('执行错误：' + escapeHtml(r.error))
+                    : ('违规行数 ' + escapeHtml(r.violation_count != null ? r.violation_count : '') + '（' + (r.passed === true ? '通过' : '不通过') + '）');
+                var mis = (r.ai_misjudged === true) ? '是（疑似规则过严误判）' : '否';
+                var conf = (r.ai_confidence != null) ? ('（置信度 ' + Number(r.ai_confidence).toFixed(2) + '）') : '';
+                return '<tr><td><code>' + escapeHtml(r.nm || '') + '</code></td>' +
+                    '<td>' + escapeHtml(r.name || '') + '</td>' +
+                    '<td>' + sqlRes + '</td>' +
+                    '<td>' + escapeHtml(mis) + conf +
+                    (r.ai_reason ? '<div class="qa-ai-reason">' + escapeHtml(r.ai_reason) + '</div>' : '') +
+                    (r.ai_suggestion ? '<div class="qa-ai-sug">建议：' + escapeHtml(r.ai_suggestion) + '</div>' : '') +
+                    '<div class="qa-ai-need-human">※ 本条须由人类专家最终校核</div></td></tr>';
+            }).join('');
+            aiBlock = '<div class="qa-ai-review"><div class="qa-ai-review-title">' + aiHead + '</div>' +
+                '<table class="qa-result-table"><thead><tr><th>规则 NM</th><th>名称</th><th>SQL 审核结果</th><th>AI 复核结论</th></tr></thead><tbody>' +
+                aiBody + '</tbody></table></div>';
+        }
+        wrap.innerHTML = head + rulesTable + aiBlock + fillBlocks;
         wrap.style.display = 'block';
     }
 
@@ -488,6 +513,8 @@
                 line.appendChild(c);
                 var pb1 = qaParamBadge(n);
                 if (pb1) line.appendChild(pb1);
+                var ab1 = qaAiReviewBadge(n);
+                if (ab1) line.appendChild(ab1);
                 sum.appendChild(line);
                 sum.addEventListener('click', function (e) {
                     if (e.target.tagName === 'INPUT') return;
@@ -518,6 +545,8 @@
                 div.appendChild(c2);
                 var pb2 = qaParamBadge(n);
                 if (pb2) div.appendChild(pb2);
+                var ab2 = qaAiReviewBadge(n);
+                if (ab2) div.appendChild(ab2);
                 div.addEventListener('click', function (e) {
                     if (e.target.tagName === 'INPUT') return;
                     fillEditor(n);
@@ -525,6 +554,16 @@
                 container.appendChild(div);
             }
         });
+    }
+
+    // qaAiReviewBadge 规则树上的「AI 复核」标记：填了复核原则的规则才跑 AI
+    function qaAiReviewBadge(n) {
+        if (!n || !String(n.ai_review_prompt || '').trim()) return null;
+        var sp = document.createElement('span');
+        sp.className = 'qa-ai-review-badge';
+        sp.textContent = 'AI 复核';
+        sp.title = '该规则填了 AI 复核原则：审核不通过时会交由 AI 复核，结论仅供参考，须人类专家最终校核';
+        return sp;
     }
 
     // qaParamBadge 规则树上的参数状态标记：缺参数时提醒，避免带着空壳规则去执行
@@ -543,6 +582,8 @@
         document.getElementById('qaName').value = rule.name || '';
         document.getElementById('qaCategory').value = rule.category || '';
         document.getElementById('qaSql').value = rule.sql || '';
+        var aiEl = document.getElementById('qaAiReviewPrompt');
+        if (aiEl) aiEl.value = rule.ai_review_prompt || '';
         qaCurrentRuleParams = rule.params || {};
         qaRenderRuleParams();
     }
@@ -839,7 +880,7 @@
     var qaDbMap = {};
     var qaSchedEditingId = '';
     var qaSchedRuleNms = {};
-    var qaSchedAiNms = {};
+    // 规则级 AI 复核已改为「规则自带 AI 复核原则」，定时任务不再按规则勾选 AI
     // 分组展开状态：nm -> false 表示收起；缺省展开。整组勾选/收起互不影响。
     var qaSchedGroupOpen = {};
     var qaSchedBound = false;
@@ -1061,13 +1102,15 @@
         qaSchedList.forEach(function (s) {
             var tr = document.createElement('tr');
             var ruleCount = (s.rule_nms || []).length;
-            var aiCount = (s.ai_check_nms || []).length;
+            var aiOn = (s.ai_check_enabled !== undefined && s.ai_check_enabled !== null)
+                ? !!s.ai_check_enabled
+                : (s.ai_check_nms || []).length > 0;
             tr.innerHTML =
                 '<td>' + escapeHtml(s.name || '') + '</td>' +
                 '<td>' + escapeHtml(qaDbLabel(s.database_id)) + '</td>' +
                 '<td><div>' + escapeHtml(s.cron_text || s.cron_expr || '') + '</div><code class="qa-cron-raw">' + escapeHtml(s.cron_expr || '') + '</code></td>' +
                 '<td>' + ruleCount + '</td>' +
-                '<td>' + (aiCount ? ('<span class="qa-badge qa-badge-ai">' + aiCount + ' 项</span>') : '<span class="qa-muted">关闭</span>') + '</td>' +
+                '<td>' + (aiOn ? '<span class="qa-badge qa-badge-ai">开启</span>' : '<span class="qa-muted">关闭</span>') + '</td>' +
                 '<td><label class="qa-sched-toggle-wrap" title="启用 / 停用"><input type="checkbox" class="qa-sched-toggle" data-id="' + escapeHtml(s.id) + '"' + (s.enabled ? ' checked' : '') + '> <span>' + (s.enabled ? '启用' : '停用') + '</span></label></td>' +
                 '<td>' + (s.last_run_at ? (escapeHtml(qaFmtTime(s.last_run_at)) + ' ' + qaStatusBadge(s.last_run_status)) : '<span class="qa-muted">—</span>') + '</td>' +
                 '<td>' + (s.next_run_at ? escapeHtml(qaFmtTime(s.next_run_at)) : '<span class="qa-muted">—</span>') + '</td>' +
@@ -1148,9 +1191,7 @@
         for (var i = 0; i < rows.length; i++) {
             var nm = rows[i].getAttribute('data-nm');
             var cr = rows[i].querySelector('.qa-sched-cb-rule');
-            var ca = rows[i].querySelector('.qa-sched-cb-ai');
             if (cr) cr.checked = !!qaSchedRuleNms[nm];
-            if (ca) ca.checked = !!qaSchedAiNms[nm];
         }
     }
 
@@ -1188,17 +1229,12 @@
                 gcb.addEventListener('change', function () {
                     leafNms.forEach(function (nm) {
                         if (gcb.checked) qaSchedRuleNms[nm] = true;
-                        else { delete qaSchedRuleNms[nm]; delete qaSchedAiNms[nm]; }
+                        else { delete qaSchedRuleNms[nm]; }
                     });
                     qaSyncSchedGroupRows(group);
                     qaSyncSchedTreeState();
                 });
                 head.appendChild(gcb);
-
-                // 第二列（AI 核验）留空，保持与表头/叶子行严格同列对齐
-                var spacer = document.createElement('span');
-                spacer.className = 'qa-sched-group-spacer';
-                head.appendChild(spacer);
 
                 var toggle = document.createElement('button');
                 toggle.type = 'button';
@@ -1230,27 +1266,15 @@
             cbRule.title = '执行范围：勾选后该规则参与本次审核';
             cbRule.disabled = !hasSql;
             cbRule.checked = !!qaSchedRuleNms[n.nm];
-            var cbAi = document.createElement('input');
-            cbAi.type = 'checkbox';
-            cbAi.className = 'qa-sched-cb-ai';
-            cbAi.title = 'AI 核验：审核不通过时交由 AI 复核是否误判（勾选会自动加入执行范围）';
-            cbAi.disabled = !hasSql;
-            cbAi.checked = !!qaSchedAiNms[n.nm];
             cbRule.addEventListener('change', function () {
                 if (cbRule.checked) qaSchedRuleNms[n.nm] = true;
-                else { delete qaSchedRuleNms[n.nm]; delete qaSchedAiNms[n.nm]; cbAi.checked = false; }
-                qaSyncSchedTreeState();
-            });
-            cbAi.addEventListener('change', function () {
-                if (cbAi.checked) { qaSchedAiNms[n.nm] = true; qaSchedRuleNms[n.nm] = true; cbRule.checked = true; }
-                else delete qaSchedAiNms[n.nm];
+                else delete qaSchedRuleNms[n.nm];
                 qaSyncSchedTreeState();
             });
             var label = document.createElement('span');
             label.className = 'qa-sched-rule-label';
             label.innerHTML = escapeHtml(n.name || '') + ' <code>' + escapeHtml(n.nm || '') + '</code>' + (hasSql ? '' : ' <span class="qa-muted">（无 SQL，不可选）</span>');
             row.appendChild(cbRule);
-            row.appendChild(cbAi);
             row.appendChild(label);
             container.appendChild(row);
         });
@@ -1271,10 +1295,6 @@
 
     function qaSchedCollectRuleNms() {
         return Object.keys(qaSchedRuleNms).filter(function (nm) { return qaSchedRuleNms[nm]; });
-    }
-
-    function qaSchedCollectAiNms() {
-        return Object.keys(qaSchedAiNms).filter(function (nm) { return qaSchedAiNms[nm] && qaSchedRuleNms[nm]; });
     }
 
     function qaReadInt(id, def) {
@@ -1401,17 +1421,24 @@
         return el ? !!el.checked : true;
     }
 
+    // qaSchedAiEnabledOf 读取任务级「启用 AI 校核」开关：
+    // 新字段优先；老任务（无该字段但勾过 AI 校核项）自动视为启用，行为不倒退。
+    function qaSchedAiEnabledOf(sch) {
+        if (sch && sch.ai_check_enabled !== undefined && sch.ai_check_enabled !== null) return !!sch.ai_check_enabled;
+        if (sch && (sch.ai_check_nms || []).length) return true;
+        return true;   // 默认勾选：真正是否调用 AI 由规则自身是否填了复核原则决定
+    }
+
     function qaOpenSchedModal(sch) {
         qaSchedRuleNms = {};
-        qaSchedAiNms = {};
         qaSchedEditingId = (sch && sch.id) ? sch.id : '';
         var title = document.getElementById('qaSchedModalTitle');
         if (title) title.textContent = qaSchedEditingId ? '编辑定时任务' : '新建定时任务';
         document.getElementById('qaSchedName').value = sch ? (sch.name || '') : '';
         qaFillSchedDbOptions(sch ? sch.database_id : '');
         (sch && sch.rule_nms || []).forEach(function (nm) { qaSchedRuleNms[padNm(nm)] = true; });
-        (sch && sch.ai_check_nms || []).forEach(function (nm) { qaSchedAiNms[padNm(nm)] = true; });
-        document.getElementById('qaSchedAiPrompt').value = sch ? (sch.ai_prompt || '') : '';
+        var aiSw = document.getElementById('qaSchedAiEnabled');
+        if (aiSw) aiSw.checked = qaSchedAiEnabledOf(sch);
         document.getElementById('qaSchedEnabled').checked = sch ? !!sch.enabled : true;
         var fillEl = document.getElementById('qaSchedFillEnabled');
         if (fillEl) fillEl.checked = qaSchedFillEnabledOf(sch);
@@ -1445,8 +1472,10 @@
             cron_expr: cron,
             enabled: document.getElementById('qaSchedEnabled').checked,
             rule_nms: ruleNms,
-            ai_check_nms: qaSchedCollectAiNms(),
-            ai_prompt: String(document.getElementById('qaSchedAiPrompt').value || '').trim(),
+            ai_check_enabled: (function () {
+                var el = document.getElementById('qaSchedAiEnabled');
+                return el ? !!el.checked : true;
+            })(),
             report_template_id: document.getElementById('qaSchedTpl').value,
             fill_enabled: qaReadSchedFillEnabled()
         };
@@ -1480,6 +1509,7 @@
         var body = {
             id: id, name: s.name, database_id: s.database_id, cron_expr: s.cron_expr,
             enabled: enabled, rule_nms: s.rule_nms || [], ai_check_nms: s.ai_check_nms || [],
+            ai_check_enabled: s.ai_check_enabled, ai_prompt: s.ai_prompt || '',
             ai_prompt: s.ai_prompt || '', report_template_id: s.report_template_id || '',
             fill_enabled: qaSchedFillEnabledOf(s)
         };
@@ -1798,6 +1828,7 @@
             : ('<span class="qa-badge qa-badge-ok">判定正常</span>' + conf);
         if (r.ai_reason) html += '<div class="qa-ai-reason">' + escapeHtml(r.ai_reason) + '</div>';
         if (r.ai_suggestion) html += '<div class="qa-ai-sug">建议：' + escapeHtml(r.ai_suggestion) + '</div>';
+        html += '<div class="qa-ai-need-human">※ 须人类专家最终校核</div>';
         return html;
     }
 
@@ -1808,7 +1839,7 @@
         if (top) {
             var s = run.summary || {};
             var aiNote = '';
-            if (s.ai_skipped) aiNote = ' ｜ <span class="qa-muted">AI 校核已跳过：' + escapeHtml(s.ai_skip_reason || '') + '</span>';
+            if (s.ai_skipped) aiNote = ' ｜ <span class="qa-muted">AI 复核已跳过：' + escapeHtml(s.ai_skip_reason || '') + '</span>';
             else if (s.ai_model) aiNote = ' ｜ 模型 ' + escapeHtml(s.ai_model);
             top.innerHTML =
                 '<div class="qa-run-meta">' +
@@ -1819,7 +1850,7 @@
                     '<span>状态：' + (run.status === 'success' ? '<span class="qa-badge qa-badge-pass">成功</span>' : '<span class="qa-badge qa-badge-fail">失败</span>') + '</span>' +
                 '</div>' +
                 '<div class="qa-run-sum">通过 ' + (Number(run.passed) || 0) + ' / 不通过 ' + (Number(run.failed) || 0) +
-                ' ｜ AI 误判提示 ' + (Number(run.ai_flagged) || 0) + aiNote + '</div>' +
+                ' ｜ AI 复核 ' + (Number(run.ai_reviewed != null ? run.ai_reviewed : s.ai_reviewed) || 0) + ' 条，其中疑似误判 ' + (Number(run.ai_flagged) || 0) + ' 条（须人类专家最终校核）' + aiNote + '</div>' +
                 (run.error ? ('<div class="qa-err">' + escapeHtml(run.error) + '</div>') : '');
         }
         if (body) {
@@ -1922,7 +1953,7 @@
                 if (v) qaSchedRuleNms[r.nm] = true;
                 else delete qaSchedRuleNms[r.nm];
             });
-            if (!v) qaSchedAiNms = {};
+
             qaRenderSchedTree();
         });
 
@@ -2000,7 +2031,8 @@
                 name: document.getElementById('qaName').value.trim(),
                 category: document.getElementById('qaCategory').value.trim(),
                 sql: document.getElementById('qaSql').value,
-                params: qaCollectRuleParams()
+                params: qaCollectRuleParams(),
+                ai_review_prompt: (document.getElementById('qaAiReviewPrompt') || {}).value || ''
             };
             var miss = qaMissingParams(body.sql, body.params);
             if (miss.length) {
@@ -2038,7 +2070,7 @@
 
         var qaPasteExcel = document.getElementById('qaPasteExcel');
         if (qaPasteExcel) qaPasteExcel.addEventListener('click', function () {
-            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别, 参数），粘贴到此处：\n参数列可选，填写 SQL 中 {{占位符}} 的实际值（JSON 或 表名=xxx;字段名=yyy）。\n批量导入，一次多行；列格式见「下载模板」。');
+            var raw = prompt('请从 Excel 复制多行（列顺序：NM, XH, 名称, SQL, 类别, 参数, AI复核原则），粘贴到此处：\n参数列可选，填写 SQL 中 {{占位符}} 的实际值（JSON 或 表名=xxx;字段名=yyy）。\nAI复核原则列可选：填了就按这段说明让 AI 复核该规则的失败结果；留空则该规则以 SQL 审核结果为最终结果，不做 AI 复核。\n批量导入，一次多行；列格式见「下载模板」。');
             if (!raw) return;
             var rules = parseExcelPasteRules(raw);
             if (!rules.length) { showMsg('未解析到有效行', true); return; }
@@ -2056,15 +2088,15 @@
         if (qaDownloadTemplate) qaDownloadTemplate.addEventListener('click', function () {
             try {
                 if (typeof XLSX === 'undefined') { showMsg('XLSX 库未加载，无法生成模板', true); return; }
-                var header = ['NM', 'XH', '名称', 'SQL', '类别', '参数'];
+                var header = ['NM', 'XH', '名称', 'SQL', '类别', '参数', 'AI复核原则'];
                 var rows = [
-                    ['010100', '0101', '主键唯一性', 'SELECT {{字段名}} FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1', '完整性', '{"表名":"T_ORDER","字段名":"ORDER_ID"}'],
-                    ['010200', '0102', '手机号格式', "SELECT * FROM {{表名}} WHERE {{字段名}} NOT LIKE '1%'", '规范性', '{"表名":"T_USER","字段名":"PHONE"}'],
-                    ['010000', '01', '表数据量校验', 'SELECT COUNT(*) FROM T_COUNT', '基础校验', '']
+                    ['010100', '0101', '主键唯一性', 'SELECT {{字段名}} FROM {{表名}} GROUP BY {{字段名}} HAVING COUNT(*) > 1', '完整性', '{"表名":"T_ORDER","字段名":"ORDER_ID"}', '若该主键是历史归档表、存在重复属正常，请只判断是否影响当前业务'],
+                    ['010200', '0102', '手机号格式', "SELECT * FROM {{表名}} WHERE {{字段名}} NOT LIKE '1%'", '规范性', '{"表名":"T_USER","字段名":"PHONE"}', ''],
+                    ['010000', '01', '表数据量校验', 'SELECT COUNT(*) FROM T_COUNT', '基础校验', '', '']
                 ];
                 var wb = XLSX.utils.book_new();
                 var ws = XLSX.utils.aoa_to_sheet([header].concat(rows));
-                ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 64 }, { wch: 12 }, { wch: 40 }];
+                ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 64 }, { wch: 12 }, { wch: 40 }, { wch: 46 }];
                 XLSX.utils.book_append_sheet(wb, ws, '规则导入模板');
                 var notes = [
                     ['列名', '是否必填', '说明'],
@@ -2074,7 +2106,9 @@
                     ['SQL', '是', '审核用 SQL，按 Oracle 方言书写，执行时自动转换为目标库方言。可变部分写成 {{名称}} 占位符，例如 SELECT * FROM {{表名}} WHERE {{字段名}} IS NULL'],
                     ['类别', '否', '自由文本分类，如 完整性 / 规范性 / 基础校验'],
                     ['参数', '占位符存在时必填', 'JSON 对象，键为占位符名：{"表名":"T_ORDER","字段名":"ORDER_ID"}。也支持 表名=T_ORDER;字段名=ORDER_ID 写法'],
-                    ['', '', '占位符没填参数时规则无法执行（会提示「参数未配置」），保存时即会被拦下']
+                    ['AI复核原则', '否', '留空（或整列不写）= 该规则以 SQL 审核结果为最终结果，不做 AI 复核。填了 = 该规则审核不通过时，把这段文字作为复核原则交给 AI 复核 SQL 审核结果'],
+                    ['', '', '占位符没填参数时规则无法执行（会提示「参数未配置」），保存时即会被拦下'],
+                    ['', '', '只写前 6 列（NM/XH/名称/SQL/类别/参数）的旧文件仍然可以导入，AI 复核原则视为留空']
                 ];
                 var ws2 = XLSX.utils.aoa_to_sheet(notes);
                 ws2['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 72 }];
@@ -2100,11 +2134,10 @@
                     var rows = [];
                     data.forEach(function (row) {
                         if (!row || !row.length) return;
-                        var r0 = String(row[0] != null ? row[0] : '').trim();
-                        if (r0.toLowerCase() === 'nm') return;
                         rows.push(row.map(function (c) { return c == null ? '' : String(c); }));
                     });
-                    var rules = mergeRuleContinuationRows(rows);
+                    // 表头行保留：parseRuleRows 会按表头名识别「AI复核原则」列，缺列/无表头时按第 7 列兜底
+                    var rules = (qaShared.parseRuleRows ? qaShared.parseRuleRows(rows) : mergeRuleContinuationRows(rows));
                     rules = rules.filter(function (r) { return r.nm && r.xh && r.name; });
                     if (!rules.length) { showMsg('表中无有效数据', true); return; }
                     fetchWithAuth(PREFIX + 'rules/import', { method: 'POST', body: JSON.stringify({ rules: rules }) })
@@ -2276,14 +2309,21 @@
             var ruleNms = Object.keys(selectedNms);
             if (!dbId) { showMsg('请选择数据库', true); return; }
             if (!ruleNms.length) { showMsg('请勾选规则', true); return; }
-            showMsg('执行中…', false);
+            var aiOn = true;
+            var aiCb = document.getElementById('qaRunAiEnabled');
+            if (aiCb) aiOn = !!aiCb.checked;
+            showMsg(aiOn ? '执行中（含 AI 复核，可能稍慢）…' : '执行中…', false);
             fetchWithAuth(PREFIX + 'execute', {
                 method: 'POST',
-                body: JSON.stringify({ database_id: dbId, rule_nms: ruleNms })
+                body: JSON.stringify({ database_id: dbId, rule_nms: ruleNms, ai_check_enabled: aiOn })
             }).then(function (r) { return r.json();             }).then(function (d) {
                 if (!d.success) throw new Error(d.message || '执行失败');
                 lastAudit = d;
-                showMsg('审核完成：通过 ' + (d.summary && d.summary.passed) + '，不通过 ' + (d.summary && d.summary.failed), false);
+                var aiNote = '';
+                var s2 = d.summary || {};
+                if (Number(s2.ai_reviewed) > 0) aiNote = '；AI 已复核 ' + s2.ai_reviewed + ' 条（须人类专家最终校核）';
+                else if (s2.ai_skipped && s2.ai_skip_reason) aiNote = '；' + s2.ai_skip_reason;
+                showMsg('审核完成：通过 ' + s2.passed + '，不通过 ' + s2.failed + aiNote, false);
                 renderAuditResult(d);
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });

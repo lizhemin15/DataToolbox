@@ -38,7 +38,7 @@ if (missing.length) {
 }
 
 // 反向校验：定时任务弹窗新增的控件必须真的被 JS 引用，否则点了没反应（同上面的 bug 类）。
-const mustBeWired = ['qaSchedFillEnabled', 'qaSchedExpandAll', 'qaSchedCollapseAll'];
+const mustBeWired = ['qaSchedFillEnabled', 'qaSchedExpandAll', 'qaSchedCollapseAll', 'qaSchedAiEnabled', 'qaRunAiEnabled', 'qaAiReviewPrompt'];
 const unwired = mustBeWired.filter(id => ids.has(id) && !used.has(id));
 if (unwired.length) {
   failed++;
