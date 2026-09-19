@@ -810,27 +810,38 @@ func loadRulesFlat() ([]qaRule, error) {
 }
 
 func buildRuleTree(list []qaRule) []*qaRuleTree {
-	byXH := make(map[string]*qaRuleTree)
+	// 按 NM 建节点，避免「两条规则 XH 相同」时后者覆盖前者、前者从树里消失（历史上会丢规则）。
+	nodes := make([]*qaRuleTree, 0, len(list))
+	byXH := make(map[string]*qaRuleTree) // XH → 用于解析父节点的代表节点
+	dupXH := map[string]bool{}
 	for _, r := range list {
-		rr := r
-		byXH[r.XH] = &qaRuleTree{qaRule: rr, Children: nil}
-	}
-	childOfParent := map[string]bool{}
-	for _, r := range list {
-		p := parentXH(r.XH)
-		if p != "" {
-			if par, ok := byXH[p]; ok {
-				par.Children = append(par.Children, byXH[r.XH])
-				childOfParent[r.XH] = true
-			}
-		}
-	}
-	var roots []*qaRuleTree
-	for _, r := range list {
-		if childOfParent[r.XH] {
+		node := &qaRuleTree{qaRule: r}
+		nodes = append(nodes, node)
+		if _, exists := byXH[r.XH]; exists {
+			dupXH[r.XH] = true
 			continue
 		}
-		roots = append(roots, byXH[r.XH])
+		byXH[r.XH] = node
+	}
+	child := map[*qaRuleTree]bool{}
+	for _, node := range nodes {
+		if dupXH[node.XH] {
+			continue // XH 重复时父子关系无法确定，直接作为顶层节点，保证不丢规则
+		}
+		p := parentXH(node.XH)
+		if p == "" {
+			continue
+		}
+		if par, ok := byXH[p]; ok {
+			par.Children = append(par.Children, node)
+			child[node] = true
+		}
+	}
+	roots := make([]*qaRuleTree, 0, len(nodes))
+	for _, node := range nodes {
+		if !child[node] {
+			roots = append(roots, node)
+		}
 	}
 	var sortFn func(nodes []*qaRuleTree)
 	sortFn = func(nodes []*qaRuleTree) {

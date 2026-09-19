@@ -198,3 +198,42 @@ func TestQAStripAIRowsRemovesStaleAI(t *testing.T) {
 		t.Errorf("关闭开关应零调用：out=%v model=%q reason=%q", out, model, reason)
 	}
 }
+
+// 规则树：同一 XH 的多条规则不能互相覆盖（历史实现按 XH 建节点，会丢规则）。
+func TestQABuildRuleTreeKeepsDuplicateXH(t *testing.T) {
+	list := []qaRule{
+		{NM: "010000", XH: "01", Name: "分组"},
+		{NM: "010100", XH: "0101", Name: "子规则甲"},
+		{NM: "010200", XH: "0102", Name: "子规则乙"},
+		{NM: "990001", XH: "99", Name: "同 XH 甲", SQL: "SELECT 1"},
+		{NM: "990002", XH: "99", Name: "同 XH 乙", SQL: "SELECT 1"},
+	}
+	tree := buildRuleTree(list)
+	seen := map[string]int{}
+	var walk func(ns []*qaRuleTree)
+	walk = func(ns []*qaRuleTree) {
+		for _, n := range ns {
+			seen[n.NM]++
+			walk(n.Children)
+		}
+	}
+	walk(tree)
+	for _, nm := range []string{"010000", "010100", "010200", "990001", "990002"} {
+		if seen[nm] != 1 {
+			t.Errorf("规则 %s 在树中应恰好出现 1 次，实际 %d 次", nm, seen[nm])
+		}
+	}
+	// 正常层级关系不能被改坏
+	if seen["010100"] == 0 || len(tree) == 0 {
+		t.Fatal("规则树为空")
+	}
+	var group *qaRuleTree
+	for _, n := range tree {
+		if n.NM == "010000" {
+			group = n
+		}
+	}
+	if group == nil || len(group.Children) != 2 {
+		t.Errorf("分组 010000 应有 2 个子节点，实际 %v", group)
+	}
+}
