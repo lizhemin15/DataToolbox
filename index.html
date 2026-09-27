@@ -6,9 +6,9 @@
     <title>数据工具箱</title>
 <link rel="stylesheet" href="/css/style-core.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-api.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-api.css?v=2026092803">
 <link rel="stylesheet" href="/css/style-ai.css?v=2026061006">
-<link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-tables.css?v=2026092803">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922.2026092801">
@@ -413,13 +413,13 @@
                 <div class="onto-toolbar">
                     <div class="onto-toolbar-left">
                         <span class="onto-brand">
-                            <span class="onto-brand-icon">💡</span>
+                            <span class="onto-brand-icon"><i class="ui-ico-slot" data-ui-ico="database"></i></span>
                             <span class="onto-brand-text">本体论知识图谱</span>
                         </span>
                         <div class="onto-toolbar-sep"></div>
                         <div class="onto-db-picker" id="ontoDbPicker">
                             <button class="onto-db-btn" id="ontoDbBtn" onclick="toggleDbPicker(event)" type="button">
-                                <span class="onto-db-btn-icon">📦</span>
+                                <span class="onto-db-btn-icon"><i class="ui-ico-slot" data-ui-ico="box"></i></span>
                                 <span class="onto-db-btn-text" id="ontoDbBtnText">选择数据库</span>
                                 <span class="onto-db-btn-arrow" id="ontoDbBtnArrow">▾</span>
                             </button>
@@ -428,19 +428,19 @@
                             </div>
                         </div>
                         <button id="ontoExtractBtn" class="onto-btn onto-btn-ai" onclick="startOntologyExtract()">
-                            <span>✨</span> AI 智能提取
+                            <span><i class="ui-ico-slot" data-ui-ico="sparkle"></i></span> AI 智能提取
                         </button>
                         <button id="ontoDemoBtn" class="onto-btn onto-btn-demo" onclick="loadOntologyDemo()">
-                            <span>🎯</span> 演示场景
+                            <span><i class="ui-ico-slot" data-ui-ico="play"></i></span> 演示场景
                         </button>
                         <button id="ontoClearBtn" class="onto-btn" onclick="clearOntology()" style="display:none">
                         <button id="ontoRelationScanBtn" class="onto-btn onto-btn-scan" onclick="scanOntologyRelations()">
-                            <span>🔍</span> 扫描关系
+                            <span><i class="ui-ico-slot" data-ui-ico="search"></i></span> 扫描关系
                         </button>
                         <button id="ontoRelationTableBtn" class="onto-btn" onclick="showOntologyRelationTable()">
-                            <span>📋</span> 关系表
+                            <span><i class="ui-ico-slot" data-ui-ico="table"></i></span> 关系表
                         </button>
-                            <span>❌</span> 清空
+                            <span><i class="ui-ico-slot" data-ui-ico="trash"></i></span> 清空
                         </button>
                         <div class="onto-toolbar-sep onto-view-toggle-sep" id="ontoViewToggleSep" style="display:none"></div>
                         <div class="onto-view-toggle" id="ontoViewToggle" style="display:none" title="图谱视图">
@@ -478,33 +478,33 @@
                             <div class="onto-orb onto-orb-c"></div>
                         </div>
                         <div class="onto-welcome-body">
-                            <div class="onto-welcome-icon">💡</div>
+                            <div class="onto-welcome-icon"><i class="ui-ico-slot" data-ui-ico="sparkle"></i></div>
                             <h2 class="onto-welcome-title">本体论抽象模块</h2>
                             <p class="onto-welcome-desc">将数据库结构升华为业务语义知识图谱<br>AI深度理解数据本质，发现隐藏的治理价值</p>
                             <div class="onto-feature-grid">
                                 <div class="onto-feature-card">
-                                    <div class="onto-feature-icon">🔍</div>
+                                    <div class="onto-feature-icon"><i class="ui-ico-slot" data-ui-ico="search"></i></div>
                                     <div class="onto-feature-title">自动概念发现</div>
                                     <div class="onto-feature-desc">AI从表结构中识别业务实体与事件</div>
                                 </div>
                                 <div class="onto-feature-card">
-                                    <div class="onto-feature-icon">🔗</div>
+                                    <div class="onto-feature-icon"><i class="ui-ico-slot" data-ui-ico="link"></i></div>
                                     <div class="onto-feature-title">语义关系图谱</div>
                                     <div class="onto-feature-desc">构建实体间的语义关联网络</div>
                                 </div>
                                 <div class="onto-feature-card">
-                                    <div class="onto-feature-icon">⚠️</div>
+                                    <div class="onto-feature-icon"><i class="ui-ico-slot" data-ui-ico="alert"></i></div>
                                     <div class="onto-feature-title">治理风险识别</div>
                                     <div class="onto-feature-desc">主动发现命名冲突、质量隐患</div>
                                 </div>
                                 <div class="onto-feature-card">
-                                    <div class="onto-feature-icon">💬</div>
+                                    <div class="onto-feature-icon"><i class="ui-ico-slot" data-ui-ico="question"></i></div>
                                     <div class="onto-feature-title">自然语言查询</div>
                                     <div class="onto-feature-desc">用日常语言探索数据语义关系</div>
                                 </div>
                             </div>
                             <button class="onto-btn onto-btn-ai onto-btn-lg" onclick="loadOntologyDemo()">
-                                <span>🎯</span> 立即体验演示场景
+                                <span><i class="ui-ico-slot" data-ui-ico="play"></i></span> 立即体验演示场景
                             </button>
                         </div>
                     </div>
@@ -519,7 +519,7 @@
                     <div class="onto-ai-overlay" id="ontoAiOverlay" style="display:none">
                         <div class="onto-ai-ring"></div>
                         <div class="onto-ai-ring onto-ai-ring-2"></div>
-                        <div class="onto-ai-core">💡</div>
+                        <div class="onto-ai-core"><i class="ui-ico-slot" data-ui-ico="wand"></i></div>
                         <div class="onto-ai-text" id="ontoAiText">AI 正在分析...</div>
                         <div class="onto-ai-progress">
                             <div class="onto-ai-progress-bar" id="ontoAiProgressBar"></div>
@@ -529,13 +529,13 @@
                     <!-- 右侧浮动洞察面板 -->
                     <div class="onto-insight-panel" id="ontoInsightPanel">
                         <div class="onto-panel-hd">
-                            <span class="onto-panel-hd-icon">🤖</span>
+                            <span class="onto-panel-hd-icon"><i class="ui-ico-slot" data-ui-ico="wand"></i></span>
                             <span class="onto-panel-hd-title">AI 治理洞察</span>
                             <button class="onto-panel-collapse" id="ontoInsightToggle" onclick="toggleInsightPanel()" title="收起/展开">‹</button>
                         </div>
                         <div class="onto-panel-bd" id="ontoInsightBody">
                             <div class="onto-insight-placeholder">
-                                <span>💡</span>
+                                <span><i class="ui-ico-slot" data-ui-ico="info"></i></span>
                                 <p>提取本体后，AI将自动生成数据治理洞察</p>
                             </div>
                         </div>
@@ -565,12 +565,12 @@
                 <!-- 底部语义查询栏 — 始终显示 -->
                 <div class="onto-query-bar onto-query-disabled" id="ontoQueryBar">
                     <div class="onto-query-row">
-                        <span class="onto-query-icon">💬</span>
+                        <span class="onto-query-icon"><i class="ui-ico-slot" data-ui-ico="question"></i></span>
                         <input type="text" class="onto-query-input" id="ontoQueryInput"
                             placeholder="语义查询：例如"客户和订单有什么关系？"  "数据有哪些质量风险？"  "哪些实体涉及隐私数据？""
                             onkeypress="if(event.key==='Enter') doOntologyQuery()">
                         <button class="onto-btn onto-btn-ai" id="ontoQueryBtn" onclick="doOntologyQuery()">
-                            <span>🔍</span> 语义分析
+                            <span><i class="ui-ico-slot" data-ui-ico="search"></i></span> 语义分析
                         </button>
                     </div>
                     <div class="onto-query-result" id="ontoQueryResult" style="display:none"></div>
@@ -583,11 +583,11 @@
             <div class="tab-content-wrap">
             <div class="lineage-workspace">
                 <div class="lineage-toolbar">
-                    <span class="lineage-brand"><span class="lineage-brand-icon">🔗</span> 数据血缘分析</span>
+                    <span class="lineage-brand"><span class="lineage-brand-icon"><i class="ui-ico-slot" data-ui-ico="link"></i></span> 数据血缘分析</span>
                     <div class="lineage-toolbar-sep"></div>
                     <div class="lineage-db-picker" id="lineageDbPicker">
                         <button class="lineage-db-btn" id="lineageDbBtn" type="button" onclick="toggleLineageDbPicker(event)">
-                            <span class="lineage-db-btn-icon">📦</span>
+                            <span class="lineage-db-btn-icon"><i class="ui-ico-slot" data-ui-ico="box"></i></span>
                             <span class="lineage-db-btn-text placeholder" id="lineageDbBtnText">选择数据库</span>
                             <span class="lineage-db-btn-arrow">▾</span>
                         </button>
@@ -633,7 +633,7 @@
                         <div class="sidebar-header-actions">
                             <button class="btn btn-sm btn-primary" onclick="showAddPlatformApiModal()">+ 接口</button>
                             <button class="btn btn-sm" onclick="showAddApiModal()" title="创建独立接口">+ 自定义</button>
-                            <button class="btn btn-sm" id="apikeyTriggerBtn" title="API Key 鉴权">🔑 Key</button>
+                            <button class="btn btn-sm" id="apikeyTriggerBtn" title="API Key 鉴权"><i class="ui-ico-slot" data-ui-ico="key"></i> Key</button>
                         </div>
                     </div>
                     <div id="apiList" class="db-list"></div>
@@ -641,7 +641,7 @@
                 <!-- 第三列：详情+测试 -->
                 <div id="platformDetailPanel" class="sidebar" style="flex:1 1 auto;overflow:auto;display:none;width:auto;max-width:none;border-radius:12px;">
                     <div id="platformApiWelcome" class="welcome-view">
-                        <div class="welcome-icon">🔌</div>
+                        <div class="welcome-icon"><i class="ui-ico-slot" data-ui-ico="plug"></i></div>
                         <h2>接口分发</h2>
                         <p>选择左侧平台和接口查看详情</p>
                     </div>
@@ -656,8 +656,8 @@
                                         <span class="switch-slider"></span>
                                     </div>
                                 </label>
-                                <button id="editApiBtn" class="btn btn-sm">✏️ 编辑</button>
-                                <button id="testApiBtn" class="btn btn-sm btn-primary">🧪 测试</button>
+                                <button id="editApiBtn" class="btn btn-sm"><i class="ui-ico-slot" data-ui-ico="edit"></i> 编辑</button>
+                                <button id="testApiBtn" class="btn btn-sm btn-primary"><i class="ui-ico-slot" data-ui-ico="check"></i> 测试</button>
                                 <button id="deleteApiBtn" class="btn btn-sm btn-danger">删除</button>
                             </div>
                         </div>
@@ -713,7 +713,7 @@
             <div class="tab-content-wrap">
             <div class="mcp-container">
                 <div class="mcp-header">
-                    <h2>🔌 Agent 服务</h2>
+                    <h2><i class="ui-ico-slot" data-ui-ico="plug"></i> Agent 服务</h2>
                     <p class="mcp-desc">在 Cursor、Claude Desktop 等客户端中通过 Model Context Protocol 使用数据工具箱：查询数据库、调用接口。</p>
                     <div class="mcp-enabled-row">
                         <label class="switch-wrap">
@@ -775,7 +775,7 @@
                     </div>
                 </div>
                 <div class="mcp-section">
-                    <h3>🛡️ 安全配置</h3>
+                    <h3><i class="ui-ico-slot" data-ui-ico="shield"></i> 安全配置</h3>
                     <p class="mcp-desc">配置 MCP SQL 执行的安全限制，防止危险操作。</p>
                     <div class="mcp-safety-config">
                         <div class="mcp-safety-row">
@@ -824,71 +824,71 @@
             <div class="mcp-sub-content" id="skillsSubTab">
                 <div class="tab-content-wrap">
                     <div class="skills-container">
-                        <h3>🎯 一键安装技能</h3>
+                        <h3><i class="ui-ico-slot" data-ui-ico="download"></i> 一键安装技能</h3>
                         <p class="skills-desc">选择您的 AI 助手平台，一键复制配置并按照指引安装。</p>
                         <div class="skills-grid">
                             <div class="skill-card" onclick="installSkill('claude-code')">
-                                <div class="skill-icon">🤖</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="wand"></i></div>
                                 <div class="skill-name">Claude Code</div>
                                 <div class="skill-desc">Anthropic Claude Code CLI</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('cursor')">
-                                <div class="skill-icon">✨</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="sparkle"></i></div>
                                 <div class="skill-name">Cursor</div>
                                 <div class="skill-desc">Cursor IDE</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('openai-gpts')">
-                                <div class="skill-icon">🧠</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="layers"></i></div>
                                 <div class="skill-name">OpenAI GPTs</div>
                                 <div class="skill-desc">OpenAI GPT Actions</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('doubao')">
-                                <div class="skill-icon">🫛</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="box"></i></div>
                                 <div class="skill-name">字节豆包</div>
                                 <div class="skill-desc">字节跳动豆包 AI</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('opencode')">
-                                <div class="skill-icon">🔓</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="key"></i></div>
                                 <div class="skill-name">OpenCode</div>
                                 <div class="skill-desc">OpenCode CLI Agent</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('windsurf')">
-                                <div class="skill-icon">🌊</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="globe"></i></div>
                                 <div class="skill-name">Windsurf</div>
                                 <div class="skill-desc">Codeium Windsurf IDE</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('zed')">
-                                <div class="skill-icon">⚡</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="play"></i></div>
                                 <div class="skill-name">Zed</div>
                                 <div class="skill-desc">Zed Editor AI</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('copilot')">
-                                <div class="skill-icon">✈️</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="monitor"></i></div>
                                 <div class="skill-name">GitHub Copilot</div>
                                 <div class="skill-desc">GitHub Copilot Chat</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('cline')">
-                                <div class="skill-icon">📝</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="edit"></i></div>
                                 <div class="skill-name">Cline</div>
                                 <div class="skill-desc">VS Code Cline Extension</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('openclaw')">
-                                <div class="skill-icon">🦀</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="code"></i></div>
                                 <div class="skill-name">OpenClaw</div>
                                 <div class="skill-desc">OpenClaw 飞书集成平台</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
                             </div>
                             <div class="skill-card" onclick="installSkill('hermes')">
-                                <div class="skill-icon">⚡</div>
+                                <div class="skill-icon"><i class="ui-ico-slot" data-ui-ico="play"></i></div>
                                 <div class="skill-name">Hermes Agent</div>
                                 <div class="skill-desc">Hermes AI Agent CLI</div>
                                 <button type="button" class="btn btn-primary btn-sm">一键安装</button>
@@ -980,8 +980,8 @@
                         <h3>模型管理</h3>
                     </div>
                     <div class="models-tabs">
-                        <button class="models-tab-btn active" data-model-tab="llm">🤖 大模型</button>
-                        <button class="models-tab-btn" data-model-tab="small">📝 小模型</button>
+                        <button class="models-tab-btn active" data-model-tab="llm"><i class="ui-ico-slot" data-ui-ico="wand"></i> 大模型</button>
+                        <button class="models-tab-btn" data-model-tab="small"><i class="ui-ico-slot" data-ui-ico="edit"></i> 小模型</button>
                     </div>
                 </div>
                 <div class="models-main">
@@ -1212,11 +1212,11 @@
                     <!-- 列表视图 -->
                     <div id="appsListView">
                         <div class="apps-marketplace-header">
-                            <h2>🏪 应用广场</h2>
+                            <h2><i class="ui-ico-slot" data-ui-ico="box"></i> 应用广场</h2>
                             <p class="apps-marketplace-desc">管理和发布自定义应用，支持 HTML+CSS+JS 纯前端应用</p>
                             <div class="apps-marketplace-actions">
-                                <button class="btn btn-primary" onclick="openAppEditor()">➕ 创建应用</button>
-                                <button class="btn" onclick="window.location.href='/screen-editor'">📺 大屏编辑器</button>
+                                <button class="btn btn-primary" onclick="openAppEditor()"><i class="ui-ico-slot" data-ui-ico="plus"></i> 创建应用</button>
+                                <button class="btn" onclick="window.location.href='/screen-editor'"><i class="ui-ico-slot" data-ui-ico="monitor"></i> 大屏编辑器</button>
                             </div>
                         </div>
                         <div class="apps-marketplace-content">
@@ -1231,7 +1231,7 @@
                             <div class="codepen-toolbar">
                                 <div class="codepen-toolbar-left">
                                     <button class="codepen-back-btn" onclick="closeAppEditor()" title="返回列表">← 返回</button>
-                                    <span class="codepen-app-title" id="codepenAppTitle">✨ 创建应用</span>
+                                    <span class="codepen-app-title" id="codepenAppTitle"><i class="ui-ico-slot" data-ui-ico="sparkle"></i> 创建应用</span>
                                 </div>
                                 <div class="codepen-toolbar-center">
                                     <input type="text" class="codepen-name-input" id="codepenAppName" placeholder="应用名称" maxlength="50">
@@ -1239,10 +1239,10 @@
                                     <span class="codepen-slug-preview" id="codepenSlugPreview">/app/my-app</span>
                                 </div>
                                 <div class="codepen-toolbar-right">
-                                    <button class="codepen-icon-btn" onclick="toggleAppSettings()" title="设置">⚙️</button>
+                                    <button class="codepen-icon-btn" onclick="toggleAppSettings()" title="设置"><i class="ui-ico-slot" data-ui-ico="gear"></i></button>
                                     <button class="codepen-action-btn codepen-preview-btn" onclick="previewCodepenApp()" title="刷新预览">▶</button>
-                                    <button class="codepen-action-btn codepen-save-btn" onclick="saveCodepenApp()" title="保存">💾 保存</button>
-                                    <button class="codepen-action-btn codepen-delete-btn" id="codepenDeleteBtn" onclick="deleteCodepenApp()" title="删除" style="display:none;">🗑️</button>
+                                    <button class="codepen-action-btn codepen-save-btn" onclick="saveCodepenApp()" title="保存"><i class="ui-ico-slot" data-ui-ico="save"></i> 保存</button>
+                                    <button class="codepen-action-btn codepen-delete-btn" id="codepenDeleteBtn" onclick="deleteCodepenApp()" title="删除" style="display:none;"><i class="ui-ico-slot" data-ui-ico="trash"></i></button>
                                 </div>
                             </div>
 
@@ -1581,7 +1581,7 @@
                             <strong>参数语法：</strong><br>
                             • #{参数名} - 预编译参数（推荐，用于数据查询，防止SQL注入）<br>
                             • ${参数名} - 直接替换（用于表名、列名等）<br>
-                            <strong style="color:#e53e3e;">⚠️ DDL语句（CREATE/DROP/ALTER）必须使用 ${} 而不是 #{}</strong>
+                            <strong style="color:#e53e3e;"><i class="ui-ico-slot" data-ui-ico="alert"></i> DDL语句（CREATE/DROP/ALTER）必须使用 ${} 而不是 #{}</strong>
                         </small>
                     </div>
                 </div>
@@ -1669,7 +1669,7 @@
                 <!-- LLM 配置（可折叠） -->
                 <div class="form-group">
                     <div class="flex-between-cursor" onclick="toggleLlmConfig()">
-                        <label class="heading-sm">🤖 LLM 配置</label>
+                        <label class="heading-sm"><i class="ui-ico-slot" data-ui-ico="wand"></i> LLM 配置</label>
                         <span id="llmConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="llmConfigPanel" class="hidden-panel">
@@ -1688,7 +1688,7 @@
                                 <input type="text" id="aiModelInput" list="aiModelOptions" placeholder="例如: gpt-3.5-turbo" required>
                                 <datalist id="aiModelOptions"></datalist>
                                 <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
-                                    <button type="button" id="fetchAiModelsBtn" class="btn btn-sm" onclick="fetchAiModels()">🔄 自动获取模型列表</button>
+                                    <button type="button" id="fetchAiModelsBtn" class="btn btn-sm" onclick="fetchAiModels()"><i class="ui-ico-slot" data-ui-ico="refresh"></i> 自动获取模型列表</button>
                                     <small id="aiModelFetchHint" style="color:#667085;"></small>
                                 </div>
                                 <select id="aiModelPreset" onchange="applyModelPreset(this.value)" style="margin-top:4px;font-size:12px;padding:4px 8px;border:1px solid #d0d5dd;border-radius:4px;width:100%;color:#344054;background:#fff;">
@@ -1775,7 +1775,7 @@
                 <!-- Embedding 配置（可折叠） -->
                 <div class="form-group mt-16">
                     <div class="flex-between-cursor" onclick="toggleEmbeddingConfig()">
-                        <label class="heading-sm">🔤 Embedding 配置</label>
+                        <label class="heading-sm"><i class="ui-ico-slot" data-ui-ico="sliders"></i> Embedding 配置</label>
                         <span id="embeddingConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="embeddingConfigPanel" class="hidden-panel">
@@ -1798,7 +1798,7 @@
                             <label class="label-sm">模型名称</label>
                             <input type="text" id="aiEmbModel" list="aiEmbModelOptions" placeholder="BAAI/bge-large-zh-v1.5" class="input-flex">
                             <datalist id="aiEmbModelOptions"></datalist>
-                            <button type="button" class="btn btn-sm" onclick="fetchAiModels('embedding', this)">🔄 获取</button>
+                            <button type="button" class="btn btn-sm" onclick="fetchAiModels('embedding', this)"><i class="ui-ico-slot" data-ui-ico="refresh"></i> 获取</button>
                         </div>
                         <div class="flex-center-gap">
                             <label class="label-sm">向量维度</label>
@@ -1810,7 +1810,7 @@
                 <!-- RAG 配置（可折叠） -->
                 <div class="form-group mt-16">
                     <div class="flex-between-cursor" onclick="toggleRagConfig()">
-                        <label class="heading-sm">🔍 RAG 配置</label>
+                        <label class="heading-sm"><i class="ui-ico-slot" data-ui-ico="search"></i> RAG 配置</label>
                         <span id="ragConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="ragConfigPanel" class="hidden-panel">
@@ -1873,7 +1873,7 @@
     <div id="syncIndexModal" class="modal">
         <div class="modal-content" style="max-width: 520px;">
             <div class="modal-header">
-                <h2>🔄 数据同步</h2>
+                <h2><i class="ui-ico-slot" data-ui-ico="refresh"></i> 数据同步</h2>
                 <button class="modal-close" id="closeSyncIndexModal">&times;</button>
             </div>
             <div class="modal-body">
@@ -1895,7 +1895,7 @@
                 <!-- Embedding 配置（可折叠） -->
                 <div class="form-group mt-16">
                     <div class="flex-between-cursor" onclick="toggleEmbeddingConfig()">
-                        <label class="heading-sm">🔤 Embedding 配置</label>
+                        <label class="heading-sm"><i class="ui-ico-slot" data-ui-ico="sliders"></i> Embedding 配置</label>
                         <span id="embeddingConfigToggle" class="text-muted-sm">展开 ▼</span>
                     </div>
                     <div id="embeddingConfigPanel" class="hidden-panel">
@@ -1940,9 +1940,9 @@
                     </button>
                     <!-- 下拉菜单 -->
                     <div id="syncDropdownMenu" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);min-width:150px;z-index:1000;">
-                        <button type="button" class="dropdown-item" onclick="scanDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;color:#333;">🔍 扫描关系</button>
-                        <button class="dropdown-item menu-item-btn-bordered" type="button" onclick="showDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';">📋 查看关系表</button>
-                        <button class="dropdown-item menu-item-btn-bordered" type="button" onclick="document.getElementById('cancelSyncIndexBtn').click();document.getElementById('syncDropdownMenu').style.display='none';">✕ 取消</button>
+                        <button type="button" class="dropdown-item" onclick="scanDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';" style="display:block;width:100%;padding:8px 12px;text-align:left;border:none;background:none;cursor:pointer;font-size:13px;color:#333;"><i class="ui-ico-slot" data-ui-ico="search"></i> 扫描关系</button>
+                        <button class="dropdown-item menu-item-btn-bordered" type="button" onclick="showDbOntologyRelations();document.getElementById('syncDropdownMenu').style.display='none';"><i class="ui-ico-slot" data-ui-ico="table"></i> 查看关系表</button>
+                        <button class="dropdown-item menu-item-btn-bordered" type="button" onclick="document.getElementById('cancelSyncIndexBtn').click();document.getElementById('syncDropdownMenu').style.display='none';"><i class="ui-ico-slot" data-ui-ico="close"></i> 取消</button>
                     </div>
                 </div>
                 <button type="button" class="btn btn-secondary" id="cancelSyncIndexBtn" style="display:none;">取消</button>
@@ -1980,10 +1980,10 @@
                     <p class="settings-section-desc">导出或导入系统数据（数据库配置、接口、治理任务等），仅管理员可用</p>
                     <div class="settings-data-actions">
                         <button type="button" class="btn" id="exportDataBtn" onclick="exportSystemData()">
-                            📤 导出数据
+                            <i class="ui-ico-slot" data-ui-ico="upload"></i> 导出数据
                         </button>
                         <label class="btn cursor-pointer">
-                            📥 导入数据
+                            <i class="ui-ico-slot" data-ui-ico="download"></i> 导入数据
                             <input type="file" id="importDataFile" accept=".zip" style="display:none;" onchange="importSystemData(this)">
                         </label>
                     </div>
@@ -2349,7 +2349,7 @@
     <div id="govDuplicateModal" class="modal" onclick="if(event.target===this)hideGovDuplicateModal()">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>📄 复制为同类任务</h2>
+                <h2><i class="ui-ico-slot" data-ui-ico="copy"></i> 复制为同类任务</h2>
                 <button class="modal-close" onclick="hideGovDuplicateModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -2374,7 +2374,7 @@
     <div id="govAiCloneModal" class="modal" onclick="if(event.target===this)closeGovAiClone()">
         <div class="modal-content modal-large">
             <div class="modal-header">
-                <h2>✨ AI 基于模板新建任务</h2>
+                <h2><i class="ui-ico-slot" data-ui-ico="sparkle"></i> AI 基于模板新建任务</h2>
                 <button class="modal-close" onclick="closeGovAiClone()">&times;</button>
             </div>
             <div class="modal-body">
@@ -2432,7 +2432,7 @@
     <div id="govApiHelpModal" class="modal" style="display:none;" onclick="if(event.target===this)closeGovApiHelp()">
         <div class="modal-content modal-large gov-api-modal">
             <div class="modal-header">
-                <h2>📖 数据治理 API 参考</h2>
+                <h2><i class="ui-ico-slot" data-ui-ico="file"></i> 数据治理 API 参考</h2>
                 <button class="modal-close" onclick="closeGovApiHelp()">&times;</button>
             </div>
             <div class="gov-api-search-bar">
@@ -2833,10 +2833,10 @@
     <!-- 共享线性图标：必须在其它业务脚本之前加载，静态标记里的
          data-ui-ico 占位符由它自动水合成 SVG（见 js/ui-icons.js） -->
     <script src="/js/ui-icons.js?v=2026092801" defer></script>
-    <script src="/js/script-core.js?v=2026061006" defer></script>
-    <script src="/js/script-agent.js?v=2026092703" defer></script>
+    <script src="/js/script-core.js?v=2026092803" defer></script>
+    <script src="/js/script-agent.js?v=2026092803" defer></script>
     <script src="/js/script-events.js?v=2026092702" defer></script>
-    <script src="/js/script-platform.js?v=2026061002" defer></script>
+    <script src="/js/script-platform.js?v=2026092803" defer></script>
     <script src="/js/script-tables.js?v=2026092705" defer></script>
     <script src="/js/script-api.js?v=2026092704" defer></script>
     <script src="/js/script-settings.js?v=2026061002" defer></script>
@@ -2890,8 +2890,8 @@
         <div class="modal-backdrop" onclick="hideAgentConfigPanel()"></div>
         <div class="agent-config-panel">
             <div class="agent-config-header">
-                <h3>🧩 智能体配置</h3>
-                <button class="agent-config-close" onclick="hideAgentConfigPanel()">✕</button>
+                <h3><i class="ui-ico-slot" data-ui-ico="layers"></i> 智能体配置</h3>
+                <button class="agent-config-close" onclick="hideAgentConfigPanel()"><i class="ui-ico-slot" data-ui-ico="close"></i></button>
             </div>
             <div class="agent-config-tabs">
                 <button class="agent-config-tab active" data-config-tab="mcp" onclick="switchAgentConfigTab('mcp')">MCP Server</button>
@@ -2902,7 +2902,7 @@
                 <div id="agentConfigMcpTab" class="agent-config-tab-content active">
                     <div class="agent-config-toolbar">
                         <button class="btn btn-sm btn-primary" onclick="addMcpServer()">+ 添加 MCP Server</button>
-                        <button class="btn btn-sm" onclick="loadMcpServers()">🔄 刷新</button>
+                        <button class="btn btn-sm" onclick="loadMcpServers()"><i class="ui-ico-slot" data-ui-ico="refresh"></i> 刷新</button>
                     </div>
                     <div id="mcpServerList" class="agent-config-list">
                         <div class="agent-config-empty">加载中...</div>
@@ -2912,7 +2912,7 @@
                 <div id="agentConfigSkillTab" class="agent-config-tab-content" style="display:none;">
                     <div class="agent-config-toolbar">
                         <button class="btn btn-sm btn-primary" onclick="addSkill()">+ 添加 Skill</button>
-                        <button class="btn btn-sm" onclick="loadSkills()">🔄 刷新</button>
+                        <button class="btn btn-sm" onclick="loadSkills()"><i class="ui-ico-slot" data-ui-ico="refresh"></i> 刷新</button>
                     </div>
                     <div id="skillList" class="agent-config-list">
                         <div class="agent-config-empty">加载中...</div>

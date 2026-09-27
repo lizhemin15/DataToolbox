@@ -156,7 +156,7 @@ func runAgentAsync(runID, username, sessionID, message string, databases, module
 
 	// 写入 start 事件
 	seq := 0
-	startData, _ := json.Marshal(map[string]interface{}{"message": "🤖 智能助手已启动，正在规划任务..."})
+	startData, _ := json.Marshal(map[string]interface{}{"message": "智能助手已启动，正在规划任务..."})
 	_ = sqlAppendAgentEvent(runID, seq, "start", string(startData))
 	seq++
 

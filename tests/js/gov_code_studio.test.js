@@ -161,7 +161,7 @@ t('exampleFileNames 兼容对象/字符串两种写法', () => {
 });
 
 // ---------- 接线 ----------
-t('index.html 里有「✨ AI 编辑」按钮且调用 GovCodeStudio.open', () => {
+t('index.html 里有「AI 编辑」按钮且调用 GovCodeStudio.open', () => {
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.ok(html.includes('id="govAiEditBtn"'), '按钮存在');
     assert.ok(html.includes('GovCodeStudio.open()'), '点击打开工作室');

@@ -153,6 +153,42 @@ func TestQAReportSectionOrderAndDisable(t *testing.T) {
 	}
 }
 
+// TestQAReportSectionDragOrder 可视化编辑器拖拽排序后的顺序必须被渲染层尊重。
+// 两个真实入口都要走一遍：
+//   - 导出走「保存原样」的 content（qaBuildReportDocxSel 直接 parseQATemplateContent）
+//   - 预览会先 qaNormalizeTemplateContent 再渲染（qaPreviewPOST 第 2671 行）
+//
+// 曾出过 bug：materializeQASections 强制回到标准顺序，拖拽只改了编辑器，
+// 预览（经规范化）悄悄变回标准序，导出又是另一个顺序 —— 预览与导出不一致。
+func TestQAReportSectionDragOrder(t *testing.T) {
+	// 把「记录填报率」拖到最前面（排在「规则明细」之前）
+	dragged := qaTestTemplate("cn", func(secs []qaTemplateSection) []qaTemplateSection {
+		var drag, rest []qaTemplateSection
+		for _, s := range secs {
+			if s.Key == qaSecRecordFill {
+				drag = append(drag, s)
+				continue
+			}
+			rest = append(rest, s)
+		}
+		return append(drag, rest...)
+	})
+	// 夹具自检：拖拽后的 content 里首段确实是记录填报率（否则这个测试本身就是假绿）
+	if order := parseQATemplateContent(dragged).Sections; order[0].Key != qaSecRecordFill {
+		t.Fatalf("夹具没有改序，测试自身失效：首段=%s", order[0].Key)
+	}
+	cases := []struct{ name, content string }{
+		{"导出路径(保存原样)", dragged},
+		{"预览路径(规范化后)", qaNormalizeTemplateContent(dragged)},
+	}
+	for _, c := range cases {
+		doc, htm := qaRenderBoth(t, c.content, qaTestAudit(), nil)
+		for _, txt := range []struct{ name, s string }{{"docx", doc}, {"html", htm}} {
+			qaCheckOrder(t, c.name+"/"+txt.name, txt.s, []string{"一、记录填报率", "二、规则明细", "三、项填报率"})
+		}
+	}
+}
+
 func TestQAReportSectionRenameAndNumberMode(t *testing.T) {
 	content := qaTestTemplate("none", func(secs []qaTemplateSection) []qaTemplateSection {
 		qaTestSetSection(secs, qaSecRules, func(s *qaTemplateSection) { s.Title = "审核明细" })
@@ -375,8 +411,17 @@ func TestQATemplateNormalize(t *testing.T) {
 	if len(st2.Sections) != len(qaSectionOrder()) {
 		t.Fatalf("未知键应当被丢弃并补齐标准章节，实际 %d 段", len(st2.Sections))
 	}
-	if st2.Sections[0].Key != qaSecOverview {
-		t.Fatalf("规范化后应按标准顺序排列，首段应为 overview，实际 %q", st2.Sections[0].Key)
+	// 已知章节保持调用方给出的顺序（拖拽排序的结果），未知键丢弃，缺失的按标准顺序补在后面
+	if st2.Sections[0].Key != qaSecRules {
+		t.Fatalf("规范化应保留模板里显式声明的章节顺序，首段应为 rules，实际 %q", st2.Sections[0].Key)
+	}
+	wantTail := []string{qaSecOverview, qaSecItemFill, qaSecRecordFill, qaSecAIReview}
+	gotTail := make([]string, 0, len(wantTail))
+	for _, s := range st2.Sections[1:] {
+		gotTail = append(gotTail, s.Key)
+	}
+	if strings.Join(gotTail, ",") != strings.Join(wantTail, ",") {
+		t.Fatalf("补齐的章节应按标准顺序跟在后面，实际 %v", gotTail)
 	}
 	kept := false
 	for _, s := range st2.Sections {

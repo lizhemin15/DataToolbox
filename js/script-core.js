@@ -64,12 +64,12 @@ let skillsList = []; // Skill list cache
 // === Agent Cluster Mode End ===
 
 const aiModules = [
-    { id: 'db-manage', name: '通用提问', icon: '💬', description: '查询数据、统计信息、了解表结构等', aliases: ['数据库管理', '数据库', '查询', '提问', '问答'] },
-    { id: 'api-dispatch', name: '接口制作', icon: '🔌', description: '创建 API 接口、生成数据服务', aliases: ['接口分发', '接口', 'API', 'api', '创建接口', '制作接口'] },
-    { id: 'data-governance', name: '数据治理', icon: '⚙️', description: '创建定时任务、数据导入导出', aliases: ['治理', '定时任务', '导入', '导出', '任务'] },
-    { id: 'quality-audit', name: '质量审计', icon: '✅', description: '数据质量检查、校验规则', aliases: ['质量', '审计', '校验', '检查'] },
-    { id: 'ontology', name: '本体查询', icon: '🧠', description: '概念关系、语义分析', aliases: ['本体论', '本体', '语义', '概念'] },
-    { id: 'small-model', name: '小模型', icon: '🤖', description: '小模型相关、本地模型、离线推理', aliases: ['小模型', '本地模型', '离线'] },
+    { id: 'db-manage', name: '通用提问', icon: uiIcon('question'), description: '查询数据、统计信息、了解表结构等', aliases: ['数据库管理', '数据库', '查询', '提问', '问答'] },
+    { id: 'api-dispatch', name: '接口制作', icon: uiIcon('plug'), description: '创建 API 接口、生成数据服务', aliases: ['接口分发', '接口', 'API', 'api', '创建接口', '制作接口'] },
+    { id: 'data-governance', name: '数据治理', icon: uiIcon('gear'), description: '创建定时任务、数据导入导出', aliases: ['治理', '定时任务', '导入', '导出', '任务'] },
+    { id: 'quality-audit', name: '质量审计', icon: uiIcon('shield'), description: '数据质量检查、校验规则', aliases: ['质量', '审计', '校验', '检查'] },
+    { id: 'ontology', name: '本体查询', icon: uiIcon('layers'), description: '概念关系、语义分析', aliases: ['本体论', '本体', '语义', '概念'] },
+    { id: 'small-model', name: '小模型', icon: uiIcon('sparkle'), description: '小模型相关、本地模型、离线推理', aliases: ['小模型', '本地模型', '离线'] },
 ];
 
 let aiSessionContext = {
@@ -122,7 +122,7 @@ async function saveSessionToBackend(session) {
 async function createNewSession() {
     const session = {
         id: 'sess-' + Date.now(),
-        title: '🚀 新会话',
+        title: '新会话',
         mode: 'cluster',
         messages: [],
         databases: [],
@@ -413,7 +413,7 @@ function renderSessionList() {
     listEl.innerHTML = aiSessions.map(s => {
         const isActive = s.id === currentSessionId;
         return `<div class="ai-session-item ${isActive ? 'active' : ''}" onclick="switchToSession('${s.id}')">
-            <span class="session-title" ondblclick="renameSession('${s.id}', event)">${escapeHtml(s.title)}</span>
+            <span class="session-title" ondblclick="renameSession('${s.id}', event)">${escapeHtml((s.title||'').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D]+\s*/u,'')||'新会话')}</span>
             <button class="session-delete" onclick="deleteSession('${s.id}', event)" title="删除">✕</button>
         </div>`;
     }).join('');
@@ -523,7 +523,7 @@ async function ensureGovernanceScriptsLoaded() {
 async function ensureQualityAuditScriptLoaded() {
     // qa-shared.js 必须先于 quality-audit.js 加载：后者所有解析函数（Excel/粘贴导入、
     // 填报率、报告模板）都依赖 window.QA_SHARED，缺失时会静默退化成空实现。
-    await loadLazyScript('qa-shared.js?v=1.3.83.1706.1706.1249.1249.1450.1450.2026091921');
+    await loadLazyScript('qa-shared.js?v=1.3.83.1706.1706.1249.1249.1450.1450.2026091921.2026092802');
     await loadLazyScript('quality-audit.js?v=1.3.83.1706.1706.1249.1249.1450.1450.2026091922.2026092801');
 }
 

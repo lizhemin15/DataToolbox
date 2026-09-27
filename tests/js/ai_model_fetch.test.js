@@ -21,7 +21,7 @@ check('模型名称输入框绑定 datalist', /id="aiModelInput"[^>]*list="aiMod
 check('存在模型候选 datalist', /<datalist id="aiModelOptions">/.test(html));
 check('存在「自动获取模型列表」按钮', /id="fetchAiModelsBtn"[^>]*onclick="fetchAiModels\(\)"/.test(html));
 check('向量模型也支持自动获取', /id="aiEmbModel"[^>]*list="aiEmbModelOptions"/.test(html) && /fetchAiModels\('embedding', this\)/.test(html));
-check('script-agent.js 已 bump 缓存版本', /script-agent\.js\?v=2026092703/.test(html));
+check('script-agent.js 已 bump 缓存版本', /script-agent\.js\?v=2026092803/.test(html));
 
 // 前端逻辑
 check('定义了 fetchAiModels()', /async function fetchAiModels\(kind, btnEl\)/.test(agentJs));

@@ -6,7 +6,7 @@
     <title>应用编辑器 - 数据工具箱</title>
     <link rel="stylesheet" href="/css/style-core.css?v=2026061002">
     <link rel="stylesheet" href="/css/style-agent.css?v=2026061002">
-    <link rel="stylesheet" href="/css/style-api.css?v=2026061002">
+    <link rel="stylesheet" href="/css/style-api.css?v=2026092803">
     <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
     <style>
         .editor-page {
@@ -288,12 +288,12 @@
         <header class="editor-header">
             <div class="editor-header-left">
                 <a href="/apps/data-ontology/" style="color: white; text-decoration: none;">← 返回应用广场</a>
-                <h1 id="editorTitle">✨ 创建应用</h1>
+                <h1 id="editorTitle">创建应用</h1>
             </div>
             <div class="editor-header-actions">
-                <button class="btn-editor secondary" onclick="previewApp()">👁️ 预览</button>
-                <button class="btn-editor secondary" onclick="deleteApp()" id="deleteBtn" style="display: none;">🗑️ 删除</button>
-                <button class="btn-editor primary" onclick="saveApp()">💾 保存</button>
+                <button class="btn-editor secondary" onclick="previewApp()">预览</button>
+                <button class="btn-editor secondary" onclick="deleteApp()" id="deleteBtn" style="display: none;">删除</button>
+                <button class="btn-editor primary" onclick="saveApp()">保存</button>
             </div>
         </header>
 
@@ -367,7 +367,7 @@
 
     <script>
         let currentAppId = null;
-        let selectedIcon = '🎨';
+        let selectedIcon = '';
         let autoPreviewTimer = null;
 
         // 认证辅助函数
@@ -404,7 +404,7 @@
             currentAppId = params.get('id');
 
             if (currentAppId) {
-                document.getElementById('editorTitle').textContent = '📝 编辑应用';
+                document.getElementById('editorTitle').textContent = '编辑应用';
                 document.getElementById('deleteBtn').style.display = 'block';
                 await loadApp(currentAppId);
             }
@@ -608,7 +608,7 @@ button:hover {
 
                 const data = await resp.json();
                 currentAppId = data.app?.id || data.id;
-                document.getElementById('editorTitle').textContent = '📝 编辑应用';
+                document.getElementById('editorTitle').textContent = '编辑应用';
                 document.getElementById('deleteBtn').style.display = 'block';
                 document.getElementById('lastSaved').textContent = '已保存: ' + new Date().toLocaleTimeString();
                 document.getElementById('statusMsg').textContent = '保存成功！';

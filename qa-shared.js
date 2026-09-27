@@ -395,7 +395,11 @@
             section: { font_family: 'Microsoft YaHei, SimHei, sans-serif', font_size: '16px', color: '#2d3748' },
             table: { border: '1px solid #cbd5e1', header_bg: '#edf2f7', row_alt: '#f8fafc' },
             page_header: '',
-            page_footer: ''
+            page_footer: '',
+            // 章节编号形态：cn（一、二、三）/ arabic（1. 2.）/ none（不编号）。
+            // 少这一个字段，编辑器「改了编号方式 → 保存 → 重开」会被静默改回 cn：
+            // 采集侧（quality-audit.js 保存/预览）会带上它，回填侧解析却不认，值就丢了。
+            section_number: 'cn'
         };
         try {
             var m = JSON.parse(String(raw || '{}'));
@@ -418,6 +422,10 @@
                 }
                 if (m.page_header != null) def.page_header = String(m.page_header);
                 if (m.page_footer != null) def.page_footer = String(m.page_footer);
+                if (m.section_number != null) {
+                    var sn = String(m.section_number).trim();
+                    def.section_number = (sn === 'arabic' || sn === 'none' || sn === 'cn') ? sn : 'cn';
+                }
             }
         } catch (e) {}
         return def;

@@ -32,7 +32,7 @@ function renderPlatformList() {
     let html = '';
     // "全局接口" 虚拟项 — 点击取消平台选择，恢复全局接口列表
     html += `<div class="db-item ${!currentPlatformId ? 'active' : ''}" onclick="deselectPlatform()">
-        <div class="db-item-name">📋 全局接口</div>
+        <div class="db-item-name">全局接口</div>
         <div class="db-item-info">自定义 SQL / HTTP 转发</div>
     </div>`;
     if (!platformsData.length) {

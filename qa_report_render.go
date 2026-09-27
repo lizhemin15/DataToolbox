@@ -200,22 +200,21 @@ func defaultQATemplateSections() []qaTemplateSection {
 
 // materializeQASections 把章节列表补全为显式形态：未知键丢弃、缺失键按标准顺序补上、
 // 每个选项都用目录里的默认值填实。用于「可视化编辑器打开模板时」与「老模板迁移」。
+// 保留调用方给出的顺序（可视化编辑器拖拽排序后的顺序），缺失的键按标准顺序补在后面。
 func materializeQASections(in []qaTemplateSection) []qaTemplateSection {
-	byKey := map[string]qaTemplateSection{}
-	for _, s := range in {
-		if !qaSectionKnown(s.Key) {
-			continue
-		}
-		if _, dup := byKey[s.Key]; dup {
-			continue
-		}
-		byKey[s.Key] = s
-	}
 	out := make([]qaTemplateSection, 0, 5)
+	seen := map[string]bool{}
+	for _, s := range in {
+		if !qaSectionKnown(s.Key) || seen[s.Key] {
+			continue
+		}
+		seen[s.Key] = true
+		spec, _ := qaSectionSpecOf(s.Key)
+		s.Opts = materializeQAOpts(spec, s.Opts)
+		out = append(out, s)
+	}
 	for _, spec := range qaSectionCatalog() {
-		if s, ok := byKey[spec.Key]; ok {
-			s.Opts = materializeQAOpts(spec, s.Opts)
-			out = append(out, s)
+		if seen[spec.Key] {
 			continue
 		}
 		out = append(out, qaTemplateSection{

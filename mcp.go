@@ -1164,7 +1164,7 @@ func mcpGetDbSQLHints(ctx context.Context, req *mcp.CallToolRequest, in getDbSQL
 func mcpCreateApi(ctx context.Context, req *mcp.CallToolRequest, in createApiIn) (*mcp.CallToolResult, any, error) {
 	// 强制 HITL 确认：创建接口前必须先调用 ask_user 让用户确认配置
 	if !agent.IsHITLConfirmed("default") {
-		confirmMsg := fmt.Sprintf("⚠️ 创建接口前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 名称: %s\n- 路径: %s\n- 方法: %s\n- SQL: %s\n- 数据库: %s\n- 描述: %s", in.Name, in.Path, in.Method, in.SQL, in.Database, in.Description)
+		confirmMsg := fmt.Sprintf("创建接口前必须先让用户确认！请先调用 ask_user 工具（interaction_type=\"form\"），让用户审核以下配置后再创建：\n- 名称: %s\n- 路径: %s\n- 方法: %s\n- SQL: %s\n- 数据库: %s\n- 描述: %s", in.Name, in.Path, in.Method, in.SQL, in.Database, in.Description)
 		return mcpTextResult(confirmMsg), nil, fmt.Errorf("HITL确认缺失: 必须先调用ask_user工具让用户确认")
 	}
 
@@ -1411,7 +1411,7 @@ func mcpPreviewApp(ctx context.Context, req *mcp.CallToolRequest, in previewAppI
 	}
 	configFields = append(configFields, map[string]interface{}{
 		"component_id":   "_global",
-		"component_name": "📐 全局配置",
+		"component_name": "全局配置",
 		"fields":         globalFields,
 	})
 
@@ -1529,7 +1529,7 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 			"action":        "preview",
 			"config_fields": configFields,
 			"blueprint":     blueprint,
-			"message":       fmt.Sprintf("📱 预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html，服务器会自动从 blueprint 生成预览。用户确认后再次调用 create_app(confirmed=true) 即可正式创建。"),
+			"message":       fmt.Sprintf("预览已生成！请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。不要传 preview_html，服务器会自动从 blueprint 生成预览。用户确认后再次调用 create_app(confirmed=true) 即可正式创建。"),
 		}
 		data, _ := json.Marshal(result)
 		return mcpTextResult(string(data)), nil, nil
@@ -1581,7 +1581,7 @@ func mcpCreateAppFromBlueprint(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, nil, fmt.Errorf("创建应用失败 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
-	return mcpTextResult(fmt.Sprintf("✅ 应用 %q 已创建！访问地址: /app/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
+	return mcpTextResult(fmt.Sprintf("应用 %q 已创建！访问地址: /app/%s\n组件: %d 个", in.Title, in.Slug, len(in.Components))), nil, nil
 }
 
 // ─── create_dashboard：一键生成数据看板 ────────────────────────────────────
@@ -2033,7 +2033,7 @@ func mcpCreateDashboard(ctx context.Context, req *mcp.CallToolRequest, in create
 			},
 			"config_fields": configFields,
 			"blueprint":     blueprint,
-			"message":       fmt.Sprintf("📊 看板预览已生成！表 %s 共 %d 行 %d 列，自动选择 %d 个组件。请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。用户确认后再次调用 create_dashboard(confirmed=true) 即可正式创建。", tableName, int(rowCount), len(columns), len(comps)),
+			"message":       fmt.Sprintf("看板预览已生成！表 %s 共 %d 行 %d 列，自动选择 %d 个组件。请立即调用 ask_user 工具（interaction_type=\"preview\"），传入 blueprint 和 config_fields。用户确认后再次调用 create_dashboard(confirmed=true) 即可正式创建。", tableName, int(rowCount), len(columns), len(comps)),
 		}
 		data, _ := json.Marshal(result)
 		return mcpTextResult(string(data)), nil, nil
@@ -2082,7 +2082,7 @@ func mcpCreateDashboard(ctx context.Context, req *mcp.CallToolRequest, in create
 		return nil, nil, fmt.Errorf("创建看板应用失败 (%d): %s", resp.StatusCode, string(respBody))
 	}
 
-	return mcpTextResult(fmt.Sprintf("✅ 看板 %q 已创建！访问地址: /app/%s\n组件: %d 个 | 数据行数: %d | 设计: %s", dashboardName, slug, len(comps), int(rowCount), designDirection)), nil, nil
+	return mcpTextResult(fmt.Sprintf("看板 %q 已创建！访问地址: /app/%s\n组件: %d 个 | 数据行数: %d | 设计: %s", dashboardName, slug, len(comps), int(rowCount), designDirection)), nil, nil
 }
 
 func mcpDesignTheme(ctx context.Context, req *mcp.CallToolRequest, in designThemeIn) (*mcp.CallToolResult, any, error) {

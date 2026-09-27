@@ -790,7 +790,7 @@ tools: [delegate, subagent, spawn, read_file, write_file, list_dir, exec, ask_us
 ## 强制规则
 
 1. **必须真正调用工具**，禁止用文字描述调用过程
-2. **必须用 ask_user 交互**，禁止用文字询问用户（"请告诉我..."❌ → ask_user✅）
+2. **必须用 ask_user 交互**，禁止用文字询问用户（"请告诉我..."→ ask_user）
 3. **不可逆操作前必须 ask_user 确认**（创建接口、删除、写操作）
 4. **用中文回复**，简洁准确不废话
 
@@ -1008,7 +1008,7 @@ func handleAgentClusterQuery(w http.ResponseWriter, r *http.Request) {
 
 func handleAgentClusterQueryWithReq(w http.ResponseWriter, r *http.Request, flusher http.Flusher, queryReq *AIQueryRequest, username string) {
 	// 发送开始事件
-	sendSSE(w, "start", map[string]interface{}{"message": "🤖 集群模式已启动，智能体正在规划任务..."})
+	sendSSE(w, "start", map[string]interface{}{"message": "集群模式已启动，智能体正在规划任务..."})
 	flusher.Flush()
 
 	// 懒初始化：获取该会话的 Orchestrator（每会话独立 workspace）

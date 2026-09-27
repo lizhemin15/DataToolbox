@@ -80,7 +80,7 @@ async function fetchAiModels(kind, btnEl) {
         if (hint) hint.textContent = '';
         showToast('获取模型列表失败：' + (e.message || e), 'error');
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = originalText || '🔄 获取'; }
+        if (btn) { btn.disabled = false; btn.textContent = originalText || '获取'; }
     }
 }
 
@@ -325,7 +325,7 @@ async function handleSyncIndex() {
                     const relations = statusData.total_relations || 0;
 
                     // 显示详细进度
-                    let progressHtml = '✅ 同步完成<br>';
+                    let progressHtml = '同步完成<br>';
                     const parts = [];
                     if (syncTables) parts.push(`表: ${tables}`);
                     if (syncVectors) parts.push(`向量: ${vectors}`);
@@ -341,7 +341,7 @@ async function handleSyncIndex() {
                         setTimeout(pollStatus, 5000);
                     } else {
                         // 超时
-                        progressEl.textContent = '⚠️ 同步超时，请稍后刷新查看结果';
+                        progressEl.textContent = '同步超时，请稍后刷新查看结果';
                         btn.disabled = false;
                     }
                 }
@@ -351,7 +351,7 @@ async function handleSyncIndex() {
                     progressEl.textContent = `同步进行中... (${attempts}/${maxAttempts})`;
                     setTimeout(pollStatus, 5000);
                 } else {
-                    progressEl.textContent = '⚠️ 获取状态失败: ' + error.message;
+                    progressEl.textContent = '获取状态失败: ' + error.message;
                     btn.disabled = false;
                 }
             }
@@ -2128,20 +2128,20 @@ function showClusterModeGuide() {
     guideEl.id = 'clusterModeGuide';
     guideEl.className = 'cluster-mode-guide';
     guideEl.innerHTML = `
-        <div class="cluster-guide-header">🤖 智能助手 — 多智能体自主规划执行</div>
+        <div class="cluster-guide-header">智能助手 — 多智能体自主规划执行</div>
         <div class="cluster-guide-body">
             <p>智能助手由多个AI智能体协作完成任务，具备自主规划、工具调用、深度分析能力。</p>
             <div class="cluster-guide-tips">
-                <div class="cluster-tip">💡 <b>直接提问</b>：输入自然语言描述，如"帮我分析这个数据库的数据质量"</div>
-                <div class="cluster-tip">🔍 <b>深度分析</b>：智能体会自动拆解复杂任务，多步执行</div>
-                <div class="cluster-tip">🔧 <b>工具调用</b>：支持SQL生成、Schema审查、数据治理等工具</div>
-                <div class="cluster-tip">📋 <b>Trace追踪</b>：可查看每个智能体的执行轨迹和工具调用</div>
+                <div class="cluster-tip"><b>直接提问</b>：输入自然语言描述，如"帮我分析这个数据库的数据质量"</div>
+                <div class="cluster-tip"><b>深度分析</b>：智能体会自动拆解复杂任务，多步执行</div>
+                <div class="cluster-tip"><b>工具调用</b>：支持SQL生成、Schema审查、数据治理等工具</div>
+                <div class="cluster-tip"><b>Trace追踪</b>：可查看每个智能体的执行轨迹和工具调用</div>
             </div>
             <div class="cluster-guide-note">
-                ⚠️ 智能助手需要多步推理，复杂任务响应较慢。
+                智能助手需要多步推理，复杂任务响应较慢。
             </div>
             <div class="cluster-guide-config">
-                ⚙️ 点击右上角 <b>Agent配置</b> 按钮，可管理 MCP Server 和 Skill。
+                点击右上角 <b>Agent配置</b> 按钮，可管理 MCP Server 和 Skill。
             </div>
         </div>
     `;
@@ -2280,7 +2280,7 @@ async function resumeAgentRun(runId, startSeq) {
             const chevron = pw.querySelector('.cluster-block-chevron');
             if (chevron) chevron.textContent = '▶';
             const titleEl = pw.querySelector('.cluster-block-title');
-            if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
+            if (titleEl) titleEl.textContent = `中间过程 (${processWrapperRef.count} 步)`;
         }
         const blocksData = [];
         blocksEl.querySelectorAll(':scope > .cluster-block').forEach(b => {
@@ -2456,7 +2456,7 @@ async function sendClusterQuery(message, databases, modules) {
                 const chevron = pw.querySelector('.cluster-block-chevron');
                 if (chevron) chevron.textContent = '▶';
                 const titleEl = pw.querySelector('.cluster-block-title');
-                if (titleEl) titleEl.textContent = `⚙️ 中间过程 (${processWrapperRef.count} 步)`;
+                if (titleEl) titleEl.textContent = `中间过程 (${processWrapperRef.count} 步)`;
             }
 
             // 保存会话
@@ -2515,7 +2515,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
     // 确保中间过程需要的事件能获取到外层 wrapper
     function ensureProcessWrapper() {
         if (!processWrapperRef.wrapper) {
-            const wrapper = createClusterBlock('⚙️ 中间过程', 'cluster-block-process');
+            const wrapper = createClusterBlock('中间过程', 'cluster-block-process');
             wrapper.classList.add('cluster-process-wrapper');
             // 流式过程中保持展开
             wrapper.classList.remove('collapsed');
@@ -2570,7 +2570,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
             const pBody = ensureProcessWrapper();
             let thinkBlock = pBody.querySelector('.cluster-block-thinking:not(.closed)');
             if (!thinkBlock) {
-                thinkBlock = createClusterBlock('💭 思考过程', 'cluster-block-thinking');
+                thinkBlock = createClusterBlock('思考过程', 'cluster-block-thinking');
                 pBody.appendChild(thinkBlock);
                 processWrapperRef.count++;
             }
@@ -2585,7 +2585,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
         case 'tool_call': {
             // 工具调用折叠块 → 追加到外层"中间过程"块内
             const pBody = ensureProcessWrapper();
-            const toolBlock = createClusterBlock(`🔧 ${tool || '工具调用'}`, 'cluster-block-tool');
+            const toolBlock = createClusterBlock(`${tool || '工具调用'}`, 'cluster-block-tool');
             const body = toolBlock.querySelector('.cluster-block-body');
             if (content) body.insertAdjacentHTML('beforeend', formatToolContent(content, false, tool));
             // 提取SQL查询参数用于导出
@@ -2609,7 +2609,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
                 body.insertAdjacentHTML('beforeend', formatToolContent(content, true, tool));
                 currentBlock.classList.add('closed');
             } else {
-                const resultBlock = createClusterBlock(`📋 ${tool || '工具结果'}`, 'cluster-block-tool');
+                const resultBlock = createClusterBlock(`${tool || '工具结果'}`, 'cluster-block-tool');
                 const body = resultBlock.querySelector('.cluster-block-body');
                 body.insertAdjacentHTML('beforeend', formatToolContent(content, true, tool));
                 pBody.appendChild(resultBlock);
@@ -2622,7 +2622,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
 
         case 'agent_switch': {
             const pBody = ensureProcessWrapper();
-            const switchBlock = createClusterBlock(`🔀 ${evt.from || '?'} → ${evt.to || '?'}`, 'cluster-block-switch');
+            const switchBlock = createClusterBlock(`${evt.from || '?'} → ${evt.to || '?'}`, 'cluster-block-switch');
             pBody.appendChild(switchBlock);
             switchBlock.classList.add('closed');
             processWrapperRef.count++;
@@ -2633,7 +2633,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
         case 'llm_retry': {
             // LLM 重试事件 → 追加到外层"中间过程"块内
             const pBody = ensureProcessWrapper();
-            const retryBlock = createClusterBlock(`⚠️ 重试`, 'cluster-block-retry');
+            const retryBlock = createClusterBlock(`重试`, 'cluster-block-retry');
             const body = retryBlock.querySelector('.cluster-block-body');
             const reason = evt.reason || '未知';
             const attempt = evt.attempt || '?';
@@ -2648,7 +2648,7 @@ function handleClusterEventV2(evt, blocksEl, textEl, typingEl, currentBlock, pro
         }
 
         case 'error': {
-            const errBlock = createClusterBlock(`❌ 错误`, 'cluster-block-error');
+            const errBlock = createClusterBlock(`错误`, 'cluster-block-error');
             const body = errBlock.querySelector('.cluster-block-body');
             body.insertAdjacentHTML('beforeend', `<div class="cluster-error-detail">${escapeHtml(evt.message || content || '未知错误')}</div>`);
             // error 保持独立，不包在中间过程里
@@ -2708,7 +2708,7 @@ function renderHITLCard(evt) {
 
     // Header
     let html = `<div class="hitl-card-header">
-        <span class="hitl-card-icon">${interactionType === 'confirm' ? '⚠️' : interactionType === 'form' ? '📝' : interactionType === 'preview' ? '👁️' : '❓'}</span>
+        <span class="hitl-card-icon">${interactionType === 'confirm' ? uiIcon('alert') : interactionType === 'form' ? uiIcon('edit') : interactionType === 'preview' ? uiIcon('eye') : uiIcon('question')}</span>
         <span class="hitl-card-title">${escapeHtml(title)}</span>
     </div>`;
 
@@ -2732,8 +2732,8 @@ function renderHITLCard(evt) {
         } else {
             // Default confirm/cancel buttons
             html += `<div class="hitl-options">
-                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">✅ 确认</button>
-                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">确认</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">取消</button>
             </div>`;
         }
     } else if (interactionType === 'form' || interactionType === 'input') {
@@ -2758,14 +2758,14 @@ function renderHITLCard(evt) {
                 html += '</div>';
             }
             html += `<div class="hitl-options">
-                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitForm('${hitlId}')">✅ 提交</button>
-                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitForm('${hitlId}')">提交</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">取消</button>
             </div>`;
         } else {
             // No fields — just show description + confirm/cancel
             html += `<div class="hitl-options">
-                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">✅ 确认</button>
-                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+                <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitConfirm('${hitlId}', 'yes')">确认</button>
+                <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">取消</button>
             </div>`;
         }
     } else if (interactionType === 'single_select') {
@@ -2784,8 +2784,8 @@ function renderHITLCard(evt) {
         }
         html += `</div>
         <div class="hitl-options">
-            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitMultiSelect('${hitlId}')">✅ 提交</button>
-            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitMultiSelect('${hitlId}')">提交</button>
+            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">取消</button>
         </div>`;
     } else if (interactionType === 'preview') {
         // 预览交互类型 — iframe 预览 + 配置表单
@@ -2797,16 +2797,16 @@ function renderHITLCard(evt) {
         // 始终渲染 iframe 容器（即使 preview_html 暂时为空，后续可能异步加载）
         html += `<div class="hitl-preview-container">
             <div style="display:flex;gap:4px;margin-bottom:6px;">
-                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','100%','420px')" title="桌面" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">🖥️ 桌面</button>
-                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','768px','500px')" title="平板" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📱 平板</button>
-                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','375px','600px')" title="手机" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">📲 手机</button>
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','100%','420px')" title="桌面" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">桌面</button>
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','768px','500px')" title="平板" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">平板</button>
+                <button class="hitl-device-btn" onclick="hitlSetDeviceSize('${hitlId}','375px','600px')" title="手机" style="padding:2px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;">手机</button>
             </div>
             <iframe class="hitl-preview-iframe" style="width:${previewWidth};height:${previewHeight};border:1px solid #e5e7eb;border-radius:8px;transition:width 0.2s,height 0.2s;" sandbox="allow-scripts allow-same-origin"></iframe>
         </div>`;
 
         // 配置表单（按组件分组，可交互修改组件配置）
         if (configFields.length > 0) {
-            html += '<div class="hitl-config-section"><div class="hitl-config-title">⚙️ 组件配置</div><div class="hitl-config-fields">';
+            html += '<div class="hitl-config-section"><div class="hitl-config-title">组件配置</div><div class="hitl-config-fields">';
             // 检测嵌套格式：[{component_id, component_name, fields: [...]}]
             const isNested = configFields[0] && configFields[0].component_id && configFields[0].fields;
             if (isNested) {
@@ -2870,9 +2870,9 @@ function renderHITLCard(evt) {
         html += `<div class="hitl-options" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#6b7280;cursor:pointer;"><input type="checkbox" id="hitl-live-${hitlId}" checked onchange="hitlToggleLive('${hitlId}')"> 实时预览</label>
             <span style="flex:1;"></span>
-            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitPreview('${hitlId}')">✅ 确认并创建</button>
-            <button class="hitl-option-btn hitl-option-default" onclick="hitlRefreshPreview('${hitlId}')">🔄 重新生成</button>
-            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">❌ 取消</button>
+            <button class="hitl-option-btn hitl-option-primary" onclick="hitlSubmitPreview('${hitlId}')">确认并创建</button>
+            <button class="hitl-option-btn hitl-option-default" onclick="hitlRefreshPreview('${hitlId}')">重新生成</button>
+            <button class="hitl-option-btn hitl-option-danger" onclick="hitlSubmitCancel('${hitlId}')">取消</button>
         </div>`;
     }
 
@@ -3153,7 +3153,7 @@ function hitlSubmit(hitlId, action, values) {
             btn.style.opacity = '0.5';
         });
         const footer = card.querySelector('.hitl-card-footer');
-        if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">✅ 响应已提交，智能助手继续执行...</span>';
+        if (footer) footer.innerHTML = '<span class="hitl-timeout-hint">响应已提交，智能助手继续执行...</span>';
     }
 
     const token = localStorage.getItem('dataOntologyToken') || '';
@@ -3167,7 +3167,7 @@ function hitlSubmit(hitlId, action, values) {
             // 这些都是正常场景，不需要红色错误提示
             if (card) {
                 const footer = card.querySelector('.hitl-card-footer');
-                if (footer) footer.innerHTML = `<span class="hitl-timeout-hint">✅ 已处理</span>`;
+                if (footer) footer.innerHTML = `<span class="hitl-timeout-hint">已处理</span>`;
             }
         } else {
             // HITL 提交成功，恢复轮询
@@ -3570,7 +3570,7 @@ function formatClusterMarkdown(text) {
     if (thinkContent.trim()) {
         let thinkHtml = escapeHtml(thinkContent.trim());
         thinkHtml = thinkHtml.replace(/\n/g, '<br>');
-        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${thinkHtml}</div></details>`;
+        result += `<details class="ai-think-block"><summary class="ai-think-summary">思考过程</summary><div class="ai-think-content">${thinkHtml}</div></details>`;
     }
 
     if (mainContent.trim()) {
@@ -3802,7 +3802,7 @@ function renderSkillConfig(container, skills) {
                         </div>
                         <div class="ac-card-meta">
                             ${s.description ? `<span class="ac-meta-detail">${escapeHtml(s.description.substring(0, 60))}${s.description.length > 60 ? '...' : ''}</span>` : ''}
-                            ${s.source_path ? `<span class="ac-meta-path" title="${escapeHtml(s.source_path)}">📁 ${escapeHtml(s.source_path.split('/').pop())}</span>` : ''}
+                            ${s.source_path ? `<span class="ac-meta-path" title="${escapeHtml(s.source_path)}">${escapeHtml(s.source_path.split('/').pop())}</span>` : ''}
                         </div>
                     </div>
                 </div>
@@ -4067,7 +4067,7 @@ async function showSkillFiles(skillId) {
         
         // Build file tree with toolbar
         let html = '<div class="skill-files-tree">';
-        html += `<div class="skill-files-header"><strong>📁 ${escapeHtml(data.data.source_path)}</strong></div>`;
+        html += `<div class="skill-files-header"><strong>${escapeHtml(data.data.source_path)}</strong></div>`;
         
         // Toolbar
         html += `<div class="skill-files-toolbar">
@@ -4778,7 +4778,7 @@ async function loadAppsMarketplace() {
         if (apps.length === 0) {
             container.innerHTML = `
                 <div class="apps-empty-state">
-                    <div class="empty-icon">📦</div>
+                    <div class="empty-icon">${uiIcon('box','ui-ico-lg')}</div>
                     <h3>暂无应用</h3>
                     <p>点击上方「创建应用」按钮添加第一个应用</p>
                 </div>
@@ -4795,7 +4795,7 @@ async function loadAppsMarketplace() {
             const styleTag = blueprint?.style || '';
             return `
             <div class="app-card-item">
-                <div class="app-card-icon">${app.icon || '📄'}</div>
+                <div class="app-card-icon">${app.icon || uiIcon('file')}</div>
                 <h3 class="app-card-title">${escapeHtml(app.title)}</h3>
                 <p class="app-card-desc">${escapeHtml(app.description || '暂无描述')}</p>
                 <div class="app-card-meta">
@@ -4813,7 +4813,7 @@ async function loadAppsMarketplace() {
         `;}).join('');
     } catch (e) {
         console.error('加载应用列表失败:', e); showToast('加载应用列表失败', 'error');
-        container.innerHTML = `<div class="apps-empty-state"><div class="empty-icon">❌</div><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
+        container.innerHTML = `<div class="apps-empty-state"><div class="empty-icon">${uiIcon('alert','ui-ico-lg')}</div><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
     }
 }
 
@@ -4829,7 +4829,7 @@ function openAppEditor() {
     document.querySelector('.apps-marketplace-container').classList.add('editor-mode');
     
     // 重置编辑器状态
-    document.getElementById('codepenAppTitle').textContent = '✨ 创建应用';
+    document.getElementById('codepenAppTitle').textContent = '创建应用';
     document.getElementById('codepenAppName').value = '';
     document.getElementById('codepenAppSlug').value = '';
     document.getElementById('codepenAppDesc').value = '';
@@ -5016,7 +5016,7 @@ async function saveCodepenApp() {
         
         const result = await response.json();
         window._currentEditingAppId = result.id || result.app_id;
-        document.getElementById('codepenAppTitle').textContent = '✏️ 编辑应用';
+        document.getElementById('codepenAppTitle').textContent = '编辑应用';
         document.getElementById('codepenDeleteBtn').style.display = 'inline-block';
         
         const now = new Date().toLocaleTimeString();
@@ -5063,7 +5063,7 @@ async function loadAppIntoEditor(appId) {
         const app = await response.json();
         
         // 填充表单
-        document.getElementById('codepenAppTitle').textContent = '✏️ 编辑应用';
+        document.getElementById('codepenAppTitle').textContent = '编辑应用';
         document.getElementById('codepenAppName').value = app.title || '';
         document.getElementById('codepenAppSlug').value = app.slug || '';
         document.getElementById('codepenAppDesc').value = app.description || '';

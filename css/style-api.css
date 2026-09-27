@@ -167,7 +167,7 @@
 /* ==================== 调用示例代码区域 ==================== */
 
 .code-examples-section h3::before {
-    content: "💻" !important;
+    content: "" !important;
 }
 
 .code-examples-container {

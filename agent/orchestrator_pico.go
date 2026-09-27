@@ -252,9 +252,9 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 	case runtimeevents.KindAgentToolExecEnd:
 		// 工具调用结束 — 转发为 tool_result
 		if p, ok := payload.(picoclawagent.ToolExecEndPayload); ok {
-			status := "✅ 完成"
+			status := "完成"
 			if p.IsError {
-				status = "❌ 失败"
+				status = "失败"
 			}
 			out <- Event{Type: EventTypeToolResult, Data: map[string]interface{}{
 				"tool":    p.Tool,
@@ -316,7 +316,7 @@ func translateRuntimeEvent(evt runtimeevents.Event, out chan<- Event) {
 				reasonText = p.Reason
 			}
 			out <- Event{Type: EventTypeThinking, Data: map[string]interface{}{
-				"content": fmt.Sprintf("⚠️ %s，第 %d/%d 次重试，等待 %v...", reasonText, p.Attempt, p.MaxRetries, p.Backoff.Round(time.Second)),
+				"content": fmt.Sprintf("%s，第 %d/%d 次重试，等待 %v...", reasonText, p.Attempt, p.MaxRetries, p.Backoff.Round(time.Second)),
 				"agent":   evt.Source.Name,
 			}}
 		}
