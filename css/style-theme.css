@@ -946,6 +946,18 @@ input[type="radio"] {
     background: #ef4444;
 }
 
+/* 第二列头部：列宽只有 ~280px，标题与 4 个表级按钮挤一行会把库名压成 "D…"，
+   改成标题独占一行、按钮另起一行。 */
+.col-tables-header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+#colTablesDbName {
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
 /* 未选择数据库时，第二列的表级操作与搜索没有意义，先隐藏 */
 #colTableList.no-db .col-tables-actions,
 #colTableList.no-db .col-tables-search {

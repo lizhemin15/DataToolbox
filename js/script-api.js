@@ -1101,8 +1101,8 @@ async function previewTable(tableName, keepEditMode = false) {
             if (columns.length === 0) {
                 // 仍然无法获取字段时，显示空状态。
                 previewContent.innerHTML = `
-                    <div style="text-align:center;padding:40px;">
-                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">${GLYPH_EMPTY}</div>
+                    <div class="col-detail-placeholder" style="padding:24px 20px;">
+                        ${GLYPH_EMPTY}
                         <div style="color:#718096;font-size:16px;margin-bottom:12px;">当前表没有字段</div>
                         <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">请先确认数据库表结构是否可访问</div>
                         <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">重新加载</button>
