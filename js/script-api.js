@@ -21,6 +21,14 @@ var DETAIL_PLACEHOLDER_HTML = [
     '<p class="placeholder-hint">选中左侧任一数据表，这里会展示它的结构与数据</p>'
 ].join('');
 
+// ===== 通用线性图标（替代 emoji，保证黑白灰风格一致） =====
+var GLYPH_ALERT = '<svg class="status-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.6l8.4 14.6H3.6z"/><path d="M12 10v4.2"/><path d="M12 17.1h.01"/></svg>';
+var GLYPH_EMPTY = '<svg class="status-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="M3 10h18M9.2 10v9"/></svg>';
+var GLYPH_CHECK = '<svg class="toast-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+var SCHEMA_CHEVRON = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>';
+var ICON_PREV = '<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6l-6 6 6 6"/></svg>';
+var ICON_NEXT = '<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6l6 6-6 6"/></svg>';
+
 // ===== 三列布局辅助函数 =====
 
 // 重置第二列和第三列为占位提示（数据库被删除或切换时调用）。
@@ -32,6 +40,7 @@ function resetDbColumns() {
     const listEl = document.getElementById('tablesList');
     if (listEl) {
         listEl.innerHTML = TABLE_LIST_PLACEHOLDER_HTML;
+        document.getElementById('colTableList')?.classList.add('no-db');
     }
     resetDetailColumn();
 }
@@ -670,7 +679,6 @@ function renderDatabaseList() {
     });
 
     listEl.innerHTML = sortedDatabases.map(db => {
-        const typeIcon = dbTypeIcons[db.type] || '🗃️';
         const isFileDb = dbTypeDefaults[db.type]?.isFile;
         const info = isFileDb ? (db.path || '未配置') : `${db.host || ''}:${db.port || ''}`;
         
@@ -751,12 +759,15 @@ async function loadDatabaseDetail(dbId) {
             
             const isFileDb = dbTypeDefaults[data.database.type]?.isFile;
             const dbLabel = `${data.database.name} (${typeNames[data.database.type] || data.database.type})`;
+            document.getElementById('colTableList')?.classList.remove('no-db');
             document.getElementById('colTablesDbName').textContent = dbLabel;
             
             // 第二列简要信息
             const host = isFileDb ? data.database.path : data.database.host;
             const port = isFileDb ? '-' : data.database.port;
-            const status = data.database.connected ? '✅ 已连接' : '❌ 未连接';
+            const status = data.database.connected
+                ? '<span class="conn-dot is-on"></span>已连接'
+                : '<span class="conn-dot is-off"></span>未连接';
             document.getElementById('colTablesDbInfo').innerHTML = `${host}${port !== '-' ? ':' + port : ''} · ${status}`;
             
             // 保存db信息供其他函数使用（兼容旧代码引用）
@@ -766,21 +777,23 @@ async function loadDatabaseDetail(dbId) {
             resetDetailColumn();
         } else {
             // 数据库未连接时展示错误状态。
+            document.getElementById('colTableList')?.classList.remove('no-db');
             const listEl = document.getElementById('tablesList');
             listEl.innerHTML = `
                 <div style="text-align:center;padding:40px;color:#e53e3e;">
-                    <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                    <div style="font-size:48px;margin-bottom:12px;">${GLYPH_ALERT}</div>
                     <div>加载失败：${escapeHtml(data.message || '未知错误')}</div>
                 </div>
             `;
         }
     } catch (error) {
         console.error('加载数据库详情失败', error);
+        document.getElementById('colTableList')?.classList.remove('no-db');
         // 退回到通用错误状态。
         const listEl = document.getElementById('tablesList');
         listEl.innerHTML = `
             <div style="text-align:center;padding:40px;color:#e53e3e;">
-                <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+                <div style="font-size:48px;margin-bottom:12px;">${GLYPH_ALERT}</div>
                 <div>无法加载数据库详情，请稍后重试</div>
             </div>
         `;
@@ -838,7 +851,7 @@ function renderTablesList(tables) {
         
         listEl.innerHTML = `
             <div style="text-align:center;color:#718096;padding:40px;">
-                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">📭</div>
+                <div style="font-size:48px;margin-bottom:12px;opacity:0.6;">${GLYPH_EMPTY}</div>
                 <div style="font-size:16px;">当前没有表数据</div>
                 ${hint}
             </div>
@@ -889,7 +902,7 @@ function renderTablesList(tables) {
             html += `
                 <div class="schema-group">
                     <div class="schema-header" onclick="toggleSchema(this)" data-open="${defaultOpen}">
-                        <span class="schema-arrow">${defaultOpen ? '▾' : '▸'}</span>
+                        <span class="schema-arrow${defaultOpen ? ' is-open' : ''}">${SCHEMA_CHEVRON}</span>
                         <span class="schema-name">${escapeHtml(schema)}</span>
                         <span class="schema-count">${tablesInSchema.length}</span>
                     </div>
@@ -906,7 +919,7 @@ function renderTablesList(tables) {
         if (hasSchemas) {
             html += `<div class="schema-group">
                 <div class="schema-header" onclick="toggleSchema(this)" data-open="true">
-                    <span class="schema-arrow">▾</span>
+                    <span class="schema-arrow is-open">${SCHEMA_CHEVRON}</span>
                     <span class="schema-name">默认</span>
                     <span class="schema-count">${noSchema.length}</span>
                 </div>
@@ -929,11 +942,11 @@ function toggleSchema(header) {
     const isOpen = tablesDiv.style.display !== 'none';
     if (isOpen) {
         tablesDiv.style.display = 'none';
-        arrow.textContent = '▸';
+        arrow.classList.remove('is-open');
         header.setAttribute('data-open', 'false');
     } else {
         tablesDiv.style.display = 'block';
-        arrow.textContent = '▾';
+        arrow.classList.add('is-open');
         header.setAttribute('data-open', 'true');
     }
 }
@@ -956,7 +969,7 @@ function filterTables(keyword) {
         if (kw) {
             // 搜索时展开
             tablesDiv.style.display = 'block';
-            group.querySelector('.schema-arrow').textContent = '▾';
+            group.querySelector('.schema-arrow').classList.add('is-open');
             // 如果该 group 下没有可见表，隐藏整个 group
             const hasVisible = Array.from(allItems).some(item => item.style.display !== 'none');
             group.style.display = hasVisible ? '' : 'none';
@@ -966,7 +979,7 @@ function filterTables(keyword) {
             const header = group.querySelector('.schema-header');
             const wasOpen = header.getAttribute('data-open') === 'true';
             tablesDiv.style.display = wasOpen ? 'block' : 'none';
-            group.querySelector('.schema-arrow').textContent = wasOpen ? '▾' : '▸';
+            group.querySelector('.schema-arrow').classList.toggle('is-open', wasOpen);
         }
     });
 }
@@ -1089,7 +1102,7 @@ async function previewTable(tableName, keepEditMode = false) {
                 // 仍然无法获取字段时，显示空状态。
                 previewContent.innerHTML = `
                     <div style="text-align:center;padding:40px;">
-                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">📭</div>
+                        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">${GLYPH_EMPTY}</div>
                         <div style="color:#718096;font-size:16px;margin-bottom:12px;">当前表没有字段</div>
                         <div style="color:#a0aec0;font-size:14px;margin-bottom:16px;">请先确认数据库表结构是否可访问</div>
                         <button type="button" class="btn btn-primary" onclick="loadStructureAndRenderTable()">重新加载</button>
@@ -1116,9 +1129,9 @@ async function previewTable(tableName, keepEditMode = false) {
                 <div class="table-toolbar">
                     <span id="tableRowCount" class="table-count">${data.data.length} 行</span>
                     <div class="table-pagination">
-                        <button class="btn btn-sm" onclick="loadPage('prev')" id="btnPrevPage">←</button>
+                        <button class="btn btn-sm" onclick="loadPage('prev')" id="btnPrevPage" aria-label="上一页">${ICON_PREV}</button>
                         <span id="pageIndicator">第 1 页</span>
-                        <button class="btn btn-sm" onclick="loadPage('next')" id="btnNextPage">→</button>
+                        <button class="btn btn-sm" onclick="loadPage('next')" id="btnNextPage" aria-label="下一页">${ICON_NEXT}</button>
                         <span class="page-size-selector">每页 <select id="pageSizeSelect" onchange="changePageSize()">
                             <option value="50">50</option>
                             <option value="100" selected>100</option>
@@ -1367,7 +1380,7 @@ function showSaveSuccess(message) {
     const toast = document.createElement('div');
     toast.className = 'save-success-toast';
     toast.innerHTML = `
-        <div class="toast-icon">✓</div>
+        <div class="toast-icon">${GLYPH_CHECK}</div>
         <div class="toast-message">${message.replace(/\n/g, '<br>')}</div>
     `;
     
@@ -1603,7 +1616,7 @@ async function executeSqlWorkbench() {
             
             renderSqlResult(data.columns, data.data);
             document.getElementById('sqlResult').style.display = '';
-            statusEl.textContent = '✓ 完成';
+            statusEl.textContent = '完成';
             statusEl.style.color = '#22c55e';
             
             // 保存到历史
@@ -1613,7 +1626,7 @@ async function executeSqlWorkbench() {
             document.getElementById('sqlResultTable').innerHTML = 
                 `<div style="padding:16px;color:#e53e3e;font-family:monospace;font-size:13px;">${escapeHtml(data.message || '未知错误')}</div>`;
             document.getElementById('sqlResult').style.display = '';
-            statusEl.textContent = '✗ 失败';
+            statusEl.textContent = '失败';
             statusEl.style.color = '#e53e3e';
         }
     } catch (err) {
@@ -1621,7 +1634,7 @@ async function executeSqlWorkbench() {
         document.getElementById('sqlResultTable').innerHTML = 
             `<div style="padding:16px;color:#e53e3e;">${escapeHtml(err.message)}</div>`;
         document.getElementById('sqlResult').style.display = '';
-        statusEl.textContent = '✗ 网络错误';
+        statusEl.textContent = '网络错误';
         statusEl.style.color = '#e53e3e';
     } finally {
         btn.disabled = false;
@@ -1653,7 +1666,7 @@ function renderSqlResult(columns, rows) {
                 html += '<td><i class="null-value">NULL</i></td>';
             } else if (typeof val === 'object') {
                 if (val._blob) {
-                    html += `<td><span class="blob-indicator" title="BLOB: ${val._size} 字节">📦 ${formatBytes(val._size)}</span></td>`;
+                    html += `<td><span class="blob-indicator" title="BLOB: ${val._size} 字节">${formatBytes(val._size)}</span></td>`;
                 } else {
                     html += `<td>${escapeHtml(JSON.stringify(val))}</td>`;
                 }

@@ -378,7 +378,7 @@ async function handleVectorIndex() {
         <div id="vectorIndexModal" class="modal" style="display:flex;">
             <div class="modal-content" style="max-width:550px;">
                 <div class="modal-header">
-                    <h2>🔤 建立向量索引</h2>
+                    <h2>建立向量索引</h2>
                 </div>
                 <div class="modal-body">
                     <div style="padding:20px;">
@@ -465,7 +465,7 @@ async function executeVectorIndex() {
     const modalContent = modal.querySelector('.modal-content');
     modalContent.innerHTML = `
         <div class="modal-header">
-            <h2>🔤 建立向量索引</h2>
+            <h2>建立向量索引</h2>
         </div>
         <div class="modal-body">
             <div style="padding:20px;text-align:center;">
@@ -509,7 +509,7 @@ async function executeVectorIndex() {
             progressEl.style.display = 'none';
             resultEl.style.display = 'block';
             resultEl.innerHTML = `
-                <div style="color:#28a745;font-size:16px;margin-bottom:12px;">✅ 向量索引建立成功</div>
+                <div style="color:#28a745;font-size:16px;margin-bottom:12px;">向量索引建立成功</div>
                 <div style="font-size:13px;color:#666;line-height:1.8;">
                     <div>新增向量: ${data.synced || 0}</div>
                     <div>总向量数: ${data.vectors || 0}</div>
@@ -519,7 +519,7 @@ async function executeVectorIndex() {
             progressEl.style.display = 'none';
             resultEl.style.display = 'block';
             resultEl.innerHTML = `
-                <div style="color:#dc3545;font-size:16px;">❌ 建立失败</div>
+                <div style="color:#dc3545;font-size:16px;">建立失败</div>
                 <div style="font-size:13px;color:#666;margin-top:8px;">${data.message || '未知错误'}</div>
             `;
         }
@@ -529,7 +529,7 @@ async function executeVectorIndex() {
         progressEl.style.display = 'none';
         resultEl.style.display = 'block';
         resultEl.innerHTML = `
-            <div style="color:#dc3545;font-size:16px;">❌ 请求失败</div>
+            <div style="color:#dc3545;font-size:16px;">请求失败</div>
             <div style="font-size:13px;color:#666;margin-top:8px;">${error.message}</div>
         `;
     }
@@ -547,7 +547,7 @@ function showRelationScanRulesModal() {
             <div id="relationScanRulesModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:550px;">
                     <div class="modal-header">
-                        <h2>🔗 选择扫描规则</h2>
+                        <h2>选择扫描规则</h2>
                     </div>
                     <div class="modal-body" style="padding:20px;">
                         <div style="font-size:13px;color:#666;margin-bottom:16px;">
@@ -653,7 +653,7 @@ async function handleRelationIndex() {
         <div id="relationScanModal" class="modal" style="display:flex;">
             <div class="modal-content" style="max-width:500px;">
                 <div class="modal-header">
-                    <h2>🔗 扫描关系候选</h2>
+                    <h2>扫描关系候选</h2>
                 </div>
                 <div class="modal-body">
                     <div style="padding:20px;text-align:center;">
@@ -739,7 +739,7 @@ function showRelationCandidates(candidates) {
         <div id="relationCandidatesModal" class="modal" style="display:flex;">
             <div class="modal-content" style="max-width:700px;max-height:85vh;">
                 <div class="modal-header">
-                    <h2>🔗 确认关系候选</h2>
+                    <h2>确认关系候选</h2>
                     <button class="modal-close" onclick="closeRelationCandidatesModal()">&times;</button>
                 </div>
 
@@ -976,7 +976,7 @@ function renderRelationCandidates() {
     if (filtered.length === 0) {
         listEl.innerHTML = `
             <div style="text-align:center;color:#718096;padding:40px 20px;">
-                <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+                <svg class="status-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.4"/><path d="M15.8 15.8l4.4 4.4"/></svg>
                 <div>未找到匹配的关系候选</div>
             </div>
         `;
@@ -1080,15 +1080,15 @@ async function loadVectorPreviewPage(page) {
             <div id="vectorPreviewModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:1100px;max-height:85vh;">
                     <div class="modal-header">
-                        <h2>👁️ 向量索引预览</h2>
+                        <h2>向量索引预览</h2>
                         <button class="modal-close" onclick="closeVectorPreviewModal()">&times;</button>
                     </div>
                     <div class="modal-body" style="max-height:500px;overflow-y:auto;padding:15px;">
                         <!-- 工具栏 -->
                         <div style="display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;align-items:center;">
-                            <button type="button" class="btn btn-primary" onclick="showAddVectorModal()">➕ 新增向量</button>
+                            <button type="button" class="btn btn-primary" onclick="showAddVectorModal()">+ 新增向量</button>
                             <div style="flex:1;"></div>
-                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedVectors()">🗑️ 删除选中</button>
+                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedVectors()">删除选中</button>
                         </div>
                         <div id="vectorPreviewContent" style="text-align:center;padding:40px;color:#6b7280;">加载中...</div>
                     </div>
@@ -1302,7 +1302,7 @@ async function showAddVectorModal() {
             <div id="addVectorModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:500px;">
                     <div class="modal-header">
-                        <h2>➕ 新增向量</h2>
+                        <h2>+ 新增向量</h2>
                         <button class="modal-close" onclick="closeAddVectorModal()">&times;</button>
                     </div>
                     <div class="modal-body">
@@ -1432,7 +1432,7 @@ async function loadRelationPreviewPage(page) {
             <div id="relationPreviewModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:1200px;max-height:85vh;">
                     <div class="modal-header">
-                        <h2>👁️ 关系索引预览</h2>
+                        <h2>关系索引预览</h2>
                         <button class="modal-close" onclick="closeRelationPreviewModal()">&times;</button>
                     </div>
                     <div class="modal-body" style="max-height:500px;overflow-y:auto;padding:15px;">
@@ -1446,11 +1446,11 @@ async function loadRelationPreviewPage(page) {
                                 onchange="loadRelationPreviewPage(1)">
                                 <option value="">全部匹配类型</option>
                             </select>
-                            <button type="button" class="btn btn-primary" onclick="loadRelationPreviewPage(1)">🔍 搜索</button>
+                            <button type="button" class="btn btn-primary" onclick="loadRelationPreviewPage(1)">搜索</button>
                             <button type="button" class="btn btn-secondary" onclick="clearRelationFilters()">清空</button>
                             <div style="flex:1;"></div>
-                            <button type="button" class="btn btn-primary" onclick="showAddRelationModal()">➕ 新增关系</button>
-                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedRelations()">🗑️ 删除选中</button>
+                            <button type="button" class="btn btn-primary" onclick="showAddRelationModal()">+ 新增关系</button>
+                            <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedRelations()">删除选中</button>
                         </div>
                         <div id="relationPreviewContent" style="text-align:center;padding:40px;color:#6b7280;">加载中...</div>
                     </div>
@@ -1656,7 +1656,7 @@ async function showAddRelationModal() {
             <div id="addRelationModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:600px;">
                     <div class="modal-header">
-                        <h2>➕ 新增关系</h2>
+                        <h2>+ 新增关系</h2>
                         <button class="modal-close" onclick="closeAddRelationModal()">&times;</button>
                     </div>
                     <div class="modal-body">
@@ -1841,7 +1841,7 @@ async function showEditRelationModal(relationId) {
             <div id="editRelationModal" class="modal" style="display:flex;">
                 <div class="modal-content" style="max-width:600px;">
                     <div class="modal-header">
-                        <h2>✏️ 编辑关系</h2>
+                        <h2>编辑关系</h2>
                         <button class="modal-close" onclick="closeEditRelationModal()">&times;</button>
                     </div>
                     <div class="modal-body">

@@ -891,6 +891,67 @@ input[type="radio"] {
     box-shadow: 0 0 0 3px var(--ds-primary-ring);
 }
 
+/* 通用线性图标与状态点 */
+.status-glyph {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 14px;
+    opacity: 0.5;
+    color: var(--ds-text-3);
+}
+
+.toast-glyph {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-icon,
+.schema-arrow svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+.schema-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    color: var(--ds-text-3);
+}
+
+.schema-arrow svg {
+    transition: transform 0.15s ease;
+}
+
+.schema-arrow.is-open svg {
+    transform: rotate(90deg);
+}
+
+.conn-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--ds-text-3);
+    vertical-align: 1px;
+}
+
+.conn-dot.is-on {
+    background: #22c55e;
+}
+
+.conn-dot.is-off {
+    background: #ef4444;
+}
+
+/* 未选择数据库时，第二列的表级操作与搜索没有意义，先隐藏 */
+#colTableList.no-db .col-tables-actions,
+#colTableList.no-db .col-tables-search {
+    display: none;
+}
+
 /* 空态占位（未选数据库 / 未选数据表） */
 .col-tables-placeholder,
 .col-detail-placeholder {
