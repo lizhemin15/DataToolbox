@@ -457,10 +457,10 @@ function toggleLlmConfig() {
     const toggle = document.getElementById('llmConfigToggle');
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
-        toggle.textContent = '收起 ▲';
+        toggle.textContent = '收起';
     } else {
         panel.style.display = 'none';
-        toggle.textContent = '展开 ▼';
+        toggle.textContent = '展开';
     }
 }
 
@@ -470,10 +470,10 @@ function toggleEmbeddingConfig() {
     const toggle = document.getElementById('embeddingConfigToggle');
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
-        toggle.textContent = '收起 ▲';
+        toggle.textContent = '收起';
     } else {
         panel.style.display = 'none';
-        toggle.textContent = '展开 ▼';
+        toggle.textContent = '展开';
     }
 }
 
@@ -483,10 +483,10 @@ function toggleRagConfig() {
     const toggle = document.getElementById('ragConfigToggle');
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
-        toggle.textContent = '收起 ▲';
+        toggle.textContent = '收起';
     } else {
         panel.style.display = 'none';
-        toggle.textContent = '展开 ▼';
+        toggle.textContent = '展开';
     }
 }
 
@@ -516,10 +516,10 @@ function displayAiCapabilities() {
 
     const capInfo = `
 AI模型能力检测结果:
-- Function Call支持: ${aiCapabilities.supports_function_call ? '✓' : '✗'}
-- Thinking模式支持: ${aiCapabilities.supports_thinking ? '✓' : '✗'}
-- 流式输出支持: ${aiCapabilities.supports_streaming ? '✓' : '✗'}
-- JSON模式支持: ${aiCapabilities.supports_json_mode ? '✓' : '✗'}
+- Function Call支持: ${aiCapabilities.supports_function_call ? '是' : '否'}
+- Thinking模式支持: ${aiCapabilities.supports_thinking ? '是' : '否'}
+- 流式输出支持: ${aiCapabilities.supports_streaming ? '是' : '否'}
+- JSON模式支持: ${aiCapabilities.supports_json_mode ? '是' : '否'}
 - 上下文窗口: ${aiCapabilities.context_window} tokens
     `;
 }
@@ -536,19 +536,19 @@ function updateCapabilityHints() {
     }
     
     const fcHint = document.getElementById('functionCallHint');
-    fcHint.textContent = aiCapabilities.supports_function_call ? '✓ 支持' : '✗ 不支持';
+    fcHint.textContent = aiCapabilities.supports_function_call ? '支持' : '不支持';
     fcHint.className = 'capability-hint ' + (aiCapabilities.supports_function_call ? 'supported' : 'not-supported');
     
     const thinkHint = document.getElementById('thinkingHint');
-    thinkHint.textContent = aiCapabilities.supports_thinking ? '✓ 支持' : '✗ 不支持';
+    thinkHint.textContent = aiCapabilities.supports_thinking ? '支持' : '不支持';
     thinkHint.className = 'capability-hint ' + (aiCapabilities.supports_thinking ? 'supported' : 'not-supported');
     
     const streamHint = document.getElementById('streamingHint');
-    streamHint.textContent = aiCapabilities.supports_streaming ? '✓ 支持' : '✗ 不支持';
+    streamHint.textContent = aiCapabilities.supports_streaming ? '支持' : '不支持';
     streamHint.className = 'capability-hint ' + (aiCapabilities.supports_streaming ? 'supported' : 'not-supported');
     
     const jsonHint = document.getElementById('jsonModeHint');
-    jsonHint.textContent = aiCapabilities.supports_json_mode ? '✓ 支持' : '✗ 不支持';
+    jsonHint.textContent = aiCapabilities.supports_json_mode ? '支持' : '不支持';
     jsonHint.className = 'capability-hint ' + (aiCapabilities.supports_json_mode ? 'supported' : 'not-supported');
     
     const ctxHint = document.getElementById('contextWindowHint');
@@ -771,7 +771,7 @@ async function exportSystemData() {
     const btn = document.getElementById('exportDataBtn');
     try {
         btn.disabled = true;
-        btn.textContent = '⏳ 导出中...';
+        btn.textContent = '导出中...';
         statusEl.textContent = '正在生成备份文件...';
         statusEl.style.color = '#a0aec0';
 
@@ -797,16 +797,16 @@ async function exportSystemData() {
         URL.revokeObjectURL(url);
 
         const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
-        statusEl.textContent = `✅ 导出成功 (${sizeMB} MB)`;
+        statusEl.textContent = `导出成功 (${sizeMB} MB)`;
         statusEl.style.color = '#48bb78';
         showToast('数据导出成功', 'success');
     } catch (e) {
-        statusEl.textContent = '❌ ' + e.message;
+        statusEl.textContent = '失败: ' + e.message;
         statusEl.style.color = '#fc8181';
         showToast('导出失败: ' + e.message, 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = '📤 导出数据';
+        btn.textContent = '导出数据';
     }
 }
 
@@ -844,7 +844,7 @@ async function importSystemData(input) {
         // 显示模块选择界面
         showImportModuleSelector(file, manifest, warnings, statusEl);
     } catch (e) {
-        statusEl.textContent = '❌ ' + e.message;
+        statusEl.textContent = '失败: ' + e.message;
         statusEl.style.color = '#fc8181';
         showToast('解析失败: ' + e.message, 'error');
         input.value = '';
@@ -899,7 +899,7 @@ function showImportModuleSelector(file, manifest, warnings, statusEl) {
     // 警告信息
     const warningsEl = document.getElementById('importWarnings');
     if (warnings.length > 0) {
-        warningsEl.innerHTML = warnings.map(w => `<div>⚠️ ${w}</div>`).join('');
+        warningsEl.innerHTML = warnings.map(w => `<div>${uiIcon('alert', 'glyph-inline is-warn')} ${escapeHtml(w)}</div>`).join('');
         warningsEl.style.display = 'block';
     } else {
         warningsEl.style.display = 'none';
@@ -1000,7 +1000,7 @@ async function confirmImportData() {
         }
 
         const data = result.data || result;
-        let msg = '✅ 导入成功';
+        let msg = '导入成功';
         if (data.db_bytes) msg += ` (数据库 ${Math.round(data.db_bytes/1024)}KB)`;
         if (data.users_added !== undefined) {
             msg += ` — 新增: ${data.users_added}用户, ${data.databases_added}数据库, ${data.apis_added}接口, ${data.tasks_added}任务`;
@@ -1017,7 +1017,7 @@ async function confirmImportData() {
         // 导入成功后刷新页面加载新数据
         setTimeout(() => location.reload(), 2000);
     } catch (e) {
-        statusEl.textContent = '❌ ' + e.message;
+        statusEl.textContent = '失败: ' + e.message;
         statusEl.style.color = '#fc8181';
         showToast('导入失败: ' + e.message, 'error');
     } finally {
@@ -1477,7 +1477,7 @@ function showDbSuggestions(searchTerm) {
     if (matchedDbs.length > 0) {
         html += '<div class="ai-suggestion-group-title">数据库</div>';
         html += matchedDbs.map(db => {
-            const typeIcon = dbTypeIcons[db.type] || '🗃️';
+            const typeIcon = uiIcon('database', 'glyph-inline');
             const isFileDb = dbTypeDefaults[db.type]?.isFile;
             const info = isFileDb ? (db.path || '未配置路径') : (db.host && db.port ? `${db.host}:${db.port}` : (db.host || '未配置连接'));
             const safeDbId = escapeHtml(db.id);
@@ -1883,7 +1883,7 @@ function formatAIText(text) {
     // 渲染思考过程为折叠块
     if (thinkContent.trim()) {
         const escapedThink = escapeHtml(thinkContent.trim()).replace(/\n/g, '<br>');
-        result += `<details class="ai-think-block"><summary class="ai-think-summary">💭 思考过程</summary><div class="ai-think-content">${escapedThink}</div></details>`;
+        result += `<details class="ai-think-block"><summary class="ai-think-summary">${uiIcon('sparkle', 'glyph-inline')} 思考过程</summary><div class="ai-think-content">${escapedThink}</div></details>`;
     }
     // 渲染正文
     if (mainContent.trim()) {
@@ -1922,7 +1922,7 @@ function updateAiContextDisplay() {
         }
         if (hasDbs) {
             tagsHtml += aiSessionContext.databases.map(db => {
-                const icon = dbTypeIcons[db.type] || '🗃️';
+                const icon = uiIcon('database', 'glyph-inline');
                 return `<span class="ai-context-tag ai-context-tag-db">${icon} ${escapeHtml(db.name)}</span>`;
             }).join('');
         }
@@ -2613,11 +2613,11 @@ function showGovTaskDetail(task) {
         shareStatusEl.textContent = '已开启';
         shareStatusEl.style.color = '#28a745';
         copyLinkBtn.style.display = '';
-        shareBtn.textContent = '🔗 关闭分享';
+        shareBtn.textContent = '关闭分享';
     } else {
         shareItem.style.display = 'none';
         copyLinkBtn.style.display = 'none';
-        shareBtn.textContent = '🔗 分享';
+        shareBtn.textContent = '分享';
     }
 
     const cronItem = document.getElementById('govCronItem');
@@ -2698,7 +2698,7 @@ function renderGovLogs(logs) {
                 <span>${new Date(log.start_time).toLocaleString()}${log.end_time ? ' → ' + new Date(log.end_time).toLocaleString() : ''}</span>
                 <div class="gov-log-actions">
                     <span class="gov-log-status ${log.status}">${log.status === 'success' ? '成功' : log.status === 'error' ? '失败' : '运行中'}</span>
-                    <button class="btn btn-sm btn-danger" onclick="deleteGovTaskLog('${log.id}')" title="删除此日志">🗑️</button>
+                    <button class="btn btn-sm btn-danger btn-ico-only" onclick="deleteGovTaskLog('${log.id}')" title="删除此日志" aria-label="删除此日志">${uiIcon('trash')}</button>
                 </div>
             </div>
             ${log.input ? `<div class="gov-log-input">输入: ${escapeHtml(log.input)}</div>` : ''}
@@ -2858,27 +2858,21 @@ function toggleGovTaskCode() {
     const panel = document.getElementById('govTaskCodePanel');
     const arrow = document.getElementById('govTaskCodeArrow');
     if (!panel) return;
-    if (panel.style.display === 'none') {
-        panel.style.display = '';
-        if (arrow) arrow.textContent = '▼';
-    } else {
-        panel.style.display = 'none';
-        if (arrow) arrow.textContent = '▶';
-    }
+    const willOpen = panel.style.display === 'none';
+    panel.style.display = willOpen ? '' : 'none';
+    // 箭头是 SVG，不能再改 textContent（会把图标抹掉），改成切类旋转
+    if (arrow) arrow.classList.toggle('is-open', willOpen);
 }
 
 // 折叠块切换
 function toggleGovCollapsible(headerEl) {
     const collapsible = headerEl.parentElement;
-    const arrow = headerEl.querySelector('.gov-collapsible-arrow');
     if (collapsible.classList.contains('gov-collapsible-collapsed')) {
         collapsible.classList.remove('gov-collapsible-collapsed');
         collapsible.querySelector('.gov-collapsible-body').style.display = '';
-        if (arrow) arrow.textContent = '▼';
     } else {
         collapsible.classList.add('gov-collapsible-collapsed');
         collapsible.querySelector('.gov-collapsible-body').style.display = 'none';
-        if (arrow) arrow.textContent = '▶';
     }
 }
 

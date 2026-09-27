@@ -175,20 +175,6 @@ const dbTypeDefaults = {
     timescaledb: { port: 5432, requiresDb: true }
 };
 
-// 数据库类型图标。
-const dbTypeIcons = {
-    dm: '🔶',
-    oracle: '🏛️',
-    mysql: '🛢️',
-    mariadb: '🛢️',
-    postgresql: '🐘',
-    sqlserver: '🪟',
-    sqlite: '📄',
-    tidb: '🌐',
-    cockroachdb: '🪳',
-    timescaledb: '⏱️'
-};
-
 // 根据数据库类型切换表单字段。
 function handleDbTypeChange() {
     const dbType = document.getElementById('dbTypeInput').value;

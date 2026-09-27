@@ -370,6 +370,15 @@
     font-size: 12px;
     color: #64748b;
     transition: transform 0.2s;
+    /* span 默认是 inline，transform 对非替换行内元素不生效，
+       必须给个可变换的盒子；图标随 span 一起转。 */
+    display: inline-flex;
+    align-items: center;
+}
+
+/* 展开态：箭头由“向右”转成“向下” */
+.gov-code-arrow.is-open {
+    transform: rotate(90deg);
 }
 
 .gov-code-panel {
@@ -416,14 +425,32 @@
     font-size: 12px;
     color: #64748b;
     transition: transform 0.2s;
+    /* 折叠指示已换成 SVG：span 默认 inline，transform 不生效，
+       给个可变换的盒子才能转。 */
+    display: inline-flex;
+    align-items: center;
+}
+
+/* 展开态：箭头由“向右”转成“向下” */
+.gov-collapsible:not(.gov-collapsible-collapsed) .gov-collapsible-arrow {
+    transform: rotate(90deg);
 }
 
 .gov-collapsible.gov-collapsible-collapsed .gov-collapsible-arrow {
     transform: none;
 }
 
-.gov-collapsible:not(.gov-collapsible-collapsed) .gov-collapsible-arrow {
-    transform: none;
+/* 折叠标题里的行内图标与文字留出间隙（标题是 flex 容器，
+   图标和文字同在一个 span 里，gap 管不到它们之间）。 */
+.gov-collapsible-header .glyph-inline {
+    margin-right: 6px;
+}
+
+/* 开放方式卡片的大图标：原本靠 font-size: 24px 撑 emoji */
+.gov-open-mode-icon .ui-ico {
+    width: 24px;
+    height: 24px;
+    margin: 0 auto;
 }
 
 .gov-collapsible-body {

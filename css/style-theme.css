@@ -1900,3 +1900,93 @@ input[type="radio"] {
 @media (prefers-reduced-motion: reduce) {
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* ── 共享线性图标（见 js/ui-icons.js）────────────────────────────
+   全站图标统一走这一套：24×24 viewBox、stroke=currentColor、无 emoji。
+   emoji 会随平台字体变形、无法与文字对齐、在深色/浅色主题下颜色不受控，
+   线性图标用 currentColor 就能跟着按钮文字色走。
+   ───────────────────────────────────────────────────────────── */
+.ui-ico {
+    width: 14px;
+    height: 14px;
+    display: block;
+    flex: 0 0 auto;
+}
+
+.ui-ico-sm { width: 12px; height: 12px; }
+.ui-ico-lg { width: 17px; height: 17px; }
+
+/* 图标 + 文字同排的按钮。显式挂类，不去改 .btn 的全局布局，
+   避免影响其它页面里已有的按钮排布。 */
+.btn-ico {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* 纯图标按钮：只有图标没有文字，方形留白，靠 title/aria-label 表意 */
+.btn-ico-only {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    line-height: 0;
+}
+
+/* 空态/欢迎区的大图标：把原来 emoji 的体量收成克制的线性图标。
+   注意线性图标比同字号的 emoji 视觉上更小，所以给得比原 font-size 略大，
+   否则在 48×48 的 .welcome-icon 盒子里会显得发虚、压不住标题。 */
+.welcome-glyph {
+    width: 36px;
+    height: 36px;
+    display: block;
+    stroke-width: 1.4;
+}
+
+#apiWelcomeView .welcome-glyph { width: 34px; height: 34px; }
+
+/* 欢迎页提示卡、上传区的大图标 */
+.tip-glyph { width: 28px; height: 28px; display: block; margin-bottom: 12px; stroke-width: 1.4; }
+.upload-glyph { width: 26px; height: 26px; display: block; margin: 0 auto 8px; stroke-width: 1.4; }
+
+/* 行内状态图标：跟文字基线对齐，不撑行高 */
+.glyph-inline {
+    width: 14px;
+    height: 14px;
+    display: inline-block;
+    vertical-align: -2px;
+    flex: 0 0 auto;
+}
+
+/* 状态色（成功/失败/警告/信息）—— 图标和文字共用，保证同色 */
+.is-ok { color: #1f9d55; }
+.is-fail { color: #d64545; }
+.is-warn { color: #b7791f; }
+
+/* 登录页 / 启动失败页 / 顶栏图标尺寸：
+   这些容器原本靠 font-size 撑 emoji，换成 SVG 后必须显式给尺寸。 */
+.login-icon .ui-ico { width: 30px; height: 30px; }
+.server-error-icon .ui-ico { width: 30px; height: 30px; margin: 0 auto; }
+.settings-header-btn .ui-ico,
+.embed-settings-btn .ui-ico { width: 16px; height: 16px; }
+
+/* 标题里的行内图标（例：顶栏“数据工具箱”） */
+.title-glyph {
+    width: 17px;
+    height: 17px;
+    display: inline-block;
+    vertical-align: -3px;
+    margin-right: 8px;
+    flex: 0 0 auto;
+}
+
+/* 静态标记里的图标占位符（由 js/ui-icons.js 自动水合成 <svg>）。
+   占位符本身只负责排版位置，不定义尺寸 —— 尺寸由里面 svg 的类决定。 */
+.ui-ico-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    line-height: 0;
+}

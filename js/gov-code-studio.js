@@ -1,7 +1,7 @@
 // ============================================================================
 // gov-code-studio.js — 治理任务「AI 代码编辑器」
 //
-// 入口：治理任务编辑页「任务代码 (JavaScript)」标题栏里的「✨ AI 编辑」按钮。
+// 入口：治理任务编辑页「任务代码 (JavaScript)」标题栏里的「AI 编辑」按钮。
 // 形态：占满页面的置顶弹窗，三栏布局（版本 | 代码 | AI 对话），交互参考 Cursor。
 // 能力：
 //   1. 版本管理 —— 每次 AI 产出/手动存盘都形成一个版本，可随时切换回滚、删除；
@@ -15,7 +15,7 @@
     'use strict';
 
     var PREFIX = (typeof API_BASE !== 'undefined' ? API_BASE : '') + '/api/v1/gov/tasks/';
-    var SOURCE_LABEL = { seed: '⛳ 初始', ai: '🤖 AI', manual: '✍️ 手动', restore: '↩️ 回滚' };
+    var SOURCE_LABEL = { seed: '初始', ai: 'AI', manual: '手动', restore: '回滚' };
 
     var state = {
         taskId: null,
@@ -265,7 +265,7 @@
         return fetch(path, options);
     }
 
-    // 取 API 参考（与「📖 API 参考」弹窗同源）—— 必须拍平成条目数组再喂给 AI
+    // 取 API 参考（与「API 参考」弹窗同源）—— 必须拍平成条目数组再喂给 AI
     function collectApiDocs() {
         var shared = root.__GOV_SHARED_REF__ || root.GOV_SHARED || (root.globalThis && root.globalThis.GOV_SHARED) || {};
         var raw = root.governanceFunctions || root.GOV_API_DOCS || root.GOV_API_SECTIONS ||
@@ -290,7 +290,7 @@
         wrap.innerHTML = [
             '<div class="gcs-shell">',
             '  <div class="gcs-topbar">',
-            '    <div class="gcs-title">✨ AI 代码编辑器<span class="gcs-sub" id="gcsTaskName"></span></div>',
+            '    <div class="gcs-title">AI 代码编辑器<span class="gcs-sub" id="gcsTaskName"></span></div>',
             '    <div class="gcs-status" id="gcsStatus"></div>',
             '    <div class="gcs-actions">',
             '      <button type="button" class="gcs-btn" id="gcsSaveVersionBtn" title="把编辑器里的代码存成一个新版本">存为新版本</button>',
@@ -318,8 +318,8 @@
             '        <textarea id="gcsChatText" rows="3" placeholder="描述你要改什么，例如：把缺失的维度补成空串，并加一行日志&#10;Enter 发送 / Shift+Enter 换行"></textarea>',
             '        <div class="gcs-chat-input-bar">',
             '          <span class="gcs-hint" id="gcsChatHint">系统提示词已注入「API 参考」内容</span>',
-            '          <button type="button" class="gcs-btn" id="gcsFixBtn" style="display:none;" title="把最近一次试运行的真实报错丢给 AI 改">🩹 让 AI 修</button>',
-            '          <button type="button" class="gcs-btn" id="gcsRunBtn" title="用任务的样例文件把编辑器里的代码真跑一遍（不会真的下载产物）">▶ 试运行</button>',
+            '          <button type="button" class="gcs-btn" id="gcsFixBtn" style="display:none;" title="把最近一次试运行的真实报错丢给 AI 改">让 AI 修</button>',
+            '          <button type="button" class="gcs-btn" id="gcsRunBtn" title="用任务的样例文件把编辑器里的代码真跑一遍（不会真的下载产物）">试运行</button>',
             '          <button type="button" class="gcs-btn gcs-btn-primary" id="gcsSendBtn">发送</button>',
             '        </div>',
             '      </div>',
@@ -429,7 +429,7 @@
     function renderChat() {
         var log = state.chat || [];
         if (!log.length) {
-            el.gcsChatLog.innerHTML = '<div class="gcs-chat-empty">让 AI 帮你改这段代码。<br>提示：系统提示词里已经带了「API 参考 + 可用的全局变量 + 样例文件结构」，AI 写完还会自检有没有用到不存在的 API。<br>改完点「▶ 试运行」拿样例文件真跑一遍，报错了直接「🩹 让 AI 修」。</div>';
+            el.gcsChatLog.innerHTML = '<div class="gcs-chat-empty">让 AI 帮你改这段代码。<br>提示：系统提示词里已经带了「API 参考 + 可用的全局变量 + 样例文件结构」，AI 写完还会自检有没有用到不存在的 API。<br>改完点「试运行」拿样例文件真跑一遍，报错了直接「让 AI 修」。</div>';
             return;
         }
         var html = [];
@@ -840,7 +840,7 @@
             var warns = [];
             if (!v.ok) warns.push('仍用到不存在的方法：' + v.unknown.map(function (n) { return 'gov.' + n; }).join('、'));
             if (v.missingAwait.length) warns.push('这些是异步方法但没写 await：' + v.missingAwait.map(function (n) { return 'gov.' + n; }).join('、'));
-            if (warns.length) summary += '\n\n⚠️ 自检提醒：' + warns.join('；');
+            if (warns.length) summary += '\n\n自检提醒：' + warns.join('；');
             state.chat = state.chat.concat([{ role: 'assistant', content: summary, at: new Date().toISOString() }]);
 
             setEditorCode(got.code);
@@ -855,7 +855,7 @@
         }).catch(function (e) {
             // 已经流出来的部分保留在对话里，方便用户复制；一个字都没出就直接撤掉气泡
             if (!bubble.hasText()) bubble.drop();
-            state.chat = state.chat.concat([{ role: 'assistant', content: '⚠️ ' + e.message, at: new Date().toISOString() }]);
+            state.chat = state.chat.concat([{ role: 'assistant', content: '出错：' + e.message, at: new Date().toISOString() }]);
             renderChat();
             setStatus(e.message, 'err');
             toast('AI 调用失败：' + e.message, 'error');
@@ -906,7 +906,7 @@
         var mode = String(task.execution_mode || task.run_mode || 'backend').toLowerCase();
         if (mode !== 'frontend') {
             toast('这个任务在后端执行（gov-runner），浏览器里跑不了；「试运行」只对前端执行的任务有效', 'warn');
-            sandboxLog('ℹ️ 当前任务执行位置是「后端」，编辑器里的代码在浏览器里跑不起来。改完点「应用到任务代码」并保存，再到任务详情里运行（真实日志会回显在那里）。');
+            sandboxLog('当前任务执行位置是「后端」，编辑器里的代码在浏览器里跑不起来。改完点「应用到任务代码」并保存，再到任务详情里运行（真实日志会回显在那里）。');
             return;
         }
         var names = exampleFileNames(task);
@@ -933,7 +933,7 @@
             var err = (r && r.errorMsg) || '';
             var okRun = (r && r.status) === 'success';
             var tail = out.length > 1200 ? '…\n' + out.slice(-1200) : out;
-            var msg = (okRun ? '✅ 试运行通过（' + secs + 's）' : '❌ 试运行失败（' + secs + 's）') +
+            var msg = (okRun ? '试运行通过（' + secs + 's）' : '试运行失败（' + secs + 's）') +
                 (first ? '\n样例文件：' + first : '\n（没有样例文件，按空输入跑）') +
                 (downloads.length ? '\n生成的产物：' + downloads.join('、') : '') +
                 (tail ? '\n— 执行日志 —\n' + tail : '') +
@@ -949,7 +949,7 @@
             }
         }).catch(function (e) {
             restore();
-            sandboxLog('❌ 试运行没法启动：' + (e && e.message ? e.message : String(e)));
+            sandboxLog('试运行没法启动：' + (e && e.message ? e.message : String(e)));
             setStatus('试运行失败', 'err');
         });
     }

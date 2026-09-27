@@ -12,17 +12,17 @@
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922">
-<link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-misc.css?v=2026092705">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-theme.css?v=2026092704">
+<link rel="stylesheet" href="/css/style-theme.css?v=2026092705">
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
     <div id="serverErrorPage" class="page" style="display: none;">
         <div class="server-error-container">
             <div class="server-error-box">
-                <div class="server-error-icon">⚠️</div>
+                <div class="server-error-icon"><i class="ui-ico-slot" data-ui-ico="alert"></i></div>
                 <h1>无法启动应用</h1>
                 <p class="server-error-message">数据工具箱需要通过服务端运行，直接打开HTML文件无法使用。</p>
                 <div class="server-error-details">
@@ -49,7 +49,7 @@
         <div class="login-container">
             <div class="login-box">
                 <div class="login-header">
-                    <div class="login-icon">📦</div>
+                    <div class="login-icon"><i class="ui-ico-slot" data-ui-ico="box"></i></div>
                     <h1>数据工具箱</h1>
                     <p class="login-subtitle">数据库管理 · 数据治理 · 本体论抽象 · 数据血缘</p>
                 </div>
@@ -72,11 +72,11 @@
     <!-- 主应用页面 -->
     <div id="mainPage" class="page">
         <!-- 嵌入模式浮动设置按钮：隐藏标题栏后仍可进入设置调整布局 -->
-        <button type="button" id="embedSettingsBtn" class="embed-settings-btn" title="设置" aria-label="设置">⚙️</button>
+        <button type="button" id="embedSettingsBtn" class="embed-settings-btn" title="设置" aria-label="设置"><i class="ui-ico-slot" data-ui-ico="gear"></i></button>
         <div class="header">
             <div class="header-content">
                 <div class="header-left">
-                    <h1>📦 数据工具箱</h1>
+                    <h1><i class="ui-ico-slot" data-ui-ico="box" data-ui-ico-class="title-glyph"></i>数据工具箱</h1>
                     <div class="nav-tabs">
                         <button class="nav-tab active" data-tab="database">数据库管理</button>
                         <button class="nav-tab" data-tab="governance">数据治理</button>
@@ -94,9 +94,9 @@
                 <div class="header-right">
                     <div class="user-info">
                         <span id="currentUser">admin</span>
-                        <button type="button" id="changePwdBtn" class="settings-header-btn" title="修改密码" aria-label="修改密码">🔑</button>
-                        <button type="button" id="settingsBtn" class="settings-header-btn" title="设置" aria-label="设置">⚙️</button>
-                        <button type="button" id="userMgmtHeaderBtn" class="settings-header-btn" title="用户管理" style="display:none;" aria-label="用户管理">👤</button>
+                        <button type="button" id="changePwdBtn" class="settings-header-btn" title="修改密码" aria-label="修改密码"><i class="ui-ico-slot" data-ui-ico="key"></i></button>
+                        <button type="button" id="settingsBtn" class="settings-header-btn" title="设置" aria-label="设置"><i class="ui-ico-slot" data-ui-ico="gear"></i></button>
+                        <button type="button" id="userMgmtHeaderBtn" class="settings-header-btn" title="用户管理" style="display:none;" aria-label="用户管理"><i class="ui-ico-slot" data-ui-ico="user"></i></button>
                         <button id="logoutBtn" class="btn btn-sm">退出</button>
                     </div>
                 </div>
@@ -286,17 +286,17 @@
 
                 <div class="main-content">
                     <div id="govWelcomeView" class="welcome-view">
-                        <div class="welcome-icon">🔧</div>
+                        <div class="welcome-icon"><i class="ui-ico-slot" data-ui-ico="sliders" data-ui-ico-class="welcome-glyph"></i></div>
                         <h2>欢迎使用数据治理</h2>
                         <p>任务管理器 — 创建定时任务或交互式数据处理任务</p>
                         <div class="gov-welcome-tips">
                             <div class="gov-tip-card">
-                                <div class="gov-tip-icon">⏰</div>
+                                <div class="gov-tip-icon"><i class="ui-ico-slot" data-ui-ico="clock" data-ui-ico-class="tip-glyph"></i></div>
                                 <h4>定时任务</h4>
                                 <p>按 Cron 表达式自动执行数据抽取、同步等操作</p>
                             </div>
                             <div class="gov-tip-card">
-                                <div class="gov-tip-icon">📤</div>
+                                <div class="gov-tip-icon"><i class="ui-ico-slot" data-ui-ico="upload" data-ui-ico-class="tip-glyph"></i></div>
                                 <h4>交互任务</h4>
                                 <p>上传文件或输入文本，处理后自动入库</p>
                             </div>
@@ -307,11 +307,11 @@
                         <div class="detail-header">
                             <h2 id="govTaskName">任务名称</h2>
                             <div class="detail-actions">
-                                <button id="editGovTaskBtn" class="btn btn-sm" onclick="editGovTask()">✏️ 编辑</button>
-                                <button id="runGovTaskBtn" class="btn btn-sm btn-primary" onclick="runGovTask()">▶️ 运行</button>
-                                <button id="shareGovTaskBtn" class="btn btn-sm" onclick="toggleShareGovTask()">🔗 分享</button>
-                                <button id="duplicateGovTaskBtn" class="btn btn-sm" onclick="duplicateGovTask()" title="复制这个任务的配置与代码，生成一个同类新任务">📄 复制</button>
-                                <button id="aiCloneGovTaskBtn" class="btn btn-sm" onclick="openGovAiClone()" title="让 AI 先问清需求，再基于这个模板生成一个新任务">✨ AI 新建</button>
+                                <button id="editGovTaskBtn" class="btn btn-sm" onclick="editGovTask()">编辑</button>
+                                <button id="runGovTaskBtn" class="btn btn-sm btn-primary" onclick="runGovTask()">运行</button>
+                                <button id="shareGovTaskBtn" class="btn btn-sm" onclick="toggleShareGovTask()">分享</button>
+                                <button id="duplicateGovTaskBtn" class="btn btn-sm" onclick="duplicateGovTask()" title="复制这个任务的配置与代码，生成一个同类新任务">复制</button>
+                                <button id="aiCloneGovTaskBtn" class="btn btn-sm" onclick="openGovAiClone()" title="让 AI 先问清需求，再基于这个模板生成一个新任务">AI 新建</button>
                                 <button id="deleteGovTaskBtn" class="btn btn-sm btn-danger" onclick="deleteGovTask()">删除</button>
                             </div>
                         </div>
@@ -329,7 +329,7 @@
                                 <span class="info-label">分享:</span>
                                 <div class="info-value-wrap">
                                     <span id="govTaskShareStatus" class="info-value"></span>
-                                    <button id="govCopyShareLinkBtn" class="btn btn-sm" onclick="copyGovShareLink()" style="display:none;">📋 复制链接</button>
+                                    <button id="govCopyShareLinkBtn" class="btn btn-sm" onclick="copyGovShareLink()" style="display:none;">复制链接</button>
                                 </div>
                             </div>
                             <div class="info-item" id="govCronItem" style="display:none;">
@@ -358,7 +358,7 @@
                             <div class="gov-input-area">
                                 <div id="govFileUploadArea" class="gov-file-upload" style="display:none;">
                                     <div class="gov-upload-zone" id="govDropZone">
-                                        <div class="gov-upload-icon">📁</div>
+                                        <div class="gov-upload-icon"><i class="ui-ico-slot" data-ui-ico="folder" data-ui-ico-class="upload-glyph"></i></div>
                                         <p>拖拽文件到此处，或 <label for="govFileInput" class="gov-upload-link">点击上传</label>（可多选）</p>
                                         <p class="gov-upload-hint" id="govAcceptExts"></p>
                                         <p class="gov-upload-hint" id="govSingleBatchHint" style="display:none;">合并执行：请同时上传综合日报模板与各单位日报（可多选），任务代码中可使用 INPUT_FILES。</p>
@@ -366,7 +366,7 @@
                                     </div>
                                     <div id="govSelectedFile" class="gov-selected-file" style="display:none;">
                                         <span id="govFileName"></span>
-                                        <button class="btn btn-sm" onclick="clearGovFile()">✕</button>
+                                        <button class="btn btn-sm btn-ico-only" onclick="clearGovFile()" title="清除已选文件" aria-label="清除已选文件"><i class="ui-ico-slot" data-ui-ico="close"></i></button>
                                     </div>
                                 </div>
                                 <div id="govTextInputArea" class="gov-text-input" style="display:none;">
@@ -379,7 +379,7 @@
                         <div class="tables-section">
                             <div class="gov-code-toggle" onclick="toggleGovTaskCode()">
                                 <h3>任务代码 (JavaScript)</h3>
-                                <span id="govTaskCodeArrow" class="gov-code-arrow">▶</span>
+                                <span id="govTaskCodeArrow" class="gov-code-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                             </div>
                             <div id="govTaskCodePanel" class="gov-code-panel" style="display:none;">
                                 <div class="sql-display">
@@ -392,8 +392,8 @@
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <h3>执行日志</h3>
                                 <div>
-                                    <button class="btn btn-sm btn-danger" onclick="clearGovTaskLogs()">🗑️ 清空日志</button>
-                                    <button class="btn btn-sm" onclick="loadGovTaskLogs()">🔄 刷新</button>
+                                    <button class="btn btn-sm btn-danger" onclick="clearGovTaskLogs()">清空日志</button>
+                                    <button class="btn btn-sm" onclick="loadGovTaskLogs()">刷新</button>
                                 </div>
                             </div>
                             <div id="govTaskOutput" class="gov-output-area">
@@ -2105,8 +2105,8 @@
                 <div id="govScheduledFields">
                     <div class="gov-collapsible gov-collapsible-collapsed">
                         <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                            <span>⏰ 定时任务配置</span>
-                            <span class="gov-collapsible-arrow">▶</span>
+                            <span><i class="ui-ico-slot" data-ui-ico="clock" data-ui-ico-class="glyph-inline"></i>定时任务配置</span>
+                            <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                         </div>
                         <div class="gov-collapsible-body" style="display:none;">
                             <div class="form-row">
@@ -2132,8 +2132,8 @@
                 <div id="govInteractiveFields" style="display:none;">
                     <div class="gov-collapsible gov-collapsible-collapsed">
                         <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                            <span>📥 交互任务配置</span>
-                            <span class="gov-collapsible-arrow">▶</span>
+                            <span><i class="ui-ico-slot" data-ui-ico="inbox" data-ui-ico-class="glyph-inline"></i>交互任务配置</span>
+                            <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                         </div>
                         <div class="gov-collapsible-body" style="display:none;">
                             <div class="form-row">
@@ -2167,15 +2167,15 @@
                 <!-- 开放方式统一配置 -->
                 <div class="gov-collapsible gov-collapsible-collapsed">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                        <span>🌐 开放方式</span>
-                        <span class="gov-collapsible-arrow">▶</span>
+                        <span><i class="ui-ico-slot" data-ui-ico="globe" data-ui-ico-class="glyph-inline"></i>开放方式</span>
+                        <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                     </div>
                     <div class="gov-collapsible-body" style="display:none;">
                         <div class="gov-open-modes">
                         <label class="gov-open-mode-item">
                             <input type="checkbox" id="govOpenLocal" checked disabled>
                             <span class="gov-open-mode-box">
-                                <span class="gov-open-mode-icon">🖥️</span>
+                                <span class="gov-open-mode-icon"><i class="ui-ico-slot" data-ui-ico="monitor"></i></span>
                                 <span class="gov-open-mode-title">本页面运行</span>
                                 <span class="gov-open-mode-desc">在任务列表中直接执行</span>
                             </span>
@@ -2183,7 +2183,7 @@
                         <label class="gov-open-mode-item">
                             <input type="checkbox" id="govOpenShare" onchange="onGovOpenModeChange()">
                             <span class="gov-open-mode-box">
-                                <span class="gov-open-mode-icon">🔗</span>
+                                <span class="gov-open-mode-icon"><i class="ui-ico-slot" data-ui-ico="link"></i></span>
                                 <span class="gov-open-mode-title">分享页面运行</span>
                                 <span class="gov-open-mode-desc">生成免登录分享链接</span>
                             </span>
@@ -2191,7 +2191,7 @@
                         <label class="gov-open-mode-item">
                             <input type="checkbox" id="govOpenAPI" onchange="onGovOpenModeChange()">
                             <span class="gov-open-mode-box">
-                                <span class="gov-open-mode-icon">🔌</span>
+                                <span class="gov-open-mode-icon"><i class="ui-ico-slot" data-ui-ico="plug"></i></span>
                                 <span class="gov-open-mode-title">注册为 API</span>
                                 <span class="gov-open-mode-desc">通过 API 接口调用</span>
                             </span>
@@ -2203,8 +2203,8 @@
 <!-- 分享配置（勾选"分享页面运行"时显示） -->
                 <div id="govShareConfig" class="gov-collapsible gov-collapsible-collapsed" style="display:none;">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                        <span>🔗 分享配置</span>
-                        <span class="gov-collapsible-arrow">▶</span>
+                        <span><i class="ui-ico-slot" data-ui-ico="link" data-ui-ico-class="glyph-inline"></i>分享配置</span>
+                        <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                     </div>
                     <div class="gov-collapsible-body" style="display:none;">
                         <div class="gov-share-link-row" id="govShareLinkRow" style="display:none;">
@@ -2224,8 +2224,8 @@
                 <!-- API 配置（勾选"注册为 API"时显示） -->
                 <div id="govAPIConfig" class="gov-collapsible gov-collapsible-collapsed" style="display:none;">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                        <span>🔌 API 配置</span>
-                        <span class="gov-collapsible-arrow">▶</span>
+                        <span><i class="ui-ico-slot" data-ui-ico="plug" data-ui-ico-class="glyph-inline"></i>API 配置</span>
+                        <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                     </div>
                     <div class="gov-collapsible-body" style="display:none;">
                         <div class="form-row">
@@ -2275,8 +2275,8 @@
                 <!-- 运行位置（执行环境） -->
                 <div class="gov-collapsible gov-collapsible-collapsed">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                        <span>⚙️ 执行环境</span>
-                        <span class="gov-collapsible-arrow">▶</span>
+                        <span><i class="ui-ico-slot" data-ui-ico="gear" data-ui-ico-class="glyph-inline"></i>执行环境</span>
+                        <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
                     </div>
                     <div class="gov-collapsible-body" style="display:none;">
                         <div class="form-group">
@@ -2292,10 +2292,10 @@
 
                 <div class="gov-collapsible gov-collapsible-collapsed">
                     <div class="gov-collapsible-header" onclick="toggleGovCollapsible(this)">
-                        <span>📝 任务代码 (JavaScript)</span>
-                        <span class="gov-collapsible-arrow">▶</span>
-                        <button type="button" class="btn btn-sm" onclick="event.stopPropagation();openGovApiHelp()" style="font-size:12px;margin-left:auto;">📖 API 参考</button>
-                        <button type="button" class="btn btn-sm gov-ai-edit-btn" id="govAiEditBtn" onclick="event.stopPropagation();GovCodeStudio.open()" title="版本管理 + AI 辅助编写（系统提示词内置 API 参考）">✨ AI 编辑</button>
+                        <span><i class="ui-ico-slot" data-ui-ico="code" data-ui-ico-class="glyph-inline"></i>任务代码 (JavaScript)</span>
+                        <span class="gov-collapsible-arrow" aria-hidden="true"><i class="ui-ico-slot" data-ui-ico="chevron-right"></i></span>
+                        <button type="button" class="btn btn-sm" onclick="event.stopPropagation();openGovApiHelp()" style="font-size:12px;margin-left:auto;">API 参考</button>
+                        <button type="button" class="btn btn-sm gov-ai-edit-btn" id="govAiEditBtn" onclick="event.stopPropagation();GovCodeStudio.open()" title="版本管理 + AI 辅助编写（系统提示词内置 API 参考）">AI 编辑</button>
                     </div>
                     <div class="gov-collapsible-body">
                         <textarea id="govCodeInput" rows="18" placeholder="// 可用: INPUT_FILE, INPUT_TEXT, XLSX, Papa, mammoth, PizZip, Docxtemplater
@@ -2769,17 +2769,20 @@
     <script src="/lib/pizzip.js" defer></script>
     <script src="/lib/docxtemplater.js" defer></script>
     <script src="/lib/xlsx.full.min.js" defer></script>
+    <!-- 共享线性图标：必须在其它业务脚本之前加载，静态标记里的
+         data-ui-ico 占位符由它自动水合成 SVG（见 js/ui-icons.js） -->
+    <script src="/js/ui-icons.js?v=2026092705" defer></script>
     <script src="/js/script-core.js?v=2026061006" defer></script>
     <script src="/js/script-agent.js?v=2026092703" defer></script>
     <script src="/js/script-events.js?v=2026092702" defer></script>
     <script src="/js/script-platform.js?v=2026061002" defer></script>
-    <script src="/js/script-tables.js?v=2026061002" defer></script>
+    <script src="/js/script-tables.js?v=2026092705" defer></script>
     <script src="/js/script-api.js?v=2026092704" defer></script>
     <script src="/js/script-settings.js?v=2026061002" defer></script>
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
-    <script src="/js/script-governance.js?v=2026061002" defer></script>
+    <script src="/js/script-governance.js?v=2026092705" defer></script>
     <script src="/js/script-ontology.js?v=2026091909" defer></script>
-    <script src="/js/gov-code-studio.js?v=2026091909" defer></script>
+    <script src="/js/gov-code-studio.js?v=2026092705" defer></script>
     <script src="/js/script-relations.js?v=2026061002" defer></script>
     <script src="/js/script-api-detail.js?v=2026061002" defer></script>
     <!-- Twemoji: 跨浏览器 emoji 兼容，将 emoji 渲染为 SVG（离线版） -->
