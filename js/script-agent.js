@@ -414,7 +414,7 @@ async function handleVectorIndex() {
                         <div id="tableFilterInput" style="display:none;margin-top:12px;padding:12px;background:#f8f9fa;border-radius:4px;">
                             <label style="display:block;font-size:13px;font-weight:500;color:#555;margin-bottom:6px;">表名模式：</label>
                             <input type="text" id="tableFilter" placeholder="例如: user_* 或 table1,table2" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;" />
-                            <div style="font-size:11px;color:#999;margin-top:4px;">支持通配符 * 和 ?，多个表用逗号分隔</div>
+                            <div style="font-size:11px;color:#6b7280;margin-top:4px;">支持通配符 * 和 ?，多个表用逗号分隔</div>
                         </div>
                     </div>
                 </div>
@@ -466,8 +466,8 @@ async function executeVectorIndex() {
             <div style="padding:20px;text-align:center;">
                 <div id="vectorIndexProgress" style="margin-bottom:16px;">
                     <div style="font-size:14px;color:#666;">正在建立向量索引...</div>
-                    <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
-                    <div style="margin-top:8px;font-size:12px;color:#999;">同步模式: ${syncMode === 'incremental' ? '增量同步' : syncMode === 'full' ? '全量同步' : '选定范围'}</div>
+                    <div style="margin-top:12px;font-size:13px;color:#6b7280;">数据库: ${currentDb.name}</div>
+                    <div style="margin-top:8px;font-size:12px;color:#6b7280;">同步模式: ${syncMode === 'incremental' ? '增量同步' : syncMode === 'full' ? '全量同步' : '选定范围'}</div>
                 </div>
                 <div id="vectorIndexResult" style="display:none;"></div>
             </div>
@@ -653,7 +653,7 @@ async function handleRelationIndex() {
                 <div class="modal-body">
                     <div style="padding:20px;text-align:center;">
                         <div style="font-size:14px;color:#666;">正在扫描关系候选...</div>
-                        <div style="margin-top:12px;font-size:13px;color:#999;">数据库: ${currentDb.name}</div>
+                        <div style="margin-top:12px;font-size:13px;color:#6b7280;">数据库: ${currentDb.name}</div>
                     </div>
                 </div>
             </div>
@@ -987,7 +987,7 @@ function renderRelationCandidates() {
                         <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table1)}'); event.stopPropagation();"
                               style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此表">${escapeHtml(c.table1)}</span>
-                        <span style="color:#999;">→</span>
+                        <span style="color:#6b7280;">→</span>
                         <span class="relation-filterable" onclick="quickFilterRelation('table', '${escapeHtml(c.table2)}'); event.stopPropagation();"
                               style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此表">${escapeHtml(c.table2)}</span>
@@ -997,7 +997,7 @@ function renderRelationCandidates() {
                         <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col1)}'); event.stopPropagation();"
                               style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此字段">${escapeHtml(c.col1)}</span>
-                        <span style="color:#999;">=</span>
+                        <span style="color:#6b7280;">=</span>
                         <span class="relation-filterable" onclick="quickFilterRelation('column', '${escapeHtml(c.col2)}'); event.stopPropagation();"
                               style="cursor:pointer;color:#171717;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;"
                               title="点击筛选此字段">${escapeHtml(c.col2)}</span>
@@ -1085,7 +1085,7 @@ async function loadVectorPreviewPage(page) {
                             <div style="flex:1;"></div>
                             <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedVectors()">🗑️ 删除选中</button>
                         </div>
-                        <div id="vectorPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
+                        <div id="vectorPreviewContent" style="text-align:center;padding:40px;color:#6b7280;">加载中...</div>
                     </div>
                     <div class="modal-footer" style="justify-content:space-between;">
                         <div style="display:flex;gap:8px;align-items:center;">
@@ -1124,7 +1124,7 @@ async function loadVectorPreviewPage(page) {
             if (selectAllEl) selectAllEl.checked = false;
 
             if (vectors.length === 0) {
-                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无向量索引数据</div>';
+                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#6b7280;">暂无向量索引数据</div>';
                 infoEl.textContent = '';
             } else {
                 const tableHtml = `
@@ -1447,7 +1447,7 @@ async function loadRelationPreviewPage(page) {
                             <button type="button" class="btn btn-primary" onclick="showAddRelationModal()">➕ 新增关系</button>
                             <button type="button" class="btn" style="background:#dc3545;color:#fff;" onclick="deleteSelectedRelations()">🗑️ 删除选中</button>
                         </div>
-                        <div id="relationPreviewContent" style="text-align:center;padding:40px;color:#999;">加载中...</div>
+                        <div id="relationPreviewContent" style="text-align:center;padding:40px;color:#6b7280;">加载中...</div>
                     </div>
                     <div class="modal-footer" style="justify-content:space-between;">
                         <div id="relationPreviewInfo" style="font-size:13px;color:#666;"></div>
@@ -1512,7 +1512,7 @@ async function loadRelationPreviewPage(page) {
             document.getElementById('relationSelectAll').checked = false;
 
             if (relations.length === 0) {
-                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">暂无关系索引数据</div>';
+                contentEl.innerHTML = '<div style="text-align:center;padding:40px;color:#6b7280;">暂无关系索引数据</div>';
                 infoEl.textContent = keyword ? `共 ${total} 条（筛选结果）` : '共 0 条';
             } else {
                 // 保存当前页数据用于删除
@@ -1541,7 +1541,7 @@ async function loadRelationPreviewPage(page) {
                                     </td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_table || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.source_field || '-'}</td>
-                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;color:#999;">→</td>
+                                    <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;color:#6b7280;">→</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_table || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;">${r.target_field || '-'}</td>
                                     <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">

@@ -1243,7 +1243,7 @@
     justify-content: space-between;
     align-items: center;
     font-size: 12px;
-    color: #a0aec0;
+    color: var(--ds-text-2);
     gap: 6px;
     flex-wrap: wrap;
 }

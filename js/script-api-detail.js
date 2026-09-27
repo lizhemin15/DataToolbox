@@ -628,7 +628,7 @@ function showRelationSelectionDialog(candidates) {
                             <div style="font-size: 12px; color: #666;">
                                 ${cand.source.table_name}.${cand.source.field_name} ↔ ${cand.target.table_name}.${cand.target.field_name}
                             </div>
-                            <div style="font-size: 11px; color: #999;">
+                            <div style="font-size: 11px; color:#6b7280;">
                                 匹配类型: ${cand.match_type} | 得分: ${cand.match_score.toFixed(2)}
                             </div>
                         </div>

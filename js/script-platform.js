@@ -255,7 +255,7 @@ function renderPlatformApiList() {
                 <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;color:#fff;background:${methodColor};margin-right:4px;">${a.method || 'GET'}</span>
                 ${escHtml(a.name)}
             </div>
-            <div class="db-item-info" style="font-size:11px;color:#999;word-break:break-all;">${escHtml(a.suffix || '')}</div>
+            <div class="db-item-info" style="font-size:11px;color:#6b7280;word-break:break-all;">${escHtml(a.suffix || '')}</div>
         </div>`;
     }).join('');
 }
@@ -547,8 +547,9 @@ function stopSSETest() {
 // ===== 辅助函数 =====
 
 function getMethodColor(method) {
-    const colors = {GET:'#61affe', POST:'#49cc90', PUT:'#fca130', DELETE:'#f93e3e', PATCH:'#50e3c2'};
-    return colors[(method || 'GET').toUpperCase()] || '#999';
+    // DeepSeek 风格：深色底 + 白字，保证对比度（原 swagger 浅色底白字读不清）
+    const colors = {GET:'#2563eb', POST:'#0e7a56', PUT:'#b45309', DELETE:'#d93a3f', PATCH:'#0f766e'};
+    return colors[(method || 'GET').toUpperCase()] || '#6b7280';
 }
 
 function slugify(name) {

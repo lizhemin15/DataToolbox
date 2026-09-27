@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="/css/style-misc.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-theme.css?v=2026092701">
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -2820,7 +2821,7 @@
     });
     </script>
     <!-- 版本号显示 -->
-    <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#aaa;z-index:9999;pointer-events:none;user-select:none;"></div>
+    <div id="appVersion" style="position:fixed;bottom:4px;right:8px;font-size:11px;color:#8b8f96;z-index:9999;pointer-events:none;user-select:none;"></div>
     <script>
     fetch('/api/v1/system/version').then(r=>r.json()).then(d=>{document.getElementById('appVersion').textContent='v'+d.version}).catch(()=>{});
     </script>

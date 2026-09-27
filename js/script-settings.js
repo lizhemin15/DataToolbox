@@ -891,11 +891,11 @@ function renderApiList() {
 
     listEl.innerHTML = filtered.map(api => {
         const methodColor = {
-            'GET': '#48bb78',
-            'POST': '#4299e1',
-            'PUT': '#ed8936',
-            'DELETE': '#f56565'
-        }[api.method] || '#718096';
+            'GET': '#2563eb',
+            'POST': '#0e7a56',
+            'PUT': '#b45309',
+            'DELETE': '#d93a3f'
+        }[api.method] || '#6b7280';
         const enabled = api.enabled !== false;
         const safeApiId = escapeHtml(api.id);
         const safeApiName = escapeHtml(api.name);
