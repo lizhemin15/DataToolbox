@@ -1065,7 +1065,7 @@ function renderApiParams(params) {
             if (errorWarnings.length > 0) {
                 sqlWarningHtml = `
                     <div class="sql-syntax-error">
-                        <div class="error-icon">⚠️</div>
+                        <div class="error-icon">${uiIcon('alert','ui-ico-lg')}</div>
                         <div class="error-content">
                             <div class="error-title">SQL 语法异常</div>
                             <div class="error-message">${errorWarnings[0].message}</div>

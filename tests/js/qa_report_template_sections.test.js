@@ -114,8 +114,8 @@ check('index.html 用到的图标名都在图标库里登记',
   missing.length ? '未登记：' + missing.join(', ') : '');
 
 /* ── ⑤ 缓存版本（改过 JS/CSS 必须 bump，否则用户拿到旧文件）────────────── */
-check('quality-audit.js 缓存版本已 bump 到 2026092801',
-  /quality-audit\.js\?v=[0-9.]+\.2026092801/.test(core));
+check('quality-audit.js 缓存版本已 bump 到 2026092803',
+  /quality-audit\.js\?v=[0-9.]+\.2026092803/.test(core));
 check('style-models-quality.css 缓存版本已 bump',
   /style-models-quality\.css\?v=20260919[0-9.]*\.2026092801/.test(html),
   '该文件被 qa_ai_review.test.js 钉住必须以 20260919 开头');

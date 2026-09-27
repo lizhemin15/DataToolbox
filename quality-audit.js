@@ -907,7 +907,7 @@
         if (!miss.length) return null;
         var sp = document.createElement('span');
         sp.className = 'qa-param-warn';
-        sp.textContent = '⚠ 参数未配置：' + miss.join('、');
+        sp.textContent = '参数未配置：' + miss.join('、');
         return sp;
     }
 
