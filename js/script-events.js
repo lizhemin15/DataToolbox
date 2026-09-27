@@ -315,21 +315,25 @@ function initEventListeners() {
         }
     });
 
-    // 数据库操作下拉菜单
-    const indexPreviewBtn = document.getElementById('indexPreviewBtn');
-    if (indexPreviewBtn) {
-        indexPreviewBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            const menu = document.getElementById('indexPreviewMenu');
-            if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        });
-    }
-
-    // 点击其他地方关闭数据库操作菜单
+    // 「索引与预览」下拉菜单。按钮会随 updatePreviewHeader 重建，所以用事件委托而不是直接绑节点。
     document.addEventListener('click', function(e) {
-        const menu = document.getElementById('indexPreviewMenu');
-        if (menu && !e.target.closest('#indexPreviewBtn') && !e.target.closest('#indexPreviewMenu')) {
-            menu.style.display = 'none';
+        const toggle = e.target.closest('#indexPreviewBtn');
+        if (toggle) {
+            const menu = document.getElementById('indexPreviewMenu');
+            if (menu) {
+                const open = menu.classList.toggle('is-open');
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            return;
+        }
+        // 点击其他地方关闭菜单
+        if (!e.target.closest('#indexPreviewMenu')) {
+            const menu = document.getElementById('indexPreviewMenu');
+            if (menu && menu.classList.contains('is-open')) {
+                menu.classList.remove('is-open');
+                const btn = document.getElementById('indexPreviewBtn');
+                if (btn) btn.setAttribute('aria-expanded', 'false');
+            }
         }
     });
 

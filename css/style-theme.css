@@ -891,9 +891,103 @@ input[type="radio"] {
     box-shadow: 0 0 0 3px var(--ds-primary-ring);
 }
 
+/* 空态占位（未选数据库 / 未选数据表） */
 .col-tables-placeholder,
 .col-detail-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 48px 20px;
+    text-align: center;
     color: var(--ds-text-3);
+}
+
+.placeholder-glyph {
+    width: 30px;
+    height: 30px;
+    margin-bottom: 2px;
+    opacity: 0.45;
+    color: var(--ds-text-3);
+}
+
+.placeholder-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--ds-text-2);
+}
+
+.placeholder-hint {
+    margin: 0;
+    max-width: 250px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--ds-text-3);
+}
+
+/* 详情标题空态（未选表） */
+.detail-header h2.is-empty {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ds-text-3);
+}
+
+/* 详情头部「索引与预览」下拉 */
+.dropdown-wrap {
+    position: relative;
+    display: inline-block;
+}
+
+.btn-chevron {
+    width: 13px;
+    height: 13px;
+    margin-left: 5px;
+    opacity: 0.5;
+    vertical-align: -1px;
+}
+
+.dropdown-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 150px;
+    padding: 4px;
+    background: var(--ds-surface);
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-sm);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.10);
+    z-index: 1000;
+}
+
+.dropdown-panel.is-open {
+    display: block;
+}
+
+.dropdown-panel .menu-item-btn {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: var(--ds-radius-xs);
+    background: transparent;
+    color: var(--ds-text-2);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dropdown-panel .menu-item-btn:hover {
+    background: var(--ds-surface-2);
+    color: var(--ds-text);
+}
+
+.menu-divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--ds-border-soft);
 }
 
 /* SQL 工作台 */

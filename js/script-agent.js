@@ -230,7 +230,12 @@ function hideSyncIndexModal() {
 // 关闭索引预览下拉菜单
 function closeIndexPreviewMenu() {
     const menu = document.getElementById('indexPreviewMenu');
-    if (menu) menu.style.display = 'none';
+    if (menu) {
+        menu.classList.remove('is-open');
+        menu.style.display = '';
+    }
+    const btn = document.getElementById('indexPreviewBtn');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 // 执行同步索引

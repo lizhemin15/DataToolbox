@@ -1,4 +1,26 @@
 
+// ===== 空态占位（统一走 .placeholder-* 样式，不用 emoji / ASCII 箭头） =====
+var TABLE_LIST_PLACEHOLDER_HTML = [
+    '<div class="col-tables-placeholder">',
+    '<svg class="placeholder-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+    '<ellipse cx="12" cy="5.6" rx="7.4" ry="2.9"/>',
+    '<path d="M4.6 5.6v12.8c0 1.6 3.3 2.9 7.4 2.9s7.4-1.3 7.4-2.9V5.6"/>',
+    '<path d="M4.6 12c0 1.6 3.3 2.9 7.4 2.9s7.4-1.3 7.4-2.9"/>',
+    '</svg>',
+    '<p class="placeholder-title">尚未选择数据库</p>',
+    '<p class="placeholder-hint">在左侧列表中选中一个库，这里会列出它的数据表</p>',
+    '</div>'
+].join('');
+
+var DETAIL_PLACEHOLDER_HTML = [
+    '<svg class="placeholder-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+    '<rect x="3" y="4.5" width="18" height="15" rx="2.2"/>',
+    '<path d="M3 9.6h18M9.2 9.6v9.9M3 14.4h18"/>',
+    '</svg>',
+    '<p class="placeholder-title">尚未选择数据表</p>',
+    '<p class="placeholder-hint">选中左侧任一数据表，这里会展示它的结构与数据</p>'
+].join('');
+
 // ===== 三列布局辅助函数 =====
 
 // 重置第二列和第三列为占位提示（数据库被删除或切换时调用）。
@@ -9,7 +31,7 @@ function resetDbColumns() {
     if (dbInfoEl) dbInfoEl.textContent = '';
     const listEl = document.getElementById('tablesList');
     if (listEl) {
-        listEl.innerHTML = '<div class="col-tables-placeholder"><div class="placeholder-icon">📂</div><p>← 请先选择数据库</p></div>';
+        listEl.innerHTML = TABLE_LIST_PLACEHOLDER_HTML;
     }
     resetDetailColumn();
 }
@@ -18,10 +40,16 @@ function resetDbColumns() {
 function resetDetailColumn() {
     currentPreviewTable = null;
     const nameEl = document.getElementById('previewTableName');
-    if (nameEl) nameEl.textContent = '← 请先选择数据表';
+    if (nameEl) {
+        nameEl.textContent = '尚未选择数据表';
+        nameEl.classList.add('is-empty');
+    }
+    // 动作区只在选中数据表后才有意义，回到空态时清空。
+    const actionsEl = document.querySelector('#colTableDetail .detail-actions');
+    if (actionsEl) actionsEl.innerHTML = '';
     const contentEl = document.getElementById('previewContent');
     if (contentEl) {
-        contentEl.innerHTML = '<div id="detailPlaceholder" class="col-detail-placeholder"><div class="placeholder-icon">📋</div><p>请先选择数据表查看详情</p></div>';
+        contentEl.innerHTML = '<div id="detailPlaceholder" class="col-detail-placeholder">' + DETAIL_PLACEHOLDER_HTML + '</div>';
     }
 }
 
@@ -1229,6 +1257,7 @@ function updatePreviewHeader() {
     
     // 更新当前表名。
     tableNameEl.textContent = currentPreviewTable;
+    tableNameEl.classList.remove('is-empty');
     
     // 根据是否编辑模式生成按钮。
     const actionsHtml = isTableEditMode ? `
@@ -1236,6 +1265,7 @@ function updatePreviewHeader() {
         <button id="saveTableBtn" class="btn btn-sm btn-primary" onclick="saveTableData()">保存数据</button>
         <button id="cancelEditBtn" class="btn btn-sm" onclick="cancelTableEdit()">取消</button>
     ` : `
+        ${indexPreviewDropdownHtml()}
         <button id="editTableBtn" class="btn btn-sm btn-primary" onclick="enableTableEditMode()">编辑数据</button>
         <button id="editStructureBtn" class="btn btn-sm btn-primary" onclick="showEditStructureModal()">编辑结构</button>
         <button id="renameTableBtn" class="btn btn-sm" onclick="showRenameTableModal()">重命名</button>
@@ -1243,6 +1273,24 @@ function updatePreviewHeader() {
     `;
     
     actionsContainer.innerHTML = actionsHtml;
+}
+
+// 「索引与预览」下拉的结构。按钮会被 updatePreviewHeader 重建，点击走事件委托。
+function indexPreviewDropdownHtml() {
+    return `
+        <div class="dropdown-wrap">
+            <button id="indexPreviewBtn" class="btn btn-sm" aria-haspopup="true" aria-expanded="false">
+                索引与预览<svg class="btn-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9.5l6 6 6-6"/></svg>
+            </button>
+            <div id="indexPreviewMenu" class="dropdown-panel">
+                <button class="dropdown-item menu-item-btn" onclick="handleVectorIndex();closeIndexPreviewMenu();">向量索引</button>
+                <button class="dropdown-item menu-item-btn" onclick="handleRelationIndex();closeIndexPreviewMenu();">关系索引</button>
+                <div class="menu-divider"></div>
+                <button class="dropdown-item menu-item-btn" onclick="showVectorPreview();closeIndexPreviewMenu();">向量预览</button>
+                <button class="dropdown-item menu-item-btn" onclick="showRelationPreview();closeIndexPreviewMenu();">关系预览</button>
+            </div>
+        </div>
+    `;
 }
 
 // 启用表格编辑模式。
