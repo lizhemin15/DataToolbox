@@ -74,25 +74,8 @@
         };
     }
 
-    function qaApplyTplFormFromRow(row) {
-        var c = qaParseTplContent(row && row.content);
-        document.getElementById('qaTplId').value = row && row.id ? row.id : 'default';
-        document.getElementById('qaTplName').value = row && row.name ? row.name : '默认报告模板';
-        document.getElementById('qaTplType').value = (row && row.template_type) ? row.template_type : 'html';
-        document.getElementById('qaTplIsDefault').checked = row ? !!row.is_default : true;
-        document.getElementById('qaTplDocTitle').value = c.doc_title;
-        document.getElementById('qaTplTitleFont').value = c.title.font_family;
-        document.getElementById('qaTplTitleSize').value = c.title.font_size;
-        document.getElementById('qaTplTitleColor').value = qaHex6FromCssColor(c.title.color);
-        document.getElementById('qaTplSectionFont').value = c.section.font_family;
-        document.getElementById('qaTplSectionSize').value = c.section.font_size;
-        document.getElementById('qaTplSectionColor').value = qaHex6FromCssColor(c.section.color);
-        document.getElementById('qaTplTblBorder').value = c.table.border;
-        document.getElementById('qaTplTblHead').value = qaHex6FromCssColor(c.table.header_bg);
-        document.getElementById('qaTplTblAlt').value = qaHex6FromCssColor(c.table.row_alt);
-        document.getElementById('qaTplHeader').value = c.page_header;
-        document.getElementById('qaTplFooter').value = c.page_footer;
-    }
+    // 模板表单填充统一走 applyQaTplNormalized（后端规范化后的内容），
+    // 不再从原始 content 里各自解析，避免前端后端的默认值各说各话。
 
     function qaCollectTplContent() {
         return {
@@ -113,8 +96,238 @@
                 row_alt: document.getElementById('qaTplTblAlt').value
             },
             page_header: document.getElementById('qaTplHeader').value,
-            page_footer: document.getElementById('qaTplFooter').value
+            page_footer: document.getElementById('qaTplFooter').value,
+            section_number: (document.getElementById('qaTplSecNum') || {}).value || 'cn',
+            sections: qaTplState.sections
         };
+    }
+
+    // 预览刷新函数在 bindQaTplModalOnce 里赋值，供章节编辑器复用（避免重复实现防抖）
+    var qaTplPreviewRefresh = null;
+    function qaRefreshPreview(immediate) {
+        if (typeof qaTplPreviewRefresh === 'function') qaTplPreviewRefresh(!!immediate);
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * 报告章节可视化编辑（模板 content.sections）
+     * ----------------------------------------------------------------------
+     * 章节顺序 / 是否启用 / 标题 / 每段选项都写在模板 content JSON 里，后端两个渲染器
+     * （docx 与预览 html）直接消费这份数据，于是「左栏怎么改 → 右侧预览立刻怎样 →
+     * Word 导出就怎样」三者同源，不会出现预览与导出两副面孔。
+     *
+     * 控件由后端 /templates/normalize 返回的 catalog 生成 —— 后端加一个选项，前端不用改。
+     * 交互：拖拽排序、眼睛开关、标题直接改；右侧预览里点章节会选中左栏对应卡片，
+     * 双击预览里的章节标题可以就地改名（iframe 通过 postMessage 回传）。
+     * ══════════════════════════════════════════════════════════════════════ */
+    var qaTplState = { sections: [], catalog: [], active: '', dragIdx: -1 };
+
+    function qaIcon(name, cls) {
+        if (typeof window.uiIcon === 'function') return window.uiIcon(name, cls || 'ui-ico ui-ico-sm');
+        return '';
+    }
+
+    function qaSecSpec(key) {
+        for (var i = 0; i < qaTplState.catalog.length; i++) {
+            if (qaTplState.catalog[i].key === key) return qaTplState.catalog[i];
+        }
+        return null;
+    }
+
+    function qaSecByKey(key) {
+        for (var i = 0; i < qaTplState.sections.length; i++) {
+            if (qaTplState.sections[i].key === key) return qaTplState.sections[i];
+        }
+        return null;
+    }
+
+    function qaSecIndex(key) {
+        for (var i = 0; i < qaTplState.sections.length; i++) {
+            if (qaTplState.sections[i].key === key) return i;
+        }
+        return -1;
+    }
+
+    function qaSecLabel(sec) {
+        var spec = qaSecSpec(sec.key);
+        var t = (sec.title || '').trim();
+        if (t) return t;
+        return spec ? (spec.label || sec.key) : sec.key;
+    }
+
+    function qaSecOptControl(sec, opt) {
+        var val = sec.opts ? sec.opts[opt.key] : undefined;
+        var key = escapeHtml(String(opt.key));
+        var label = escapeHtml(String(opt.label || opt.key));
+        if (opt.type === 'bool') {
+            var dflt = val === undefined ? !!opt.default : !!val;
+            return '<label class="qa-sec-opt"><input type="checkbox" data-opt="' + key + '"' + (dflt ? ' checked' : '') + '><span>' + label + '</span></label>';
+        }
+        if (opt.type === 'enum') {
+            var cur = val === undefined || val === null || val === '' ? opt.default : val;
+            var html = '<label class="qa-sec-opt"><span>' + label + '</span><select data-opt="' + key + '">';
+            (opt.choices || []).forEach(function (c) {
+                html += '<option value="' + escapeHtml(String(c.value)) + '"' + (String(c.value) === String(cur) ? ' selected' : '') + '>' + escapeHtml(String(c.label)) + '</option>';
+            });
+            return html + '</select></label>';
+        }
+        var num = val === undefined || val === null || val === '' ? (opt.default || 0) : val;
+        var suffix = opt.type === 'percent' ? '%' : (opt.suffix || '');
+        return '<label class="qa-sec-opt"><span>' + label + '</span>' +
+            '<input type="number" min="0" step="1" data-opt="' + key + '" value="' + escapeHtml(String(num)) + '">' +
+            (suffix ? '<span class="qa-sec-opt-suffix">' + escapeHtml(suffix) + '</span>' : '') + '</label>';
+    }
+
+    function renderQaTplSections() {
+        var box = document.getElementById('qaTplSections');
+        if (!box) return;
+        var html = '';
+        qaTplState.sections.forEach(function (sec, idx) {
+            var spec = qaSecSpec(sec.key) || { label: sec.key, opts: [] };
+            var isActive = qaTplState.active === sec.key;
+            html += '<div class="qa-sec-card' + (sec.enabled ? '' : ' is-off') + (isActive ? ' is-active' : '') + '" data-key="' + escapeHtml(sec.key) + '">';
+            html += '<div class="qa-sec-row" draggable="true" data-idx="' + idx + '">';
+            html += '<span class="qa-sec-grip" title="拖拽调整顺序">' + qaIcon('grip') + '</span>';
+            html += '<button type="button" class="qa-sec-eye" data-act="toggle" title="' + (sec.enabled ? '点击：本段不出现在报告里' : '点击：本段出现在报告里') + '">' + qaIcon(sec.enabled ? 'eye' : 'eyeOff') + '</button>';
+            html += '<input type="text" class="qa-sec-title" data-act="title" value="' + escapeHtml(sec.title || '') + '" placeholder="（留空则不显示章节标题）">';
+            html += '<button type="button" class="qa-sec-more" data-act="more" title="本段选项">' + qaIcon('sliders') + '</button>';
+            html += '</div>';
+            if (isActive && (spec.opts || []).length) {
+                html += '<div class="qa-sec-opts">';
+                (spec.opts || []).forEach(function (opt) { html += qaSecOptControl(sec, opt); });
+                html += '</div>';
+            }
+            if (isActive && spec.hint) {
+                html += '<p class="qa-sec-hint">' + escapeHtml(spec.hint) + '</p>';
+            }
+            html += '</div>';
+        });
+        box.innerHTML = html;
+    }
+
+    function qaTplSelectSection(key) {
+        qaTplState.active = key || '';
+        renderQaTplSections();
+        var iframe = document.getElementById('qaTplPreviewFrame');
+        if (iframe && iframe.contentWindow) {
+            try { iframe.contentWindow.postMessage({ type: 'qa-highlight', key: qaTplState.active }, '*'); } catch (e) {}
+        }
+        if (!key) return;
+        var card = document.querySelector('#qaTplSections .qa-sec-card[data-key="' + key + '"]');
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest' });
+    }
+
+    function qaTplMoveSection(fromIdx, toIdx) {
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+        var moved = qaTplState.sections.splice(fromIdx, 1)[0];
+        if (!moved) return;
+        qaTplState.sections.splice(toIdx, 0, moved);
+        renderQaTplSections();
+    }
+
+    function bindQaTplSectionEditorOnce() {
+        var box = document.getElementById('qaTplSections');
+        if (!box || box.getAttribute('data-bound') === '1') return;
+        box.setAttribute('data-bound', '1');
+
+        box.addEventListener('click', function (ev) {
+            var card = ev.target.closest ? ev.target.closest('.qa-sec-card') : null;
+            if (!card) return;
+            var key = card.getAttribute('data-key');
+            var actEl = ev.target.closest ? ev.target.closest('[data-act]') : null;
+            var act = actEl ? actEl.getAttribute('data-act') : '';
+            if (act === 'toggle') {
+                var sec = qaSecByKey(key);
+                if (sec) { sec.enabled = !sec.enabled; renderQaTplSections(); qaRefreshPreview(); }
+                return;
+            }
+            if (act === 'more') {
+                qaTplSelectSection(qaTplState.active === key ? '' : key);
+                return;
+            }
+            qaTplSelectSection(key);
+        });
+
+        box.addEventListener('input', function (ev) {
+            var el = ev.target;
+            if (!el || !el.getAttribute) return;
+            var act = el.getAttribute('data-act');
+            var card = el.closest ? el.closest('.qa-sec-card') : null;
+            if (!card) return;
+            var sec = qaSecByKey(card.getAttribute('data-key'));
+            if (!sec) return;
+            if (act === 'title') { sec.title = el.value; return; }
+            var optKey = el.getAttribute('data-opt');
+            if (!optKey) return;
+            if (!sec.opts) sec.opts = {};
+            if (el.type === 'checkbox') sec.opts[optKey] = !!el.checked;
+            else if (el.type === 'number') sec.opts[optKey] = Number(el.value || 0);
+            else sec.opts[optKey] = el.value;
+        });
+
+        // 拖拽排序
+        box.addEventListener('dragstart', function (ev) {
+            var row = ev.target.closest ? ev.target.closest('.qa-sec-row') : null;
+            if (!row) return;
+            qaTplState.dragIdx = Number(row.getAttribute('data-idx'));
+            if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', String(qaTplState.dragIdx)); } catch (e) {} }
+        });
+        box.addEventListener('dragover', function (ev) {
+            var row = ev.target.closest ? ev.target.closest('.qa-sec-row') : null;
+            if (!row) return;
+            ev.preventDefault();
+            row.classList.add('is-drop');
+        });
+        box.addEventListener('dragleave', function (ev) {
+            var row = ev.target.closest ? ev.target.closest('.qa-sec-row') : null;
+            if (row) row.classList.remove('is-drop');
+        });
+        box.addEventListener('drop', function (ev) {
+            var row = ev.target.closest ? ev.target.closest('.qa-sec-row') : null;
+            if (!row) return;
+            ev.preventDefault();
+            row.classList.remove('is-drop');
+            qaTplMoveSection(qaTplState.dragIdx, Number(row.getAttribute('data-idx')));
+            qaTplState.dragIdx = -1;
+            qaRefreshPreview();
+        });
+        box.addEventListener('dragend', function () {
+            document.querySelectorAll('#qaTplSections .is-drop').forEach(function (n) { n.classList.remove('is-drop'); });
+        });
+    }
+
+    function applyQaTplNormalized(normalized) {
+        var c = qaParseTplContent(normalized);
+        document.getElementById('qaTplDocTitle').value = c.doc_title || '';
+        document.getElementById('qaTplTitleFont').value = c.title.font_family;
+        document.getElementById('qaTplTitleSize').value = c.title.font_size;
+        document.getElementById('qaTplTitleColor').value = qaHex6FromCssColor(c.title.color);
+        document.getElementById('qaTplSectionFont').value = c.section.font_family;
+        document.getElementById('qaTplSectionSize').value = c.section.font_size;
+        document.getElementById('qaTplSectionColor').value = qaHex6FromCssColor(c.section.color);
+        document.getElementById('qaTplTblBorder').value = c.table.border;
+        document.getElementById('qaTplTblHead').value = qaHex6FromCssColor(c.table.header_bg);
+        document.getElementById('qaTplTblAlt').value = qaHex6FromCssColor(c.table.row_alt);
+        document.getElementById('qaTplHeader').value = c.page_header || '';
+        document.getElementById('qaTplFooter').value = c.page_footer || '';
+        var sn = document.getElementById('qaTplSecNum');
+        if (sn) sn.value = c.section_number || 'cn';
+    }
+
+    function loadQaTplNormalized(content) {
+        return fetchWithAuth(PREFIX + 'templates/normalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content || '' })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '模板规范化失败');
+            qaTplState.catalog = d.catalog || [];
+            qaTplState.sections = d.sections || [];
+            qaTplState.active = '';
+            bindQaTplSectionEditorOnce();
+            renderQaTplSections();
+            applyQaTplNormalized(d.content);
+            return d;
+        });
     }
 
     function syncQaReportTemplateIdFromServer() {
@@ -137,7 +350,17 @@
             clearTimeout(qaTplPreviewTimer);
             var run = function () {
                 if (!modal.classList.contains('is-open')) return;
-                var body = { audit: QA_SAMPLE_AUDIT, content: qaCollectTplContent() };
+                // 记住当前滚动位置：预览重渲染后恢复到原位，避免编辑时视图乱跳
+                var scrollTop = 0;
+                try {
+                    if (iframe.contentWindow) scrollTop = iframe.contentWindow.scrollY || 0;
+                } catch (e) {}
+                var body = {
+                    audit: QA_SAMPLE_AUDIT,
+                    content: qaCollectTplContent(),
+                    interactive: true,
+                    scroll: scrollTop
+                };
                 fetchWithAuth(PREFIX + 'preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -150,6 +373,14 @@
                     return r.text();
                 }).then(function (html) {
                     iframe.srcdoc = html;
+                    if (qaTplState.active) {
+                        // 重渲染后保持选中高亮
+                        setTimeout(function () {
+                            try {
+                                if (iframe.contentWindow) iframe.contentWindow.postMessage({ type: 'qa-highlight', key: qaTplState.active }, '*');
+                            } catch (e) {}
+                        }, 60);
+                    }
                 }).catch(function (e) {
                     iframe.srcdoc = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head><body style="font-family:system-ui,sans-serif;padding:16px;color:#c53030;">预览失败：' +
                         escapeHtml(e.message || String(e)) + '</body></html>';
@@ -157,6 +388,58 @@
             };
             if (immediate) run();
             else qaTplPreviewTimer = setTimeout(run, 260);
+        }
+        qaTplPreviewRefresh = scheduleQaTplPreview;
+
+        // 预览 iframe 回传：点选章节 / 双击章节标题改名
+        window.addEventListener('message', function (ev) {
+            var d = ev.data || {};
+            if (!d.type || String(d.type).indexOf('qa-') !== 0) return;
+            if (d.type === 'qa-pick') { qaTplSelectSection(d.key || ''); return; }
+            if (d.type === 'qa-title') {
+                var sec = qaSecByKey(d.key);
+                if (!sec) return;
+                var next = String(d.title || '').trim();
+                var spec = qaSecSpec(d.key);
+                // 允许把标题清空（概览那种「不要标题」的用法）
+                if (!next && spec && !spec.allow_title) next = spec.title || '';
+                sec.title = next;
+                renderQaTplSections();
+                qaRefreshPreview(false);
+            }
+        });
+
+        function qaFillTplPicker(list, activeId) {
+            var sel = document.getElementById('qaTplPick');
+            if (!sel) return;
+            var html = '';
+            (list || []).forEach(function (t) {
+                html += '<option value="' + escapeHtml(String(t.id)) + '"' + (t.id === activeId ? ' selected' : '') + '>' +
+                    escapeHtml(String(t.name || t.id)) + (t.is_default ? '（默认）' : '') + '</option>';
+            });
+            sel.innerHTML = html;
+        }
+
+        // 载入一个模板：先让后端把内容规范化（补齐章节与选项），再填表单 + 渲染章节编辑器
+        function loadQaTplRow(row) {
+            if (row) {
+                document.getElementById('qaTplId').value = row.id;
+                document.getElementById('qaTplName').value = row.name || row.id;
+                document.getElementById('qaTplType').value = row.template_type || 'html';
+                document.getElementById('qaTplIsDefault').checked = !!row.is_default;
+            } else {
+                document.getElementById('qaTplId').value = 'default';
+                document.getElementById('qaTplName').value = '默认报告模板';
+                document.getElementById('qaTplType').value = 'html';
+                document.getElementById('qaTplIsDefault').checked = true;
+            }
+            return loadQaTplNormalized(row ? row.content : '').then(function () {
+                qaRefreshPreview(true);
+            }).catch(function (e) {
+                showMsg(e.message || String(e), true);
+                applyQaTplNormalized('{}');
+                qaRefreshPreview(true);
+            });
         }
 
         function openQaTplModal() {
@@ -166,14 +449,22 @@
                 if (!d.success) throw new Error(d.message || '加载模板失败');
                 var list = d.templates || [];
                 var row = list.find(function (t) { return t.is_default; }) || list[0];
-                if (row) qaApplyTplFormFromRow(row);
-                else qaApplyTplFormFromRow(null);
-                scheduleQaTplPreview(true);
+                qaFillTplPicker(list, row ? row.id : '');
+                return loadQaTplRow(row);
             }).catch(function () {
-                qaApplyTplFormFromRow(null);
-                scheduleQaTplPreview(true);
+                return loadQaTplRow(null);
             });
         }
+
+        var qaTplPickSel = document.getElementById('qaTplPick');
+        if (qaTplPickSel) qaTplPickSel.addEventListener('change', function () {
+            fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
+                var list = (d && d.templates) || [];
+                var row = list.find(function (t) { return t.id === qaTplPickSel.value; });
+                if (row) return loadQaTplRow(row);
+                return null;
+            }).catch(function (e) { showMsg(e.message || String(e), true); });
+        });
 
         function closeQaTplModal() {
             modal.classList.remove('is-open');
@@ -209,6 +500,50 @@
                 })
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
+
+        // 导出 / 导入模板 JSON（跨环境搬模板用）
+        var qaTplExportBtn = document.getElementById('qaTplExportBtn');
+        if (qaTplExportBtn) qaTplExportBtn.addEventListener('click', function () {
+            var payload = {
+                id: document.getElementById('qaTplId').value.trim() || 'default',
+                name: document.getElementById('qaTplName').value.trim() || '默认报告模板',
+                template_type: document.getElementById('qaTplType').value,
+                content: qaCollectTplContent()
+            };
+            var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = payload.id + '-report-template.json';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+        var qaTplImportBtn = document.getElementById('qaTplImportBtn');
+        var qaTplImportFile = document.getElementById('qaTplImportFile');
+        if (qaTplImportBtn && qaTplImportFile) {
+            qaTplImportBtn.addEventListener('click', function () { qaTplImportFile.click(); });
+            qaTplImportFile.addEventListener('change', function () {
+                var f = qaTplImportFile.files && qaTplImportFile.files[0];
+                if (!f) return;
+                var reader = new FileReader();
+                reader.onload = function () {
+                    try {
+                        var obj = JSON.parse(String(reader.result || '{}'));
+                        var content = (obj && obj.content !== undefined) ? obj.content : obj;
+                        if (obj && obj.id) document.getElementById('qaTplId').value = obj.id;
+                        if (obj && obj.name) document.getElementById('qaTplName').value = obj.name;
+                        loadQaTplNormalized(typeof content === 'string' ? content : JSON.stringify(content))
+                            .then(function () {
+                                showMsg('模板已导入，点「保存」写入', false);
+                                qaRefreshPreview(true);
+                            });
+                    } catch (e) {
+                        showMsg('模板 JSON 解析失败：' + (e.message || e), true);
+                    }
+                    qaTplImportFile.value = '';
+                };
+                reader.readAsText(f);
+            });
+        }
 
         // 保存 keydown 处理器引用，避免重复添加监听器
         if (!window._qaTplKeydownHandler) {
@@ -2328,39 +2663,245 @@
             }).catch(function (e) { showMsg(e.message || String(e), true); });
         });
 
+        // 「生成报告」改为打开选择性生成弹窗：先勾章节与规则，再生成 Word。
         var qaReport = document.getElementById('qaReport');
         if (qaReport) qaReport.addEventListener('click', function () {
-            if (!lastAudit) { showMsg('请先执行一键审核', true); return; }
-            var repPayload = { audit: lastAudit };
-            if (qaReportTemplateId) repPayload.template_id = qaReportTemplateId;
-            fetchWithAuth(PREFIX + 'report', {
-                method: 'POST',
-                body: JSON.stringify(repPayload)
-            }).then(function (r) {
-                var ct = r.headers.get('Content-Type') || '';
-                if (!r.ok || ct.indexOf('json') !== -1) {
-                    return r.json().then(function (j) { throw new Error((j && j.message) || r.statusText); });
-                }
-                return r.blob();
-            }).then(function (blob) {
-                var shared = window.GOV_SHARED || globalThis.GOV_SHARED || {};
-                var download = typeof shared.govDownloadBlob === 'function'
-                    ? shared.govDownloadBlob
-                    : function (blob, filename) {
-                        var a = document.createElement('a');
-                        a.href = URL.createObjectURL(blob);
-                        a.download = filename;
-                        a.click();
-                        URL.revokeObjectURL(a.href);
-                    };
-                download(blob, 'quality-audit-report.docx');
-            }).catch(function (e) { showMsg(e.message || String(e), true); });
+            bindQaGenModalOnce();
+            openQaGenModal();
         });
+        bindQaGenModalOnce();
         listenersBound = true;
         try { window.__qaPasteImportBound = true; } catch (e2) {}
         } catch (e) {
             try { console.error('quality-audit bindListeners:', e); } catch (e3) {}
         }
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+     * 选择性生成报告
+     * ----------------------------------------------------------------------
+     * 「生成报告」不再是"一键吐整本"，而是先勾：要哪些章节、要哪些规则。
+     * 章节清单来自当前模板（模板里关掉的章节在生成弹窗里也不出现）；
+     * 规则清单来自本次审核结果，可按「仅不通过」快速筛。
+     * 只选部分规则时，报告开头的概览统计由后端按所选规则重算，
+     * 不会出现「概览说 12 条、明细只列 3 条」这种自相矛盾。
+     * ══════════════════════════════════════════════════════════════════════ */
+    var qaGenBound = false;
+
+    function qaGenSectionList() {
+        var out = [];
+        (qaTplState.sections || []).forEach(function (s) {
+            if (!s.enabled) return;
+            var spec = qaSecSpec(s.key) || {};
+            out.push({ key: s.key, label: s.title || spec.label || s.key });
+        });
+        if (!out.length) {
+            // 模板还没加载过（比如直接从审核结果点生成）：给一份标准章节
+            [{ key: 'overview', label: '审核概览' }, { key: 'rules', label: '规则明细' },
+             { key: 'item_fill', label: '项填报率' }, { key: 'record_fill', label: '记录填报率' },
+             { key: 'ai_review', label: 'AI 复核' }].forEach(function (s) { out.push(s); });
+        }
+        return out;
+    }
+
+    function qaGenAuditRules() {
+        return (lastAudit && lastAudit.rules) ? lastAudit.rules : [];
+    }
+
+    function qaGenSectionMeta(key) {
+        var a = lastAudit || {};
+        var rules = qaGenAuditRules();
+        if (key === 'overview') return '共 ' + rules.length + ' 条规则';
+        if (key === 'rules') {
+            var failed = rules.filter(function (r) { return !r.passed; }).length;
+            return rules.length + ' 条规则' + (failed ? '，其中 ' + failed + ' 条不通过' : '，全部通过');
+        }
+        if (key === 'item_fill') return ((a.item_fill_rates || []).length) + ' 项字段';
+        if (key === 'record_fill') return ((a.record_fill_rates || []).length) + ' 张表';
+        if (key === 'ai_review') {
+            var n = rules.filter(function (r) {
+                return r && (Object.prototype.hasOwnProperty.call(r, 'ai_reason') || Object.prototype.hasOwnProperty.call(r, 'ai_misjudged'));
+            }).length;
+            return n ? n + ' 条已 AI 复核' : '本次没有 AI 复核结果（该段不会出现）';
+        }
+        return '';
+    }
+
+    function renderQaGenModal() {
+        var secBox = document.getElementById('qaGenSections');
+        if (!secBox) return;
+        var secs = qaGenSectionList();
+        var html = '';
+        secs.forEach(function (s) {
+            html += '<label class="qa-gen-item">' +
+                '<input type="checkbox" data-sec="' + escapeHtml(s.key) + '" checked>' +
+                '<span class="qa-gen-item-name">' + escapeHtml(s.label) + '</span>' +
+                '<span class="qa-gen-item-meta">' + escapeHtml(qaGenSectionMeta(s.key)) + '</span></label>';
+        });
+        secBox.innerHTML = html;
+
+        var rules = qaGenAuditRules();
+        var group = document.getElementById('qaGenRulesGroup');
+        if (group) group.style.display = rules.length ? '' : 'none';
+        var ruleBox = document.getElementById('qaGenRules');
+        if (ruleBox) {
+            var rb = '';
+            rules.forEach(function (r) {
+                var nm = String(r.nm || '');
+                var label = String(r.name || nm);
+                rb += '<label class="qa-gen-item qa-gen-rule' + (r.passed ? '' : ' is-failed') + '"' +
+                    ' data-passed="' + (r.passed ? '1' : '0') + '"' +
+                    ' data-search="' + escapeHtml((nm + ' ' + label).toLowerCase()) + '">' +
+                    '<input type="checkbox" data-rule="' + escapeHtml(nm) + '" checked>' +
+                    '<span class="qa-gen-item-name">' + escapeHtml(label) + '</span>' +
+                    '<span class="qa-gen-item-meta">' + escapeHtml(nm) + (r.passed ? '　通过' : '　不通过（违规 ' + (r.violation_count || 0) + '）') + '</span>' +
+                    '</label>';
+            });
+            ruleBox.innerHTML = rb;
+        }
+        var search = document.getElementById('qaGenRuleSearch');
+        if (search) search.value = '';
+        var hint = document.getElementById('qaGenHint');
+        if (hint) {
+            hint.textContent = rules.length
+                ? '本次审核共 ' + rules.length + ' 条规则。下面的勾选只影响这份报告，不动审核结果本身。'
+                : '本次没有可选的规则明细，报告将只输出填报率等内容。';
+        }
+    }
+
+    function qaGenCheckAll(sel, checked) {
+        document.querySelectorAll(sel).forEach(function (cb) { cb.checked = checked; });
+    }
+
+    function openQaGenModal() {
+        if (!lastAudit) { showMsg('请先执行一键审核', true); return; }
+        var modal = document.getElementById('qaGenModal');
+        if (!modal) { showMsg('生成报告弹窗缺失', true); return; }
+        renderQaGenModal();
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeQaGenModal() {
+        var modal = document.getElementById('qaGenModal');
+        if (!modal) return;
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function qaGenCollectSelection() {
+        var sel = { sections: [], rule_nms: [] };
+        document.querySelectorAll('#qaGenSections input[data-sec]').forEach(function (cb) {
+            if (cb.checked) sel.sections.push(cb.getAttribute('data-sec'));
+        });
+        var rulesBox = document.getElementById('qaGenRulesGroup');
+        var rulesShown = rulesBox && rulesBox.style.display !== 'none';
+        // 只有勾了「规则明细」时才把规则子集发下去，否则容易误伤别的章节
+        if (rulesShown && sel.sections.indexOf('rules') !== -1) {
+            document.querySelectorAll('#qaGenRules input[data-rule]').forEach(function (cb) {
+                if (cb.checked) sel.rule_nms.push(cb.getAttribute('data-rule'));
+            });
+        }
+        return sel;
+    }
+
+    function qaGenTemplatePayload() {
+        var payload = {};
+        if (qaTplState.sections && qaTplState.sections.length) payload.content = qaCollectTplContent();
+        else if (qaReportTemplateId) payload.template_id = qaReportTemplateId;
+        return payload;
+    }
+
+    function qaGenDownload() {
+        var sel = qaGenCollectSelection();
+        if (!sel.sections.length) { showMsg('至少要选一个报告章节', true); return; }
+        var shownRules = (document.getElementById('qaGenRulesGroup') || {}).style;
+        if (shownRules && shownRules.display !== 'none' && sel.sections.indexOf('rules') !== -1 && !sel.rule_nms.length) {
+            showMsg('勾了「规则明细」但一条规则都没选，请至少选一条或取消该章节', true);
+            return;
+        }
+        var payload = qaGenTemplatePayload();
+        payload.audit = lastAudit;
+        payload.selection = sel;
+        fetchWithAuth(PREFIX + 'report', { method: 'POST', body: JSON.stringify(payload) }).then(function (r) {
+            var ct = r.headers.get('Content-Type') || '';
+            if (!r.ok || ct.indexOf('json') !== -1) {
+                return r.json().then(function (j) { throw new Error((j && j.message) || r.statusText); });
+            }
+            return r.blob();
+        }).then(function (blob) {
+            var shared = window.GOV_SHARED || globalThis.GOV_SHARED || {};
+            var download = typeof shared.govDownloadBlob === 'function'
+                ? shared.govDownloadBlob
+                : function (b, filename) {
+                    var a = document.createElement('a');
+                    a.href = URL.createObjectURL(b);
+                    a.download = filename;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                };
+            download(blob, 'quality-audit-report.docx');
+            closeQaGenModal();
+            showMsg('报告已生成（' + sel.sections.length + ' 个章节）', false);
+        }).catch(function (e) { showMsg(e.message || String(e), true); });
+    }
+
+    function qaGenPreview() {
+        var sel = qaGenCollectSelection();
+        if (!sel.sections.length) { showMsg('至少要选一个报告章节', true); return; }
+        var payload = qaGenTemplatePayload();
+        payload.audit = lastAudit;
+        payload.selection = sel;
+        payload.interactive = false;
+        fetchWithAuth(PREFIX + 'preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.text(); }).then(function (html) {
+            var url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            window.open(url, '_blank');
+            setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        }).catch(function (e) { showMsg(e.message || String(e), true); });
+    }
+
+    function bindQaGenModalOnce() {
+        if (qaGenBound) return;
+        var modal = document.getElementById('qaGenModal');
+        if (!modal) return;
+        qaGenBound = true;
+
+        modal.addEventListener('click', function (ev) {
+            var id = ev.target && ev.target.id ? ev.target.id : '';
+            if (id === 'qaGenSecAll') { qaGenCheckAll('#qaGenSections input[data-sec]', true); return; }
+            if (id === 'qaGenSecNone') { qaGenCheckAll('#qaGenSections input[data-sec]', false); return; }
+            if (id === 'qaGenRuleAll') { qaGenCheckAll('#qaGenRules input[data-rule]', true); return; }
+            if (id === 'qaGenRuleNone') { qaGenCheckAll('#qaGenRules input[data-rule]', false); return; }
+            if (id === 'qaGenRuleFailed') {
+                document.querySelectorAll('#qaGenRules .qa-gen-rule').forEach(function (row) {
+                    var cb = row.querySelector('input[data-rule]');
+                    if (cb) cb.checked = row.getAttribute('data-passed') === '0';
+                });
+                return;
+            }
+            if (id === 'qaGenSubmit') { qaGenDownload(); return; }
+            if (id === 'qaGenPreview') { qaGenPreview(); return; }
+            if (id === 'qaGenCloseX' || id === 'qaGenCancel') { closeQaGenModal(); return; }
+            if (ev.target === modal) { closeQaGenModal(); }
+        });
+
+        var search = document.getElementById('qaGenRuleSearch');
+        if (search) search.addEventListener('input', function () {
+            var kw = String(search.value || '').trim().toLowerCase();
+            document.querySelectorAll('#qaGenRules .qa-gen-rule').forEach(function (row) {
+                var hit = !kw || String(row.getAttribute('data-search') || '').indexOf(kw) !== -1;
+                row.style.display = hit ? '' : 'none';
+            });
+        });
+
+        window.addEventListener('keydown', function (ev) {
+            if (ev.key !== 'Escape') return;
+            if (modal.classList.contains('is-open')) closeQaGenModal();
+        });
     }
 
     window.initQualityAuditTab = function () {

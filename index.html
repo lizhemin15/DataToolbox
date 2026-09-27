@@ -11,11 +11,11 @@
 <link rel="stylesheet" href="/css/style-tables.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922.2026092801">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026092705">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-theme.css?v=2026092705">
+<link rel="stylesheet" href="/css/style-theme.css?v=2026092801">
 </head>
 <body>
     <!-- 服务端检测错误页面 -->
@@ -2483,8 +2483,25 @@
             <div class="qa-tpl-body">
                 <aside class="qa-tpl-config">
                     <div class="qa-tpl-scroll">
+                        <section class="qa-tpl-card qa-tpl-card-sec">
+                            <h3 class="qa-tpl-card-title">报告章节</h3>
+                            <p class="qa-tpl-card-sub">拖拽调顺序 · 眼睛图标控制本段出不出现在报告里 · 标题可直接改。点右侧预览里的章节会选中这里，双击预览里的章节标题可就地改名。</p>
+                            <div id="qaTplSections" class="qa-secs"></div>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplSecNum">章节编号</label>
+                                <select id="qaTplSecNum">
+                                    <option value="cn">一、二、三</option>
+                                    <option value="arabic">1. 2. 3.</option>
+                                    <option value="none">不编号</option>
+                                </select>
+                            </div>
+                        </section>
                         <section class="qa-tpl-card">
                             <h3 class="qa-tpl-card-title">基本信息</h3>
+                            <div class="qa-tpl-field">
+                                <label for="qaTplPick">选择模板</label>
+                                <select id="qaTplPick"></select>
+                            </div>
                             <div class="qa-tpl-field">
                                 <label for="qaTplId">模板 ID</label>
                                 <input type="text" id="qaTplId" autocomplete="off" placeholder="default">
@@ -2574,13 +2591,57 @@
                     </div>
                 </aside>
                 <div class="qa-tpl-preview-wrap">
-                    <div class="qa-tpl-preview-label">实时预览</div>
+                    <div class="qa-tpl-preview-label">实时预览（＝ Word 导出的样子，草稿样式）</div>
                     <iframe id="qaTplPreviewFrame" class="qa-tpl-preview-frame" title="报告预览"></iframe>
                 </div>
             </div>
             <div class="qa-tpl-foot">
-                <button type="button" class="btn btn-sm" id="qaTplCloseBtn">关闭</button>
-                <button type="button" class="btn btn-sm btn-primary" id="qaTplSaveBtn">保存</button>
+                <div class="qa-tpl-foot-left">
+                    <button type="button" class="btn btn-sm" id="qaTplExportBtn" title="把当前模板导出成 JSON 文件">导出 JSON</button>
+                    <button type="button" class="btn btn-sm" id="qaTplImportBtn" title="从 JSON 文件导入模板">导入 JSON</button>
+                    <input type="file" id="qaTplImportFile" accept=".json,application/json" style="display:none">
+                </div>
+                <div class="qa-tpl-foot-right">
+                    <button type="button" class="btn btn-sm" id="qaTplCloseBtn">关闭</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="qaTplSaveBtn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 质量审核：选择性生成报告（勾章节 / 勾规则后生成） -->
+    <div id="qaGenModal" class="modal" aria-hidden="true">
+        <div class="modal-content qa-gen-content">
+            <div class="modal-header">
+                <h2 id="qaGenModalTitle">生成报告</h2>
+                <button class="modal-close" type="button" id="qaGenCloseX">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="qa-gen-hint" id="qaGenHint"></p>
+                <div class="qa-gen-group">
+                    <div class="qa-gen-group-head">
+                        <span class="qa-gen-group-title">报告章节</span>
+                        <button type="button" class="btn btn-sm" id="qaGenSecAll">全选</button>
+                        <button type="button" class="btn btn-sm" id="qaGenSecNone">全不选</button>
+                    </div>
+                    <div id="qaGenSections" class="qa-gen-list"></div>
+                </div>
+                <div class="qa-gen-group" id="qaGenRulesGroup">
+                    <div class="qa-gen-group-head">
+                        <span class="qa-gen-group-title">规则范围</span>
+                        <input type="search" id="qaGenRuleSearch" class="qa-gen-search" placeholder="搜索规则名称 / 编号" autocomplete="off">
+                        <button type="button" class="btn btn-sm" id="qaGenRuleAll">全选</button>
+                        <button type="button" class="btn btn-sm" id="qaGenRuleNone">全不选</button>
+                        <button type="button" class="btn btn-sm" id="qaGenRuleFailed">仅不通过</button>
+                    </div>
+                    <div id="qaGenRules" class="qa-gen-list qa-gen-rules"></div>
+                    <p class="qa-gen-note">只生成部分规则时，报告开头的概览统计会按所选规则重算。</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm" id="qaGenPreview">预览所选内容</button>
+                <button type="button" class="btn btn-sm" id="qaGenCancel">关闭</button>
+                <button type="button" class="btn btn-sm btn-primary" id="qaGenSubmit">生成 Word</button>
             </div>
         </div>
     </div>
@@ -2771,7 +2832,7 @@
     <script src="/lib/xlsx.full.min.js" defer></script>
     <!-- 共享线性图标：必须在其它业务脚本之前加载，静态标记里的
          data-ui-ico 占位符由它自动水合成 SVG（见 js/ui-icons.js） -->
-    <script src="/js/ui-icons.js?v=2026092705" defer></script>
+    <script src="/js/ui-icons.js?v=2026092801" defer></script>
     <script src="/js/script-core.js?v=2026061006" defer></script>
     <script src="/js/script-agent.js?v=2026092703" defer></script>
     <script src="/js/script-events.js?v=2026092702" defer></script>

@@ -20,7 +20,9 @@ const html = read('index.html');
 const js = read('quality-audit.js');
 const core = read('js/script-core.js');
 const css = read('css/style-models-quality.css');
-const goQuality = read('quality_audit.go');
+// 报告渲染已抽到统一渲染层 qa_report_render.go（docx 与预览同源），
+// 报告文案的静态检查要把两个文件合起来看，否则会误判成"文案丢了"。
+const goQuality = read('quality_audit.go') + read('qa_report_render.go');
 const goSched = read('qa_schedule.go');
 
 let failed = 0;

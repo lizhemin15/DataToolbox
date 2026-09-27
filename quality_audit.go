@@ -1,14 +1,12 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
-	"html"
 	"io"
 	"log"
 	"net/http"
@@ -432,9 +430,32 @@ func defaultQATemplateContentJSON() string {
 			"h2_style": "（一）（二）（三）",
 			"h3_style": "1. 2. 3.",
 		},
+		// 章节编号形态（渲染器认这个，numbering 为历史遗留字段）
+		"section_number": "cn",
+		// 报告章节：顺序即输出顺序，enabled=false 即该段不出现在报告里。
+		// 这里显式写全（含 opts），使「在线预览」与「Word 导出」完全一致。
+		"sections": defaultQATemplateSectionsWithLayout("line"),
 	}
 	b, _ := json.Marshal(m)
 	return string(b)
+}
+
+// defaultQATemplateSectionsWithLayout 全默认章节 + 指定填报率呈现方式（line/table）。
+// 新建模板默认 line：与既有 Word 导出样式保持一致。
+func defaultQATemplateSectionsWithLayout(fillLayout string) []qaTemplateSection {
+	secs := defaultQATemplateSections()
+	for i := range secs {
+		if secs[i].Key == qaSecItemFill || secs[i].Key == qaSecRecordFill {
+			secs[i].Opts.Layout = fillLayout
+		}
+		secs[i].Opts = materializeQAOpts(mustQASectionSpec(secs[i].Key), secs[i].Opts)
+	}
+	return secs
+}
+
+func mustQASectionSpec(key string) qaSectionSpec {
+	spec, _ := qaSectionSpecOf(key)
+	return spec
 }
 
 func seedQualityAuditSampleData(db *sql.DB) {
@@ -970,6 +991,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaTemplatesGET(w, username)
 	case path == "templates" && r.Method == http.MethodPost:
 		qaTemplatesPOST(w, r, username)
+	case path == "templates/normalize" && r.Method == http.MethodPost:
+		qaTemplatesNormalizePOST(w, r, username)
 	case len(parts) == 2 && parts[0] == "templates" && r.Method == http.MethodDelete:
 		qaTemplatesDELETE(w, parts[1], username)
 	case path == "history" && r.Method == http.MethodGet:
@@ -2201,7 +2224,8 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 		audit = body
 	}
 	tid, _ := body["template_id"].(string)
-	doc, err := qaBuildReportDocx(audit, tid)
+	sel := parseQASelection(body["selection"])
+	doc, err := qaBuildReportDocxSel(audit, tid, sel)
 	if err != nil {
 		apiInternalError(w, err.Error())
 		return
@@ -2214,6 +2238,11 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 // qaBuildReportDocx 按模板生成审核报告 docx 二进制，供手动报告与定时任务复用。
 // templateID 为空时回退到默认模板。qaReport 的对外行为保持不变。
 func qaBuildReportDocx(audit map[string]interface{}, templateID string) ([]byte, error) {
+	return qaBuildReportDocxSel(audit, templateID, nil)
+}
+
+// qaBuildReportDocxSel 带「选择性生成」的报告构建：可只出指定章节、指定规则。
+func qaBuildReportDocxSel(audit map[string]interface{}, templateID string, sel *qaSelection) ([]byte, error) {
 	tid := strings.TrimSpace(templateID)
 	var styles *qaTemplateStyles
 	if tid != "" {
@@ -2229,7 +2258,8 @@ func qaBuildReportDocx(audit map[string]interface{}, templateID string) ([]byte,
 	if styles == nil {
 		styles = parseQATemplateContent("{}")
 	}
-	return buildQualityAuditDocx(audit, styles)
+	blocks := qaBuildReportBlocks(audit, styles, sel, "docx")
+	return qaRenderDocxBlocks(blocks, styles)
 }
 
 type qaReportTemplateRow struct {
@@ -2249,6 +2279,11 @@ type qaTemplateStyles struct {
 	Table      qaTemplateTableSt `json:"table"`
 	PageHeader string            `json:"page_header"`
 	PageFooter string            `json:"page_footer"`
+	// SectionNumber 章节编号形态：cn（一、二、三，默认）/ arabic（1. 2.）/ none（不编号）
+	SectionNumber string `json:"section_number"`
+	// Sections 报告章节定义（顺序即输出顺序）。为空表示「老模板未声明章节」，
+	// 渲染时回退到 defaultQATemplateSections() 的老行为。
+	Sections []qaTemplateSection `json:"sections"`
 }
 
 type qaTemplateTextSt struct {
@@ -2316,6 +2351,15 @@ func parseQATemplateContent(raw string) *qaTemplateStyles {
 		if json.Unmarshal(v, &s) == nil {
 			out.PageFooter = s
 		}
+	}
+	if v, ok := m["section_number"]; ok {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out.SectionNumber = strings.TrimSpace(s)
+		}
+	}
+	if v, ok := m["sections"]; ok {
+		out.Sections = parseQATemplateSections(v)
 	}
 	return out
 }
@@ -2386,287 +2430,6 @@ func wordRPrXML(st qaTemplateTextSt) string {
 	b.WriteString(`"/>`)
 	b.WriteString(`</w:rPr>`)
 	return b.String()
-}
-
-func buildQualityAuditDocx(audit map[string]interface{}, styles *qaTemplateStyles) ([]byte, error) {
-	if styles == nil {
-		styles = parseQATemplateContent("{}")
-	}
-	var sb strings.Builder
-	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
-	sb.WriteString(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`)
-	sb.WriteString(`<w:body>`)
-
-	addPara := func(text string) {
-		sb.WriteString(`<w:p><w:r><w:rPr/><w:t xml:space="preserve">`)
-		sb.WriteString(xmlEscapeQA(text))
-		sb.WriteString(`</w:t></w:r></w:p>`)
-	}
-	addParaStyled := func(text string, st qaTemplateTextSt) {
-		sb.WriteString(`<w:p><w:r>`)
-		sb.WriteString(wordRPrXML(st))
-		sb.WriteString(`<w:t xml:space="preserve">`)
-		sb.WriteString(xmlEscapeQA(text))
-		sb.WriteString(`</w:t></w:r></w:p>`)
-	}
-
-	// 添加表格函数
-	addTable := func(headers []string, rows []map[string]interface{}) {
-		sb.WriteString(`<w:tbl>`)
-		sb.WriteString(`<w:tblPr><w:tblW w:w="9000" w:type="dxa"/><w:tblBorders>`)
-		sb.WriteString(`<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`<w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`<w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>`)
-		sb.WriteString(`</w:tblBorders></w:tblPr>`)
-		// 表头
-		sb.WriteString(`<w:tr>`)
-		for _, h := range headers {
-			sb.WriteString(`<w:tc><w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="E0E0E0"/></w:tcPr><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>`)
-			sb.WriteString(xmlEscapeQA(h))
-			sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
-		}
-		sb.WriteString(`</w:tr>`)
-		// 数据行
-		for _, row := range rows {
-			sb.WriteString(`<w:tr>`)
-			for _, h := range headers {
-				val := ""
-				if v, ok := row[h]; ok {
-					switch vv := v.(type) {
-					case string:
-						val = vv
-					case float64:
-						val = fmt.Sprintf("%.0f", vv)
-					case int, int64:
-						val = fmt.Sprintf("%d", vv)
-					default:
-						val = fmt.Sprintf("%v", vv)
-					}
-				}
-				sb.WriteString(`<w:tc><w:p><w:r><w:t>`)
-				sb.WriteString(xmlEscapeQA(val))
-				sb.WriteString(`</w:t></w:r></w:p></w:tc>`)
-			}
-			sb.WriteString(`</w:tr>`)
-		}
-		sb.WriteString(`</w:tbl>`)
-	}
-
-	if strings.TrimSpace(styles.PageHeader) != "" {
-		addPara(styles.PageHeader)
-	}
-	title := styles.DocTitle
-	if strings.TrimSpace(title) == "" {
-		title = "数据质量审核报告"
-	}
-	addParaStyled(title, styles.Title)
-	addPara("生成时间：" + time.Now().Format("2006-01-02 15:04:05"))
-
-	summary, _ := audit["summary"].(map[string]interface{})
-	if summary != nil {
-		summaryLine := fmt.Sprintf("总规则数：%v   通过：%v   不通过：%v", summary["total_rules"], summary["passed"], summary["failed"])
-		if n, ok := summary["ai_reviewed"]; ok && n != nil && fmt.Sprint(n) != "0" && fmt.Sprint(n) != "" {
-			summaryLine += fmt.Sprintf("   AI 复核：%v 条（须人类专家最终校核）", n)
-		}
-		addPara(summaryLine)
-	}
-
-	addPara("")
-	cnSec := []string{"一", "二", "三", "四", "五", "六", "七", "八"}
-	secIdx := 0
-	nextSection := func(name string) {
-		label := "、" + name
-		if secIdx < len(cnSec) {
-			label = cnSec[secIdx] + "、" + name
-		}
-		secIdx++
-		addParaStyled(label, styles.Section)
-	}
-	nextSection("规则明细")
-	rules, _ := audit["rules"].([]interface{})
-	for i, x := range rules {
-		row, _ := x.(map[string]interface{})
-		if row == nil {
-			continue
-		}
-		addPara(fmt.Sprintf("%d. %v（%v）", i+1, row["name"], row["nm"]))
-		addPara(fmt.Sprintf("结果：违规数 %v   通过：%v", row["violation_count"], row["passed"]))
-		if e, ok := row["error"].(string); ok && e != "" {
-			addPara("错误：" + e)
-		}
-		// 用表格展示违规数据
-		sr := ifaceSlice(row["sample_rows"])
-		if len(sr) > 0 {
-			addPara(fmt.Sprintf("违规数据（共 %d 条）：", len(sr)))
-			// 收集所有字段名
-			fieldSet := make(map[string]bool)
-			tableRows := make([]map[string]interface{}, 0, len(sr))
-			for _, item := range sr {
-				if m, ok := item.(map[string]interface{}); ok {
-					tableRows = append(tableRows, m)
-					for k := range m {
-						fieldSet[k] = true
-					}
-				}
-			}
-			// 转为有序列表
-			headers := make([]string, 0, len(fieldSet))
-			for k := range fieldSet {
-				headers = append(headers, k)
-			}
-			// 按字段名排序
-			for i := 0; i < len(headers)-1; i++ {
-				for j := i + 1; j < len(headers); j++ {
-					if headers[i] > headers[j] {
-						headers[i], headers[j] = headers[j], headers[i]
-					}
-				}
-			}
-			if len(headers) > 0 && len(tableRows) > 0 {
-				addTable(headers, tableRows)
-			}
-		}
-	}
-
-	// AI 复核结论：仅当规则行里带 AI 结果（ai_reason/ai_misjudged）时输出。
-	// 纯 SQL 审核的规则不在此段出现，其报告内容与旧版本保持一致。
-	aiRows := make([]map[string]interface{}, 0)
-	for _, x := range rules {
-		row, _ := x.(map[string]interface{})
-		if row == nil {
-			continue
-		}
-		_, hasReason := row["ai_reason"]
-		_, hasMis := row["ai_misjudged"]
-		if !hasReason && !hasMis {
-			continue
-		}
-		aiRows = append(aiRows, row)
-	}
-	if len(aiRows) > 0 {
-		addPara("")
-		nextSection("AI 复核（仅供参考，须人类专家最终校核）")
-		addPara("说明：以下规则在执行 SQL 审核不通过后，按其自带的复核原则交由 AI 复核。AI 结论仅供参考，不构成最终判定，须由人类专家最终校核确认。")
-		if m, _ := audit["ai_model"].(string); strings.TrimSpace(m) != "" {
-			addPara("AI 模型：" + strings.TrimSpace(m))
-		}
-		for _, row := range aiRows {
-			addPara(fmt.Sprintf("%v（%v）", row["name"], row["nm"]))
-			// 先给 SQL 审核结果，再给 AI 复核结论，两者并列供人类专家对照
-			if e, _ := row["error"].(string); strings.TrimSpace(e) != "" {
-				addPara(fmt.Sprintf("SQL 审核结果：执行错误 —— %s", e))
-			} else {
-				passedText := "不通过"
-				if b, _ := row["passed"].(bool); b {
-					passedText = "通过"
-				}
-				addPara(fmt.Sprintf("SQL 审核结果：%s（违规行数 %v）", passedText, row["violation_count"]))
-			}
-			mis := "否"
-			if b, _ := row["ai_misjudged"].(bool); b {
-				mis = "是（疑似规则过严导致的误判）"
-			}
-			conf := ""
-			if c, ok := row["ai_confidence"]; ok && c != nil {
-				if f, ok2 := c.(float64); ok2 {
-					conf = fmt.Sprintf("   置信度：%.2f", f)
-				}
-			}
-			addPara("AI 复核结论：是否误判 —— " + mis + conf)
-			if r, _ := row["ai_reason"].(string); strings.TrimSpace(r) != "" {
-				addPara("理由：" + r)
-			}
-			if sg, _ := row["ai_suggestion"].(string); strings.TrimSpace(sg) != "" {
-				addPara("建议：" + sg)
-			}
-			addPara("※ 本条须由人类专家最终校核。")
-		}
-	}
-
-	addPara("")
-	nextSection("项填报率")
-	itemFillRates := ifaceSlice(audit["item_fill_rates"])
-	recordFillRates := ifaceSlice(audit["record_fill_rates"])
-	fillSkipped, _ := audit["fill_skipped"].(bool)
-	fillNote := ""
-	if fillSkipped {
-		fillNote = "本次未执行填报率审核"
-	} else if len(itemFillRates) == 0 && len(recordFillRates) == 0 {
-		fillNote = "未配置填报率"
-	}
-	if fillNote != "" {
-		addPara(fillNote)
-	} else {
-		for _, x := range itemFillRates {
-			m, _ := x.(map[string]interface{})
-			if m == nil {
-				continue
-			}
-			addPara(qaFillDocxLine(m, true))
-		}
-	}
-	addPara("")
-	nextSection("记录填报率")
-	if fillNote != "" {
-		addPara(fillNote)
-	} else {
-		for _, x := range recordFillRates {
-			m, _ := x.(map[string]interface{})
-			if m == nil {
-				continue
-			}
-			// 记录填报率按表统计整行，不涉及具体字段，报告里不再输出字段项
-			addPara(qaFillDocxLine(m, false))
-		}
-	}
-
-	if strings.TrimSpace(styles.PageFooter) != "" {
-		addPara("")
-		addPara(styles.PageFooter)
-	}
-
-	sb.WriteString(`</w:body></w:document>`)
-	docXML := sb.String()
-
-	buf := new(bytes.Buffer)
-	z := zip.NewWriter(buf)
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	wDoc, _ := z.Create("word/document.xml")
-	_, _ = io.WriteString(wDoc, docXML)
-
-	ct := `[Content_Types].xml`
-	wct, _ := z.Create(ct)
-	_, _ = io.WriteString(wct, `<?xml version="1.0" encoding="UTF-8"?>`+
-		`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`+
-		`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`+
-		`<Default Extension="xml" ContentType="application/xml"/>`+
-		`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>`+
-		`<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`+
-		`</Types>`)
-
-	wr, _ := z.Create("_rels/.rels")
-	_, _ = io.WriteString(wr, `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
-		`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>`+
-		`<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>`+
-		`</Relationships>`)
-
-	wwr, _ := z.Create("word/_rels/document.xml.rels")
-	_, _ = io.WriteString(wwr, `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`)
-
-	coreTitle := styles.DocTitle
-	if strings.TrimSpace(coreTitle) == "" {
-		coreTitle = "数据质量审核报告"
-	}
-	wc, _ := z.Create("docProps/core.xml")
-	_, _ = fmt.Fprintf(wc, `<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties">`+
-		`<dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">%s</dc:title><dcterms:created xmlns:dcterms="http://purl.org/dc/terms/">%s</dcterms:created></cp:coreProperties>`, xmlEscapeQA(coreTitle), xmlEscapeQA(now))
-
-	_ = z.Close()
-	return buf.Bytes(), nil
 }
 
 func ifaceSlice(v interface{}) []interface{} {
@@ -2754,6 +2517,26 @@ func qaTemplatesGET(w http.ResponseWriter, username string) {
 		list = append(list, r)
 	}
 	qaRespondSuccess(w, map[string]interface{}{"templates": list})
+}
+
+// qaTemplatesNormalizePOST 把模板内容规范化后返回，供前端可视化编辑器打开模板时使用：
+// content = 补全后的规范 JSON（显式章节 + 显式选项），catalog = 章节/选项目录（控件由它生成），
+// defaults = 全套默认章节。前端不再自己维护一份默认值，避免与后端渲染逻辑跑偏。
+func qaTemplatesNormalizePOST(w http.ResponseWriter, r *http.Request, username string) {
+	_ = username
+	var body struct {
+		Content string `json:"content"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	normalized := qaNormalizeTemplateContent(body.Content)
+	st := parseQATemplateContent(normalized)
+	qaRespondSuccess(w, map[string]interface{}{
+		"content":        normalized,
+		"sections":       st.Sections,
+		"section_number": st.SectionNumber,
+		"catalog":        qaSectionCatalog(),
+		"defaults":       defaultQATemplateSections(),
+	})
 }
 
 func qaTemplatesPOST(w http.ResponseWriter, r *http.Request, username string) {
@@ -2883,187 +2666,43 @@ func qaPreviewPOST(w http.ResponseWriter, r *http.Request, username string) {
 	if styles == nil {
 		styles = parseQATemplateContent("{}")
 	}
-	htmlDoc := buildQualityAuditHTML(audit, styles)
+	// 预览统一走「规范化后的模板」：老模板（只有样式、没声明章节）在这里被补成显式章节 +
+	// 显式选项，于是预览与 Word 导出必然一致（否则填报率会出现预览表格 / 导出文字行的错位）。
+	styles = parseQATemplateContent(qaNormalizeTemplateContent(qaTemplateContentJSON(styles)))
+
+	sel := parseQASelection(body["selection"])
+	interactive := true
+	if v, ok := body["interactive"].(bool); ok {
+		interactive = v
+	}
+	scroll := 0
+	if v, err := ifaceToFloat(body["scroll"]); err == nil && v > 0 {
+		scroll = int(v)
+	}
+	blocks := qaBuildReportBlocks(audit, styles, sel, "html")
+	htmlDoc := qaRenderHTMLBlocks(blocks, styles, interactive, scroll)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(htmlDoc))
 }
 
-func buildQualityAuditHTML(audit map[string]interface{}, styles *qaTemplateStyles) string {
-	if styles == nil {
-		styles = parseQATemplateContent("{}")
+// qaTemplateContentJSON 把已解析的模板结构重新序列化成 content JSON（供规范化复用）。
+func qaTemplateContentJSON(st *qaTemplateStyles) string {
+	if st == nil {
+		return "{}"
 	}
-	title := styles.DocTitle
-	if strings.TrimSpace(title) == "" {
-		title = "数据质量审核报告"
+	buf, err := json.Marshal(qaTemplateContentDoc{
+		DocTitle:      st.DocTitle,
+		Title:         st.Title,
+		Section:       st.Section,
+		Table:         st.Table,
+		PageHeader:    st.PageHeader,
+		PageFooter:    st.PageFooter,
+		SectionNumber: st.SectionNumber,
+		Sections:      st.Sections,
+	})
+	if err != nil {
+		return "{}"
 	}
-	tFont := html.EscapeString(styles.Title.FontFamily)
-	tSize := html.EscapeString(styles.Title.FontSize)
-	tCol := html.EscapeString(styles.Title.Color)
-	sFont := html.EscapeString(styles.Section.FontFamily)
-	sSize := html.EscapeString(styles.Section.FontSize)
-	sCol := html.EscapeString(styles.Section.Color)
-	tbBorder := html.EscapeString(styles.Table.Border)
-	tbHead := html.EscapeString(styles.Table.HeaderBg)
-	tbAlt := html.EscapeString(styles.Table.RowAlt)
-	var b strings.Builder
-	b.WriteString("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>")
-	b.WriteString(html.EscapeString(title))
-	b.WriteString(`</title><style>
-body{font-family:system-ui,sans-serif;margin:24px;color:#1a202c;}
-.qa-ph{margin-bottom:12px;color:#64748b;font-size:13px;}
-.qa-doc-title{font-family:` + tFont + `;font-size:` + tSize + `;color:` + tCol + `;margin:0 0 8px;}
-.qa-time{color:#64748b;font-size:14px;margin-bottom:20px;}
-.qa-sec{font-family:` + sFont + `;font-size:` + sSize + `;color:` + sCol + `;margin:20px 0 10px;}
-table.qa-tbl{border-collapse:collapse;width:100%;font-size:13px;}
-table.qa-tbl th,table.qa-tbl td{border:` + tbBorder + `;padding:8px;text-align:left;}
-table.qa-tbl thead th{background:` + tbHead + `;}
-table.qa-tbl tbody tr:nth-child(even){background:` + tbAlt + `;}
-.qa-rule{margin:10px 0;padding-left:12px;border-left:3px solid #e2e8f0;}
-.qa-empty{color:#64748b;font-size:13px;padding:4px 0;}
-.qa-mono{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12px;background:#f8fafc;padding:8px;border-radius:4px;}
-</style></head><body>`)
-	if strings.TrimSpace(styles.PageHeader) != "" {
-		b.WriteString(`<div class="qa-ph">`)
-		b.WriteString(html.EscapeString(styles.PageHeader))
-		b.WriteString(`</div>`)
-	}
-	b.WriteString(`<h1 class="qa-doc-title">`)
-	b.WriteString(html.EscapeString(title))
-	b.WriteString(`</h1><div class="qa-time">生成时间：`)
-	b.WriteString(html.EscapeString(time.Now().Format("2006-01-02 15:04:05")))
-	b.WriteString(`</div>`)
-	if summary, ok := audit["summary"].(map[string]interface{}); ok && summary != nil {
-		b.WriteString(`<p>总规则数：`)
-		b.WriteString(html.EscapeString(fmt.Sprint(summary["total_rules"])))
-		b.WriteString(`　通过：`)
-		b.WriteString(html.EscapeString(fmt.Sprint(summary["passed"])))
-		b.WriteString(`　不通过：`)
-		b.WriteString(html.EscapeString(fmt.Sprint(summary["failed"])))
-		if n, ok := summary["ai_reviewed"]; ok && n != nil && fmt.Sprint(n) != "0" && fmt.Sprint(n) != "" {
-			b.WriteString(`　AI 复核：`)
-			b.WriteString(html.EscapeString(fmt.Sprint(n)))
-			b.WriteString(` 条（须人类专家最终校核）`)
-		}
-		b.WriteString(`</p>`)
-	}
-	b.WriteString(`<h2 class="qa-sec">一、规则明细</h2>`)
-	rules, _ := audit["rules"].([]interface{})
-	for i, x := range rules {
-		row, _ := x.(map[string]interface{})
-		if row == nil {
-			continue
-		}
-		b.WriteString(`<div class="qa-rule"><strong>`)
-		b.WriteString(html.EscapeString(fmt.Sprintf("%d. %v（%v）", i+1, row["name"], row["nm"])))
-		b.WriteString(`</strong>`)
-		if s, ok := row["sql_executed"].(string); ok && s != "" {
-			b.WriteString(`<div>执行 SQL：</div><div class="qa-mono">`)
-			b.WriteString(html.EscapeString(s))
-			b.WriteString(`</div>`)
-		}
-		b.WriteString(`<div>结果：违规数 `)
-		b.WriteString(html.EscapeString(fmt.Sprint(row["violation_count"])))
-		b.WriteString(`　通过：`)
-		b.WriteString(html.EscapeString(fmt.Sprint(row["passed"])))
-		b.WriteString(`</div>`)
-		if e, ok := row["error"].(string); ok && e != "" {
-			b.WriteString(`<div style="color:#c53030;">错误：` + html.EscapeString(e) + `</div>`)
-		}
-		if sr, ok := row["sample_rows"].([]interface{}); ok && len(sr) > 0 {
-			jb, _ := json.MarshalIndent(sr, "", "  ")
-			b.WriteString(`<div class="qa-mono">`)
-			b.WriteString(html.EscapeString(string(jb)))
-			b.WriteString(`</div>`)
-		}
-		b.WriteString(`</div>`)
-	}
-	itemFillRates := ifaceSlice(audit["item_fill_rates"])
-	recordFillRates := ifaceSlice(audit["record_fill_rates"])
-	fillSkipped, _ := audit["fill_skipped"].(bool)
-	fillNote := ""
-	if fillSkipped {
-		fillNote = "本次未执行填报率审核"
-	} else if len(itemFillRates) == 0 && len(recordFillRates) == 0 {
-		fillNote = "未配置填报率"
-	}
-	b.WriteString(`<h2 class="qa-sec">二、项填报率</h2>`)
-	if fillNote != "" {
-		b.WriteString(`<div class="qa-empty">` + html.EscapeString(fillNote) + `</div>`)
-	} else {
-		b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>字段名</th><th>填报率</th></tr></thead><tbody>`)
-		for _, x := range itemFillRates {
-			m, _ := x.(map[string]interface{})
-			if m == nil {
-				continue
-			}
-			b.WriteString(`<tr><td>`)
-			b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
-			b.WriteString(`</td><td>`)
-			b.WriteString(html.EscapeString(qaFillCellText(m["field_name"])))
-			b.WriteString(`</td><td>`)
-			b.WriteString(html.EscapeString(qaFillRateText(m)))
-			b.WriteString(`</td></tr>`)
-		}
-		b.WriteString(`</tbody></table>`)
-	}
-	b.WriteString(`<h2 class="qa-sec">三、记录填报率</h2>`)
-	if fillNote != "" {
-		b.WriteString(`<div class="qa-empty">` + html.EscapeString(fillNote) + `</div>`)
-	} else {
-		// 记录填报率按表统计整行，不涉及具体字段，表头不再输出「字段名」列
-		b.WriteString(`<table class="qa-tbl"><thead><tr><th>表名</th><th>填报率</th></tr></thead><tbody>`)
-		for _, x := range recordFillRates {
-			m, _ := x.(map[string]interface{})
-			if m == nil {
-				continue
-			}
-			b.WriteString(`<tr><td>`)
-			b.WriteString(html.EscapeString(qaFillCellText(m["table_name"])))
-			b.WriteString(`</td><td>`)
-			b.WriteString(html.EscapeString(qaFillRateText(m)))
-			b.WriteString(`</td></tr>`)
-		}
-		b.WriteString(`</tbody></table>`)
-	}
-	// AI 复核段：只有真正跑过 AI 复核的规则才出现（纯 SQL 审核的报告保持不变）
-	aiRows := make([]map[string]interface{}, 0)
-	for _, x := range rules {
-		row, _ := x.(map[string]interface{})
-		if row == nil {
-			continue
-		}
-		if _, ok := row["ai_reason"]; !ok {
-			if _, ok2 := row["ai_misjudged"]; !ok2 {
-				continue
-			}
-		}
-		aiRows = append(aiRows, row)
-	}
-	if len(aiRows) > 0 {
-		b.WriteString(`<h2 class="qa-sec">四、AI 复核（仅供参考，须人类专家最终校核）</h2>`)
-		b.WriteString(`<div class="qa-empty">AI 结论仅作参考，不构成最终判定，须由人类专家最终校核确认。</div>`)
-		for _, row := range aiRows {
-			b.WriteString(`<div class="qa-rule"><strong>`)
-			b.WriteString(html.EscapeString(fmt.Sprintf("%v（%v）", row["name"], row["nm"])))
-			b.WriteString(`</strong><div>SQL 审核结果：违规数 `)
-			b.WriteString(html.EscapeString(fmt.Sprint(row["violation_count"])))
-			b.WriteString(`　通过：`)
-			b.WriteString(html.EscapeString(fmt.Sprint(row["passed"])))
-			b.WriteString(`</div><div>AI 复核结论：是否误判 ——  `)
-			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_misjudged"])))
-			b.WriteString(`</div><div>理由：`)
-			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_reason"])))
-			b.WriteString(`</div><div>建议：`)
-			b.WriteString(html.EscapeString(fmt.Sprint(row["ai_suggestion"])))
-			b.WriteString(`</div><div>※ 本条须由人类专家最终校核。</div></div>`)
-		}
-	}
-	if strings.TrimSpace(styles.PageFooter) != "" {
-		b.WriteString(`<div class="qa-ph" style="margin-top:32px;">`)
-		b.WriteString(html.EscapeString(styles.PageFooter))
-		b.WriteString(`</div>`)
-	}
-	b.WriteString(`</body></html>`)
-	return b.String()
+	return string(buf)
 }

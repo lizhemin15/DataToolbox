@@ -146,10 +146,16 @@ a {
 
 .nav-tabs {
     display: flex;
-    flex-wrap: wrap;
+    /* 11 个 tab 在宽屏曾因 wrap 挤成两行（窄屏媒体查询里反而是单行横滚，正好拧着）；
+       统一成「一行 + 需要时横向滚动」，顶栏高度才稳定。 */
+    flex-wrap: nowrap;
     gap: 4px;
-    row-gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
 }
+
+.nav-tabs::-webkit-scrollbar { display: none; }
 
 .nav-tab {
     padding: 7px 14px;
@@ -157,6 +163,8 @@ a {
     color: var(--ds-text-2);
     font-size: 13.5px;
     font-weight: 500;
+    white-space: nowrap;
+    flex: 0 0 auto;
     transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -189,6 +197,12 @@ a {
     color: var(--ds-text);
     font-size: 13.5px;
     font-weight: 500;
+}
+
+/* 「退出」按钮曾被 flex 压缩成两行：禁止换行、禁止收缩 */
+.user-info #logoutBtn {
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .settings-header-btn,
