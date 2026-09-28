@@ -495,11 +495,90 @@
                 .then(function (d) {
                     if (!d.success) throw new Error(d.message);
                     qaReportTemplateId = id;
+                    qaTplOptionsLoaded = false;      // 任务弹窗的模板下拉要重新拉
+                    qaSchedReportState.sections = [];
                     showMsg('报告模板已保存', false);
                     closeQaTplModal();
+                    return qaTplReloadList(id);
                 })
                 .catch(function (e) { showMsg(e.message || String(e), true); });
         });
+
+        // ── 多模板管理：新建 / 复制 / 删除 ────────────────────────────────
+        // 一个模板 = 一套「章节 + 样式」。新建时自动生成 ID，用户不用手打，
+        // 免得像以前那样必须自己想一个没被占用的 ID 才能加第二套模板。
+        function qaTplSuggestId(prefix) {
+            var d = new Date();
+            var stamp = String(d.getFullYear()) + qaPad2(d.getMonth() + 1) + qaPad2(d.getDate()) +
+                qaPad2(d.getHours()) + qaPad2(d.getMinutes());
+            var used = {};
+            (qaTplList || []).forEach(function (t) { used[t.id] = true; });
+            var base = (prefix || 'tpl') + '-' + stamp;
+            var id = base, n = 2;
+            while (used[id]) { id = base + '-' + n; n++; }
+            return id;
+        }
+
+        function qaTplReloadList(activeId) {
+            return fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
+                var list = (d && d.templates) || [];
+                qaTplList = list;
+                qaFillTplPicker(list, activeId);
+                return list;
+            });
+        }
+
+        function qaTplNewBlank() {
+            var id = qaTplSuggestId('tpl');
+            document.getElementById('qaTplId').value = id;
+            document.getElementById('qaTplName').value = '新报告模板';
+            document.getElementById('qaTplType').value = 'html';
+            document.getElementById('qaTplIsDefault').checked = false;
+            return loadQaTplNormalized('').then(function () {
+                qaRefreshPreview(true);
+                showMsg('已按默认值新建模板「' + id + '」，改完记得点保存', false);
+            }).catch(function (e) { showMsg(e.message || String(e), true); });
+        }
+
+        function qaTplDuplicate() {
+            var srcId = document.getElementById('qaTplId').value.trim() || 'default';
+            var id = qaTplSuggestId(srcId);
+            var srcName = document.getElementById('qaTplName').value.trim() || srcId;
+            document.getElementById('qaTplId').value = id;
+            document.getElementById('qaTplName').value = srcName + ' 副本';
+            document.getElementById('qaTplIsDefault').checked = false;
+            showMsg('已复制为「' + id + '」（含当前未保存的改动），改完点保存', false);
+        }
+
+        function qaTplDeleteCurrent() {
+            var id = document.getElementById('qaTplId').value.trim();
+            if (!id) { showMsg('当前没有可删除的模板', true); return; }
+            if (!window.confirm('确定删除报告模板「' + id + '」？\n\n引用它的定时任务会自动回落到默认模板，不会报错。')) return;
+            fetchWithAuth(PREFIX + 'templates/' + encodeURIComponent(id), { method: 'DELETE' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (!d.success) throw new Error((d && (d.message || d.error)) || '删除失败');
+                    showMsg('模板「' + id + '」已删除', false);
+                    qaTplOptionsLoaded = false;      // 任务弹窗的模板下拉要重新拉
+                    qaSchedReportState.sections = [];
+                    return qaTplReloadList('').then(function (list) {
+                        var row = list.find(function (t) { return t.is_default; }) || list[0];
+                        if (row) return loadQaTplRow(row);
+                        document.getElementById('qaTplId').value = '';
+                        document.getElementById('qaTplName').value = '';
+                        document.getElementById('qaTplIsDefault').checked = true;
+                        return loadQaTplNormalized('');
+                    });
+                })
+                .catch(function (e) { showMsg(e.message || String(e), true); });
+        }
+
+        var qaTplNewBtn = document.getElementById('qaTplNewBtn');
+        if (qaTplNewBtn) qaTplNewBtn.addEventListener('click', function () { qaTplNewBlank(); });
+        var qaTplCopyBtn = document.getElementById('qaTplCopyBtn');
+        if (qaTplCopyBtn) qaTplCopyBtn.addEventListener('click', function () { qaTplDuplicate(); });
+        var qaTplDelBtn = document.getElementById('qaTplDelBtn');
+        if (qaTplDelBtn) qaTplDelBtn.addEventListener('click', function () { qaTplDeleteCurrent(); });
 
         // 导出 / 导入模板 JSON（跨环境搬模板用）
         var qaTplExportBtn = document.getElementById('qaTplExportBtn');
@@ -1222,6 +1301,10 @@
     var qaRunDetailRow = null;
     var qaCurrentSub = 'rules';
     var qaTplOptionsLoaded = false;
+    var qaTplList = [];                 // 报告模板列表（含 content），任务弹窗与模板弹窗共用
+    // 任务级「报告内容」覆盖的界面状态
+    var qaSchedReportState = { sections: [], overrides: {}, tplId: '', keepOnce: false };
+    var qaSchedReportWired = false;
     var QA_SQL_DB_TYPES = { mysql: 1, mariadb: 1, tidb: 1, postgresql: 1, timescaledb: 1, cockroachdb: 1, sqlserver: 1, oracle: 1, dm: 1, sqlite: 1 };
 
     function qaPad2(n) { n = Number(n) || 0; return (n < 10 ? '0' : '') + n; }
@@ -1727,18 +1810,272 @@
         sel.value = selectedId || '';
     }
 
+    /* ── 任务级「报告内容」覆盖 ──────────────────────────────────────────────
+       设计：模板是章节与样式的权威来源，任务只做「局部覆盖」。
+       没被勾开自定义的章节 = 完全跟着模板走，所以模板以后升级（改样式、
+       加章节、调默认选项）会自动传导到这个任务，不用重配一遍。
+       只有用户显式动过的字段（开关 / 标题 / 选项）才写进任务。 */
+
+    function qaSchedReportFindTpl(tplId) {
+        var list = qaTplList || [];
+        if (tplId) {
+            for (var i = 0; i < list.length; i++) { if (list[i].id === tplId) return list[i]; }
+            return null;
+        }
+        for (var j = 0; j < list.length; j++) { if (list[j].is_default) return list[j]; }
+        return list[0] || null;
+    }
+
+    // 单独取模板的「章节全集」（走后端规范化，保证和真正渲染时一致），
+    // 不碰 qaTplState —— 免得把报告模板弹窗里正在编辑的内容冲掉。
+    function qaSchedFetchTplSections(content) {
+        return fetchWithAuth(PREFIX + 'templates/normalize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content || '' })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.success) throw new Error(d.message || '模板读取失败');
+            // 任务弹窗的选项控件也要靠章节目录（catalog）生成；模板弹窗没开过时
+            // qaTplState.catalog 还是空的，这里补上，免得「改选项」整块不出现。
+            if (d.catalog && d.catalog.length && !((qaTplState.catalog || []).length)) {
+                qaTplState.catalog = d.catalog;
+            }
+            return d.sections || [];
+        });
+    }
+
+    function qaSchedReportOptControl(sec, ovOpts, opt) {
+        var eff = {};
+        Object.keys(sec.opts || {}).forEach(function (k) { eff[k] = sec.opts[k]; });
+        if (ovOpts) Object.keys(ovOpts).forEach(function (k) { eff[k] = ovOpts[k]; });
+        return qaSecOptControl({ key: sec.key, opts: eff }, opt);
+    }
+
+    function qaSchedReportRender() {
+        var box = document.getElementById('qaSchedReportSections');
+        if (!box) return;
+        var secs = qaSchedReportState.sections || [];
+        var ovs = qaSchedReportState.overrides || {};
+        var html = '';
+        secs.forEach(function (sec) {
+            var ov = ovs[sec.key] || {};
+            var mode = ov.enabled === true ? 'on' : (ov.enabled === false ? 'off' : 'inherit');
+            var ownTitle = Object.prototype.hasOwnProperty.call(ov, 'title');
+            var ownOpts = !!ov.opts;
+            var spec = qaSecSpec(sec.key) || { label: sec.key, opts: [] };
+            html += '<div class="qa-sec-card' + (sec.enabled ? '' : ' is-off') + '" data-key="' + escapeHtml(sec.key) + '">';
+            html += '<div class="qa-sec-row">';
+            html += '<span class="qa-sec-name">' + escapeHtml(spec.label || sec.key) + '</span>';
+            html += '<select class="qa-sec-mode" data-role="mode">' +
+                '<option value="inherit"' + (mode === 'inherit' ? ' selected' : '') + '>跟随模板（' + (sec.enabled ? '输出' : '不输出') + '）</option>' +
+                '<option value="on"' + (mode === 'on' ? ' selected' : '') + '>强制输出</option>' +
+                '<option value="off"' + (mode === 'off' ? ' selected' : '') + '>不输出</option>' +
+                '</select>';
+            html += '<label class="qa-sec-toggle"><input type="checkbox" data-role="owntitle"' + (ownTitle ? ' checked' : '') + '>改标题</label>';
+            if ((spec.opts || []).length) {
+                html += '<label class="qa-sec-toggle"><input type="checkbox" data-role="ownopts"' + (ownOpts ? ' checked' : '') + '>改选项</label>';
+            }
+            html += '</div>';
+            html += '<div class="qa-sec-title-row"' + (ownTitle ? '' : ' hidden') + '>' +
+                '<input type="text" data-role="title" value="' + escapeHtml(ownTitle ? String(ov.title) : (sec.title || '')) + '" placeholder="（留空＝这一节不要标题）"></div>';
+            if ((spec.opts || []).length) {
+                html += '<div class="qa-sec-opts"' + (ownOpts ? '' : ' hidden') + '>';
+                (spec.opts || []).forEach(function (opt) { html += qaSchedReportOptControl(sec, ownOpts ? ov.opts : null, opt); });
+                html += '</div>';
+            }
+            html += '</div>';
+        });
+        box.innerHTML = html;
+        qaSchedReportHint();
+    }
+
+    function qaSchedReportHint() {
+        var el = document.getElementById('qaSchedReportHint');
+        if (!el) return;
+        var tpl = qaSchedReportFindTpl(qaSchedReportState.tplId);
+        var n = (qaSchedReportState.overrides && Object.keys(qaSchedReportState.overrides).length) || 0;
+        el.textContent = '这份任务对 ' + n + ' 个章节做了单独设置；其余章节跟随模板「' +
+            ((tpl && (tpl.name || tpl.id)) || '默认模板') + '」。';
+    }
+
+    // 载入模板章节全集。keepOverrides=true 时保留已有覆盖（章节键对得上才生效）。
+    function qaSchedReportLoad(tplId, keepOverrides) {
+        var row = qaSchedReportFindTpl(tplId);
+        qaSchedReportState.tplId = tplId || '';
+        if (!keepOverrides) qaSchedReportState.overrides = {};
+        return qaSchedFetchTplSections(row ? row.content : '').then(function (secs) {
+            var known = {};
+            secs.forEach(function (s) { known[s.key] = true; });
+            var next = {};
+            Object.keys(qaSchedReportState.overrides || {}).forEach(function (k) {
+                if (known[k]) next[k] = qaSchedReportState.overrides[k];
+            });
+            qaSchedReportState.overrides = next;
+            qaSchedReportState.sections = secs;
+            qaSchedReportRender();
+        }).catch(function (e) {
+            qaSchedReportState.sections = [];
+            qaSchedReportRender();
+            showMsg('读取模板章节失败：' + (e.message || e), true);
+        });
+    }
+
+    // 从卡片 DOM 收集本任务的覆盖层。只有被显式开过的章节才进结果。
+    function qaSchedCollectReportOverride() {
+        var box = document.getElementById('qaSchedReportSections');
+        if (!box) return { sections: [] };
+        var out = [];
+        (qaSchedReportState.sections || []).forEach(function (sec) {
+            var card = box.querySelector('.qa-sec-card[data-key="' + sec.key + '"]');
+            if (!card) return;
+            var entry = { key: sec.key };
+            var modeEl = card.querySelector('[data-role="mode"]');
+            var mode = modeEl ? modeEl.value : 'inherit';
+            if (mode === 'on') entry.enabled = true;
+            else if (mode === 'off') entry.enabled = false;
+
+            var titleOwn = card.querySelector('[data-role="owntitle"]');
+            if (titleOwn && titleOwn.checked) {
+                var tv = card.querySelector('[data-role="title"]');
+                entry.title = tv ? String(tv.value || '') : '';
+            }
+            var optsOwn = card.querySelector('[data-role="ownopts"]');
+            if (optsOwn && optsOwn.checked) {
+                var spec = qaSecSpec(sec.key) || { opts: [] };
+                var o = {};
+                (spec.opts || []).forEach(function (opt) {
+                    var el = card.querySelector('[data-opt="' + opt.key + '"]');
+                    if (!el) return;
+                    if (opt.type === 'bool') o[opt.key] = !!el.checked;
+                    else if (opt.type === 'enum') o[opt.key] = String(el.value);
+                    else {
+                        var n = parseFloat(el.value);
+                        if (isFinite(n)) o[opt.key] = n;
+                    }
+                });
+                if (Object.keys(o).length) entry.opts = o;
+            }
+            if (entry.enabled !== undefined || Object.prototype.hasOwnProperty.call(entry, 'title') || entry.opts) {
+                out.push(entry);
+            }
+        });
+        return { sections: out };
+    }
+
+    // 卡片上的改动即时写回状态，避免「改了没保存又切换模板」丢配置
+    function qaSchedReportSyncFromDom() {
+        var box = document.getElementById('qaSchedReportSections');
+        if (!box) return;
+        var map = {};
+        qaSchedCollectReportOverride().sections.forEach(function (s) { map[s.key] = s; });
+        qaSchedReportState.overrides = map;
+        qaSchedReportHint();
+    }
+
+    function qaSchedReportSetCustom(on) {
+        var cb = document.getElementById('qaSchedReportCustom');
+        if (cb) cb.checked = !!on;
+        var box = document.getElementById('qaSchedReportBox');
+        if (box) box.style.display = on ? '' : 'none';
+        var frame = document.getElementById('qaSchedReportFrame');
+        if (frame && !on) { frame.style.display = 'none'; frame.removeAttribute('src'); }
+        if (on && !(qaSchedReportState.sections || []).length) {
+            qaSchedReportLoad(qaSchedReportState.tplId || '', qaSchedReportState.keepOnce);
+        }
+        qaSchedReportState.keepOnce = false;
+    }
+
+    function qaSchedReportPreview() {
+        var frame = document.getElementById('qaSchedReportFrame');
+        if (!frame) return;
+        if (frame.style.display !== 'none') { frame.style.display = 'none'; return; }
+        var btn = document.getElementById('qaSchedReportPreview');
+        var ov = qaSchedCollectReportOverride();
+        qaSchedReportSyncFromDom();
+        var row = qaSchedReportFindTpl(qaSchedReportState.tplId);
+        var payload = { audit: QA_SAMPLE_AUDIT, interactive: true, overrides: ov };
+        if (row && row.content) payload.content = row.content;
+        else payload.template_id = qaSchedReportState.tplId || qaReportTemplateId || '';
+        if (btn) btn.disabled = true;
+        fetchWithAuth(PREFIX + 'preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) {
+            var ct = (r.headers && r.headers.get('Content-Type')) || '';
+            if (!r.ok || ct.indexOf('json') !== -1) {
+                return r.json().then(function (j) { throw new Error((j && (j.message || j.error)) || r.statusText); });
+            }
+            return r.text();
+        }).then(function (html) {
+            frame.srcdoc = html;
+            frame.style.display = '';
+            if (frame.scrollIntoView) frame.scrollIntoView({ block: 'nearest' });
+        }).catch(function (e) {
+            frame.srcdoc = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head><body style="font-family:system-ui,sans-serif;padding:16px;color:#c53030;">预览失败：' +
+                escapeHtml(e.message || String(e)) + '</body></html>';
+            frame.style.display = '';
+        }).then(function () {
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    function qaSchedReportWireOnce() {
+        if (qaSchedReportWired) return;
+        var box = document.getElementById('qaSchedReportSections');
+        if (!box) return;
+        qaSchedReportWired = true;
+
+        box.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t) return;
+            var role = t.getAttribute && t.getAttribute('data-role');
+            var card = t.closest ? t.closest('.qa-sec-card') : null;
+            if (role === 'owntitle' && card) {
+                var row = card.querySelector('.qa-sec-title-row');
+                if (row) row.hidden = !t.checked;
+            }
+            if (role === 'ownopts' && card) {
+                var opts = card.querySelector('.qa-sec-opts');
+                if (opts) opts.hidden = !t.checked;
+            }
+            qaSchedReportSyncFromDom();
+        });
+        box.addEventListener('input', function () { qaSchedReportSyncFromDom(); });
+
+        var custom = document.getElementById('qaSchedReportCustom');
+        if (custom) custom.addEventListener('change', function () { qaSchedReportSetCustom(custom.checked); });
+
+        var reset = document.getElementById('qaSchedReportReset');
+        if (reset) reset.addEventListener('click', function () {
+            qaSchedReportState.overrides = {};
+            qaSchedReportRender();
+            showMsg('已全部改回跟随模板（保存后生效）', false);
+        });
+
+        var prev = document.getElementById('qaSchedReportPreview');
+        if (prev) prev.addEventListener('click', qaSchedReportPreview);
+
+        var tplSel = document.getElementById('qaSchedTpl');
+        if (tplSel) tplSel.addEventListener('change', function () {
+            qaSchedReportSyncFromDom();
+            qaSchedReportLoad(tplSel.value, true);
+        });
+    }
+
     function qaLoadTplOptions(selectedId) {
         var sel = document.getElementById('qaSchedTpl');
-        if (!sel) return;
+        if (!sel) return Promise.resolve();
         var cur = selectedId || '';
-        if (qaTplOptionsLoaded) { sel.value = cur; return; }
+        if (qaTplOptionsLoaded) { sel.value = cur; return Promise.resolve(); }
         sel.innerHTML = '<option value="">默认模板</option>';
-        fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
+        return fetchWithAuth(PREFIX + 'templates').then(function (r) { return r.json(); }).then(function (d) {
             if (!d.success) return;
-            (d.templates || []).forEach(function (t) {
+            qaTplList = d.templates || [];
+            qaTplList.forEach(function (t) {
                 var o = document.createElement('option');
                 o.value = t.id;
-                o.textContent = t.name || t.id;
+                o.textContent = (t.name || t.id) + (t.is_default ? '（默认）' : '');
                 sel.appendChild(o);
             });
             qaTplOptionsLoaded = true;
@@ -1777,7 +2114,7 @@
         document.getElementById('qaSchedEnabled').checked = sch ? !!sch.enabled : true;
         var fillEl = document.getElementById('qaSchedFillEnabled');
         if (fillEl) fillEl.checked = qaSchedFillEnabledOf(sch);
-        qaLoadTplOptions(sch ? (sch.report_template_id || '') : '');
+        var tplOptionsPromise = qaLoadTplOptions(sch ? (sch.report_template_id || '') : '');
         var freqSel = document.getElementById('qaSchedFreq');
         var cronInput = document.getElementById('qaSchedCron');
         if (sch && sch.cron_expr) {
@@ -1789,6 +2126,19 @@
         }
         qaRenderSchedTree();
         qaRenderFreqFields();
+        // 任务级「报告内容」覆盖：从任务上恢复，没配过就整块收起（默认全跟随模板）。
+        // qaSchedReportState.tplId 先设好，用户一勾「自定义」就能直接渲染出章节。
+        qaSchedReportState.overrides = {};
+        (sch && sch.report_overrides && sch.report_overrides.sections || []).forEach(function (s) {
+            if (s && s.key) qaSchedReportState.overrides[s.key] = s;
+        });
+        var hasOverride = Object.keys(qaSchedReportState.overrides).length > 0;
+        qaSchedReportState.tplId = (sch && sch.report_template_id) || '';
+        qaSchedReportState.sections = [];
+        qaSchedReportState.keepOnce = hasOverride;
+        qaSchedReportWireOnce();
+        // 等模板列表拿到手再渲染章节，否则「跟随模板（输出/不输出）」会显示成默认模板的值
+        Promise.resolve(tplOptionsPromise).then(function () { qaSchedReportSetCustom(hasOverride); });
         qaEnsureModal('qaSchedModal', true);
     }
 
@@ -1814,6 +2164,14 @@
             report_template_id: document.getElementById('qaSchedTpl').value,
             fill_enabled: qaReadSchedFillEnabled()
         };
+        // 只有勾了「自定义本任务的报告内容」才把覆盖层发上去；没勾就显式发
+        // {sections:[]} —— 让后端把旧覆盖清掉，语义＝完全跟随模板。
+        var reportCustom = document.getElementById('qaSchedReportCustom');
+        if (reportCustom && reportCustom.checked) {
+            body.report_overrides = qaSchedCollectReportOverride();
+        } else {
+            body.report_overrides = { sections: [] };
+        }
         if (qaSchedEditingId) body.id = qaSchedEditingId;
         fetchWithAuth(PREFIX + 'schedules', { method: 'POST', body: JSON.stringify(body) })
             .then(function (r) { return r.json(); })

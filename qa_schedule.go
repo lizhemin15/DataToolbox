@@ -44,12 +44,24 @@ type qaSchedule struct {
 	AICheckEnabled   bool     `json:"ai_check_enabled"`
 	ReportTemplateID string   `json:"report_template_id"`
 	FillEnabled      bool     `json:"fill_enabled"`
-	LastRunAt        string   `json:"last_run_at"`
-	LastRunStatus    string   `json:"last_run_status"`
-	NextRunAt        string   `json:"next_run_at"`
-	CreatedBy        string   `json:"created_by"`
-	CreatedAt        string   `json:"created_at"`
-	UpdatedAt        string   `json:"updated_at"`
+	// ReportOverrides 任务级「报告内容」覆盖层：在模板之上局部改章节开关/标题/选项。
+	// nil（或空）= 完全跟随所选模板。落库为 JSON 文本。
+	ReportOverrides *qaReportOverride `json:"report_overrides,omitempty"`
+	LastRunAt       string            `json:"last_run_at"`
+	LastRunStatus   string            `json:"last_run_status"`
+	NextRunAt       string            `json:"next_run_at"`
+	CreatedBy       string            `json:"created_by"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
+}
+
+// qaScheduleReportSelection 把任务上的「报告内容」覆盖层打包成一次选择，
+// 交给报告渲染层在模板之上叠加。任务没配覆盖时返回 nil（等价于纯用模板）。
+func qaScheduleReportSelection(s *qaSchedule) *qaSelection {
+	if s == nil || s.ReportOverrides.empty() {
+		return nil
+	}
+	return &qaSelection{Override: s.ReportOverrides}
 }
 
 var (
@@ -182,7 +194,7 @@ func qaLoadSchedules(enabledOnly bool) ([]qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules`
+	q := `SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at, report_overrides FROM qa_schedules`
 	if enabledOnly {
 		q += ` WHERE enabled=1`
 	}
@@ -208,7 +220,7 @@ func qaLoadSchedule(id string) (*qaSchedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at FROM qa_schedules WHERE id=?`, id)
+	row := db.QueryRow(`SELECT id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at, report_overrides FROM qa_schedules WHERE id=?`, id)
 	s, err := qaScanSchedule(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -229,9 +241,16 @@ func qaScanSchedule(sc qaRowScanner) (*qaSchedule, error) {
 	var fillEnabled sql.NullInt64
 	var aiEnabled sql.NullInt64
 	var ruleNMs, aiNMs string
-	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &fillEnabled, &aiEnabled, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt); err != nil {
+	// overrides 必须用 NullString 兜底。老库 ALTER 补列后 DEFAULT 只保证新写入是 ''，
+	// 但重建库 / 人工 UPDATE / 从别处恢复的库都可能留 NULL。裸 string 会在 Scan 阶段直接
+	// 报 "converting NULL to string is unsupported"——而这是一条坏行拖垮整个任务列表接口。
+	var overrides sql.NullString
+	if err := sc.Scan(&s.ID, &s.Name, &s.DatabaseID, &s.CronExpr, &enabled, &ruleNMs, &aiNMs, &s.AIPrompt, &s.ReportTemplateID, &fillEnabled, &aiEnabled, &s.LastRunAt, &s.LastRunStatus, &s.NextRunAt, &s.CreatedBy, &s.CreatedAt, &s.UpdatedAt, &overrides); err != nil {
 		return nil, err
 	}
+	// overrides.String 对 NULL 返回 ""，parseQAReportOverride("") = nil = 纯跟随模板，
+	// 因此老库/坏行一起兜住，行为与升级前一致。
+	s.ReportOverrides = parseQAReportOverride(overrides.String)
 	s.Enabled = enabled != 0
 	// 老库补列后可能为 NULL，按默认开启处理
 	s.FillEnabled = !fillEnabled.Valid || fillEnabled.Int64 != 0
@@ -272,6 +291,7 @@ func qaScheduleToMap(s qaSchedule) map[string]interface{} {
 		"ai_check_enabled":   s.AICheckEnabled,
 		"report_template_id": s.ReportTemplateID,
 		"fill_enabled":       s.FillEnabled,
+		"report_overrides":   qaReportOverrideMap(s.ReportOverrides),
 		"last_run_at":        s.LastRunAt,
 		"last_run_status":    s.LastRunStatus,
 		"next_run_at":        nextRun,
@@ -299,6 +319,23 @@ func qaSchedulesGET(w http.ResponseWriter, r *http.Request, username string) {
 	qaRespondSuccess(w, map[string]interface{}{"schedules": list})
 }
 
+// qaResolveReportOverride 把请求里的 report_overrides 原始 JSON 解析成覆盖层并做校验。
+//
+// 单独抽成函数是为了让「真实入口类型」可被单测覆盖：handler 里的字段是 json.RawMessage，
+// 它既不匹配 string 也不匹配 map[string]interface{}。曾经因为 parseQAReportOverride 的
+// type switch 漏了 RawMessage，任务保存时覆盖层被静默丢弃（前端发得对、落库为空、
+// 报告照旧按模板出）。这里保持唯一入口，测试直接钉这个函数。
+func qaResolveReportOverride(raw json.RawMessage) (*qaReportOverride, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	ov := parseQAReportOverride(raw)
+	if err := qaValidateReportOverride(ov); err != nil {
+		return nil, err
+	}
+	return ov, nil
+}
+
 func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
 		ID               string   `json:"id"`
@@ -312,6 +349,8 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		AICheckEnabled   *bool    `json:"ai_check_enabled"`
 		ReportTemplateID string   `json:"report_template_id"`
 		FillEnabled      *bool    `json:"fill_enabled"`
+		// ReportOverrides 任务级「报告内容」覆盖：前端传对象或 JSON 串；传 null = 清空（跟随模板）
+		ReportOverrides json.RawMessage `json:"report_overrides"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apiBadRequest(w, "JSON 解析失败")
@@ -373,6 +412,13 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 
 	rulesJSON, _ := json.Marshal(ruleNMs)
 	aiJSON, _ := json.Marshal(aiNMs)
+	// 任务级报告覆盖：请求里带了这个键就整体替换（传 {} / null = 清空回「跟随模板」）
+	reportOverride, rerr := qaResolveReportOverride(req.ReportOverrides)
+	if rerr != nil {
+		apiInvalidInput(w, rerr.Error())
+		return
+	}
+	overrideJSON := qaReportOverrideString(reportOverride)
 	now := time.Now().Format(time.RFC3339)
 	nextRun := ""
 	if n := spec.Next(time.Now()); !n.IsZero() {
@@ -419,8 +465,8 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		if aiEnabled {
 			ae = 1
 		}
-		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, fill_enabled=?, ai_check_enabled=?, next_run_at=?, updated_at=? WHERE id=?`,
-			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, nextRun, now, req.ID); err != nil {
+		if _, err := db.Exec(`UPDATE qa_schedules SET name=?, database_id=?, cron_expr=?, enabled=?, rule_nms=?, ai_check_nms=?, ai_prompt=?, report_template_id=?, fill_enabled=?, ai_check_enabled=?, report_overrides=?, next_run_at=?, updated_at=? WHERE id=?`,
+			req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, overrideJSON, nextRun, now, req.ID); err != nil {
 			apiInternalError(w, err.Error())
 			return
 		}
@@ -435,6 +481,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		out.AICheckEnabled = aiEnabled
 		out.ReportTemplateID = strings.TrimSpace(req.ReportTemplateID)
 		out.FillEnabled = fillEnabled
+		out.ReportOverrides = reportOverride
 		out.NextRunAt = nextRun
 		out.UpdatedAt = now
 		qaRespondSuccess(w, map[string]interface{}{"schedule": qaScheduleToMap(out)})
@@ -466,8 +513,8 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 	if aiEnabled {
 		ae = 1
 	}
-	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, "", "", nextRun, username, now, now); err != nil {
+	if _, err := db.Exec(`INSERT INTO qa_schedules (id, name, database_id, cron_expr, enabled, rule_nms, ai_check_nms, ai_prompt, report_template_id, fill_enabled, ai_check_enabled, report_overrides, last_run_at, last_run_status, next_run_at, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, req.Name, req.DatabaseID, req.CronExpr, en, string(rulesJSON), string(aiJSON), req.AIPrompt, strings.TrimSpace(req.ReportTemplateID), fe, ae, overrideJSON, "", "", nextRun, username, now, now); err != nil {
 		apiInternalError(w, err.Error())
 		return
 	}
@@ -483,6 +530,7 @@ func qaSchedulesPOST(w http.ResponseWriter, r *http.Request, username string) {
 		AICheckEnabled:   aiEnabled,
 		ReportTemplateID: strings.TrimSpace(req.ReportTemplateID),
 		FillEnabled:      fillEnabled,
+		ReportOverrides:  reportOverride,
 		NextRunAt:        nextRun,
 		CreatedBy:        username,
 		CreatedAt:        now,
@@ -666,7 +714,7 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 		// 生成报告并落盘
 		pr.setPhase("report", "生成报告")
 		pr.addTotal(1)
-		if doc, err := qaBuildReportDocx(qaNormalizeAuditJSON(map[string]interface{}{
+		if doc, err := qaBuildReportDocxSel(qaNormalizeAuditJSON(map[string]interface{}{
 			"database_id":       s.DatabaseID,
 			"database_type":     dbConfig.Type,
 			"dialect":           dialect,
@@ -681,7 +729,7 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 				"passed":      passed,
 				"failed":      failed,
 			},
-		}), s.ReportTemplateID); err == nil {
+		}), s.ReportTemplateID, qaScheduleReportSelection(s)); err == nil {
 			if err := os.MkdirAll(qaReportsDir(), 0755); err == nil {
 				name := runID + ".docx"
 				if werr := os.WriteFile(filepath.Join(qaReportsDir(), name), doc, 0644); werr == nil {

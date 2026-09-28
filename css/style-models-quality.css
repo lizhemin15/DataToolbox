@@ -1192,6 +1192,66 @@ body.embed-mode .embed-settings-btn {
 .qa-tpl-foot-left,
 .qa-tpl-foot-right { display: flex; align-items: center; gap: 10px; }
 
+/* ── 多模板管理（报告模板弹窗）＋ 任务级「报告内容」覆盖 ───────────────────── */
+.qa-tpl-mgr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 0 2px; }
+
+/* 任务弹窗里每个章节一行：章节名 + 三态开关（跟随模板/强制输出/不输出） */
+.qa-sec-name { flex: 0 0 auto; min-width: 84px; font-size: 13px; color: #0f172a; }
+.qa-sec-mode {
+    flex: 0 0 auto;
+    padding: 3px 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    font-size: 12px;
+    color: #334155;
+}
+.qa-sec-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #64748b;
+    cursor: pointer;
+    user-select: none;
+}
+.qa-sec-toggle input { margin: 0; }
+.qa-sec-title-row { padding: 0 10px 8px 30px; }
+.qa-sec-title-row input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: #0f172a;
+}
+.qa-sec-title-row input:focus { border-color: #93c5fd; outline: none; }
+.qa-sec-title-row input::placeholder { color: #cbd5e1; }
+
+.qa-rep-box {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fbfcfd;
+}
+.qa-rep-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.qa-rep-head-title { flex: 1 1 auto; font-size: 12.5px; font-weight: 600; color: #334155; }
+.qa-rep-hint { margin: 4px 0 0; font-size: 11.5px; line-height: 1.6; color: #94a3b8; }
+.qa-rep-frame {
+    width: 100%;
+    height: 460px;
+    margin-top: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+}
+.qa-rep-box .qa-secs { margin-bottom: 0; }
+.qa-rep-box .qa-sec-card { background: #ffffff; }
+/* 任务侧没有拖拽手柄，选项区不用留 30px 缩进 */
+.qa-rep-box .qa-sec-opts { padding-left: 10px; }
+
 /* ── 选择性生成报告弹窗 ─────────────────────────────────────────────────── */
 .qa-gen-content { max-width: 780px; }
 .qa-gen-hint { margin: 0 0 14px; font-size: 13px; line-height: 1.6; color: #64748b; }

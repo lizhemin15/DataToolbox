@@ -272,6 +272,8 @@ func parseQATemplateSections(raw json.RawMessage) []qaTemplateSection {
 type qaSelection struct {
 	Sections []string `json:"sections"` // 本次要出的章节（空 = 按模板）
 	RuleNMs  []string `json:"rule_nms"` // 本次要出的规则（空 = 全部）
+	// Override 单次运行对章节参数的覆盖（模板 ← 任务覆盖 ← 本次覆盖，逐层叠加）。
+	Override *qaReportOverride `json:"override,omitempty"`
 }
 
 func parseQASelection(v interface{}) *qaSelection {
@@ -282,7 +284,8 @@ func parseQASelection(v interface{}) *qaSelection {
 	sel := &qaSelection{}
 	sel.Sections = qaStringList(m["sections"])
 	sel.RuleNMs = qaStringList(m["rule_nms"])
-	if len(sel.Sections) == 0 && len(sel.RuleNMs) == 0 {
+	sel.Override = parseQAReportOverride(m["override"])
+	if len(sel.Sections) == 0 && len(sel.RuleNMs) == 0 && sel.Override.empty() {
 		return nil
 	}
 	return sel
@@ -295,6 +298,246 @@ func qaStringList(v interface{}) []string {
 		if s := strings.TrimSpace(fmt.Sprint(x)); s != "" {
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+/* ── 3. 任务级 / 单次「报告内容」覆盖层 ────────────────────────────────────
+   分工原则：模板是「章节定义与样式」的权威来源，任务只在模板之上做**局部覆盖**。
+   覆盖层用指针字段表达三态 —— nil = 跟着模板走，非 nil = 显式指定（含显式关掉）。
+   好处：模板后续升级（加章节、调默认选项、改样式）能自动传导到所有已配置的任务，
+   不必把整份章节表复制进任务里；同时任务又能真的关掉/改掉某一章。
+   零值陷阱：qaSectionOpts 里 MaxRows/OnlyBelow/Layout 等的零值等价于「未设置」，
+   所以覆盖层一律用指针，才能区分「显式改成 0」与「没改」。 */
+
+type qaOptOverride struct {
+	OnlyFailed     *bool    `json:"only_failed,omitempty"`
+	OnlyMisjudged  *bool    `json:"only_misjudged,omitempty"`
+	ShowTable      *bool    `json:"show_table,omitempty"`
+	ShowSQL        *bool    `json:"show_sql,omitempty"`
+	MaxRows        *int     `json:"max_rows,omitempty"`
+	OnlyBelow      *float64 `json:"only_below,omitempty"`
+	Layout         *string  `json:"layout,omitempty"`
+	ShowConfidence *bool    `json:"show_confidence,omitempty"`
+	EmptyNote      *string  `json:"empty_note,omitempty"`
+}
+
+func (o qaOptOverride) isEmpty() bool {
+	return o.OnlyFailed == nil && o.OnlyMisjudged == nil && o.ShowTable == nil && o.ShowSQL == nil &&
+		o.MaxRows == nil && o.OnlyBelow == nil && o.Layout == nil && o.ShowConfidence == nil && o.EmptyNote == nil
+}
+
+type qaSectionOverride struct {
+	Key     string         `json:"key"`
+	Enabled *bool          `json:"enabled,omitempty"` // nil = 跟随模板
+	Title   *string        `json:"title,omitempty"`   // nil = 跟随模板（可为空串=不要标题）
+	Opts    *qaOptOverride `json:"opts,omitempty"`    // nil = 选项完全跟随模板
+}
+
+func (o qaSectionOverride) isEmpty() bool {
+	return o.Enabled == nil && o.Title == nil && (o.Opts == nil || o.Opts.isEmpty())
+}
+
+// qaReportOverride 挂在定时任务上（落库为 JSON）或随单次请求传入。
+type qaReportOverride struct {
+	Sections []qaSectionOverride `json:"sections,omitempty"`
+}
+
+func (o *qaReportOverride) empty() bool { return o == nil || len(o.Sections) == 0 }
+
+// compact 丢掉空条目与未知章节键，返回 nil 表示「没有实际覆盖」。
+func (o *qaReportOverride) compact() *qaReportOverride {
+	if o == nil {
+		return nil
+	}
+	out := &qaReportOverride{}
+	seen := map[string]bool{}
+	for _, s := range o.Sections {
+		s.Key = strings.TrimSpace(s.Key)
+		if s.Key == "" || seen[s.Key] || !qaSectionKnown(s.Key) || s.isEmpty() {
+			continue
+		}
+		if s.Opts != nil && s.Opts.isEmpty() {
+			s.Opts = nil
+		}
+		seen[s.Key] = true
+		out.Sections = append(out.Sections, s)
+	}
+	if len(out.Sections) == 0 {
+		return nil
+	}
+	return out
+}
+
+// parseQAReportOverride 同时接受三种形态：库里读出的 JSON 字符串、请求体里的对象、
+// 以及已经是结构体的值。任何解析不出/什么都不覆盖的情况都返回 nil。
+func parseQAReportOverride(v interface{}) *qaReportOverride {
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case *qaReportOverride:
+		return t.compact()
+	case qaReportOverride:
+		return t.compact()
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" || s == "null" || s == "{}" {
+			return nil
+		}
+		var ov qaReportOverride
+		if err := json.Unmarshal([]byte(s), &ov); err != nil {
+			return nil
+		}
+		return ov.compact()
+	case map[string]interface{}:
+		if len(t) == 0 {
+			return nil
+		}
+		b, err := json.Marshal(t)
+		if err != nil {
+			return nil
+		}
+		var ov qaReportOverride
+		if err := json.Unmarshal(b, &ov); err != nil {
+			return nil
+		}
+		return ov.compact()
+	case json.RawMessage:
+		// 真实入口之一：POST /schedules 的 req.ReportOverrides 就是 json.RawMessage。
+		// 缺这个 case 会让「任务级覆盖」在保存时被静默丢弃（前端发得对、落库为空、
+		// 报告照旧按模板出），而单测若只喂 string/map 就完全测不出来。
+		return parseQAReportOverride(string(t))
+	case []byte:
+		return parseQAReportOverride(string(t))
+	}
+	return nil
+}
+
+// qaReportOverrideString 序列化为落库用的 JSON 文本（空覆盖 = 空串）。
+func qaReportOverrideString(o *qaReportOverride) string {
+	c := o.compact()
+	if c == nil {
+		return ""
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// qaReportOverrideMap 供接口回传给前端（始终是对象，前端不用判 null）。
+func qaReportOverrideMap(o *qaReportOverride) map[string]interface{} {
+	c := o.compact()
+	if c == nil {
+		return map[string]interface{}{"sections": []qaSectionOverride{}}
+	}
+	return map[string]interface{}{"sections": c.Sections}
+}
+
+// qaValidateReportOverride 校验覆盖层只提到已知章节，便于在保存任务时把错误顶到界面上
+// （否则用户配错了只会「看起来没生效」，很难排查）。
+func qaValidateReportOverride(o *qaReportOverride) error {
+	if o == nil {
+		return nil
+	}
+	for _, s := range o.Sections {
+		if !qaSectionKnown(s.Key) {
+			return fmt.Errorf("未知的报告章节：%s", s.Key)
+		}
+	}
+	return nil
+}
+
+// qaApplySectionOverride 把单章覆盖合到模板章节上，只动被显式指定的字段。
+func qaApplySectionOverride(s qaTemplateSection, o qaSectionOverride) qaTemplateSection {
+	if o.Enabled != nil {
+		s.Enabled = *o.Enabled
+	}
+	if o.Title != nil {
+		s.Title = *o.Title
+	}
+	if o.Opts != nil {
+		s.Opts = qaApplyOptOverride(s.Opts, *o.Opts)
+	}
+	return s
+}
+
+func qaApplyOptOverride(base qaSectionOpts, ov qaOptOverride) qaSectionOpts {
+	if ov.OnlyFailed != nil {
+		base.OnlyFailed = *ov.OnlyFailed
+	}
+	if ov.OnlyMisjudged != nil {
+		base.OnlyMisjudged = *ov.OnlyMisjudged
+	}
+	if ov.ShowTable != nil {
+		base.ShowTable = boolPtrQA(*ov.ShowTable)
+	}
+	if ov.ShowSQL != nil {
+		base.ShowSQL = *ov.ShowSQL
+	}
+	if ov.MaxRows != nil {
+		base.MaxRows = *ov.MaxRows
+	}
+	if ov.OnlyBelow != nil {
+		base.OnlyBelow = *ov.OnlyBelow
+	}
+	if ov.Layout != nil {
+		base.Layout = *ov.Layout
+	}
+	if ov.ShowConfidence != nil {
+		base.ShowConfidence = boolPtrQA(*ov.ShowConfidence)
+	}
+	if ov.EmptyNote != nil {
+		base.EmptyNote = *ov.EmptyNote
+	}
+	return base
+}
+
+// qaApplyReportOverride 把覆盖层合到模板章节列表上，返回新列表（不改原 slice）。
+func qaApplyReportOverride(base []qaTemplateSection, ov *qaReportOverride) []qaTemplateSection {
+	ov = ov.compact()
+	if ov == nil {
+		return base
+	}
+	byKey := make(map[string]qaSectionOverride, len(ov.Sections))
+	for _, s := range ov.Sections {
+		byKey[s.Key] = s
+	}
+	out := make([]qaTemplateSection, 0, len(base)+len(ov.Sections))
+	seen := map[string]bool{}
+	for _, s := range base {
+		if o, ok := byKey[s.Key]; ok {
+			seen[s.Key] = true
+			s = qaApplySectionOverride(s, o)
+		}
+		out = append(out, s)
+	}
+	// 覆盖层提到、但当前模板里没有的章节（例如模板把 AI 复核整段删了，某个任务想打开）：
+	// 按目录默认值补出来再套覆盖 —— 「任务说要用」就一定用得上。
+	var head, tail []qaTemplateSection
+	for _, o := range ov.Sections {
+		if seen[o.Key] {
+			continue
+		}
+		spec, ok := qaSectionSpecOf(o.Key)
+		if !ok {
+			continue
+		}
+		ns := qaTemplateSection{Key: o.Key, Title: spec.Title, Enabled: true, Opts: materializeQAOpts(spec, qaSectionOpts{})}
+		ns = qaApplySectionOverride(ns, o)
+		if o.Key == qaSecOverview {
+			head = append(head, ns)
+			continue
+		}
+		tail = append(tail, ns)
+	}
+	if len(head) > 0 || len(tail) > 0 {
+		merged := make([]qaTemplateSection, 0, len(head)+len(out)+len(tail))
+		merged = append(merged, head...)
+		merged = append(merged, out...)
+		merged = append(merged, tail...)
+		out = merged
 	}
 	return out
 }
@@ -404,6 +647,10 @@ func qaBuildReportBlocks(audit map[string]interface{}, styles *qaTemplateStyles,
 	secs := styles.Sections
 	if len(secs) == 0 {
 		secs = defaultQATemplateSections()
+	}
+	// 单次运行对章节参数的覆盖：在模板（已被任务覆盖过一次）之上再叠一层。
+	if sel != nil {
+		secs = qaApplyReportOverride(secs, sel.Override)
 	}
 	var onlySec map[string]bool
 	if sel != nil && len(sel.Sections) > 0 {

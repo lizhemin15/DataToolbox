@@ -231,6 +231,7 @@ CREATE TABLE IF NOT EXISTS qa_schedules (
   report_template_id TEXT DEFAULT '',
   fill_enabled INTEGER DEFAULT 1,
   ai_check_enabled INTEGER DEFAULT 1,
+  report_overrides TEXT DEFAULT '',
   last_run_at TEXT DEFAULT '',
   last_run_status TEXT DEFAULT '',
   next_run_at TEXT DEFAULT '',
@@ -271,6 +272,7 @@ CREATE INDEX IF NOT EXISTS idx_qa_runs_time ON qa_runs(started_at);
 		migrateQualityAuditScheduleFillEnabled(db)
 		migrateQualityAuditRuleAiReview(db)
 		migrateQualityAuditScheduleAiEnabled(db)
+		migrateQualityAuditScheduleReportOverrides(db)
 		qualityAuditDB = db
 	})
 	if qualityAuditErr != nil {
@@ -640,7 +642,18 @@ func migrateQualityAuditScheduleAiEnabled(db *sql.DB) {
 	}
 }
 
-// --- SQL 安全校验（只允许 SELECT 查询） ---
+// migrateQualityAuditScheduleReportOverrides 定时任务新增「报告内容」覆盖层：
+// 存 JSON 文本（章节开关/标题/选项的局部覆盖），空串 = 完全跟随所选模板。
+// 老任务补列后自动是空串，行为与升级前一致。
+func migrateQualityAuditScheduleReportOverrides(db *sql.DB) {
+	if qaTableHasColumn(db, "qa_schedules", "report_overrides") {
+		return
+	}
+	if _, err := db.Exec(`ALTER TABLE qa_schedules ADD COLUMN report_overrides TEXT DEFAULT ''`); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		log.Printf("quality-audit migrate qa_schedules.report_overrides: %v", err)
+	}
+}
 
 var qaAllowedSQLPrefixes = []string{"SELECT", "WITH"}
 
@@ -2225,6 +2238,13 @@ func qaReport(w http.ResponseWriter, r *http.Request, username string) {
 	}
 	tid, _ := body["template_id"].(string)
 	sel := parseQASelection(body["selection"])
+	// 单次生成也能带「报告内容」覆盖（和任务级用同一套结构，逐层叠加）。
+	if ov := parseQAReportOverride(body["overrides"]); !ov.empty() {
+		if sel == nil {
+			sel = &qaSelection{}
+		}
+		sel.Override = ov
+	}
 	doc, err := qaBuildReportDocxSel(audit, tid, sel)
 	if err != nil {
 		apiInternalError(w, err.Error())
@@ -2628,6 +2648,15 @@ func qaTemplatesDELETE(w http.ResponseWriter, id string, username string) {
 		apiInternalError(w, err.Error())
 		return
 	}
+	// 删掉的如果是默认模板：把剩下最近更新的那套提上来当默认。
+	// 「默认模板」是任务与临时执行报告的兜底，别让它落空。
+	var hasDefault int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM report_templates WHERE is_default=1`).Scan(&hasDefault); err == nil && hasDefault == 0 {
+		var nextID string
+		if err := db.QueryRow(`SELECT id FROM report_templates ORDER BY updated_at DESC, created_at DESC LIMIT 1`).Scan(&nextID); err == nil && nextID != "" {
+			_, _ = db.Exec(`UPDATE report_templates SET is_default=1 WHERE id=?`, nextID)
+		}
+	}
 	qaRespondSuccess(w, nil)
 }
 
@@ -2669,6 +2698,14 @@ func qaPreviewPOST(w http.ResponseWriter, r *http.Request, username string) {
 	// 预览统一走「规范化后的模板」：老模板（只有样式、没声明章节）在这里被补成显式章节 +
 	// 显式选项，于是预览与 Word 导出必然一致（否则填报率会出现预览表格 / 导出文字行的错位）。
 	styles = parseQATemplateContent(qaNormalizeTemplateContent(qaTemplateContentJSON(styles)))
+	// 任务级「报告内容」覆盖层：预览也叠加，保证「预览看到的」就是定时任务真正出的。
+	if ov := parseQAReportOverride(body["overrides"]); !ov.empty() {
+		base := styles.Sections
+		if len(base) == 0 {
+			base = defaultQATemplateSections()
+		}
+		styles.Sections = qaApplyReportOverride(base, ov)
+	}
 
 	sel := parseQASelection(body["selection"])
 	interactive := true
