@@ -39,7 +39,12 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 # 检查服务是否存在
-if ! systemctl list-unit-files | grep -q "^${SERVICE_NAME}.service"; then
+# 注意：这里不能用 `systemctl list-unit-files | grep -q ...`。
+# 脚本开头是 `set -euo pipefail`，而 grep -q 命中后立即退出会让仍在写输出的
+# systemctl 收到 SIGPIPE（退出码 141），pipefail 随即把整条管道判为失败，
+# `if !` 反转之后就成了「服务未安装」—— 结果是 update.sh 在本机永远无法更新。
+# 改用 systemctl cat 直接判断 unit 是否存在，不依赖长输出的管道。
+if ! systemctl cat "${SERVICE_NAME}" >/dev/null 2>&1; then
     err "服务 ${SERVICE_NAME} 未安装，请使用 install.sh 进行全新安装"
     exit 1
 fi
