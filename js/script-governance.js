@@ -2603,6 +2603,9 @@ function showGovTaskDetail(task) {
     statusEl.textContent = statusMap[task.status] || task.status;
     statusEl.className = 'info-value status ' + task.status;
 
+    // 运行中才给「停止」按钮，避免对着已结束的任务点停止
+    if (typeof syncGovStopBtn === 'function') syncGovStopBtn(task);
+
     // 分享状态
     const shareItem = document.getElementById('govShareItem');
     const shareStatusEl = document.getElementById('govTaskShareStatus');

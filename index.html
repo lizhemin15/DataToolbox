@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/css/style-api.css?v=2026092803">
 <link rel="stylesheet" href="/css/style-ai.css?v=2026061006">
 <link rel="stylesheet" href="/css/style-tables.css?v=2026092803">
-<link rel="stylesheet" href="/css/style-governance.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-governance.css?v=2026092804">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922.2026092801">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026092705">
@@ -372,7 +372,11 @@
                                 <div id="govTextInputArea" class="gov-text-input" style="display:none;">
                                     <textarea id="govInputText" rows="6" placeholder="请输入待处理的文本内容..."></textarea>
                                 </div>
-                                <button class="btn btn-primary mt-12" onclick="executeInteractiveTask()">执行任务</button>
+                                <div class="gov-run-actions">
+                                    <button class="btn btn-primary mt-12" onclick="executeInteractiveTask()">执行任务</button>
+                                    <button class="btn btn-danger mt-12" id="govStopTaskBtn" onclick="stopInteractiveTask()" style="display:none;">停止</button>
+                                    <span class="gov-run-hint" id="govStopTaskHint" style="display:none;">任务运行中，卡住不动可点停止</span>
+                                </div>
                             </div>
                         </div>
 
@@ -2841,8 +2845,8 @@
     <script src="/js/script-api.js?v=2026092704" defer></script>
     <script src="/js/script-settings.js?v=2026092803" defer></script>
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
-    <script src="/js/script-governance.js?v=2026092705" defer></script>
-    <script src="/js/script-ontology.js?v=2026091909" defer></script>
+    <script src="/js/script-governance.js?v=2026092804" defer></script>
+    <script src="/js/script-ontology.js?v=2026092804" defer></script>
     <script src="/js/gov-code-studio.js?v=2026092705" defer></script>
     <script src="/js/script-relations.js?v=2026061002" defer></script>
     <script src="/js/script-api-detail.js?v=2026061002" defer></script>

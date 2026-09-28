@@ -575,7 +575,6 @@ input[type="radio"] {
    -------------------------------------------------------------------------- */
 .data-table thead,
 .preview-table th,
-.gov-table th,
 .qa-result-table th,
 .qa-sample-table th,
 .gov-result-table th {
@@ -602,7 +601,6 @@ input[type="radio"] {
 }
 
 .data-table tbody tr:hover,
-.gov-table tbody tr:hover,
 .qa-result-table tbody tr:hover,
 .preview-table tbody tr:hover {
     background: var(--ds-primary-soft-2);
@@ -1231,11 +1229,35 @@ input[type="radio"] {
 .gov-log-status.error { color: #ff9a9e; }
 .gov-log-status.running { color: #8fb2ff; }
 
-.gov-table td, .gov-table th {
-    border-bottom: 1px solid var(--ds-border-soft);
+/* 执行日志内的表格：日志面板本身是深色终端底（见上方 .gov-log-entry）
+   所以表格必须用深色调色板。曾经这里误用浅色 token（--ds-text 近黑 #1e232c）
+   压在 #1e293b 深蓝底上，导致日志里 __TABLE__ 渲染的表格正文完全看不见。
+   注意：.gov-table 目前只在执行日志内部使用，不要再把它加进上面的浅色表格选择器组。 */
+.gov-log-output .gov-table {
+    background: #0f1a2e;
 }
 
-.gov-table td { color: var(--ds-text); }
+.gov-log-output .gov-table th,
+.gov-log-output .gov-table td {
+    border: 1px solid #2b3b5e;
+}
+
+.gov-log-output .gov-table th {
+    background: #1e2b45;
+    color: #cfe0ff;
+}
+
+.gov-log-output .gov-table td {
+    color: #dce6fb;
+}
+
+.gov-log-output .gov-table tbody tr:hover {
+    background: #1b2a47;
+}
+
+.gov-log-output .gov-table-empty {
+    color: #93a4c4;
+}
 
 .gov-api-item {
     border: 1px solid var(--ds-border-soft);

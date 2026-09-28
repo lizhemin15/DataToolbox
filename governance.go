@@ -69,6 +69,10 @@ func handleGovernanceTaskDetail(w http.ResponseWriter, r *http.Request) {
 		case "progress":
 			handleGovernanceTaskProgress(w, r, taskID)
 			return
+		case "stop":
+			// 停止卡在运行中的任务（中断正在跑的 gov-runner / 复位僵死状态）
+			handleGovernanceTaskStop(w, r, taskID)
+			return
 		case "code-versions":
 			handleGovernanceTaskCodeVersions(w, r, taskID, pathParts)
 			return
@@ -1506,43 +1510,8 @@ func handleGovernanceExecuteSQL(w http.ResponseWriter, r *http.Request) {
 
 // ==================== 治理任务调度器 ====================
 
-// reconcileStuckGovernanceRuns 服务启动时将仍处于 running 的任务视为已中断（队列与工作者状态不会在重启后保留）
-
-func reconcileStuckGovernanceRuns() {
-	dataOntologyMu.Lock()
-	changed := false
-	for id, t := range governanceTasks {
-		if t == nil || t.Status != "running" {
-			continue
-		}
-		t.Status = "idle"
-		if t.LastError == "" {
-			t.LastError = "上次执行未正常结束（服务重启或进程退出）"
-		}
-		rid := t.RunID
-		t.RunID = ""
-		t.TotalFiles = 0
-		t.ProcessedFiles = 0
-		t.Percent = 0
-		t.CurrentFile = ""
-		for _, l := range governanceTaskLogs[id] {
-			if l != nil && l.Status == "running" && (rid == "" || l.RunID == rid) {
-				l.Status = "error"
-				l.Error = "执行中断（服务重启或进程退出）"
-				l.EndTime = time.Now().Format(time.RFC3339)
-				changed = true
-				break
-			}
-		}
-		changed = true
-	}
-	dataOntologyMu.Unlock()
-	if changed {
-		if err := saveDataOntologyStore(); err != nil {
-			log.Printf("收尾中断中的治理任务失败: %v", err)
-		}
-	}
-}
+// 注：服务启动时的残留「运行中」收尾已由 governance_stop.go 的
+// govReconcileStaleRunsOnBoot() 接管（同时复位任务状态、运行中日志与 RunID）。
 
 // governanceJobInputSummary 生成异步任务输入摘要（供执行日志展示）
 
@@ -2244,6 +2213,27 @@ func executeGovernanceJob(job *GovernanceJob) {
 	}
 	dataOntologyMu.RUnlock()
 
+	// 入队前 / 排队期间已被要求停止：不启动子进程，直接按停止语义收尾
+	if govRunShouldStop(runID) {
+		reason := govRunStopReason(runID)
+		govClearRunStop(runID)
+		dataOntologyMu.Lock()
+		if t, ok := governanceTasks[taskID]; ok {
+			t.Status = "error"
+			t.LastOutput = reason
+			t.CurrentFile = ""
+			t.LastRunAt = time.Now().Format(time.RFC3339)
+		}
+		dataOntologyMu.Unlock()
+		saveDataOntologyStore()
+		if isShare {
+			updateShareRun(runID, "failed", 100, reason, nil, nil)
+		}
+		governanceFinalizeRunLogFromTaskWithShare(taskID, runID, job.InputFiles, isShare, job.ShareToken)
+		return
+	}
+	defer govClearRunStop(runID)
+
 	// 如果是分享任务，初始化执行记录
 	if isShare {
 		updateShareRun(runID, "running", 0, "开始执行...", nil, nil)
@@ -2342,7 +2332,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				saveDataOntologyStore()
 			}
 
-			result := callGovRunner(taskData)
+			result := callGovRunnerCtl(taskData, taskID, runID, job.ShareToken, isShare)
 			var extraLines []string
 			if len(result.OutputFiles) > 0 {
 				if isShare {
@@ -2430,6 +2420,11 @@ func executeGovernanceJob(job *GovernanceJob) {
 			var lastError string
 
 			for i, filePath := range job.InputFiles {
+				// 收到停止信号：跳出剩余文件，收尾时按停止语义落状态
+				if govRunShouldStop(runID) {
+					lastError = govRunStopReason(runID)
+					break
+				}
 				data, err := os.ReadFile(filePath)
 				if err != nil {
 					log.Printf("读取文件失败: %v", err)
@@ -2455,7 +2450,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 				}
 
 				// 执行单个文件
-				result := callGovRunner(taskData)
+				result := callGovRunnerCtl(taskData, taskID, runID, job.ShareToken, isShare)
 				var extraLines []string
 				if len(result.OutputFiles) > 0 {
 					if isShare {
@@ -2545,7 +2540,7 @@ func executeGovernanceJob(job *GovernanceJob) {
 		}
 	} else {
 		// 无文件，直接执行
-		result := callGovRunner(taskData)
+		result := callGovRunnerCtl(taskData, taskID, runID, job.ShareToken, isShare)
 		if !result.Success {
 			log.Printf("任务 %s 执行失败: %s", taskID, result.Error)
 		} else {
@@ -2599,7 +2594,14 @@ func executeGovernanceJob(job *GovernanceJob) {
 
 // callGovRunner 调用 gov-runner 执行任务
 
+// callGovRunner 不参与「停止」的调用入口（API 同步执行等无 runID 的场景）
 func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
+	return callGovRunnerCtl(taskData, "", "", "", false)
+}
+
+// callGovRunnerCtl 带运行上下文的调用入口。
+// taskID/runID 非空时会把子进程登记为「可中断的活跃运行」，供管理端停止按钮杀掉。
+func callGovRunnerCtl(taskData map[string]interface{}, taskID, runID, shareToken string, isShare bool) *GovRunnerResult {
 	runnerPath, err := resolveGovRunnerPath()
 	if err != nil {
 		return &GovRunnerResult{
@@ -2628,10 +2630,15 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 	defer os.Remove(tmpFile)
 
 	// 执行 gov-runner
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancelCtx()
 
 	cmd := exec.CommandContext(ctx, runnerPath, tmpFile)
+	govConfigureProcessGroup(cmd)
+	// WaitDelay：ctx 取消/超时后，即使子进程（或其孙进程）仍握着 stdout/stderr 管道，
+	// 也强制让 Run() 在宽限期后返回。没有它，一个没被杀干净的孙进程就能把 worker
+	// 永远钉死在这里 —— 这正是「任务陷入执行状态一直出不来」的元凶。
+	cmd.WaitDelay = govRunnerWaitDelay
 	apiBase := govRunnerAPIBase
 	if apiBase == "" {
 		apiBase = "http://127.0.0.1:8080"
@@ -2640,9 +2647,29 @@ func callGovRunner(taskData map[string]interface{}) *GovRunnerResult {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	// 登记为可中断的活跃运行：管理端「停止」按钮靠它杀掉子进程
+	if runID != "" {
+		govRunBegin(taskID, runID, shareToken, isShare, func() {
+			govKillProcessTree(cmd)
+			cancelCtx()
+		})
+		defer govRunEnd(runID)
+	}
+
 	runErr := cmd.Run()
+	// ctx 已取消/超时：补一刀整组清场，避免孙进程残留成孤儿
+	if ctx.Err() != nil {
+		govKillProcessTree(cmd)
+	}
+
 	outBytes := bytes.TrimSpace(stdout.Bytes())
 	errBytes := bytes.TrimSpace(stderr.Bytes())
+
+	// 被手动停止：不要把半截 stdout 当正常结果返回，统一给停止文案
+	if runID != "" && govRunShouldStop(runID) {
+		return &GovRunnerResult{Success: false, Error: govRunStopReason(runID)}
+	}
 
 	if len(outBytes) == 0 {
 		if runErr != nil {

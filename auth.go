@@ -677,13 +677,16 @@ main().catch(e => {
 	initQualityAuditDB()
 
 	// 进程重启后内存队列已清空，持久化仍为「运行中」的任务无法继续，需收尾以免状态与日志长期不一致
-	reconcileStuckGovernanceRuns()
+	govReconcileStaleRunsOnBoot()
 
 	// 启动治理任务 worker（后台执行器）
 	go governanceWorker()
 
 	// 启动治理任务调度器
 	go governanceScheduler()
+
+	// 启动僵死运行看门狗：卡在「运行中」出不来时自动复位，无需用户干预
+	go govStuckRunWatchdog()
 }
 
 // 密码哈希 - 使用 bcrypt

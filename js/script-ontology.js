@@ -178,6 +178,55 @@ async function refreshGovTaskStatus() {
     }
 }
 
+// 任务运行中才显示「停止」。前端模式（浏览器内执行）不显示：
+// 那类任务没有子进程可杀，真卡住由后端看门狗自动复位。
+function syncGovStopBtn(task) {
+    const btn = document.getElementById('govStopTaskBtn');
+    const hint = document.getElementById('govStopTaskHint');
+    if (!btn) return;
+    const running = !!task && task.status === 'running';
+    const backendRun = running && getGovTaskRunMode(task) === 'backend';
+    btn.style.display = backendRun ? '' : 'none';
+    if (hint) hint.style.display = backendRun ? '' : 'none';
+    btn.disabled = false;
+    btn.textContent = '停止';
+}
+
+// 停止卡在运行中出不来的任务：中断后端子进程，或复位已无子进程的僵死状态
+async function stopInteractiveTask() {
+    if (!currentGovTask) return;
+    const btn = document.getElementById('govStopTaskBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '停止中…'; }
+    const taskID = currentGovTask.id;
+    try {
+        const response = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskID}/stop`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            showToast(data.message || '已停止', data.stopped ? 'success' : 'warning');
+        } else {
+            showToast(data.message || '停止失败', 'error');
+        }
+    } catch (error) {
+        showToast('停止失败: ' + error.message, 'error');
+    }
+
+    // 无论成败都重新拉一次状态，避免按钮停在「停止中」而界面还在转圈
+    try {
+        const resp = await fetchWithAuth(`${API_BASE}/api/v1/gov/tasks/${taskID}`);
+        const data = await resp.json();
+        if (data.success && data.task) {
+            const idx = govTasks.findIndex(t => t.id === data.task.id);
+            if (idx >= 0) govTasks[idx] = data.task;
+            currentGovTask = data.task;
+        }
+    } catch (e) { /* 刷新失败不影响停止结果提示 */ }
+
+    if (btn) { btn.disabled = false; btn.textContent = '停止'; }
+    showGovTaskDetail(currentGovTask);
+    renderGovTaskList();
+    loadGovTaskLogs();
+}
+
 // 处理AI流式响应
 function handleGovFileSelect(event) {
     if (event.target.files.length > 0) {
