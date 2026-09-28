@@ -39,7 +39,12 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 # 检查服务是否存在
-if ! systemctl list-unit-files | grep -q "^${SERVICE_NAME}.service"; then
+# 注意：这里不能用 `systemctl list-unit-files | grep -q ...`。
+# 脚本开头是 `set -euo pipefail`，而 grep -q 命中后立即退出会让仍在写输出的
+# systemctl 收到 SIGPIPE（退出码 141），pipefail 随即把整条管道判为失败，
+# `if !` 反转之后就成了「服务未安装」—— 结果是 update.sh 在本机永远无法更新。
+# 改用 systemctl cat 直接判断 unit 是否存在，不依赖长输出的管道。
+if ! systemctl cat "${SERVICE_NAME}" >/dev/null 2>&1; then
     err "服务 ${SERVICE_NAME} 未安装，请使用 install.sh 进行全新安装"
     exit 1
 fi
@@ -88,6 +93,17 @@ for item in index.html css js lib; do
     fi
 done
 
+# 3.1 更新根目录前端入口与模块
+# 注意：quality-audit.js / qa-shared.js / governance.js 等是根目录下的独立模块文件，
+# 不在 js/ 目录里，早期版本漏拷会导致「更新成功但页面还是旧代码」。
+for f in quality-audit.html share.html app-editor.html favicon.ico \
+         governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js; do
+    if [[ -e "$TMP_DIR/$f" ]]; then
+        cp -f "$TMP_DIR/$f" "$INSTALL_DIR/$f"
+        ok "已更新: $f"
+    fi
+done
+
 # apps 目录特殊处理：保留运行时配置文件和数据库
 if [[ -e "$TMP_DIR/apps" ]]; then
     # 备份运行时配置
@@ -126,18 +142,6 @@ if [[ -e "$TMP_DIR/apps" ]]; then
     
     ok "已更新: apps/"
 fi
-
-# 3b. 更新根级前端文件（关键！）
-# 根级 .js / .html 由静态服务直接从安装目录根读取（static_local.go 以可执行文件目录为根），
-# 之前这里只更新了 index.html/css/js/lib，导致 quality-audit.js、qa-shared.js、gov-*.js
-# 等根级文件永远是新包里的旧版 —— 曾引发「改了前端但线上没生效」类问题。
-for item in quality-audit.js qa-shared.js gov-api.js gov-shared.js governance.js \
-            app-editor.html quality-audit.html share.html; do
-    if [[ -f "$TMP_DIR/$item" ]]; then
-        cp "$TMP_DIR/$item" "$INSTALL_DIR/"
-        ok "已更新: $item"
-    fi
-done
 
 # 4. 更新启动脚本（可选）
 if [[ -f "$TMP_DIR/start.sh" ]]; then

@@ -169,10 +169,12 @@ copy_package_to() {
       cp -r "$SCRIPT_DIR/$dir" "$dest/"
     fi
   done
-  # 复制 index.html
-  if [[ -f "$SCRIPT_DIR/index.html" ]]; then
-    cp -f "$SCRIPT_DIR/index.html" "$dest/"
-  fi
+  # 复制所有根目录静态文件（html, css, js 等）
+  for f in "$SCRIPT_DIR"/*.html "$SCRIPT_DIR"/*.css "$SCRIPT_DIR"/*.js; do
+    if [[ -f "$f" ]]; then
+      cp -f "$f" "$dest/"
+    fi
+  done
   chmod +x "$dest/$bin_name" 2>/dev/null || true
   [[ -f "$dest/start.sh" ]] && chmod +x "$dest/start.sh" 2>/dev/null || true
 }
@@ -290,7 +292,9 @@ main() {
     win_port="$(prompt "监听端口" "$DEFAULT_PORT")"
     [[ "$win_port" =~ ^[0-9]+$ ]] || { err "端口必须为数字"; exit 1; }
     if command -v netstat.exe >/dev/null 2>&1; then
-      if netstat.exe -ano | grep -q ":${win_port}.*LISTENING"; then
+      # 同样避开 `grep -q`：脚本是 `set -euo pipefail`，grep -q 提前退出会让上游
+      # netstat 吃 SIGPIPE（141），pipefail 把管道判为失败，端口占用会被误判为未占用。
+      if netstat.exe -ano | grep ":${win_port}.*LISTENING" >/dev/null; then
         err "端口 ${win_port} 可能已被占用。"
         exit 1
       fi

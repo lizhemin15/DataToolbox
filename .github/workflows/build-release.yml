@@ -144,9 +144,11 @@ jobs:
           cp server.config.json package/
           cp scripts/install.sh package/install.sh
           cp scripts/update.sh package/update.sh
+          cp scripts/uninstall.sh package/uninstall.sh
           cp README_DEPLOY.md package/
           chmod +x package/install.sh
           chmod +x package/update.sh
+          chmod +x package/uninstall.sh
           cp -r index.html share.html quality-audit.html app-editor.html favicon.ico js css governance.js gov-api.js gov-shared.js qa-shared.js quality-audit.js lib examples package/
 
           # 复制 apps 目录（数据工具箱等子应用）
@@ -327,3 +329,6 @@ jobs:
             - Linux: `./start.sh 3000` 或 `./datatoolbox-server -port 3000`
 
             **Linux 持久运行：** 解压后执行 `chmod +x install.sh && ./install.sh`
+
+            **卸载：** 执行 `chmod +x uninstall.sh && ./uninstall.sh`
+            （默认会先把数据备份到安装目录之外再删除安装目录；`--purge` 连数据一起删，`--keep-files` 只移除服务）

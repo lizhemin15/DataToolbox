@@ -81,6 +81,30 @@ sudo systemctl status datatoolbox
 journalctl -u datatoolbox -f
 ```
 
+## 卸载（Linux / macOS）
+
+发布包内自带 `uninstall.sh`：
+
+```bash
+chmod +x uninstall.sh && ./uninstall.sh
+```
+
+默认行为（最安全）：停止并移除 systemd 服务（系统级 + 用户级）→ 把数据备份到安装目录**之外** → 删除安装目录。
+
+| 选项 | 作用 |
+| --- | --- |
+| （无） | 移除服务 + 备份数据 + 删除安装目录 |
+| `--keep-files` | 只移除服务，保留安装目录内所有文件 |
+| `--purge` | 移除服务 + 删除所有文件与数据（不留备份） |
+| `-y` | 跳过确认，无人值守 |
+| `-d PATH` | 指定安装目录（默认自动探测，优先读 systemd unit 的 `WorkingDirectory`） |
+
+备份内容：`data/`、`apps/data-ontology/data-store.json`、`apps/data-ontology/data-store.db`、`agent-config/`、`components/`、`templates/`、`server.config.json`。
+
+备份位置形如 `/opt/datatoolbox.data-backup.20260928_222628`。恢复方式：把备份内容拷回原安装目录，再执行 `install.sh`。
+
+安全说明：脚本内置删除闸门，拒绝删除 `/`、`/opt`、`/usr`、`/etc`、`/var`、`/root`、`$HOME` 以及长度小于 5 的路径；`rm -rf` 只作用于通过校验的安装目录。
+
 ## Docker 部署
 
 在**已包含** `datatoolbox-server` 与 `server.config.json` 的目录（通常为 Release 解压目录）中执行：
