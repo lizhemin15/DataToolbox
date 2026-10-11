@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -12,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -1942,6 +1944,67 @@ func getAllColumnsQuery(config *DatabaseConfig, tableName string) string {
 	}
 }
 
+// SQL 工作台分页与超时的默认值 / 环境变量开关。
+//
+// 这几个值刻意放在这里而不是写死在调用处：现场（比如内网慢库）需要能不改代码地调大超时，
+// 或者把每页调小来迁就老浏览器，所以都留了环境变量口子。
+const (
+	sqlWorkbenchDefaultPageSize = 100
+	sqlWorkbenchMaxPageSize     = 1000
+	sqlWorkbenchDefaultTimeout  = 60 * time.Second
+)
+
+// sqlWorkbenchPaging 把请求里的 page/page_size 归一化成安全值。
+// 负数、0、超大值一律收敛，避免 (page-1)*pageSize 溢出或一次拉太多把服务打满。
+func sqlWorkbenchPaging(page, pageSize int) (int, int) {
+	if pageSize <= 0 {
+		pageSize = sqlWorkbenchDefaultPageSize
+		if v := strings.TrimSpace(os.Getenv("DTB_SQL_PAGE_SIZE")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				pageSize = n
+			}
+		}
+	}
+	if pageSize > sqlWorkbenchMaxPageSize {
+		pageSize = sqlWorkbenchMaxPageSize
+	}
+	if page < 1 {
+		page = 1
+	}
+	// 防止 page 极大时 skip 溢出成负数（int64 上溢），宁可返回空页也不要算错
+	if page > 1<<31/pageSize {
+		page = 1<<31/pageSize + 1
+	}
+	return page, pageSize
+}
+
+// sqlWorkbenchTimeout 查询超时，默认 60 秒，可用 DTB_SQL_TIMEOUT_SEC 覆盖。
+func sqlWorkbenchTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("DTB_SQL_TIMEOUT_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return sqlWorkbenchDefaultTimeout
+}
+
+// sqlWorkbenchQueryErrMsg 把驱动错误翻成人话。
+// 超时和取消是最常见的两种，直接说清楚「为什么停的」「下一步怎么办」，
+// 比丢一句 driver: context deadline exceeded 有用得多。
+func sqlWorkbenchQueryErrMsg(err error, timeout time.Duration) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		sec := int(timeout.Seconds())
+		return fmt.Sprintf("查询超时（超过 %d 秒已中止）。建议加 WHERE 条件缩小范围，或改用分页/聚合查询。", sec)
+	}
+	if errors.Is(err, context.Canceled) {
+		return "查询已取消"
+	}
+	return "查询失败: " + err.Error()
+}
+
 // handleDatabaseSQL SQL 工作台：执行任意 SQL
 func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseConfig) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1952,8 +2015,10 @@ func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseC
 	}
 
 	var req struct {
-		SQL    string        `json:"sql"`
-		Params []interface{} `json:"params"`
+		SQL      string        `json:"sql"`
+		Params   []interface{} `json:"params"`
+		Page     int           `json:"page"`      // 1 起；0/缺省 → 第 1 页
+		PageSize int           `json:"page_size"` // 0/缺省 → 默认 100；上限 1000
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apiInvalidInput(w, "请求格式错误")
@@ -1985,23 +2050,59 @@ func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseC
 		return
 	}
 
+	// SQL 工作台默认分页。
+	//
+	// 为什么必须默认分页：以前这里是把结果集**全部**读进内存再一次性 JSON 返回。
+	// 用户手一抖 SELECT * FROM 一张千万行表，服务端内存直接顶满、响应体几百 MB，
+	// 浏览器解析完就卡死 —— 表现就是「SQL 工作台把服务拖垮」。
+	//
+	// 为什么不改写用户的 SQL（不加自动 LIMIT）：不同方言限行语法不一样
+	// （MySQL LIMIT / SQLServer TOP / Oracle FETCH FIRST），改写还会破坏
+	// WITH / SHOW / DESCRIBE / EXPLAIN 这类语句，也可能改变用户的本意。
+	// 所以改成「只物化当前页」：前面的行照读但立刻丢弃，多读一行用来判断 has_more。
+	page, pageSize := sqlWorkbenchPaging(req.Page, req.PageSize)
+	skip := (page - 1) * pageSize
+	if skip < 0 {
+		skip = 0
+	}
+
+	// 查询超时：以前 db.Query 没有任何 ctx，慢查询会永久占住一个连接，
+	// 和「审核卡死」是同一类问题。r.Context() 还能让用户关页面就自动取消。
+	queryTimeout := sqlWorkbenchTimeout()
+	ctx, cancel := context.WithTimeout(r.Context(), queryTimeout)
+	defer cancel()
+
 	if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") ||
 		strings.HasPrefix(sqlUpper, "DESCRIBE") || strings.HasPrefix(sqlUpper, "EXPLAIN") ||
 		strings.HasPrefix(sqlUpper, "DESC") || strings.HasPrefix(sqlUpper, "WITH") {
-		rows, err := db.Query(req.SQL, req.Params...)
+		rows, err := db.QueryContext(ctx, req.SQL, req.Params...)
 		if err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false, "message": "查询失败: " + err.Error(),
+				"success": false, "message": sqlWorkbenchQueryErrMsg(err, queryTimeout),
 			})
 			return
 		}
 		defer rows.Close()
 
 		columns, _ := rows.Columns()
-		var results []map[string]interface{}
+		results := make([]map[string]interface{}, 0, pageSize)
 		blobColumns := make(map[int]bool)
 
+		// seen 统计从结果集开头数起的逻辑行数（含被跳过的），
+		// 这样即使不看数据也能知道「后面还有没有」。
+		seen := 0
+		hasMore := false
 		for rows.Next() {
+			if seen >= skip+pageSize {
+				// 已经凑满一页，且驱动还给了下一行 → 后面确实有数据
+				hasMore = true
+				break
+			}
+			seen++
+			if seen <= skip {
+				// 属于前面几页：读过就算，不物化（省内存，这是本改动的核心）
+				continue
+			}
 			values := make([]interface{}, len(columns))
 			valuePtrs := make([]interface{}, len(columns))
 			for i := range values {
@@ -2047,6 +2148,14 @@ func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseC
 			results = append(results, row)
 		}
 
+		// rows.Err() 以前完全没检查：查询中途断连 / 超时会被静默当成「正常结束」，
+		// 前端只看到少了几行数据，既不报错也没提示 —— 属于最坑人的那种静默失败。
+		// 这里退化成 warning 返回部分结果，比整页报错有用。
+		warnMsg := ""
+		if err := rows.Err(); err != nil {
+			warnMsg = sqlWorkbenchQueryErrMsg(err, queryTimeout)
+		}
+
 		elapsed := time.Since(startTime).Milliseconds()
 
 		resp := map[string]interface{}{
@@ -2055,6 +2164,18 @@ func handleDatabaseSQL(w http.ResponseWriter, r *http.Request, config *DatabaseC
 			"data":    results,
 			"count":   len(results),
 			"elapsed": elapsed,
+			// 分页元信息。total 故意不给：算精确总数要把用户 SQL 包一层 COUNT(*)，
+			// 那会破坏 WITH/SHOW/DESCRIBE 且让查询成本翻倍。
+			// 用 has_more / has_prev 驱动分页条一样好用，而且永远诚实。
+			"page":        page,
+			"page_size":   pageSize,
+			"has_more":    hasMore,
+			"has_prev":    page > 1,
+			"total_known": false,
+			"paged":       true,
+		}
+		if warnMsg != "" {
+			resp["warning"] = warnMsg
 		}
 		if len(blobColumns) > 0 {
 			blobIdx := make([]int, 0, len(blobColumns))

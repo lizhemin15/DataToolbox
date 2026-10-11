@@ -942,6 +942,42 @@ body.embed-mode .embed-settings-btn {
 }
 .qa-progress-card.is-done { border-left-color: #38a169; }
 .qa-progress-card.is-failed { border-left-color: #e53e3e; }
+/* 已取消：灰黑（不是红色）—— 用户自己点的取消，不该看起来像出了事故 */
+.qa-progress-card.is-canceled { border-left-color: #718096; }
+/* 疑似卡住：左侧条换灰黑+虚线，和「正常运行」在缩略视觉上也能一眼区分 */
+.qa-progress-card.is-stale {
+    border-left-color: #a0aec0;
+    border-left-style: dashed;
+    background: #fafafa;
+}
+.qa-progress-stale {
+    margin-top: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    color: #2d3748;
+    background: #edf2f7;
+    border: 1px dashed #a0aec0;
+    border-radius: 4px;
+}
+.qa-progress-idle {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #a0aec0;
+}
+.qa-progress-cancel {
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    color: #2d3748;
+    background: #fff;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+}
+.qa-progress-cancel:hover:not(:disabled) { background: #f7fafc; border-color: #a0aec0; }
+.qa-progress-cancel:disabled { color: #a0aec0; cursor: default; }
 .qa-progress-top {
     display: flex;
     align-items: baseline;

@@ -580,7 +580,7 @@ func qaScheduleRun(w http.ResponseWriter, r *http.Request, id string, username s
 
 	go func() {
 		defer qaUnlockSchedule(s.ID)
-		_, status, runErr := qaRunScheduleCoreWithProgress(s, "manual", username, runID, pr)
+		_, status, runErr := qaRunGuarded(s, "manual", username, runID, pr)
 		if runErr != nil {
 			pr.finish("failed", runErr.Error())
 			log.Printf("qa 定时任务「%s」手动执行失败: %v", s.Name, runErr)
@@ -610,7 +610,7 @@ func qaRunSchedule(s *qaSchedule, triggerType, username string) (string, string,
 	defer qaUnlockSchedule(s.ID)
 	runID := uuid.New().String()
 	pr := qaProgressStart(runID, s.ID, s.Name, triggerType)
-	_, status, err := qaRunScheduleCoreWithProgress(s, triggerType, username, runID, pr)
+	_, status, err := qaRunGuarded(s, triggerType, username, runID, pr)
 	if err != nil {
 		pr.finish("failed", err.Error())
 	} else {
@@ -625,7 +625,183 @@ func qaRunScheduleCore(s *qaSchedule, triggerType, username string) (string, str
 
 // qaRunScheduleCoreWithProgress 执行一次审核：跑规则 → 填报率 → AI 校核 → 报告落盘 → 写 qa_runs。
 // 无论成功失败都会写入执行记录。pr 可为 nil（不关心进度时）。
-func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID string, pr *qaRunProgress) (string, string, error) {
+
+// ---------------------------------------------------------------------------
+// 执行超时 / 取消的公共设施
+// ---------------------------------------------------------------------------
+
+// qaCtxErr 把 ctx 的结束原因翻译成给用户看的中文文案；ctx 还在跑就返回 nil。
+func qaCtxErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	switch ctx.Err() {
+	case context.DeadlineExceeded:
+		return errors.New("执行超时，已自动中止（已完成的规则结果仍可在执行记录中查看）")
+	case context.Canceled:
+		return errors.New("执行已被取消")
+	}
+	return nil
+}
+
+// qaRunStage 跑一个「可能长时间不返回」的步骤，并给它两道保险：
+//  1. stageMS 单步超时（<=0 表示只受整体 ctx 约束）
+//  2. 外层 ctx（整体执行超时 / 用户点取消）
+//
+// 为什么必须在外面再套一层 goroutine，而不是只靠被调用方自己检查 ctx：
+// 数据库驱动和 docx 渲染都不保证响应取消（部分国产库驱动完全忽略 ctx），
+// 一旦它们不返回，主流程就会永远等下去 —— 那正是用户报的「卡死」。
+// 这里选择「放弃等待」而不是「等它跑完」：宁可留一个泄漏的 goroutine，
+// 也不能让执行锁和界面状态一直挂着（锁不释放 = 用户再也点不动这个任务）。
+//
+// 注意：超时分支不得读取 fn 写入的结果变量，否则和仍在跑的 goroutine 形成数据竞争。
+func qaRunStage(ctx context.Context, stageMS int64, fn func(context.Context) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := qaCtxErr(ctx); err != nil {
+		return err
+	}
+	stageCtx := ctx
+	if stageMS > 0 {
+		var cancel context.CancelFunc
+		stageCtx, cancel = context.WithTimeout(ctx, time.Duration(stageMS)*time.Millisecond)
+		defer cancel()
+	}
+	done := make(chan error, 1)
+	go func() { done <- fn(stageCtx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-stageCtx.Done():
+		if err := qaCtxErr(ctx); err != nil {
+			return err
+		}
+		return fmt.Errorf("步骤超时（超过 %d 秒未返回），已中止", stageMS/1000)
+	}
+}
+
+// qaRunRecord 一次执行的落库内容。抽出来是因为卡死时执行方可能回不来，
+// 只能由看门狗代写一条失败记录 —— 两条路径必须写出同样结构的记录。
+type qaRunRecord struct {
+	RunID        string
+	ScheduleID   string
+	ScheduleName string
+	TriggerType  string
+	DatabaseID   string
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	Status       string
+	TotalRules   int
+	Passed       int
+	Failed       int
+	AIFlagged    int
+	ReportFile   string
+	Summary      string
+	Detail       string
+	ErrMsg       string
+	Username     string
+}
+
+// qaWriteRunRecord 写入执行记录并更新任务的「上次执行」。SQL 只有这一份，避免两处漂移。
+func qaWriteRunRecord(rec qaRunRecord) {
+	duration := rec.FinishedAt.Sub(rec.StartedAt).Milliseconds()
+	if duration < 0 {
+		duration = 0
+	}
+	if rec.Summary == "" {
+		rec.Summary = "{}"
+	}
+	if rec.Detail == "" {
+		rec.Detail = "[]"
+	}
+	finished := rec.FinishedAt.Format(time.RFC3339)
+	db, err := openQualityAuditDB()
+	if err != nil {
+		log.Printf("qa 写执行记录失败（打开元数据库）: %v", err)
+		return
+	}
+	_, _ = db.Exec(`INSERT INTO qa_runs (id, schedule_id, schedule_name, trigger_type, database_id, started_at, finished_at, duration_ms, status, total_rules, passed, failed, ai_flagged, report_file, summary, detail, error, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		rec.RunID, rec.ScheduleID, rec.ScheduleName, rec.TriggerType, rec.DatabaseID,
+		rec.StartedAt.Format(time.RFC3339), finished, duration, rec.Status,
+		rec.TotalRules, rec.Passed, rec.Failed, rec.AIFlagged, rec.ReportFile,
+		rec.Summary, rec.Detail, rec.ErrMsg, rec.Username)
+	_, _ = db.Exec(`UPDATE qa_schedules SET last_run_at=?, last_run_status=?, updated_at=? WHERE id=?`,
+		finished, rec.Status, finished, rec.ScheduleID)
+}
+
+// qaWatchdog 独立看门狗：兜住「连 qaRunStage 都回不来」的极端情况。
+//
+// 为什么在整体 ctx 超时之外还要这一层：qaRunStage 能兜住「某一步不返回」，
+// 但兜不住执行 goroutine 自己卡在锁、元数据库打开、日志写入这类地方 ——
+// 那时整体 ctx 到期也没人处理，任务永久锁死。看门狗是最后一个保险：
+// 到点就宣布失败、释放执行锁、代写一条执行记录，让用户至少能重新点执行。
+//
+// 返回的 stop 必须在执行结束时调用（正常路径下看门狗就什么都没做）。
+func qaWatchdog(runID string, s *qaSchedule, pr *qaRunProgress, triggerType, username string, startedAt time.Time) func() {
+	stop := make(chan struct{})
+	// 宽限期比整体超时再长一点：正常情况下整体 ctx 会先中止并落库，
+	// 看门狗只在「连那一步都没走到」时才出手，避免抢跑把正常执行判成失败。
+	grace := time.Duration(qaRunTimeoutMS()+qaReportTimeoutMS()+60*1000) * time.Millisecond
+	go func() {
+		timer := time.NewTimer(grace)
+		defer timer.Stop()
+		select {
+		case <-stop:
+			return
+		case <-timer.C:
+		}
+		// 到这里说明执行方已经彻底失联。
+		msg := fmt.Sprintf("执行超过 %d 分钟没有任何响应，已强制终止（进程内看门狗）", grace/time.Minute)
+		pr.fail(msg)
+		qaUnlockSchedule(s.ID)
+		log.Printf("qa 看门狗：run=%s 任务「%s」超时无响应，已强制终止并释放执行锁", runID, s.Name)
+		if pr.tryMarkRecorded() {
+			qaWriteRunRecord(qaRunRecord{
+				RunID:        runID,
+				ScheduleID:   s.ID,
+				ScheduleName: s.Name,
+				TriggerType:  triggerType,
+				DatabaseID:   s.DatabaseID,
+				StartedAt:    startedAt,
+				FinishedAt:   time.Now(),
+				Status:       "failed",
+				Summary:      "{}",
+				Detail:       "[]",
+				ErrMsg:       msg,
+				Username:     username,
+			})
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(stop) }) }
+}
+
+// qaRunGuarded 是执行入口的统一包装：挂上整体超时、注册取消、登记数据库、起看门狗。
+//
+// 为什么统一在这里做：手动执行和定时执行必须有一模一样的行为 ——
+// 以前手动入口有进度、定时入口没有，取消更是两边都没有，用户遇到卡死时完全没辙。
+func qaRunGuarded(s *qaSchedule, triggerType, username, runID string, pr *qaRunProgress) (string, string, error) {
+	startedAt := time.Now()
+	runCtx, cancel := context.WithTimeout(context.Background(), time.Duration(qaRunTimeoutMS())*time.Millisecond)
+	defer cancel()
+	pr.setDatabase(s.DatabaseID)
+	// 把取消函数登记到这次执行的进度对象上，前端点「取消」才真的能停下来。
+	pr.setCancel(cancel)
+	defer pr.clearCancel()
+	stopWatchdog := qaWatchdog(runID, s, pr, triggerType, username, startedAt)
+	defer stopWatchdog()
+	return qaRunScheduleCoreWithProgress(runCtx, s, triggerType, username, runID, pr)
+}
+
+// ctx 用来兜住「卡死」：整体超时与用户点取消都在这里生效，每个阶段结束都检查一次。
+// 历史教训：这个函数原本没有任何超时/取消入口，一旦某一步不返回（数据库驱动忽略 ctx、
+// docx 渲染卡住…），执行锁就永远不会释放，界面上却还是「正在跑最后一项」——
+// 用户看到的现象就是卡死又停不掉，只能重启进程。
+func qaRunScheduleCoreWithProgress(ctx context.Context, s *qaSchedule, triggerType, username, runID string, pr *qaRunProgress) (string, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	startedAt := time.Now()
 	pr.setPhase("prepare", "准备执行")
 
@@ -640,34 +816,57 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 	dbConfig, dbOK := dataOntologyDatabases[s.DatabaseID]
 	dataOntologyMu.RUnlock()
 
-	switch {
-	case !dbOK:
-		status = "failed"
-		runErrMsg = "目标数据库不存在"
-		pr.setPhase("rules", "执行审核规则")
-	default:
+	// abortErr 只在「整体超时 / 用户取消 / 单步超时」时被赋值。
+	// 这类错误必须硬中止：后面的步骤已经没有意义，继续跑只会让「卡死」看起来更像正常执行。
+	var abortErr error
+
+	// runBody 把执行主干包成闭包，好处是每个阶段都能用一句 return 硬中止，
+	// 不必在 switch 里层层面包、也不必用 goto。
+	runBody := func() {
 		dialect := normalizeQualityDialect(dbConfig.Type)
 		pr.setPhase("connect", "连接数据库")
 		// 先把规则条数报上去：数据库连接慢的时候进度条不至于一直显示 0/0
 		pr.addTotal(len(s.RuleNMs))
-		targetDB, derr := getDBFromPool(dbConfig)
-		if derr != nil {
-			status = "failed"
-			runErrMsg = "连接失败: " + derr.Error()
-			break
-		}
-		pr.setPhase("rules", "执行审核规则")
-		ruleResults, p, f, exErr := qaExecuteRules(s.DatabaseID, targetDB, dialect, s.RuleNMs, username, startedAt, func(nm, name string) {
-			if name == "" {
-				name = nm
+		var targetDB *sql.DB
+		// 连接也放进 qaRunStage：连接池满 / 网络半开时，建立连接本身就能卡住整个任务。
+		if err := qaRunStage(ctx, qaConnectTimeoutMS(), func(c context.Context) error {
+			db, derr := getDBFromPool(dbConfig)
+			if derr != nil {
+				return fmt.Errorf("连接失败: %w", derr)
 			}
-			pr.tick(name)
-		})
-		passed, failed = p, f
-		if exErr != nil {
+			targetDB = db
+			return nil
+		}); err != nil {
 			status = "failed"
-			runErrMsg = exErr.Error()
-			pr.fail(exErr.Error())
+			runErrMsg = err.Error()
+			abortErr = err
+			return
+		}
+
+		pr.setPhase("rules", "执行审核规则")
+		var ruleResults []map[string]interface{}
+		var ruleExecErr error
+		if err := qaRunStage(ctx, 0, func(c context.Context) error {
+			res, p, f, exErr := qaExecuteRules(c, s.DatabaseID, targetDB, dialect, s.RuleNMs, username, startedAt, func(nm, name string) {
+				if name == "" {
+					name = nm
+				}
+				pr.tick(name)
+			})
+			// 单条规则报错不算硬中止（旧行为：把错误写进报告，继续往下走），
+			// 但要记下来，最后作为 runErrMsg 落库。
+			ruleResults, passed, failed, ruleExecErr = res, p, f, exErr
+			return nil
+		}); err != nil {
+			status = "failed"
+			runErrMsg = err.Error()
+			abortErr = err
+			return
+		}
+		if ruleExecErr != nil {
+			status = "failed"
+			runErrMsg = ruleExecErr.Error()
+			pr.fail(ruleExecErr.Error())
 		}
 		if ruleResults == nil {
 			ruleResults = []map[string]interface{}{}
@@ -683,13 +882,31 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			recRows, _ := scanFillTable(metaDB, `SELECT TABLE_NAME, FIELD_NAME, NUMERATOR, DENOMINATOR, CHECKED, UPDATED_AT FROM record_fill_rate WHERE CHECKED = 1`)
 			pr.setPhase("fill", "统计填报率")
 			pr.addTotal(len(itemRows) + len(recRows))
-			itemStats = runFillStatsWithProgress(targetDB, dialect, itemRows, func() { pr.tick("") })
-			recStats = runFillStatsWithProgress(targetDB, dialect, recRows, func() { pr.tick("") })
+			if err := qaRunStage(ctx, 0, func(c context.Context) error {
+				itemStats = runFillStatsWithProgress(c, targetDB, dialect, itemRows, func() { pr.tick("") })
+				recStats = runFillStatsWithProgress(c, targetDB, dialect, recRows, func() { pr.tick("") })
+				return nil
+			}); err != nil {
+				status = "failed"
+				runErrMsg = err.Error()
+				abortErr = err
+				return
+			}
 		}
 
 		// AI 复核：只对「本次未通过且规则自带复核原则」的规则；总开关在任务上
 		pr.setPhase("ai", "AI 复核")
-		aiMap, aiModel, aiSkipReason := qaAIVerifyWithProgress(ruleResults, s.AICheckEnabled, pr)
+		var aiMap map[string]map[string]interface{}
+		var aiModel, aiSkipReason string
+		if err := qaRunStage(ctx, 0, func(c context.Context) error {
+			aiMap, aiModel, aiSkipReason = qaAIVerifyWithProgress(c, ruleResults, s.AICheckEnabled, pr)
+			return nil
+		}); err != nil {
+			status = "failed"
+			runErrMsg = err.Error()
+			abortErr = err
+			return
+		}
 		for _, row := range ruleResults {
 			nm, _ := row["nm"].(string)
 			ai, ok := aiMap[nm]
@@ -711,31 +928,46 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 			detailJSON = b
 		}
 
-		// 生成报告并落盘
+		// 生成报告并落盘。
+		// 单独给一个上限（默认 3 分钟）：用户报的卡死就高度疑似发生在这里 ——
+		// docx 模板渲染 + 写入本地文件，出问题时既不报错也不返回。
 		pr.setPhase("report", "生成报告")
 		pr.addTotal(1)
-		if doc, err := qaBuildReportDocxSel(qaNormalizeAuditJSON(map[string]interface{}{
-			"database_id":       s.DatabaseID,
-			"database_type":     dbConfig.Type,
-			"dialect":           dialect,
-			"started_at":        startedAt.Format(time.RFC3339),
-			"ai_model":          aiModel,
-			"rules":             ruleResults,
-			"item_fill_rates":   itemStats,
-			"record_fill_rates": recStats,
-			"fill_skipped":      !s.FillEnabled,
-			"summary": map[string]interface{}{
-				"total_rules": passed + failed,
-				"passed":      passed,
-				"failed":      failed,
-			},
-		}), s.ReportTemplateID, qaScheduleReportSelection(s)); err == nil {
-			if err := os.MkdirAll(qaReportsDir(), 0755); err == nil {
-				name := runID + ".docx"
-				if werr := os.WriteFile(filepath.Join(qaReportsDir(), name), doc, 0644); werr == nil {
-					reportFile = name
-				}
+		if err := qaRunStage(ctx, qaReportTimeoutMS(), func(c context.Context) error {
+			doc, derr := qaBuildReportDocxSel(qaNormalizeAuditJSON(map[string]interface{}{
+				"database_id":       s.DatabaseID,
+				"database_type":     dbConfig.Type,
+				"dialect":           dialect,
+				"started_at":        startedAt.Format(time.RFC3339),
+				"ai_model":          aiModel,
+				"rules":             ruleResults,
+				"item_fill_rates":   itemStats,
+				"record_fill_rates": recStats,
+				"fill_skipped":      !s.FillEnabled,
+				"summary": map[string]interface{}{
+					"total_rules": passed + failed,
+					"passed":      passed,
+					"failed":      failed,
+				},
+			}), s.ReportTemplateID, qaScheduleReportSelection(s))
+			if derr != nil {
+				// 保留旧行为：报告生成失败不改变执行状态，只是没有报告文件。
+				log.Printf("qa 报告生成失败（run=%s）: %v", runID, derr)
+				return nil
 			}
+			if err := os.MkdirAll(qaReportsDir(), 0755); err != nil {
+				return nil
+			}
+			name := runID + ".docx"
+			if werr := os.WriteFile(filepath.Join(qaReportsDir(), name), doc, 0644); werr == nil {
+				reportFile = name
+			}
+			return nil
+		}); err != nil {
+			status = "failed"
+			runErrMsg = err.Error()
+			abortErr = err
+			return
 		}
 		pr.tick("报告已生成")
 
@@ -757,15 +989,46 @@ func qaRunScheduleCoreWithProgress(s *qaSchedule, triggerType, username, runID s
 		}
 	}
 
+	switch {
+	case !dbOK:
+		status = "failed"
+		runErrMsg = "目标数据库不存在"
+		abortErr = errors.New("目标数据库不存在")
+	default:
+		runBody()
+	}
+
+	if abortErr != nil {
+		status = "failed"
+		runErrMsg = abortErr.Error()
+		pr.fail(runErrMsg)
+	}
+
 	finishedAt := time.Now()
-	duration := finishedAt.Sub(startedAt).Milliseconds()
 	summaryJSON, _ := json.Marshal(summaryMap)
 
-	if db, err := openQualityAuditDB(); err == nil {
-		_, _ = db.Exec(`INSERT INTO qa_runs (id, schedule_id, schedule_name, trigger_type, database_id, started_at, finished_at, duration_ms, status, total_rules, passed, failed, ai_flagged, report_file, summary, detail, error, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			runID, s.ID, s.Name, triggerType, s.DatabaseID, startedAt.Format(time.RFC3339), finishedAt.Format(time.RFC3339), duration, status, passed+failed, passed, failed, aiFlagged, reportFile, string(summaryJSON), string(detailJSON), runErrMsg, username)
-		_, _ = db.Exec(`UPDATE qa_schedules SET last_run_at=?, last_run_status=?, updated_at=? WHERE id=?`,
-			finishedAt.Format(time.RFC3339), status, finishedAt.Format(time.RFC3339), s.ID)
+	// 落库前先抢「写入资格」：卡死时看门狗可能已经代写过一条失败记录，
+	// 这种情况下执行方（僵尸 goroutine）恢复后不得再写第二条，否则一次执行两条记录。
+	if pr.tryMarkRecorded() {
+		qaWriteRunRecord(qaRunRecord{
+			RunID:        runID,
+			ScheduleID:   s.ID,
+			ScheduleName: s.Name,
+			TriggerType:  triggerType,
+			DatabaseID:   s.DatabaseID,
+			StartedAt:    startedAt,
+			FinishedAt:   finishedAt,
+			Status:       status,
+			TotalRules:   passed + failed,
+			Passed:       passed,
+			Failed:       failed,
+			AIFlagged:    aiFlagged,
+			ReportFile:   reportFile,
+			Summary:      string(summaryJSON),
+			Detail:       string(detailJSON),
+			ErrMsg:       runErrMsg,
+			Username:     username,
+		})
 	}
 
 	if runErrMsg != "" {
@@ -889,8 +1152,12 @@ func ifaceString(v interface{}) string {
 
 // qaAIVerifyWithProgress 对「未通过且自带复核原则」的规则逐条 AI 复核。
 // enabled=false 时直接跳过（连模型都不挑，避免无谓开销）。
+// ctx 用于用户取消 / 整体超时：AI 复核是逐条串行的，每条都检查一次，避免「点了取消还在等模型」。
 // 返回：nm → 复核结论、使用的模型名、跳过原因。
-func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, enabled bool, pr *qaRunProgress) (map[string]map[string]interface{}, string, string) {
+func qaAIVerifyWithProgress(ctx context.Context, ruleResults []map[string]interface{}, enabled bool, pr *qaRunProgress) (map[string]map[string]interface{}, string, string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	out := map[string]map[string]interface{}{}
 	if !enabled {
 		return out, "", "本次未启用 AI 校核"
@@ -915,6 +1182,10 @@ func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, enabled bool, 
 	const systemPrompt = "你是数据质量审核专家。请严格按照用户给定的复核原则，判断这条 SQL 审核规则的失败结果是否属于误判，并给出结论与修改建议。"
 	first := true
 	for _, row := range targets {
+		if ctx.Err() != nil {
+			// 取消/超时：不再继续喂模型，剩下的规则留空（上层按 ctx 错误收尾）
+			break
+		}
 		nm, _ := row["nm"].(string)
 		if nm == "" {
 			continue
@@ -956,7 +1227,7 @@ func qaAIVerifyWithProgress(ruleResults []map[string]interface{}, enabled bool, 
 
 // qaAttachAIReview 把 AI 复核结论写回规则结果行；返回复核条数与模型名、跳过原因。
 func qaAttachAIReview(ruleResults []map[string]interface{}, enabled bool) (int, string, string) {
-	aiMap, aiModel, skipReason := qaAIVerifyWithProgress(ruleResults, enabled, nil)
+	aiMap, aiModel, skipReason := qaAIVerifyWithProgress(context.Background(), ruleResults, enabled, nil)
 	reviewed := 0
 	for _, row := range ruleResults {
 		nm, _ := row["nm"].(string)

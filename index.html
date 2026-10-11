@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据工具箱</title>
-<link rel="stylesheet" href="/css/style-core.css?v=2026061002">
+<link rel="stylesheet" href="/css/style-core.css?v=2026101101">
 <link rel="stylesheet" href="/css/style-agent.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-api.css?v=2026092803">
 <link rel="stylesheet" href="/css/style-ai.css?v=2026061006">
 <link rel="stylesheet" href="/css/style-tables.css?v=2026092803">
 <link rel="stylesheet" href="/css/style-governance.css?v=2026092804">
 <link rel="stylesheet" href="/css/style-ontology.css?v=2026061002">
-<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922.2026092801.2026092901">
+<link rel="stylesheet" href="/css/style-models-quality.css?v=2026091922.2026092801.2026092901.2026101101">
 <link rel="stylesheet" href="/css/style-misc.css?v=2026092705">
 <link rel="stylesheet" href="/css/style-agent-cluster.css?v=2026061002">
 <link rel="stylesheet" href="/css/style-agent-config.css?v=2026061002">
@@ -203,6 +203,21 @@
                                 <button class="btn btn-sm" onclick="closeSqlResult()" aria-label="关闭结果"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
                             </div>
                             <div id="sqlResultTable" class="sql-result-table"></div>
+                            <div id="sqlPager" class="sql-pager" style="display:none;">
+                                <button type="button" class="btn btn-sm" id="sqlPrevPage">上一页</button>
+                                <span id="sqlPageInfo" class="sql-page-info"></span>
+                                <button type="button" class="btn btn-sm" id="sqlNextPage">下一页</button>
+                                <span class="sql-page-size">
+                                    每页
+                                    <select id="sqlPageSize">
+                                        <option value="50">50</option>
+                                        <option value="100" selected>100</option>
+                                        <option value="200">200</option>
+                                        <option value="500">500</option>
+                                    </select>
+                                    条
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2869,7 +2884,7 @@
     <script src="/js/script-events.js?v=2026092702" defer></script>
     <script src="/js/script-platform.js?v=2026092803" defer></script>
     <script src="/js/script-tables.js?v=2026092705" defer></script>
-    <script src="/js/script-api.js?v=2026092704" defer></script>
+    <script src="/js/script-api.js?v=2026101101" defer></script>
     <script src="/js/script-settings.js?v=2026092803" defer></script>
     <script src="/js/script-ai-legacy.js?v=2026061002" defer></script>
     <script src="/js/script-governance.js?v=2026092804" defer></script>

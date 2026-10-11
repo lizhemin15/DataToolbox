@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func newStaticFileHandler() http.Handler {
@@ -29,7 +30,9 @@ func newStaticFileHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// JS/CSS/HTML 文件及根路径禁用缓存，确保更新即时生效
 		path := r.URL.Path
-		isStatic := len(path) > 3 && (path[len(path)-3:] == ".js" || path[len(path)-4:] == ".css" || path[len(path)-5:] == ".html")
+		// 用 HasSuffix 而不是按长度切片：旧写法对长度不足的路径会 panic
+		// （任意扫描器请求 /a 即可让整个进程 500，属于可被外部触发的崩溃）。
+		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".html")
 		isRoot := path == "/" || path == "/index.html"
 		if isStatic || isRoot {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")

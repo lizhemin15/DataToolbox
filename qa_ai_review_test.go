@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
@@ -119,7 +120,7 @@ func TestQAAIVerifySkippedWhenDisabled(t *testing.T) {
 	rules := []map[string]interface{}{
 		{"nm": "010100", "name": "填了原则且没过", "passed": false, "ai_review_prompt": "允许为空则属误判"},
 	}
-	out, model, reason := qaAIVerifyWithProgress(rules, false, nil)
+	out, model, reason := qaAIVerifyWithProgress(context.Background(), rules, false, nil)
 	if len(out) != 0 {
 		t.Errorf("关闭总开关时不应产生复核结论，实际 %v", out)
 	}
@@ -132,7 +133,7 @@ func TestQAAIVerifySkippedWhenDisabled(t *testing.T) {
 
 	// 开启但无目标规则 → 明确说明原因，同样不挑模型
 	rules[0]["passed"] = true
-	out2, model2, reason2 := qaAIVerifyWithProgress(rules, true, nil)
+	out2, model2, reason2 := qaAIVerifyWithProgress(context.Background(), rules, true, nil)
 	if len(out2) != 0 || model2 != "" {
 		t.Errorf("无目标时不应有结论/模型：%v %q", out2, model2)
 	}
@@ -194,7 +195,7 @@ func TestQAStripAIRowsRemovesStaleAI(t *testing.T) {
 		t.Error("剥副本不应影响原行")
 	}
 	// 剥完再跑一次：关闭开关时不应产生任何 AI 字段
-	out, model, reason := qaAIVerifyWithProgress(clean, false, nil)
+	out, model, reason := qaAIVerifyWithProgress(context.Background(), clean, false, nil)
 	if len(out) != 0 || model != "" || reason == "" {
 		t.Errorf("关闭开关应零调用：out=%v model=%q reason=%q", out, model, reason)
 	}

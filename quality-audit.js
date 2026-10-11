@@ -2237,7 +2237,11 @@
 
     function qaProgressCard(pr) {
         var running = pr.status === 'running';
-        var cls = 'qa-progress-card' + (running ? '' : (pr.status === 'success' ? ' is-done' : ' is-failed'));
+        // 取消是按 failed 落库的（qa_runs.status 只有 success/failed 两态，不新增枚举），
+        // 但文案和配色上必须和「真的执行失败」分开 —— 用户自己点的取消，
+        // 不该回头看到一屏红色「执行失败」再吓一跳。
+        var cls = 'qa-progress-card' + (running ? (pr.stale ? ' is-stale' : '')
+            : (pr.status === 'success' ? ' is-done' : (pr.canceled ? ' is-canceled' : ' is-failed')));
         var pct = Math.max(0, Math.min(100, Number(pr.percent) || 0));
         var total = Number(pr.total) || 0;
         var done = Number(pr.done) || 0;
@@ -2246,6 +2250,8 @@
         if (running) {
             if (pr.eta_ms != null && pr.eta_ms >= 0) etaText = '预计剩余 ' + qaFmtProgressDuration(pr.eta_ms);
             else if (done === 0) etaText = '预计剩余 计算中…';
+        } else if (pr.canceled) {
+            etaText = '已取消';
         } else if (pr.status === 'success') {
             etaText = '耗时 ' + qaFmtProgressDuration(pr.elapsed_ms);
         }
@@ -2255,7 +2261,13 @@
             (running ? '<span class="qa-progress-dot"></span>' : '') +
             escapeHtml(pr.schedule_name || '定时任务') +
             '<span class="qa-progress-phase">' + escapeHtml(pr.phase_label || '') + ' · ' + escapeHtml(trigger) + '</span></span>' +
-            '<span class="qa-progress-eta">' + escapeHtml(etaText) + '</span>' +
+            '<span class="qa-progress-eta">' + escapeHtml(etaText) +
+            // 取消按钮：卡住时用户唯一的自救手段。只有后端确实接通了 cancel 才显示，
+            // 免得给一个点了没反应的假按钮（用户最烦的就是这个）。
+            ((running && pr.cancelable)
+                ? '<button type="button" class="qa-progress-cancel" data-qa-cancel-run="' + escapeHtml(pr.run_id || '') + '">取消执行</button>'
+                : '') +
+            '</span>' +
             '</div>';
         var bar = '<div class="qa-progress-bar"><div class="qa-progress-bar-inner' + (indeterminate ? ' is-indeterminate' : '') +
             '" style="width:' + pct.toFixed(1) + '%"></div></div>';
@@ -2263,11 +2275,71 @@
             '<span>已完成 <strong>' + done + '</strong> / ' + total + ' 项</span>' +
             '<span>' + pct.toFixed(0) + '%</span>' +
             '<span>已用时 ' + qaFmtProgressDuration(pr.elapsed_ms) + '</span>' +
-            (pr.current ? '<span class="qa-progress-current">当前：' + escapeHtml(pr.current) + '</span>' : '') +
+            // current 的语义随阶段不同，措辞必须跟着换，否则就是句假话：
+            //  · rules 阶段 5 路并发，tick 在「规则跑完时」触发 → current 是最后完成的规则，
+            //    此时 current_elapsed_ms = 距它完成已过去多久（自测实测：快规则 B 完成后 3.2s 仍挂在跑）。
+            //  · 报告 / AI 阶段用 setCurrent 在「开始时」写入 → 那才是真的「已经跑了多久」。
+            (pr.current ? '<span class="qa-progress-current">' +
+                (pr.phase === 'rules'
+                    ? '最后完成：' + escapeHtml(pr.current) +
+                      (Number(pr.current_elapsed_ms) >= 0 ? '（' + escapeHtml(qaFmtProgressDuration(pr.current_elapsed_ms)) + ' 前）' : '')
+                    : '当前：' + escapeHtml(pr.current) +
+                      (Number(pr.current_elapsed_ms) >= 0 ? '（已跑 ' + escapeHtml(qaFmtProgressDuration(pr.current_elapsed_ms)) + '）' : '')) +
+                '</span>' : '') +
             (pr.error ? '<span class="qa-progress-current" style="color:#c53030;">错误：' + escapeHtml(pr.error) + '</span>' : '') +
             '</div>';
-        return '<div class="' + cls + '">' + head + bar + meta + '</div>';
+        // 卡住提示：把「多久没动」直接写出来。
+        // 旧界面上卡死和正常运行长得一模一样（进度条、当前项、计数全都冻在原地），
+        // 用户只能干等——这里必须显式说明，并给出可采取的动作。
+        var staleBar = '';
+        if (pr.stale) {
+            staleBar = '<div class="qa-progress-stale">疑似卡住：已 ' +
+                escapeHtml(qaFmtProgressDuration(pr.idle_ms)) + ' 没有任何进展' +
+                (pr.phase_label ? '（停在「' + escapeHtml(pr.phase_label) + '」阶段）' : '') +
+                (pr.cancelable ? '，可点「取消执行」中止' : '，等待系统自动终止') +
+                '</div>';
+        } else if (running && pr.idle_ms != null && Number(pr.idle_ms) >= 30000) {
+            // 超过 30 秒没进展但还没到「疑似卡住」阈值 → 先给个温和提示，让用户有心理预期
+            staleBar = '<div class="qa-progress-idle">' +
+                escapeHtml(qaFmtProgressDuration(pr.idle_ms)) + ' 无进展</div>';
+        }
+        return '<div class="' + cls + '">' + head + bar + meta + staleBar + '</div>';
     }
+
+    // qaCancelRun 按 run_id 取消一次正在跑的执行。
+    // 前端只负责「发信号 + 立刻给出反馈」，真正停在哪一步由后端各阶段的 ctx 检查决定。
+    function qaCancelRun(runID, btn) {
+        if (!runID) return;
+        if (btn) { btn.disabled = true; btn.textContent = '正在取消…'; }
+        fetchWithAuth(PREFIX + 'runs/' + encodeURIComponent(runID) + '/cancel', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d && d.success) {
+                    showMsg(d.message || '已发送取消信号，正在停止…', false);
+                    setTimeout(qaProgressTick, 500);
+                } else {
+                    showMsg((d && (d.error || d.message)) || '取消失败', true);
+                    if (btn) { btn.disabled = false; btn.textContent = '取消执行'; }
+                }
+            })
+            .catch(function () {
+                showMsg('取消请求失败', true);
+                if (btn) { btn.disabled = false; btn.textContent = '取消执行'; }
+            });
+    }
+
+    // 进度卡是用 innerHTML 整块重绘的（每 1.5 秒一次），绑在按钮上的 onclick 会在
+    // 下一次重绘时丢失，所以用 document 级事件委托，避免「按钮偶尔点了没反应」。
+    document.addEventListener('click', function (ev) {
+        var el = ev.target;
+        if (!el || !el.getAttribute) return;
+        if (!el.getAttribute('data-qa-cancel-run') && el.closest) {
+            el = el.closest('[data-qa-cancel-run]');
+        }
+        if (!el || !el.getAttribute) return;
+        var rid = el.getAttribute('data-qa-cancel-run');
+        if (rid) qaCancelRun(rid, el);
+    });
 
     function qaRenderProgress(activeList) {
         var wrap = document.getElementById('qaSchedProgressWrap');
@@ -2293,7 +2365,10 @@
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
                     var pr = (d && d.success && d.progress) || {};
-                    if (pr.status === 'failed') {
+                    if (pr.canceled) {
+                        // 用户自己点的取消 —— 不算错误，别用红色失败提示回敬他
+                        showMsg('后台任务「' + name + '」已取消', false);
+                    } else if (pr.status === 'failed') {
                         showMsg('后台任务「' + name + '」执行失败' + (pr.error ? ('：' + pr.error) : ''), true);
                     } else {
                         showMsg('后台任务「' + name + '」执行完成，可到「执行记录」查看报告', false);

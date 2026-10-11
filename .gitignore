@@ -18,6 +18,10 @@ gov-runner-src/node_modules/
 
 # 打包文件
 *.zip
+
+# 自测/运行时数据与自测二进制（不入库：本地跑出来的假规则、示例库会污染别人环境）
+data/
+dt-selftest
 *.tar.gz
 package/
 

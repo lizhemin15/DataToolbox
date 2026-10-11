@@ -30,34 +30,13 @@ var (
 	qaCache    = make(map[string]qaCacheEntry)
 	qaCacheTTL = 10 * time.Minute // 缓存有效期
 
-	// 审核取消控制
-	qaCancelMu    sync.Mutex
-	qaCancelFuncs = make(map[string]context.CancelFunc)
 )
 
-// 取消正在执行的审核
-func qaCancel(databaseID string) {
-	qaCancelMu.Lock()
-	defer qaCancelMu.Unlock()
-	if cancel, ok := qaCancelFuncs[databaseID]; ok {
-		cancel()
-		delete(qaCancelFuncs, databaseID)
-	}
-}
-
-// 注册取消函数
-func qaRegisterCancel(databaseID string, cancel context.CancelFunc) {
-	qaCancelMu.Lock()
-	defer qaCancelMu.Unlock()
-	qaCancelFuncs[databaseID] = cancel
-}
-
-// 清理取消函数
-func qaClearCancel(databaseID string) {
-	qaCancelMu.Lock()
-	defer qaCancelMu.Unlock()
-	delete(qaCancelFuncs, databaseID)
-}
+// 说明：这里原来有一套按 database_id 索引的 qaCancelFuncs / qaCancel / qaRegisterCancel /
+// qaClearCancel。它们是死代码 —— 全仓没有任何地方注册过取消函数，接口也不认 run_id，
+// 于是前端点「取消」后端毫无反应（用户报的「卡住又停不掉」就有这一份责任）。
+// 现在取消改成挂在执行进度对象上（qaRunProgress.cancel），按 run_id 精确定位，
+// 见 qa_progress.go 的 requestCancel / qaRequestCancelByRunID。
 
 type qaCacheEntry struct {
 	result    []map[string]interface{}
@@ -987,6 +966,8 @@ func handleQualityAuditAPI(w http.ResponseWriter, r *http.Request) {
 		qaRunReportGET(w, r, parts[1], username)
 	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "progress" && r.Method == http.MethodGet:
 		qaRunProgressGET(w, parts[1], username)
+	case len(parts) == 3 && parts[0] == "runs" && parts[2] == "cancel" && r.Method == http.MethodPost:
+		qaRunCancelPOST(w, parts[1], username)
 	case path == "progress/active" && r.Method == http.MethodGet:
 		qaProgressActiveGET(w, username)
 	case path == "overview" && r.Method == http.MethodGet:
@@ -1338,7 +1319,13 @@ func qaCountAIFlagged(ruleResults []map[string]interface{}) int {
 	return n
 }
 
-func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string)) ([]map[string]interface{}, int, int, error) {
+// qaExecuteRules 并发执行规则 SQL（最多 5 并发）。
+// ctx 用于用户取消 / 整体超时：每取到一个结果就检查一次，父 ctx 结束后立刻停止收结果；
+// resultChan 缓冲等于规则总数，所以中途退出不会让仍在跑的 goroutine 卡死。
+func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string)) ([]map[string]interface{}, int, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	flat, err := loadRulesFlat()
 	if err != nil {
 		return nil, 0, 0, err
@@ -1398,7 +1385,7 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 				resultChan <- ruleResult{nm: r.NM, entry: entry}
 				return
 			}
-			cnt, sample, errExec := executeRuleQuery(targetDB, execSQL)
+			cnt, sample, errExec := executeRuleQueryCtx(ctx, targetDB, execSQL)
 			entry := map[string]interface{}{
 				"nm":               r.NM,
 				"xh":               r.XH,
@@ -1434,6 +1421,11 @@ func qaExecuteRules(databaseID string, targetDB *sql.DB, dialect string, ruleNMs
 	var ruleResults []map[string]interface{}
 	passed, failed := 0, 0
 	for result := range resultChan {
+		if ctx.Err() != nil {
+			// 用户取消 / 整体超时：停止收结果，交给上层按 ctx 错误收尾。
+			// 剩下的 goroutine 会各自跑完并把结果写进缓冲 channel（容量 = 规则数），不会泄漏阻塞。
+			break
+		}
 		if passedRule, ok := result.entry["passed"].(bool); ok {
 			if passedRule {
 				passed++
@@ -1539,7 +1531,7 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 
 	t0 := time.Now()
 
-	ruleResults, passed, failed, err := qaExecuteRules(req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0, nil)
+	ruleResults, passed, failed, err := qaExecuteRules(context.Background(), req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0, nil)
 	if err != nil {
 		apiInternalError(w, err.Error())
 		return
@@ -1760,24 +1752,49 @@ func qaExecuteStream(w http.ResponseWriter, r *http.Request, username string) {
 	})
 }
 
-// 取消审核
+// 取消审核（按 run_id）。
+//
+// 为什么必须带 run_id：取消是「停掉某一次执行」，而一个数据库可以同时有多次执行
+// （手动点一次、定时又到点一次）。按 database_id 取消会打错目标，而且老实现连
+// 取消函数都没注册，纯属摆设。现在直接打到那次执行的进度对象上。
 func qaExecuteCancel(w http.ResponseWriter, r *http.Request, username string) {
 	var req struct {
+		RunID      string `json:"run_id"`
 		DatabaseID string `json:"database_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apiBadRequest(w, "JSON 解析失败")
 		return
 	}
-	if req.DatabaseID == "" {
-		apiBadRequest(w, "database_id 必填")
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		// 兼容老前端：只给了 database_id 时，取消该库当前正在跑的第一次执行。
+		runID = qaActiveRunIDByDatabase(req.DatabaseID)
+	}
+	qaCancelRun(w, runID, username)
+}
+
+// qaRunCancelPOST 处理 POST /runs/{id}/cancel。
+// 与 execute/cancel 共用同一套核心：前端已经知道 run_id，没必要再走 body。
+func qaRunCancelPOST(w http.ResponseWriter, runID string, username string) {
+	qaCancelRun(w, strings.TrimSpace(runID), username)
+}
+
+// qaCancelRun 是取消的唯一核心实现，参数已归一为 run_id。
+func qaCancelRun(w http.ResponseWriter, runID string, username string) {
+	if runID == "" {
+		apiBadRequest(w, "run_id 必填（该执行可能已结束）")
 		return
 	}
 
-	qaCancel(req.DatabaseID)
+	if !qaRequestCancelByRunID(runID) {
+		apiBadRequest(w, "该执行已结束或不存在，无需取消")
+		return
+	}
+	log.Printf("qa 执行已收到取消请求（run=%s by=%s）", runID, username)
 	qaRespondSuccess(w, map[string]interface{}{
-		"message":     "已发送取消信号",
-		"database_id": req.DatabaseID,
+		"message": "已发送取消信号，正在停止…",
+		"run_id":  runID,
 	})
 }
 
@@ -1980,11 +1997,16 @@ func qaExportReport(w http.ResponseWriter, r *http.Request, username string) {
 }
 
 func runFillStats(db *sql.DB, dialect string, rows []fillRow) []map[string]interface{} {
-	return runFillStatsWithProgress(db, dialect, rows, nil)
+	return runFillStatsWithProgress(context.Background(), db, dialect, rows, nil)
 }
 
 // runFillStatsWithProgress 与 runFillStats 相同，额外在每行算完后回调 onDone（用于进度条）。
-func runFillStatsWithProgress(db *sql.DB, dialect string, rows []fillRow, onDone func()) []map[string]interface{} {
+// ctx 用于用户取消 / 整体超时：父 ctx 结束即中止后续查询，避免「点了取消还在跑」。
+// 已发出的查询不会强杀（驱动不保证响应），但结果会被丢弃，调用方按 ctx 错误收尾。
+func runFillStatsWithProgress(ctx context.Context, db *sql.DB, dialect string, rows []fillRow, onDone func()) []map[string]interface{} {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	type fillResult struct {
 		idx   int
 		entry map[string]interface{}
@@ -1997,6 +2019,11 @@ func runFillStatsWithProgress(db *sql.DB, dialect string, rows []fillRow, onDone
 		wg.Add(1)
 		go func(idx int, r fillRow) {
 			defer wg.Done()
+
+			// 已经取消/超时就别再发新查询了（填报率动辄上百行，逐个发出去只会拖慢收尾）
+			if ctx.Err() != nil {
+				return
+			}
 
 			numSQLRaw := strings.TrimSpace(r.Numerator)
 			denSQLRaw := strings.TrimSpace(r.Denominator)
@@ -2019,8 +2046,8 @@ func runFillStatsWithProgress(db *sql.DB, dialect string, rows []fillRow, onDone
 
 			numSQL = convertOracleSQLForDialect(numSQL, dialect)
 			denSQL = convertOracleSQLForDialect(denSQL, dialect)
-			n, e1 := execScalarFloat(db, numSQL)
-			d, e2 := execScalarFloat(db, denSQL)
+			n, e1 := execScalarFloatCtx(ctx, db, numSQL)
+			d, e2 := execScalarFloatCtx(ctx, db, denSQL)
 
 			m := map[string]interface{}{
 				"table_name":  r.TableName,
@@ -2138,8 +2165,17 @@ func qaFillDocxLine(m map[string]interface{}, withField bool) string {
 }
 
 func execScalarFloat(db *sql.DB, sqlStr string) (float64, error) {
+	return execScalarFloatCtx(context.Background(), db, sqlStr)
+}
+
+// execScalarFloatCtx 带父 ctx 的标量查询。父 ctx 结束（取消 / 整体超时）时立刻返回，
+// 不再像旧版那样无论用户怎么点都跑满 30 秒。
+func execScalarFloatCtx(parent context.Context, db *sql.DB, sqlStr string) (float64, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	// 添加超时控制
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	row := db.QueryRowContext(ctx, sqlStr)
@@ -2177,8 +2213,19 @@ func ifaceToFloat(v interface{}) (float64, error) {
 }
 
 func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{}, error) {
+	return executeRuleQueryCtx(context.Background(), db, sqlStr)
+}
+
+// executeRuleQueryCtx 带父 ctx 的规则查询。
+// 为什么加：旧版只认自己的 30 秒上限，用户点「取消」时这条 SQL 照样跑完；
+// 现在父 ctx 一旦结束（取消 / 整体超时），查询立刻中断。
+// 30 秒上限依然保留为兜底 —— 取消是用户的意愿，30 秒是单条 SQL 的纪律，两者不冲突。
+func executeRuleQueryCtx(parent context.Context, db *sql.DB, sqlStr string) (int, []map[string]interface{}, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	// 设置 30 秒超时
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, sqlStr)

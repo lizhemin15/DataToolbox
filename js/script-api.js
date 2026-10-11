@@ -1517,6 +1517,15 @@ function addTableRow() {
 let sqlHistory = [];
 const MAX_SQL_HISTORY = 20;
 
+// SQL 工作台分页状态。
+// 分页靠「重新执行同一条 SQL + 跳过前 N 行」实现，所以要留住上一次的 SQL，
+// 否则翻页时读编辑器里的内容会和当前结果集不是同一条语句（用户改了但没点执行）。
+const SQL_DEFAULT_PAGE_SIZE = 100;
+let sqlPage = 1;
+let sqlPageSize = SQL_DEFAULT_PAGE_SIZE;
+let sqlHasMore = false;
+let sqlPageSQL = '';
+
 function switchDetailTab(tab) {
     const previewContent = document.getElementById('previewContent');
     const sqlWorkbench = document.getElementById('sqlWorkbench');
@@ -1582,9 +1591,20 @@ function quoteTableName(name, dbType) {
     }
 }
 
-async function executeSqlWorkbench() {
-    const editor = document.getElementById('sqlEditor');
-    const sql = editor.value.trim();
+// executeSqlWorkbench 执行 SQL 工作台里的语句。
+// opts.followSQL=true 表示「翻页」：沿用上一次的语句和分页状态，只换页码，
+// 不读编辑器内容（用户可能改了编辑器但没点执行，读它会让结果集串页）。
+async function executeSqlWorkbench(opts) {
+    opts = opts || {};
+    const followSQL = !!opts.followSQL;
+    let sql;
+    if (followSQL && sqlPageSQL) {
+        sql = sqlPageSQL;
+    } else {
+        sql = document.getElementById('sqlEditor').value.trim();
+        sqlPage = 1;
+        sqlHasMore = false;
+    }
     if (!sql) return;
     
     const dbInfo = window._currentDbInfo;
@@ -1603,7 +1623,7 @@ async function executeSqlWorkbench() {
         const response = await fetchWithAuth(`${API_BASE}/api/v1/databases/${dbInfo.id}/sql`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sql: sql })
+            body: JSON.stringify({ sql: sql, page: sqlPage, page_size: sqlPageSize })
         });
         
         const data = await response.json();
@@ -1611,21 +1631,31 @@ async function executeSqlWorkbench() {
         if (data.success) {
             const elapsed = response.headers.get('X-Elapsed') || '';
             const rowCount = data.data ? data.data.length : 0;
-            document.getElementById('sqlResultInfo').textContent = 
-                `${rowCount} 行 ${elapsed ? '· ' + elapsed : ''}`;
+            // 记住这条语句，供后续翻页复用
+            sqlPageSQL = sql;
+            if (typeof data.has_more === 'boolean') sqlHasMore = data.has_more;
+            if (typeof data.page === 'number' && data.page > 0) sqlPage = data.page;
+            if (typeof data.page_size === 'number' && data.page_size > 0) sqlPageSize = data.page_size;
+            // 结果集类语句显示分页条；非查询（INSERT/UPDATE）没有 data 列，不显示
+            const isResultSet = Array.isArray(data.columns) && data.paged === true;
+            document.getElementById('sqlResultInfo').textContent =
+                `${rowCount} 行 ${elapsed ? '· ' + elapsed : ''}` +
+                (data.warning ? ` · ${data.warning}` : '');
             
             renderSqlResult(data.columns, data.data);
+            renderSqlPager(isResultSet);
             document.getElementById('sqlResult').style.display = '';
-            statusEl.textContent = '完成';
-            statusEl.style.color = '#22c55e';
+            statusEl.textContent = data.warning ? '部分结果' : '完成';
+            statusEl.style.color = data.warning ? '#d97706' : '#22c55e';
             
-            // 保存到历史
-            addSqlHistory(sql);
+            // 保存到历史（只有新执行的语句才记，翻页不重复记）
+            if (!followSQL) addSqlHistory(sql);
         } else {
             document.getElementById('sqlResultInfo').textContent = '执行失败';
             document.getElementById('sqlResultTable').innerHTML = 
                 `<div style="padding:16px;color:#e53e3e;font-family:monospace;font-size:13px;">${escapeHtml(data.message || '未知错误')}</div>`;
             document.getElementById('sqlResult').style.display = '';
+            renderSqlPager(false);
             statusEl.textContent = '失败';
             statusEl.style.color = '#e53e3e';
         }
@@ -1640,6 +1670,51 @@ async function executeSqlWorkbench() {
         btn.disabled = false;
     }
 }
+
+// renderSqlPager 更新分页条状态。
+// 刻意不显示「共 N 页」：后端为了不改写用户 SQL，没有算精确总数，
+// 只给了 has_more。显示假总数比不显示更糟，所以这里只报「第 N 页」。
+function renderSqlPager(show) {
+    const pager = document.getElementById('sqlPager');
+    if (!pager) return;
+    if (!show) { pager.style.display = 'none'; return; }
+    pager.style.display = '';
+
+    const prev = document.getElementById('sqlPrevPage');
+    const next = document.getElementById('sqlNextPage');
+    const info = document.getElementById('sqlPageInfo');
+    const sizeSel = document.getElementById('sqlPageSize');
+    if (prev) prev.disabled = sqlPage <= 1;
+    if (next) next.disabled = !sqlHasMore;
+    if (info) info.textContent = '第 ' + sqlPage + ' 页';
+    if (sizeSel) sizeSel.value = String(sqlPageSize);
+}
+
+// SQL 工作台分页事件绑定。放在这里一次性绑好，
+// 不用 innerHTML 里的 inline onclick —— 结果区是整块重绘的，inline 绑定容易在重绘后失效。
+(function bindSqlPager() {
+    const prev = document.getElementById('sqlPrevPage');
+    const next = document.getElementById('sqlNextPage');
+    const sizeSel = document.getElementById('sqlPageSize');
+    if (prev) prev.addEventListener('click', function () {
+        if (sqlPage <= 1) return;
+        sqlPage -= 1;
+        executeSqlWorkbench({ followSQL: true });
+    });
+    if (next) next.addEventListener('click', function () {
+        if (!sqlHasMore) return;
+        sqlPage += 1;
+        executeSqlWorkbench({ followSQL: true });
+    });
+    if (sizeSel) sizeSel.addEventListener('change', function () {
+        const n = parseInt(sizeSel.value, 10);
+        if (!n || n <= 0) return;
+        sqlPageSize = n;
+        // 每页条数变了，页码必须回到第 1 页，否则会跳过/漏掉中间的数据
+        sqlPage = 1;
+        if (sqlPageSQL) executeSqlWorkbench({ followSQL: true });
+    });
+})();
 
 function renderSqlResult(columns, rows) {
     const container = document.getElementById('sqlResultTable');
@@ -1745,6 +1820,9 @@ function clearSqlEditor() {
 
 function closeSqlResult() {
     document.getElementById('sqlResult').style.display = 'none';
+    // 顺手收起分页条：结果区被关掉后它还留着，下次执行非查询语句会看到一条僵尸分页条
+    const pager = document.getElementById('sqlPager');
+    if (pager) pager.style.display = 'none';
 }
 
 // Ctrl+Enter 快捷键
