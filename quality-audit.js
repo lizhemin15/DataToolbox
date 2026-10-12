@@ -701,7 +701,20 @@
                 ? ' <span class="qa-audit-sum">通过 ' + escapeHtml(sum.passed) + ' / 不通过 ' + escapeHtml(sum.failed) + '</span>'
                 : '') +
             '</div>';
-        var ruleRows = (audit.rules || []).map(function (r) {
+        // 结果按 XH（结构树顺序）排 —— 后端已经在返回前排过一次，这里再排一次是防抖：
+        // 审核结果是并发跑出来的，只要有一处漏排（历史缓存的结果、报告里的旧结构、
+        // 以后新增的调用方），界面上就会变成「顺序每次都不一样」，用户在结构树里
+        // 找一条规则得逐行扫。这里保证「界面看到的顺序」永远是结构树顺序。
+        var ruleList = (audit.rules || []).slice().sort(function (a, b) {
+            var xa = String(a && a.xh != null ? a.xh : '');
+            var xb = String(b && b.xh != null ? b.xh : '');
+            if (xa !== xb) return xa < xb ? -1 : 1;
+            var na = String(a && a.nm != null ? a.nm : '');
+            var nb = String(b && b.nm != null ? b.nm : '');
+            if (na === nb) return 0;
+            return na < nb ? -1 : 1;
+        });
+        var ruleRows = ruleList.map(function (r) {
             var nm = escapeHtml(r.nm || '');
             var name = escapeHtml(r.name || '');
             var status;
@@ -722,6 +735,12 @@
                 if (r.sample_rows && r.sample_rows.length) {
                     detail += '<div class="qa-detail-sample">' + renderSampleRowsTable(r.sample_rows) + '</div>';
                 }
+            }
+            // 超时重试要看得见：这条规则耗时翻倍是「重试」造成的，不是卡死。
+            // 错误行的 detail 里后端已经带过一次重试说明了，这里不重复贴。
+            if (r.retries > 0 && detail.indexOf('已重试') === -1 && detail.indexOf('首次超时') === -1) {
+                var retryTxt = r.retry_note || ('已重试 ' + r.retries + ' 次');
+                detail += '<div class="qa-retry-note">超时重试 ' + escapeHtml(String(r.retries)) + ' 次 · ' + escapeHtml(retryTxt) + '</div>';
             }
             return '<tr><td><code>' + nm + '</code></td><td>' + name + '</td><td>' + status + '</td><td class="qa-detail-cell">' + detail + '</td></tr>';
         }).join('');

@@ -81,6 +81,21 @@ func qaEnvMS(key string, def int64) int64 {
 // qaStaleIdleMS 「疑似卡住」判定阈值。
 func qaStaleIdleMS() int64 { return qaEnvMS("DT_QA_STALE_IDLE_MS", qaStaleIdleDefaultMS) }
 
+// qaEnvAllowZeroInt 读取整数环境变量，允许显式写 0（0 是有意义的值，比如
+// DT_QA_RULE_RETRIES=0 表示「超时也不重试」，所以不能沿用 qaEnvMS 那种「<=0 当没填」的语义）。
+// 非法/缺省/负数回退默认值。
+func qaEnvAllowZeroInt(key string, def int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
+}
+
 // qaRunTimeoutMS 单次执行的整体超时（默认 30 分钟），超时按失败落库，锁必释放。
 func qaRunTimeoutMS() int64 { return qaEnvMS("DT_QA_RUN_TIMEOUT_MS", 30*60*1000) }
 

@@ -852,6 +852,10 @@ func qaRunScheduleCoreWithProgress(ctx context.Context, s *qaSchedule, triggerTy
 					name = nm
 				}
 				pr.tick(name)
+			}, func(msg string) {
+				// 单条规则超时重试：刷新「当前正在做什么」，
+				// 既让用户看得见「不是卡住，是在重试」，也把 idle 计时拨回去。
+				pr.setCurrent(msg)
 			})
 			// 单条规则报错不算硬中止（旧行为：把错误写进报告，继续往下走），
 			// 但要记下来，最后作为 runErrMsg 落库。

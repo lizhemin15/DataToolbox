@@ -228,6 +228,14 @@
 .qa-badge-pass { background: #c6f6d5; color: #22543d; }
 .qa-badge-fail { background: #fed7d7; color: #822727; }
 .qa-badge-skip { background: #e2e8f0; color: #4a5568; }
+/* 超时重试痕迹：灰底说明文字，不上彩色 —— 重试是「系统自己救回来了」不是错误，
+   染成红黄反而像这条规则挂了。 */
+.qa-retry-note {
+    margin-top: 4px;
+    color: #4a5568;
+    font-size: 12px;
+    line-height: 1.5;
+}
 .qa-detail-sample { margin-top: 8px; overflow-x: auto; }
 .qa-sample-table {
     border-collapse: collapse;

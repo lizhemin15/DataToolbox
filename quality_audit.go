@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -1114,13 +1115,13 @@ func qaRulesImport(w http.ResponseWriter, r *http.Request, username string) {
 	_ = username
 	var body struct {
 		Rules []struct {
-			NM         string            `json:"nm"`
-			XH         string            `json:"xh"`
-			Name       string            `json:"name"`
-			SQL        string            `json:"sql"`
-			Category   string            `json:"category"`
-			Params     map[string]string `json:"params"`
-			AIReview   string            `json:"ai_review_prompt"`
+			NM       string            `json:"nm"`
+			XH       string            `json:"xh"`
+			Name     string            `json:"name"`
+			SQL      string            `json:"sql"`
+			Category string            `json:"category"`
+			Params   map[string]string `json:"params"`
+			AIReview string            `json:"ai_review_prompt"`
 		} `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Rules) == 0 {
@@ -1319,10 +1320,44 @@ func qaCountAIFlagged(ruleResults []map[string]interface{}) int {
 	return n
 }
 
+// ---------------------------------------------------------------------------
+// 审核结果排序：按 XH（结构树顺序）
+// ---------------------------------------------------------------------------
+
+// qaSortResultRowsByXH 把审核结果按 XH（结构树顺序）重排，同一 XH 再按 NM 排。
+//
+// 为什么必须排：规则是最多 5 路并发跑的，谁先跑完谁先进结果表。不排的话
+// 「审核结果」的顺序每跑一次都不一样，用户在结构树里对着找一条规则得逐行扫过去。
+// 在源头（qaExecuteRules 返回前）排一次，界面、报告、落库明细就共用同一个顺序。
+//
+// 为什么是「字符串比较」而不是「每 2 位切段转数字」：结构树的顺序就是这么来的 ——
+// 规则从库里读出来是 `ORDER BY XH`（XH 是 TEXT，二进制序），buildRuleTree 里
+// 排兄弟节点用的也是 `XH <`。要求是「审核结果和结构树保持一致」，那就必须和树
+// 用同一把尺子：任何"更聪明"的序（比如按层切段转数字）在非补零的 XH 上都会和树
+// 分叉（"1"、"10"、"2"：字符串序 1<10<2，切段序 1<2<10），显示顺序反而又对不上树。
+// 现有数据的 XH 都是按层补零的（01 / 0101 / 02），字符串序就等于树序。
+func qaSortResultRowsByXH(rows []map[string]interface{}) []map[string]interface{} {
+	sort.SliceStable(rows, func(i, j int) bool {
+		xi, _ := rows[i]["xh"].(string)
+		xj, _ := rows[j]["xh"].(string)
+		if xi != xj {
+			return xi < xj
+		}
+		// XH 相同（历史脏数据里出现过）：按 NM 定序，保证顺序稳定可复现，
+		// 而不是随并发完成次序抖动。
+		ni, _ := rows[i]["nm"].(string)
+		nj, _ := rows[j]["nm"].(string)
+		return ni < nj
+	})
+	return rows
+}
+
 // qaExecuteRules 并发执行规则 SQL（最多 5 并发）。
 // ctx 用于用户取消 / 整体超时：每取到一个结果就检查一次，父 ctx 结束后立刻停止收结果；
 // resultChan 缓冲等于规则总数，所以中途退出不会让仍在跑的 goroutine 卡死。
-func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string)) ([]map[string]interface{}, int, int, error) {
+// onRetry 可为 nil：单条规则超时重试时回调一次（用于刷新进度，让界面看得见「在重试」，
+// 同时把进度的 idle 计时拨回去，避免重试期间被误判成「疑似卡住」）。
+func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, dialect string, ruleNMs []string, username string, t0 time.Time, onDone func(nm, name string), onRetry func(msg string)) ([]map[string]interface{}, int, int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1385,7 +1420,18 @@ func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, di
 				resultChan <- ruleResult{nm: r.NM, entry: entry}
 				return
 			}
-			cnt, sample, errExec := executeRuleQueryCtx(ctx, targetDB, execSQL)
+			cnt, sample, retried, errExec := executeRuleQueryRetry(ctx, targetDB, execSQL, func(attempt int, next time.Duration) {
+				// 重试要「看得见」：否则用户在界面上只会看到某条规则卡着不动，
+				// 分不清是在重试还是真挂了。顺带 refresh 进度时间戳，避免被误判成「疑似卡住」。
+				if onRetry == nil {
+					return
+				}
+				label := r.Name
+				if label == "" {
+					label = r.NM
+				}
+				onRetry(fmt.Sprintf("「%s」执行超时，正在重试（第 %d 次，超时放宽到 %s）", label, attempt, qaDurText(next)))
+			})
 			entry := map[string]interface{}{
 				"nm":               r.NM,
 				"xh":               r.XH,
@@ -1397,12 +1443,24 @@ func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, di
 				"sample_rows":      sample,
 				"ai_review_prompt": r.AIReviewPrompt,
 			}
+			if retried > 0 {
+				// 把「超时重试过」记进结果里：界面/报告要能解释「这条为什么慢」，
+				// 否则用户只会看到某条规则莫名其妙跑了 2 分钟。
+				entry["retries"] = retried
+				entry["retry_note"] = qaRetryNote(retried, errExec == nil)
+			}
 			if errExec != nil {
-				entry["error"] = errExec.Error()
+				errMsg := errExec.Error()
+				if retried > 0 {
+					// 错误文案带上重试过程：用户看到「超时」时得知道系统已经试过了，
+					// 否则第一反应是「为什么不重试」。
+					errMsg = fmt.Sprintf("%s（%s）", errMsg, qaRetryNote(retried, false))
+				}
+				entry["error"] = errMsg
 				entry["passed"] = false
 				if metaDB != nil {
 					_, _ = metaDB.Exec(`INSERT INTO audit_errors (database_id, rule_nm, rule_name, error_message, executed_at, created_by) VALUES (?,?,?,?,?,?)`,
-						databaseID, r.NM, r.Name, errExec.Error(), t0.Format(time.RFC3339), username)
+						databaseID, r.NM, r.Name, errMsg, t0.Format(time.RFC3339), username)
 				}
 			} else {
 				entry["passed"] = cnt == 0
@@ -1439,6 +1497,10 @@ func qaExecuteRules(ctx context.Context, databaseID string, targetDB *sql.DB, di
 			onDone(result.nm, name)
 		}
 	}
+	// 返回前按 XH（结构树顺序）排一次：规则是最多 5 路并发跑的，谁先跑完谁先进结果表。
+	// 在源头排，界面、报告、落库明细就共用同一个顺序 —— 用户在结构树里找到的次序，
+	// 就是审核结果里的次序，不用逐行扫。
+	ruleResults = qaSortResultRowsByXH(ruleResults)
 	return ruleResults, passed, failed, nil
 }
 
@@ -1517,11 +1579,11 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 			"rules":       cached,
 			"database_id": req.DatabaseID,
 			"summary": map[string]interface{}{
-				"total_rules":  len(cached),
-				"ai_reviewed":  reviewed,
-				"ai_flagged":   qaCountAIFlagged(cached),
-				"ai_model":     aiModel,
-				"ai_skipped":   aiSkipReason != "",
+				"total_rules":    len(cached),
+				"ai_reviewed":    reviewed,
+				"ai_flagged":     qaCountAIFlagged(cached),
+				"ai_model":       aiModel,
+				"ai_skipped":     aiSkipReason != "",
 				"ai_skip_reason": aiSkipReason,
 			},
 		}
@@ -1531,7 +1593,9 @@ func qaExecute(w http.ResponseWriter, r *http.Request, username string) {
 
 	t0 := time.Now()
 
-	ruleResults, passed, failed, err := qaExecuteRules(context.Background(), req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0, nil)
+	// 手动审核是同步 HTTP 请求，没有进度气泡可刷，onRetry 传 nil；
+	// 重试痕迹通过结果行里的 retries / retry_note 回给前端。
+	ruleResults, passed, failed, err := qaExecuteRules(context.Background(), req.DatabaseID, targetDB, dialect, req.RuleNMs, username, t0, nil, nil)
 	if err != nil {
 		apiInternalError(w, err.Error())
 		return
@@ -2212,20 +2276,149 @@ func ifaceToFloat(v interface{}) (float64, error) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// 单条规则的执行超时与「超时重试」
+// ---------------------------------------------------------------------------
+
+// qaRuleQueryTimeout 单条规则 SQL 的执行上限（默认 30 秒，DT_QA_RULE_TIMEOUT_SEC 可覆盖）。
+// 重试时按 2 倍递增，见 qaRetryTimeout。
+func qaRuleQueryTimeout() time.Duration {
+	return time.Duration(qaEnvMS("DT_QA_RULE_TIMEOUT_SEC", 30)) * time.Second
+}
+
+// qaRuleRetryDefault 超时重试的默认次数（不重试以外的错，见 executeRuleQueryRetry）。
+const qaRuleRetryDefault = 2
+
+// qaRuleRetryTimes 超时后最多再重试几次（默认 2，DT_QA_RULE_RETRIES=0 表示不重试）。
+func qaRuleRetryTimes() int {
+	return qaEnvAllowZeroInt("DT_QA_RULE_RETRIES", qaRuleRetryDefault)
+}
+
+// qaIsQueryTimeout 判断错误是不是「本条 SQL 自己超时」。
+// 只认超时：语法错误、权限错误、字段不存在这类错误重试多少次结果都一样，
+// 无脑重试只会把整轮审核拖慢 3 倍，却一条规则也救不回来。
+func qaIsQueryTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// 有些驱动（尤其国产库/odbc 封装）不把 ctx 错误包装成 DeadlineExceeded，
+	// 只把原文透出来，所以再兜一层字符串判断。
+	return strings.Contains(strings.ToLower(err.Error()), "context deadline exceeded")
+}
+
+// qaRetryTimeout 第 attempt 次尝试（attempt 从 0 开始）的超时：base 的 2^attempt 倍，最多 4 倍。
+// 为什么递增而不是每次都用 30 秒原地重撞：超时有两类原因 ——
+//
+//	① 抖动（连接池排队、目标库那一刻在跑别的重活）→ 第二次就过了；
+//	② 这条查询本来就慢（大表全表扫）→ 同样的 30 秒重试一百次也过不去。
+//
+// 递增同时覆盖两类，且上限 4 倍（120 秒）保证单条规则不会把整轮审核拖到失控。
+func qaRetryTimeout(base time.Duration, attempt int) time.Duration {
+	if base <= 0 {
+		base = 30 * time.Second
+	}
+	mult := 1
+	for i := 0; i < attempt && mult < 4; i++ {
+		mult *= 2
+	}
+	if mult > 4 {
+		mult = 4
+	}
+	return base * time.Duration(mult)
+}
+
+// qaDurText 把时长写成中文（日志与界面文案用）。
+func qaDurText(d time.Duration) string {
+	if d >= time.Minute {
+		return fmt.Sprintf("%d分钟", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%d秒", int(d.Seconds()))
+}
+
+// qaRetryNote 生成「超时重试」的可读说明（界面/报告/错误文案用）。
+func qaRetryNote(retried int, ok bool) string {
+	if retried <= 0 {
+		return ""
+	}
+	base := qaRuleQueryTimeout()
+	steps := make([]string, 0, retried+1)
+	for i := 0; i <= retried; i++ {
+		steps = append(steps, qaDurText(qaRetryTimeout(base, i)))
+	}
+	if ok {
+		return fmt.Sprintf("首次超时，重试 %d 次后完成（超时 %s）", retried, strings.Join(steps, " → "))
+	}
+	return fmt.Sprintf("已重试 %d 次仍超时（超时 %s）", retried, strings.Join(steps, " → "))
+}
+
+// executeRuleQueryRetry 在单条规则查询外面套一层「超时重试」。
+// 为什么需要：30 秒超时里有很大一部分只是抖动，旧行为直接判「这条规则审核失败」，
+// 界面红一片 context deadline exceeded —— 用户看到的是「审核坏了」，其实是误报。
+// 三条纪律：
+//   - 只对超时重试（见 qaIsQueryTimeout）；
+//   - 父 ctx 已结束（用户点取消 / 整轮执行超时）立刻不重试，取消就该马上停；
+//   - 重试前退避 2 秒（刚被一条重查询占满的库，立刻重发大概率还是超时）。
+//
+// 返回 retried 表示真正发生的重试次数（0 = 一次就过）。
+func executeRuleQueryRetry(parent context.Context, db *sql.DB, sqlStr string, onRetry func(attempt int, next time.Duration)) (int, []map[string]interface{}, int, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	base := qaRuleQueryTimeout()
+	maxTries := qaRuleRetryTimes()
+	var (
+		cnt     int
+		sample  []map[string]interface{}
+		err     error
+		retried int
+	)
+	for attempt := 0; ; attempt++ {
+		cnt, sample, err = executeRuleQueryTimeout(parent, db, sqlStr, qaRetryTimeout(base, attempt))
+		if err == nil || !qaIsQueryTimeout(err) {
+			// 成功，或者是个重试也没用的错误（语法/权限…）：直接返回。
+			return cnt, sample, retried, err
+		}
+		if parent.Err() != nil || attempt >= maxTries {
+			return cnt, sample, retried, err
+		}
+		retried++
+		next := qaRetryTimeout(base, attempt+1)
+		if onRetry != nil {
+			onRetry(retried, next)
+		}
+		select {
+		case <-time.After(2 * time.Second):
+		case <-parent.Done():
+			return cnt, sample, retried, err
+		}
+	}
+}
+
 func executeRuleQuery(db *sql.DB, sqlStr string) (int, []map[string]interface{}, error) {
 	return executeRuleQueryCtx(context.Background(), db, sqlStr)
 }
 
-// executeRuleQueryCtx 带父 ctx 的规则查询。
-// 为什么加：旧版只认自己的 30 秒上限，用户点「取消」时这条 SQL 照样跑完；
-// 现在父 ctx 一旦结束（取消 / 整体超时），查询立刻中断。
-// 30 秒上限依然保留为兜底 —— 取消是用户的意愿，30 秒是单条 SQL 的纪律，两者不冲突。
+// executeRuleQueryCtx 带父 ctx 的规则查询（含超时重试）。
+// 为什么加父 ctx：旧版只认自己的 30 秒上限，用户点「取消」时这条 SQL 照样跑完；
+// 现在父 ctx 一旦结束（取消 / 整体超时），查询立刻中断、也不再重试。
+// 30 秒上限依然是单条 SQL 的纪律 —— 取消是用户的意愿，超时是执行的纪律，两者不冲突。
 func executeRuleQueryCtx(parent context.Context, db *sql.DB, sqlStr string) (int, []map[string]interface{}, error) {
+	cnt, sample, _, err := executeRuleQueryRetry(parent, db, sqlStr, nil)
+	return cnt, sample, err
+}
+
+// executeRuleQueryTimeout 真正执行查询的那一层：超时由调用方给定（重试时逐次递增）。
+func executeRuleQueryTimeout(parent context.Context, db *sql.DB, sqlStr string, timeout time.Duration) (int, []map[string]interface{}, error) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	// 设置 30 秒超时
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, sqlStr)
